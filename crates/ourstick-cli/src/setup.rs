@@ -77,12 +77,25 @@ pub fn load_key(secrets: &dyn SecretStore, name: &SecretName) -> Result<[u8; 32]
 
 /// Opens everything, creating the device and its node key on first use.
 /// Blocking: call from `spawn_blocking`.
-pub fn open() -> Result<Setup> {
+/// What a reader needs: the data folder and the database, no secret store.
+/// Works on every platform.
+pub struct ReaderSetup {
+    pub data_dir: PathBuf,
+    pub store: Arc<dyn Store>,
+}
+
+/// Opens the data folder and database only. Blocking: call from `spawn_blocking`.
+pub fn open_for_reading() -> Result<ReaderSetup> {
     let data_dir = data_dir()?;
     create_private_dir(&data_dir)?;
+    let store: Arc<dyn Store> = Arc::new(SqliteStore::open(data_dir.join("state.sqlite"))?);
+    Ok(ReaderSetup { data_dir, store })
+}
+
+pub fn open() -> Result<Setup> {
+    let ReaderSetup { data_dir, store } = open_for_reading()?;
     let secrets = secret_store()?;
     check_secret_store(secrets.as_ref())?;
-    let store: Arc<dyn Store> = Arc::new(SqliteStore::open(data_dir.join("state.sqlite"))?);
 
     let node_key = match store.device()? {
         Some(device) => {

@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::download::{download, DownloadEvent};
-use ourstick_core::secrets::SecretName;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{Fetcher, PathKind};
 use ourstick_core::Ticket;
@@ -35,19 +34,10 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
         .with_context(|| format!("cannot create {}", output.display()))?;
     let output = std::fs::canonicalize(&output)?;
 
-    let setup = {
-        let ticket_text = ticket_text.trim().to_owned();
-        let stick_id = ticket.stick_id;
-        tokio::task::spawn_blocking(move || -> Result<_> {
-            let setup = setup::open()?;
-            // A reader keeps its ticket as a secret: it holds the stick key.
-            setup
-                .secrets
-                .put(&SecretName::Ticket(stick_id), ticket_text.as_bytes())?;
-            Ok(setup)
-        })
-        .await??
-    };
+    // A reader needs no keys of its own (a fresh node key per run, below) and
+    // does not keep the ticket, so no secret store is opened: `get` runs on
+    // every platform. Running `get` again with the same link resumes.
+    let setup = tokio::task::spawn_blocking(setup::open_for_reading).await??;
 
     let store_dir = setup.data_dir.join("joined").join(&stick_hex);
     // A reader needs no lasting identity, and must not reuse the node key: a

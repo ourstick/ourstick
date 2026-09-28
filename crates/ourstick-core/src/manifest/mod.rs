@@ -1,0 +1,98 @@
+//! The manifest is the index of a stick: every file with its path, size and hash.
+//! It is the first thing a reader downloads.
+//!
+//! - [`build`]: creating a manifest from a folder on disk.
+//! - [`encoding`]: the wire format (see `docs/protocol.md`).
+
+mod build;
+mod encoding;
+
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+pub use encoding::MANIFEST_FORMAT_VERSION;
+
+/// Index of all files in a stick.
+///
+/// A valid manifest has its entries strictly sorted by path (so no duplicates),
+/// and every path follows the rules in [`Entry::path`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Manifest {
+    pub entries: Vec<Entry>,
+}
+
+/// One file inside a stick.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Entry {
+    /// Path relative to the stick root, always with `/` separators.
+    ///
+    /// Never empty, never absolute, and no component is empty, `.` or `..`.
+    /// Never contains `\` or NUL.
+    pub path: String,
+    pub size: u64,
+    /// Last modification time, in whole seconds since the UNIX epoch.
+    /// Times before the epoch are clamped to 0.
+    pub mtime: u64,
+    /// BLAKE3 hash of the (encrypted) blob.
+    pub hash: [u8; 32],
+}
+
+/// Errors produced while building, encoding or decoding a manifest.
+#[derive(Debug, thiserror::Error)]
+pub enum ManifestError {
+    #[error("stick root is not a directory: {0}")]
+    NotADirectory(PathBuf),
+    #[error("path is not valid UTF-8: {0}")]
+    NonUtf8Path(PathBuf),
+    #[error("I/O error at {path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("invalid path in manifest: {0:?}")]
+    InvalidPath(String),
+    #[error("manifest entries are not strictly sorted by path at {0:?}")]
+    NotSorted(String),
+    #[error("unsupported manifest format version {0}")]
+    UnsupportedVersion(u8),
+    #[error("manifest has {0} trailing bytes")]
+    TrailingBytes(usize),
+    #[error("manifest is empty input")]
+    EmptyInput,
+    #[error("malformed manifest: {0}")]
+    Postcard(#[from] postcard::Error),
+}
+
+impl ManifestError {
+    fn io(path: &Path, source: io::Error) -> Self {
+        Self::Io {
+            path: path.to_path_buf(),
+            source,
+        }
+    }
+}
+
+impl Manifest {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn total_size(&self) -> u64 {
+        self.entries.iter().map(|e| e.size).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_manifest_has_no_entries_and_zero_size() {
+        let manifest = Manifest::empty();
+        assert!(manifest.entries.is_empty());
+        assert_eq!(manifest.total_size(), 0);
+    }
+}

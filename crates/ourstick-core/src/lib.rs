@@ -5,4 +5,4 @@
 
 pub mod manifest;
 
-pub use manifest::{Entry, Manifest};
+pub use manifest::{Entry, Manifest, ManifestError, MANIFEST_FORMAT_VERSION};

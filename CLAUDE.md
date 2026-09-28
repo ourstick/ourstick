@@ -121,6 +121,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 
 - `cargo fmt` πάντα. `cargo clippy -- -D warnings` πρέπει να περνά.
 - Σχόλια και docs στα αγγλικά (το repo είναι δημόσιο). Commits στα αγγλικά, conventional commits.
+- Commits απευθείας στο `main`, χωρίς feature branches.
 - Ονόματα: `snake_case` για functions/modules, `CamelCase` για types, χωρίς συντομογραφίες
   (`manifest`, όχι `mf`).
 - Μικρά modules. Αν ένα αρχείο περνά τις 400 γραμμές, σπάσε το.

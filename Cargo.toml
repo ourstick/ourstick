@@ -13,7 +13,7 @@ license = "Apache-2.0"
 repository = "https://github.com/ourstick/ourstick"
 homepage = "https://ourstick.com"
 authors = ["Giorgos"]
-rust-version = "1.80"
+rust-version = "1.85"
 
 [workspace.dependencies]
 # async
@@ -34,6 +34,7 @@ serde_json = "1"
 # hashing / crypto
 blake3 = "1"
 chacha20poly1305 = "0.10"
+ed25519-dalek = "3"
 rand = "0.8"
 
 # db

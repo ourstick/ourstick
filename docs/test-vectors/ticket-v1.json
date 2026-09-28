@@ -1,0 +1,94 @@
+{
+  "description": "OurStick ticket and signed manifest record v1 test vectors. See docs/protocol.md.",
+  "ticket_format_version": 1,
+  "record_format_version": 1,
+  "tickets": [
+    {
+      "name": "with-hints",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "node_id": "235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040b",
+      "manifest_seq": 300,
+      "manifest_hash": "0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "address_hints": [
+        {
+          "kind": "ipv4",
+          "ip": "192.168.1.20",
+          "port": 4433
+        },
+        {
+          "kind": "ipv6",
+          "ip": "2001:db8::1",
+          "port": 4433
+        },
+        {
+          "kind": "relay",
+          "url": "https://relay.example.org./"
+        }
+      ],
+      "stick_key": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc",
+      "public_part": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040bac020d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce10300c0a80114d1220120010db8000000000000000000000001d122021b68747470733a2f2f72656c61792e6578616d706c652e6f72672e2f220313b6",
+      "secret_part": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc9ed7fa61",
+      "link": "https://ourstick.com/s/aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyidadakqaiu2eraciabbw4aaaaaaaaaaaaaaaaaaaoreibbw2duoryhgorpf5zgk3dbpexgk6dbnvygyzjon5zgolrpeibrhnq#lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgj5v72me"
+    },
+    {
+      "name": "no-hints",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "node_id": "235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040b",
+      "manifest_seq": 300,
+      "manifest_hash": "0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "address_hints": [],
+      "stick_key": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc",
+      "public_part": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040bac020d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce100ee8e9e2f",
+      "secret_part": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcce53b435c",
+      "link": "https://ourstick.com/s/aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyia52hj4ly#lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgoko2dlq"
+    }
+  ],
+  "records": [
+    {
+      "name": "seq-1",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "seq": 1,
+      "manifest_hash": "0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "message": "4f7572537469636b206d616e6966657374207265636f7264207631000103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b800000000000000010d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "signature": "00d8d100d6084dc18644f3a1b9bef28b3a9d4d35920b587ea2b92a08c61983214c945a5585d405dd2dd3b6764300ac58edaae057659938faeef435b04ea20200",
+      "record": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b800000000000000010d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce100d8d100d6084dc18644f3a1b9bef28b3a9d4d35920b587ea2b92a08c61983214c945a5585d405dd2dd3b6764300ac58edaae057659938faeef435b04ea20200",
+      "against_ticket": "older_than_ticket"
+    },
+    {
+      "name": "seq-300",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "seq": 300,
+      "manifest_hash": "0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "message": "4f7572537469636b206d616e6966657374207265636f7264207631000103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8000000000000012c0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1",
+      "signature": "c12553d61503087aaf30f8fbdcb531443f181f54ac67785e0122fb96430ea572d974dd1b620bca9e46a0212bfbfbeef301400281436a65f8b1ef834977683808",
+      "record": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8000000000000012c0d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce1c12553d61503087aaf30f8fbdcb531443f181f54ac67785e0122fb96430ea572d974dd1b620bca9e46a0212bfbfbeef301400281436a65f8b1ef834977683808",
+      "against_ticket": "accept"
+    },
+    {
+      "name": "seq-300-other-hash",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "seq": 300,
+      "manifest_hash": "23e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d3",
+      "message": "4f7572537469636b206d616e6966657374207265636f7264207631000103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8000000000000012c23e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d3",
+      "signature": "3ac4a6b5b20d7660133778bab943a890b948444664055839f360d2cd5f9b46f8d054061eb6d37c743a9aac6d119b5246c2cbc868d59b84088e3458a9503a500b",
+      "record": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8000000000000012c23e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d33ac4a6b5b20d7660133778bab943a890b948444664055839f360d2cd5f9b46f8d054061eb6d37c743a9aac6d119b5246c2cbc868d59b84088e3458a9503a500b",
+      "against_ticket": "conflicts_with_ticket"
+    },
+    {
+      "name": "seq-large",
+      "signing_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "stick_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "seq": 72623859790382856,
+      "manifest_hash": "23e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d3",
+      "message": "4f7572537469636b206d616e6966657374207265636f7264207631000103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8010203040506070823e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d3",
+      "signature": "637b2704242427700ef1e5e9ffd629deffa79e96e85f5c78cac704fbe6119c0b6b40291f3beab52eeb9d24c4f6fd1a5507b82eddc9ddfa3548617e508e6e4303",
+      "record": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8010203040506070823e66163e4ae6e22eb562bb70c71fa6d08769dd8093b04e18287ce26f16d09d3637b2704242427700ef1e5e9ffd629deffa79e96e85f5c78cac704fbe6119c0b6b40291f3beab52eeb9d24c4f6fd1a5507b82eddc9ddfa3548617e508e6e4303",
+      "against_ticket": "accept"
+    }
+  ]
+}

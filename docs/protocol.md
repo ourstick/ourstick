@@ -5,8 +5,14 @@ _Draft. Updated whenever the wire format or the ticket format changes._
 ## Concepts
 
 - **Stick** — a named, keyed collection of root folders.
+- **StickId** — the stick's Ed25519 verifying key. The owner alone holds the
+  signing key. Separate from the iroh NodeId (ADR 0004).
+- **StickKey** — the 32-byte symmetric key that decrypts the stick.
 - **Manifest** — index of all files: path, size, BLAKE3 hash of the encrypted blob.
-- **Ticket** — everything a reader needs: stick id, node address hints, manifest hash, decryption key.
+- **Ticket** — everything a reader needs. Public part: StickId, NodeId, address
+  hints, manifest seq and hash (a hint and a floor). Secret part: StickKey.
+- **Signed record** — `(StickId, seq, manifest_hash)` signed by the owner. The
+  latest one a reader accepted defines the current manifest.
 - **Peer** — Owner, Reader or Seed. The protocol does not distinguish a Seed from any other peer.
 
 ## Flow
@@ -150,6 +156,115 @@ blob hash, and the full blob when it is at most 1024 bytes. They were generated
 by `docs/test-vectors/generate_blob_v1.py`, an independent Python implementation
 of this section. `crates/ourstick-core/tests/blob_vectors.rs` checks the Rust
 implementation against them.
+
+## Ticket (version 1)
+
+### Text form
+
+```
+https://ourstick.com/s/<public>#<secret>
+```
+
+`<public>` and `<secret>` are the byte strings below in base32 (RFC 4648
+alphabet, lowercase, no padding). Decoders accept either case, and also accept
+the bare form `<public>#<secret>` without the `https://ourstick.com/s/` prefix.
+
+The secret lives only in the URL fragment, which browsers never send to a
+server. It never goes in the path or query. There is no custom URL scheme
+(`ourstick://`) carrying a key: any app could claim such a scheme and receive it.
+Tickets are never written to logs.
+
+### Public part
+
+| Offset | Length | Field     | Value                                               |
+|--------|--------|-----------|-----------------------------------------------------|
+| 0      | 1      | `version` | `0x01`. A newer value means "update OurStick".      |
+| 1      | n      | `body`    | `postcard(PublicBody)`, see below                   |
+| 1 + n  | 4      | `check`   | First 4 bytes of `BLAKE3(version \|\| body)`         |
+
+`PublicBody`, postcard fields in this order:
+
+| Field           | Postcard type         | Meaning                                         |
+|-----------------|-----------------------|-------------------------------------------------|
+| `stick_id`      | `[u8; 32]` (raw)      | Ed25519 verifying key of the stick              |
+| `node_id`       | `[u8; 32]` (raw)      | iroh NodeId of the owner                        |
+| `manifest_seq`  | u64 (varint)          | `seq` of the latest signed record at share time |
+| `manifest_hash` | `[u8; 32]` (raw)      | `manifest_hash` of that record                  |
+| `address_hints` | seq of `AddressHint`  | Where the node may be reached. May be empty.    |
+
+`AddressHint` is a postcard enum (varint variant index, then the fields):
+
+| Variant | Index | Fields                                        |
+|---------|-------|-----------------------------------------------|
+| `Ipv4`  | 0     | `ip: [u8; 4]` (raw), `port: u16` (varint)     |
+| `Ipv6`  | 1     | `ip: [u8; 16]` (raw), `port: u16` (varint)    |
+| `Relay` | 2     | `url: string`                                 |
+
+Validity rules (a reader rejects the ticket otherwise, a writer never breaks them):
+
+- `check` matches, and nothing follows it.
+- `stick_id` is a valid Ed25519 point.
+- At most 8 address hints. A relay URL is 1..=255 bytes of printable ASCII
+  (`0x21..=0x7E`).
+- The whole public part is at most 1024 bytes.
+
+### Secret part
+
+| Offset | Length | Field       | Value                                                         |
+|--------|--------|-------------|---------------------------------------------------------------|
+| 0      | 32     | `stick_key` | The StickKey                                                  |
+| 32     | 4      | `check`     | First 4 bytes of `BLAKE3(public_part \|\| stick_key)`          |
+
+`public_part` is the full public byte string, its own `check` included. So the
+secret `check` also catches a secret pasted next to the wrong public part.
+
+A reader reports which part is damaged: a ticket with a bad public `check` is
+"damaged or incomplete", one with a missing or bad secret is "missing its key
+(was the whole link copied?)".
+
+## Signed manifest record (version 1)
+
+Fixed length, 137 bytes, no postcard:
+
+| Offset | Length | Field           | Value                                        |
+|--------|--------|-----------------|----------------------------------------------|
+| 0      | 1      | `version`       | `0x01`                                       |
+| 1      | 32     | `stick_id`      | Ed25519 verifying key                        |
+| 33     | 8      | `seq`           | u64, big-endian                              |
+| 41     | 32     | `manifest_hash` | BLAKE3 hash of the manifest blob             |
+| 73     | 64     | `signature`     | Ed25519 signature over the message below     |
+
+```
+message = "OurStick manifest record v1" (27 ASCII bytes) || 0x00 || record[0..73]
+```
+
+A reader accepts a record only if, in this order:
+
+1. `version` is `0x01` and the record is exactly 137 bytes.
+2. `stick_id` equals the StickId in the ticket.
+3. The signature verifies under `stick_id` with strict verification
+   (RFC 8032 checks, no small-order keys, canonical `S`).
+4. `seq` is not smaller than `manifest_seq` in the ticket. If it is equal,
+   `manifest_hash` equals the one in the ticket.
+5. `seq` is strictly greater than the highest `seq` it has accepted before for
+   this stick, if any. That value is kept in the Store.
+
+Rule 4 gives every reader a floor from its first contact on: nobody can serve
+it a manifest older than the one its ticket was made with. The ticket's
+`manifest_seq` and `manifest_hash` are therefore both a hint (the reader may
+start fetching that manifest at once) and a floor.
+
+The owner increases `seq` with every publish and never reuses one. Why this
+exists and what it protects against: `docs/decisions/0004-signed-manifest-records.md`.
+
+### Test vectors
+
+`docs/test-vectors/ticket-v1.json` has tickets and signed records built from
+fixed keys, and for each record the expected outcome of checking it against the
+tickets' `manifest_seq` and `manifest_hash` (rule 4). They were generated by
+`docs/test-vectors/generate_ticket_v1.py`, an independent Python
+implementation of the two sections above.
+`crates/ourstick-core/tests/ticket_vectors.rs` checks the Rust implementation.
 
 ## Open questions
 

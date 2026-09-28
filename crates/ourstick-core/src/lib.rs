@@ -6,7 +6,13 @@
 pub mod blob;
 pub mod cipher;
 pub mod manifest;
+pub mod record;
+pub mod stick_id;
+pub mod ticket;
 
 pub use blob::{decrypt_blob, encrypt_blob, BlobHeader, BlobInfo, BLOB_FORMAT_VERSION, CHUNK_SIZE};
 pub use cipher::{ChaChaCipher, Cipher, CipherError, CipherId, NoCipher, StickKey};
 pub use manifest::{Entry, Manifest, ManifestError, MANIFEST_FORMAT_VERSION};
+pub use record::{ManifestHint, ManifestRecord, RecordError, SignedManifestRecord};
+pub use stick_id::{InvalidPublicKey, StickId, StickSigningKey};
+pub use ticket::{AddressHint, NodeId, Ticket, TicketError};

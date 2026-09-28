@@ -39,15 +39,21 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 6. **Errors με `thiserror` στο core, `anyhow` μόνο σε CLI/app.**
 7. **Async με tokio.** Καμία blocking I/O σε async context· χρησιμοποίησε `spawn_blocking`.
 8. **Logging με `tracing`**, όχι `println!` εκτός από το CLI output.
+9. **Κλειδιά (NodeId, StickId) δεν ξαναδημιουργούνται ποτέ αφού μοιραστεί ticket.**
+   Αν χαθούν ή αλλάξουν, κάθε ticket που έχει μοιραστεί πεθαίνει.
 
 ## Έννοιες (domain model)
 
 - **Stick**: όνομα + κλειδί + λίστα root φακέλων + δικαιώματα. Έχει `StickId` (public key).
+- **StickId**: Ed25519 verifying key, χωριστό από το NodeId του iroh. Το signing key μένει μόνο
+  στον owner. Οι ενημερώσεις manifest είναι υπογεγραμμένες εγγραφές (StickId, seq, manifest_hash).
 - **Manifest**: το ευρετήριο ενός stick. Για κάθε αρχείο: relative path, size, mtime,
   BLAKE3 hash του (κρυπτογραφημένου) blob. Σειριοποιείται (postcard ή CBOR), κρυπτογραφείται,
   και έχει δικό του hash. Ο παραλήπτης το κατεβάζει πρώτο.
-- **Ticket**: ό,τι χρειάζεται ο παραλήπτης: StickId, node address hints, manifest hash,
-  κλειδί αποκρυπτογράφησης. Κωδικοποιείται σε string (base32/z-base-32) και σε QR.
+- **Ticket**: ό,τι χρειάζεται ο παραλήπτης. Το ticket έχει δημόσιο μέρος (StickId, NodeId,
+  address hints, manifest seq και hash ως hint) και μυστικό μέρος (StickKey). Κωδικοποιείται
+  σε string (base32) και σε QR, και ως `https://ourstick.com/s/<δημόσιο>#<μυστικό>`. Το μυστικό
+  ζει μόνο στο fragment, ποτέ σε query ή path. Ποτέ custom scheme `ourstick://` που κουβαλά κλειδί.
   Ένα ticket ΔΕΝ πρέπει ποτέ να καταγράφεται σε log.
 - **Peer**: κόμβος που συμμετέχει σε ένα stick. Ρόλοι: `Owner`, `Reader`, `Seed`.
   Ο cloud/self-hosted seed είναι απλώς ένας Peer με ρόλο Seed. Το πρωτόκολλο δεν τον ξεχωρίζει.
@@ -94,11 +100,22 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 3. `ticket.rs`: encode/decode. Tests roundtrip + fuzz-ish (κακό input δεν κάνει panic).
 4. `store/`: SQLite schema + trait `Store` + `SqliteStore` + `MemoryStore`. Tests.
 5. `transport/`: trait `Transport` + `IrohTransport`. Integration test 2 peers.
+   Το integration test στην ίδια μηχανή δεν αρκεί. Το βήμα κλείνει με χειροκίνητη δοκιμή
+   PC → laptop σε hotspot κινητού, και το CLI τυπώνει αν η σύνδεση είναι direct ή relay.
 6. `cli`: share / ls / get.
 7. `watcher.rs`.
 8. Μετά: Tauri.
 
 Ένα βήμα τη φορά. Κάθε βήμα τελειώνει με `cargo test` πράσινο και `cargo clippy` καθαρό.
+
+## Μαθήματα από προηγούμενο project με μοίρασμα
+
+- Κάθε αποτυχία δικτύου λέει γιατί (π.χ. «δεν βρέθηκε κοινή διαδρομή, μόνο relay»). Καμία σιωπηλή επιστροφή.
+- Ένα σημείο αποφασίζει τι λαμβάνει ένας peer. Κενή ή ελλιπής απάντηση σημαίνει άρνηση, ποτέ «όλα».
+- Ξένο κείμενο από peers (ονόματα αρχείων, stick) γίνεται escape πριν εμφανιστεί σε τερματικό ή UI.
+- Αν η ασφαλής αποθήκευση μυστικών δεν είναι διαθέσιμη, σφάλμα. Ποτέ σιωπηλή πτώση σε απλό αρχείο.
+- «Ποιος είναι» και «τι επιτρέπεται» είναι δύο χωριστοί έλεγχοι.
+- Λιγότεροι γύροι σχεδιασμού στο χαρτί, περισσότερες δοκιμές σε αληθινές συσκευές και δίκτυα.
 
 ## Στυλ
 

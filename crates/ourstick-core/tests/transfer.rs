@@ -38,6 +38,9 @@ async fn full_transfer_of_a_folder() {
         .unwrap();
 
     assert_eq!(path, Some(PathKind::Direct));
+    // Without relays everything arrives directly, and at least the payload does.
+    assert_eq!(report.usage.relay, 0);
+    assert!(report.usage.direct >= report.received, "{:?}", report.usage);
     assert_eq!(report.files, 4);
     assert_eq!(report.bytes, 300_010);
     assert_eq!(reader.read("a.txt"), b"hello");

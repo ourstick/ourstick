@@ -40,6 +40,14 @@ impl std::fmt::Display for PathKind {
     }
 }
 
+/// Bytes received from the peer over each kind of path during a connection
+/// (UDP datagrams, so including a little protocol overhead).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PathUsage {
+    pub direct: u64,
+    pub relay: u64,
+}
+
 /// Counters for one blob fetch.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchStats {
@@ -160,6 +168,9 @@ pub trait PeerConnection: Send + Sync {
 
     /// Receives the path every time it changes, until the connection closes.
     fn path_changes(&self) -> tokio::sync::watch::Receiver<PathKind>;
+
+    /// How many bytes arrived over direct and over relay paths so far.
+    fn usage(&self) -> PathUsage;
 
     /// Asks the owner for the latest signed record of `stick_id`. The record is
     /// not verified here.

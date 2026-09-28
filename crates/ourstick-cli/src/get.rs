@@ -4,24 +4,17 @@
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::download::{download, DownloadEvent};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
-use ourstick_core::transport::{Fetcher, PathKind};
+use ourstick_core::transport::Fetcher;
 use ourstick_core::Ticket;
 
-use crate::display::{bytes, untrusted};
+use crate::progress::{clock, Progress};
 use crate::setup::{self, hex, random_key};
-
-fn describe(path: PathKind) -> &'static str {
-    match path {
-        PathKind::Direct => "direct connection",
-        PathKind::Relay => "through a relay (slower; a direct path may still be found)",
-        PathKind::Unknown => "connection type not known yet",
-    }
-}
 
 pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
     let ticket: Ticket = ticket_text.parse()?;
@@ -46,40 +39,11 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
     let fetcher = IrohFetcher::start(&config, &store_dir).await?;
     println!("Connecting to the owner…");
 
+    let started = Instant::now();
+    let mut progress = Progress::default();
     let mut on_event = |event: DownloadEvent<'_>| {
-        match event {
-            DownloadEvent::Connected { path } => println!("Connected: {}.", describe(path)),
-            DownloadEvent::PathChanged { path } => println!("Now: {}.", describe(path)),
-            DownloadEvent::Manifest {
-                files,
-                bytes: total,
-                unchanged,
-                ..
-            } => {
-                let note = if unchanged {
-                    " (no changes since last time)"
-                } else {
-                    ""
-                };
-                println!("{files} files, {}{note}.", bytes(total));
-            }
-            DownloadEvent::FileDone {
-                path,
-                already_local,
-                received,
-            } => {
-                let resumed = if already_local > 0 {
-                    format!(", resumed after {}", bytes(already_local))
-                } else {
-                    String::new()
-                };
-                println!(
-                    "  {} ({} received{resumed})",
-                    untrusted(path),
-                    bytes(received)
-                );
-            }
-            DownloadEvent::FileStarted { .. } | DownloadEvent::Progress { .. } => {}
+        for line in progress.on_event(event, started.elapsed()) {
+            println!("{line}");
         }
         ControlFlow::Continue(())
     };
@@ -97,17 +61,16 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
         Ok(report) => {
             // Everything is in the output folder; the blob store is no longer needed.
             fetcher.shutdown(false).await?;
-            println!(
-                "Done: {} files in {} ({} received over the network).",
-                report.files,
-                output.display(),
-                bytes(report.received)
-            );
+            let output = output.display().to_string();
+            for line in Progress::summary(&report, &output, started.elapsed()) {
+                println!("{line}");
+            }
             Ok(())
         }
         Err(error) => {
             // Keep partial blobs so the next run resumes.
             fetcher.shutdown(true).await?;
+            println!("[{}] Stopped.", clock(started.elapsed()));
             Err(error).context("download stopped; run the same command again to resume")
         }
     }

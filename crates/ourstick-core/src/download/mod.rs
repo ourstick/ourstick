@@ -18,7 +18,7 @@ use crate::manifest::{Entry, Manifest, ManifestError};
 use crate::record::{ManifestHint, RecordCheck, RecordError};
 use crate::store::{JoinedStick, Store, StoreError};
 use crate::ticket::Ticket;
-use crate::transport::{Fetcher, PathKind, PeerConnection, TransportError};
+use crate::transport::{Fetcher, PathKind, PathUsage, PeerConnection, TransportError};
 
 /// Where partially written files live inside the output folder, so the final
 /// rename stays on one file system. Removed at the end.
@@ -64,6 +64,8 @@ pub struct DownloadReport {
     pub bytes: u64,
     /// Blob bytes received over the network (less than the total after a resume).
     pub received: u64,
+    /// Bytes that arrived over direct and over relay paths.
+    pub usage: PathUsage,
 }
 
 /// Why a download failed. The messages are meant for users.
@@ -153,7 +155,11 @@ pub async fn download(
         output_dir,
         on_event,
     )
-    .await;
+    .await
+    .map(|report| DownloadReport {
+        usage: connection.usage(),
+        ..report
+    });
     connection.close().await;
     result
 }
@@ -251,6 +257,7 @@ async fn download_over(
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
         received,
+        usage: PathUsage::default(),
     })
 }
 

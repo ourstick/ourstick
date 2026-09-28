@@ -2,6 +2,7 @@
 
 mod display;
 mod get;
+mod progress;
 mod setup;
 mod share;
 

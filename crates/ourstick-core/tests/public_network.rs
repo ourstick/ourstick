@@ -50,6 +50,11 @@ async fn transfer_over_public_network() {
         })
         .await
         .unwrap();
+    println!(
+        "received {} bytes: {} direct, {} via relay",
+        report.received, report.usage.direct, report.usage.relay
+    );
+    assert!(report.usage.direct + report.usage.relay >= report.received);
     assert_eq!(report.files, 2);
     assert_eq!(reader.read("big.bin"), big);
     assert!(paths.iter().all(|path| *path != PathKind::Unknown) || paths.len() > 1);

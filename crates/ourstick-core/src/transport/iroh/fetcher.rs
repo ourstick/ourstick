@@ -1,8 +1,10 @@
 //! The reader's side on iroh: a per-stick iroh-blobs `FsStore` (kept across runs
 //! so downloads resume) and connections to the owner.
 
+use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use iroh::endpoint::{Connection, PathEvent};
@@ -20,7 +22,22 @@ use super::{absolute, bind, is_relay, owner_addr, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::Ticket;
-use crate::transport::{BlobHash, FetchStats, Fetcher, PathKind, PeerConnection, TransportError};
+use crate::transport::{
+    BlobHash, FetchStats, Fetcher, PathKind, PathUsage, PeerConnection, TransportError,
+};
+
+/// Bytes received per path, keyed by the path id (its `Debug` form: iroh does
+/// not export the id type). Open paths are read live, closed ones are kept
+/// from their close event, so nothing is counted twice.
+type UsageByPath = Arc<Mutex<BTreeMap<String, (PathKind, u64)>>>;
+
+fn kind_of(addr: &iroh::TransportAddr) -> PathKind {
+    if is_relay(addr) {
+        PathKind::Relay
+    } else {
+        PathKind::Direct
+    }
+}
 
 /// A reader's local blob store for one stick, and the endpoint to reach owners.
 pub struct IrohFetcher {
@@ -64,7 +81,8 @@ impl Fetcher for IrohFetcher {
             .await
             .map_err(|error| TransportError::Unreachable(error.to_string()))?;
         let (path_sender, path_receiver) = watch::channel(current_path(&blobs));
-        let watcher = tokio::spawn(watch_path(blobs.clone(), path_sender));
+        let usage = UsageByPath::default();
+        let watcher = tokio::spawn(watch_path(blobs.clone(), path_sender, usage.clone()));
         Ok(IrohConnection {
             endpoint: self.endpoint.clone(),
             store: self.store.clone(),
@@ -72,6 +90,7 @@ impl Fetcher for IrohFetcher {
             blobs,
             path_receiver,
             watcher,
+            usage,
         })
     }
 
@@ -124,9 +143,25 @@ fn current_path(connection: &Connection) -> PathKind {
 }
 
 /// Publishes the selected path every time iroh selects a new one.
-async fn watch_path(connection: Connection, sender: watch::Sender<PathKind>) {
+async fn watch_path(connection: Connection, sender: watch::Sender<PathKind>, usage: UsageByPath) {
     let mut events = std::pin::pin!(connection.path_events());
     while let Some(event) = events.next().await {
+        // Keep the final byte count of every path that closes.
+        if let PathEvent::Closed {
+            id,
+            remote_addr,
+            last_stats,
+            ..
+        } = &event
+        {
+            usage
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(
+                    format!("{id:?}"),
+                    (kind_of(remote_addr), last_stats.udp_rx.bytes),
+                );
+        }
         if matches!(event, PathEvent::Selected { .. } | PathEvent::Closed { .. }) {
             let path = current_path(&connection);
             sender.send_if_modified(|current| {
@@ -146,6 +181,7 @@ pub struct IrohConnection {
     blobs: Connection,
     path_receiver: watch::Receiver<PathKind>,
     watcher: tokio::task::JoinHandle<()>,
+    usage: UsageByPath,
 }
 
 fn is_hash_mismatch(error: &GetError) -> bool {
@@ -179,6 +215,27 @@ impl PeerConnection for IrohConnection {
 
     fn path_changes(&self) -> watch::Receiver<PathKind> {
         self.path_receiver.clone()
+    }
+
+    fn usage(&self) -> PathUsage {
+        let mut by_path = self
+            .usage
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for path in self.blobs.paths().iter() {
+            by_path.insert(
+                format!("{:?}", path.id()),
+                (kind_of(path.remote_addr()), path.stats().udp_rx.bytes),
+            );
+        }
+        let mut usage = PathUsage::default();
+        for (kind, bytes) in by_path.values() {
+            match kind {
+                PathKind::Relay => usage.relay += bytes,
+                _ => usage.direct += bytes,
+            }
+        }
+        usage
     }
 
     async fn fetch_record(

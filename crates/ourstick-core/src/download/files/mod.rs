@@ -1,0 +1,199 @@
+//! Writing downloaded files: where they go, and how they get there safely.
+
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
+
+use super::{io_error, DownloadError, PARTIAL_DIR};
+use crate::blob::decrypt_blob;
+use crate::cipher::Cipher;
+use crate::manifest::{Entry, Manifest};
+
+/// Why one path component cannot be written safely on this reader, if it
+/// cannot. Manifest paths are already free of `\`, NUL, `.`, `..` and empty
+/// components (validated on decode); this adds what depends on the platform.
+///
+/// `windows` selects the Windows rules; it is a parameter so they are tested
+/// everywhere.
+fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
+    let mut components = Path::new(component).components();
+    let single_normal = matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(name)), None) if name == component
+    );
+    if !single_normal {
+        return Some("it is not a plain file or folder name here");
+    }
+    // `c:` would be a drive on Windows and move the path out of the output
+    // folder; refused everywhere so a stick behaves the same on every reader.
+    let bytes = component.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return Some("it looks like a Windows drive");
+    }
+    if windows {
+        if component.contains(['<', '>', ':', '"', '|', '?', '*'])
+            || component.contains(char::is_control)
+        {
+            return Some("it contains a character Windows does not allow in names");
+        }
+        if component.ends_with('.') || component.ends_with(' ') {
+            return Some("Windows drops a trailing dot or space from names");
+        }
+        let stem = component.split('.').next().unwrap_or(component).trim_end();
+        let reserved = ["CON", "PRN", "AUX", "NUL"]
+            .iter()
+            .any(|name| stem.eq_ignore_ascii_case(name))
+            || (stem.len() == 4
+                && (stem[..3].eq_ignore_ascii_case("COM")
+                    || stem[..3].eq_ignore_ascii_case("LPT"))
+                && stem.as_bytes()[3].is_ascii_digit()
+                && stem.as_bytes()[3] != b'0');
+        if reserved {
+            return Some("it is a reserved device name on Windows");
+        }
+    }
+    None
+}
+
+fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
+    DownloadError::UnsafePath {
+        path: path.to_owned(),
+        reason,
+    }
+}
+
+/// Checks every path of a manifest before anything is downloaded: each
+/// component must be safe here, nothing may go into our partial directory (in
+/// any letter case), and no two paths may land on the same file on a file
+/// system that ignores letter case, or be both a file and a folder.
+pub(super) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {
+    let mut by_folded_path: HashMap<String, &str> = HashMap::new();
+    for entry in &manifest.entries {
+        let path = entry.path.as_str();
+        if path
+            .split('/')
+            .next()
+            .is_some_and(|first| first.eq_ignore_ascii_case(PARTIAL_DIR))
+        {
+            return Err(unsafe_path(
+                path,
+                "that name is used by OurStick for unfinished files",
+            ));
+        }
+        for component in path.split('/') {
+            if let Some(reason) = component_problem(component, cfg!(windows)) {
+                return Err(unsafe_path(path, reason));
+            }
+        }
+        if let Some(earlier) = by_folded_path.insert(path.to_lowercase(), path) {
+            return Err(DownloadError::PathCollision {
+                first: earlier.to_owned(),
+                second: path.to_owned(),
+            });
+        }
+    }
+    // A file may not also be a folder of another entry, in any letter case.
+    for entry in &manifest.entries {
+        let folded = entry.path.to_lowercase();
+        let mut ancestor = folded.as_str();
+        while let Some((parent, _)) = ancestor.rsplit_once('/') {
+            if let Some(file) = by_folded_path.get(parent) {
+                return Err(DownloadError::PathCollision {
+                    first: (*file).to_owned(),
+                    second: entry.path.clone(),
+                });
+            }
+            ancestor = parent;
+        }
+    }
+    Ok(())
+}
+
+/// Refuses a path that passes through a symbolic link inside `output_dir`.
+fn check_no_symlinks(output_dir: &Path, relative: &str) -> Result<PathBuf, DownloadError> {
+    let mut path = output_dir.to_path_buf();
+    for component in relative.split('/') {
+        path.push(component);
+        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(unsafe_path(
+                relative,
+                "it would pass through a symbolic link",
+            ));
+        }
+    }
+    Ok(path)
+}
+
+/// The final path of an entry whose path passed [`check_manifest_paths`].
+/// Refuses to go through symbolic links that exist in the output folder now;
+/// [`decrypt_into_place`] checks again right before the file is moved there.
+pub(super) fn target_path(output_dir: &Path, relative: &str) -> Result<PathBuf, DownloadError> {
+    check_no_symlinks(output_dir, relative)
+}
+
+/// Creates (or reuses) the partial directory, refusing one that is a symbolic
+/// link, which would send unfinished files elsewhere.
+pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, DownloadError> {
+    let partial = output_dir.join(PARTIAL_DIR);
+    let is_symlink = |path: &Path| {
+        std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    };
+    if is_symlink(&partial) {
+        return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
+    }
+    std::fs::create_dir_all(&partial).map_err(io_error(&partial))?;
+    if is_symlink(&partial) {
+        return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
+    }
+    Ok(partial)
+}
+
+/// Decrypts `ciphertext` into `plaintext`, checks the size, sets the modification
+/// time, and renames it to the entry's place under `output_dir`, checking for
+/// symbolic links again right before. Removes `ciphertext` when done.
+pub(super) fn decrypt_into_place(
+    cipher: &dyn Cipher,
+    entry: &Entry,
+    ciphertext: &Path,
+    plaintext: &Path,
+    output_dir: &Path,
+) -> Result<(), DownloadError> {
+    let source = File::open(ciphertext).map_err(io_error(ciphertext))?;
+    let output = File::create_new(plaintext).map_err(io_error(plaintext))?;
+    let mut writer = BufWriter::new(output);
+    let written = decrypt_blob(cipher, &mut BufReader::new(source), &mut writer)?;
+    writer.flush().map_err(io_error(plaintext))?;
+    let output = writer
+        .into_inner()
+        .map_err(|error| io_error(plaintext)(error.into_error()))?;
+    if written != entry.size {
+        let _ = std::fs::remove_file(plaintext);
+        return Err(DownloadError::SizeMismatch {
+            path: entry.path.clone(),
+            expected: entry.size,
+            actual: written,
+        });
+    }
+    output
+        .set_modified(UNIX_EPOCH + Duration::from_secs(entry.mtime))
+        .map_err(io_error(plaintext))?;
+    output.sync_all().map_err(io_error(plaintext))?;
+    drop(output);
+
+    let target = check_no_symlinks(output_dir, &entry.path)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(io_error(parent))?;
+    }
+    // Again, now that the folders exist: nothing may have been swapped for a
+    // symbolic link since the download started.
+    let target = check_no_symlinks(output_dir, &entry.path)?;
+    std::fs::rename(plaintext, &target).map_err(io_error(&target))?;
+    std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

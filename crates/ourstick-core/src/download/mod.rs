@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 mod files;
 
-use files::{decrypt_into_place, target_path};
+use files::{check_manifest_paths, decrypt_into_place, prepare_partial_dir, target_path};
 
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
@@ -79,8 +79,10 @@ pub enum DownloadError {
         expected: u64,
         actual: u64,
     },
-    #[error("refusing to write {0}: it would pass through a symbolic link or clash with OurStick's own files")]
-    UnsafePath(String),
+    #[error("refusing to write {path}: {reason}")]
+    UnsafePath { path: String, reason: &'static str },
+    #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]
+    PathCollision { first: String, second: String },
     #[error(transparent)]
     Transport(#[from] TransportError),
     #[error(transparent)]
@@ -203,6 +205,8 @@ async fn download_over(
         })
         .await?
     };
+    // Before anything is accepted or written: every path must be safe here.
+    check_manifest_paths(&manifest)?;
     if !unchanged {
         // Accepted only once the manifest it names has been read successfully.
         let store = store.clone();
@@ -219,10 +223,10 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
-    let partial = output_dir.join(PARTIAL_DIR);
-    tokio::fs::create_dir_all(&partial)
-        .await
-        .map_err(io_error(&partial))?;
+    let partial = {
+        let output_dir = output_dir.to_path_buf();
+        run_blocking(move || prepare_partial_dir(&output_dir)).await?
+    };
     let mut received = 0;
     let mut last_path = connection.path();
     for entry in &manifest.entries {
@@ -269,7 +273,9 @@ async fn download_file(
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<u64, DownloadError> {
     let path = entry.path.as_str();
-    let target = target_path(output_dir, path)?;
+    // Early check, so a bad path fails before the transfer; checked again
+    // right before the file is moved into place.
+    target_path(output_dir, path)?;
     if on_event(DownloadEvent::FileStarted {
         path,
         size: entry.size,
@@ -305,8 +311,15 @@ async fn download_file(
     {
         let cipher = cipher.clone();
         let entry = entry.clone();
+        let output_dir = output_dir.to_path_buf();
         run_blocking(move || {
-            decrypt_into_place(cipher.as_ref(), &entry, &ciphertext, &plaintext, &target)
+            decrypt_into_place(
+                cipher.as_ref(),
+                &entry,
+                &ciphertext,
+                &plaintext,
+                &output_dir,
+            )
         })
         .await?;
     }

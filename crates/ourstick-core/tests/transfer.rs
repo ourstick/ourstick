@@ -251,3 +251,33 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
     assert!(!reader.exists("removed.bin"));
     owner.publisher.shutdown().await;
 }
+
+/// Names that are valid on the owner's disk but unsafe for a reader: a Windows
+/// drive-like name, and our own partial directory in another letter case. The
+/// reader refuses the manifest before writing anything or accepting its record.
+#[tokio::test(flavor = "multi_thread")]
+async fn reader_refuses_unsafe_names_before_writing_anything() {
+    for (name, contents) in [
+        ("c:evil", &b"escape"[..]),
+        (".OURSTICK-PARTIAL/x", &b"hidden"[..]),
+    ] {
+        let owner = Owner::new(&[("ok.txt", b"fine"), (name, contents)]).await;
+        let publication = owner.publish().await;
+        let ticket = owner.ticket(&publication);
+
+        let reader = Reader::new();
+        let result = reader.download(&ticket, &mut keep_going).await;
+        assert!(
+            matches!(result, Err(DownloadError::UnsafePath { .. })),
+            "{name}: {result:?}"
+        );
+        assert!(!reader.exists("ok.txt"), "{name}: wrote files anyway");
+        let joined = reader
+            .store
+            .joined_stick(&ticket.stick_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(joined.current_manifest, None, "{name}: record was accepted");
+        owner.publisher.shutdown().await;
+    }
+}

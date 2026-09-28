@@ -1,0 +1,129 @@
+{
+  "description": "OurStick blob format v1 test vectors. See docs/protocol.md.",
+  "pattern": "pattern_length N means N bytes where byte i = i mod 251",
+  "blob_format_version": 1,
+  "chunk_size": 65536,
+  "aead_key_context": "OurStick 2026-09-28 blob XChaCha20-Poly1305 key",
+  "nonce_key_context": "OurStick 2026-09-28 blob nonce prefix key",
+  "vectors": [
+    {
+      "name": "none-empty",
+      "cipher": "none",
+      "stick_key": null,
+      "plaintext": {
+        "hex": ""
+      },
+      "plaintext_len": 0,
+      "header": "0100",
+      "blob_len": 2,
+      "blob_hash": "687376c930d7020a32f04c396fc2e5eab49cd09a738fa03d573033416a6a47ce",
+      "blob": "0100"
+    },
+    {
+      "name": "none-short",
+      "cipher": "none",
+      "stick_key": null,
+      "plaintext": {
+        "hex": "412055534220737469636b20796f752063616e2073656e642e"
+      },
+      "plaintext_len": 25,
+      "header": "0100",
+      "blob_len": 27,
+      "blob_hash": "a6d16c4a579a253e4afa2cf70528fe25c1b7ae3d8391c61ea0641ff14670c301",
+      "blob": "0100412055534220737469636b20796f752063616e2073656e642e"
+    },
+    {
+      "name": "xchacha-empty",
+      "cipher": "xchacha20-poly1305",
+      "stick_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "plaintext": {
+        "hex": ""
+      },
+      "plaintext_len": 0,
+      "aead_key": "2b3ea04efd4d55304d21f7b783c7d1795210f4090466ae98caa862718c4f0e00",
+      "nonce_key": "7ee5854d334a41e8d79d3c2ac2ddfbe149b99557f8aba5bc221bf8abcd2b4d16",
+      "plaintext_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "nonce_prefix": "c97ffdedb5ffcfb38a36cbeddb29bd71064c15",
+      "header": "0101c97ffdedb5ffcfb38a36cbeddb29bd71064c15",
+      "first_chunk_nonce": "c97ffdedb5ffcfb38a36cbeddb29bd71064c150000000001",
+      "last_chunk_nonce": "c97ffdedb5ffcfb38a36cbeddb29bd71064c150000000001",
+      "blob_len": 37,
+      "blob_hash": "a3019cfd5c0796435969f45f0c7d4fe54ffeb7c5d37ded93538ba6c49ca3a9b9",
+      "blob": "0101c97ffdedb5ffcfb38a36cbeddb29bd71064c151c2a881b702ad246a6873bb5b756c0f9"
+    },
+    {
+      "name": "xchacha-short",
+      "cipher": "xchacha20-poly1305",
+      "stick_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "plaintext": {
+        "hex": "412055534220737469636b20796f752063616e2073656e642e"
+      },
+      "plaintext_len": 25,
+      "aead_key": "2b3ea04efd4d55304d21f7b783c7d1795210f4090466ae98caa862718c4f0e00",
+      "nonce_key": "7ee5854d334a41e8d79d3c2ac2ddfbe149b99557f8aba5bc221bf8abcd2b4d16",
+      "plaintext_hash": "df6518e57f79df3a977993808ad37b9b47f69a14074e4ca166b6994ffd8c0e74",
+      "nonce_prefix": "fb4373b7cf096867305c2d290dd4066f4c00f1",
+      "header": "0101fb4373b7cf096867305c2d290dd4066f4c00f1",
+      "first_chunk_nonce": "fb4373b7cf096867305c2d290dd4066f4c00f10000000001",
+      "last_chunk_nonce": "fb4373b7cf096867305c2d290dd4066f4c00f10000000001",
+      "blob_len": 62,
+      "blob_hash": "91779399b0df8ce78f2b7cfd6ba08849ea7f7b8e8d8d207befd2b1a6eed755db",
+      "blob": "0101fb4373b7cf096867305c2d290dd4066f4c00f13403633f6784a4753a46a58eb063dad2df5fe44a70ba0860f7489c86a5c3de1e8a548a6949fc7fdbd8"
+    },
+    {
+      "name": "xchacha-short-other-key",
+      "cipher": "xchacha20-poly1305",
+      "stick_key": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+      "plaintext": {
+        "hex": "412055534220737469636b20796f752063616e2073656e642e"
+      },
+      "plaintext_len": 25,
+      "aead_key": "1d39d6425a8a27ba8aeb9d0ac13b6be34b93a208a17219dd83947b46c64e115e",
+      "nonce_key": "69394e61e5b9cbe09d1ca68f8c449f3cff85e632d18e359fad6e183d54f76084",
+      "plaintext_hash": "df6518e57f79df3a977993808ad37b9b47f69a14074e4ca166b6994ffd8c0e74",
+      "nonce_prefix": "3ee1bde4bbd980530df60dc5754d9ea4e54fde",
+      "header": "01013ee1bde4bbd980530df60dc5754d9ea4e54fde",
+      "first_chunk_nonce": "3ee1bde4bbd980530df60dc5754d9ea4e54fde0000000001",
+      "last_chunk_nonce": "3ee1bde4bbd980530df60dc5754d9ea4e54fde0000000001",
+      "blob_len": 62,
+      "blob_hash": "99cc69ef43941af64050116deec9df416a9f37d83fe74348d728afebeda36c76",
+      "blob": "01013ee1bde4bbd980530df60dc5754d9ea4e54fdebf95f90763ca3a1488dcfebc86d45ea8b1f62526bdf5d2703f5810410c2adf2672979317e99ca2a218"
+    },
+    {
+      "name": "xchacha-one-full-chunk",
+      "cipher": "xchacha20-poly1305",
+      "stick_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "plaintext": {
+        "pattern_length": 65536
+      },
+      "plaintext_len": 65536,
+      "aead_key": "2b3ea04efd4d55304d21f7b783c7d1795210f4090466ae98caa862718c4f0e00",
+      "nonce_key": "7ee5854d334a41e8d79d3c2ac2ddfbe149b99557f8aba5bc221bf8abcd2b4d16",
+      "plaintext_hash": "68d647e619a930e7b1082f74f334b0c65a315725569bdc123f0ee11881717bfe",
+      "nonce_prefix": "247c35888b1efec70bd094f68946e167fef960",
+      "header": "0101247c35888b1efec70bd094f68946e167fef960",
+      "first_chunk_nonce": "247c35888b1efec70bd094f68946e167fef9600000000001",
+      "last_chunk_nonce": "247c35888b1efec70bd094f68946e167fef9600000000001",
+      "blob_len": 65573,
+      "blob_hash": "32f3c6d0e34424f4b3d076cc64d8f84dd6b2d68b57a424c79ff3375c2aba3b65"
+    },
+    {
+      "name": "xchacha-three-chunks",
+      "cipher": "xchacha20-poly1305",
+      "stick_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "plaintext": {
+        "pattern_length": 131073
+      },
+      "plaintext_len": 131073,
+      "aead_key": "2b3ea04efd4d55304d21f7b783c7d1795210f4090466ae98caa862718c4f0e00",
+      "nonce_key": "7ee5854d334a41e8d79d3c2ac2ddfbe149b99557f8aba5bc221bf8abcd2b4d16",
+      "plaintext_hash": "f837d4254d24ba3d50fe3743d46e4af6db5f5d6ab0469197d94e7ba1e906c4d8",
+      "nonce_prefix": "3dbcf8b87a567a914751ee10297fd21ab01ada",
+      "header": "01013dbcf8b87a567a914751ee10297fd21ab01ada",
+      "first_chunk_nonce": "3dbcf8b87a567a914751ee10297fd21ab01ada0000000000",
+      "last_chunk_nonce": "3dbcf8b87a567a914751ee10297fd21ab01ada0000000201",
+      "blob_len": 131142,
+      "blob_hash": "410062d64f549d984b330cdcd2c1d5444041c494a41d357e484a30cd2360305d"
+    }
+  ]
+}

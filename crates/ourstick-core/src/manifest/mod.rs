@@ -31,11 +31,12 @@ pub struct Entry {
     /// Never empty, never absolute, and no component is empty, `.` or `..`.
     /// Never contains `\` or NUL.
     pub path: String,
+    /// Size of the file (the plaintext) in bytes.
     pub size: u64,
     /// Last modification time, in whole seconds since the UNIX epoch.
     /// Times before the epoch are clamped to 0.
     pub mtime: u64,
-    /// BLAKE3 hash of the (encrypted) blob.
+    /// BLAKE3 hash of the file's blob: the ciphertext, header included.
     pub hash: [u8; 32],
 }
 
@@ -51,6 +52,12 @@ pub enum ManifestError {
         path: PathBuf,
         #[source]
         source: io::Error,
+    },
+    #[error("cannot encrypt {path}: {source}")]
+    Blob {
+        path: PathBuf,
+        #[source]
+        source: crate::cipher::CipherError,
     },
     #[error("invalid path in manifest: {0:?}")]
     InvalidPath(String),

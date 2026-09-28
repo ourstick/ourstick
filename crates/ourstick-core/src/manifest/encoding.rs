@@ -105,7 +105,7 @@ mod tests {
         std::fs::write(dir.path().join("sub/one.txt"), b"one").unwrap();
         std::fs::write(dir.path().join("two.txt"), b"two").unwrap();
 
-        let original = Manifest::from_dir(dir.path()).unwrap();
+        let original = Manifest::from_dir(dir.path(), &crate::cipher::NoCipher).unwrap();
         let decoded = Manifest::from_bytes(&original.to_bytes().unwrap()).unwrap();
         assert_eq!(decoded, original);
     }
@@ -115,6 +115,28 @@ mod tests {
         let bytes = Manifest::empty().to_bytes().unwrap();
         assert_eq!(bytes, [MANIFEST_FORMAT_VERSION, 0]);
         assert_eq!(Manifest::from_bytes(&bytes).unwrap(), Manifest::empty());
+    }
+
+    #[test]
+    fn encoding_has_exact_field_order() {
+        let manifest = Manifest {
+            entries: vec![Entry {
+                path: "a".to_owned(),
+                size: 1,
+                mtime: 2,
+                hash: [3; 32],
+            }],
+        };
+        let mut expected = vec![
+            MANIFEST_FORMAT_VERSION,
+            1,    // entry count
+            1,    // path length
+            b'a', // path
+            1,    // size
+            2,    // mtime
+        ];
+        expected.extend([3; 32]); // hash, raw
+        assert_eq!(manifest.to_bytes().unwrap(), expected);
     }
 
     #[test]

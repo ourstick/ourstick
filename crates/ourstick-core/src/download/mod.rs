@@ -46,6 +46,8 @@ pub enum DownloadEvent<'a> {
     FileStarted {
         path: &'a str,
         size: u64,
+        /// Blob bytes already stored locally from an earlier, interrupted run.
+        already_local: u64,
     },
     Progress {
         path: &'a str,
@@ -289,9 +291,11 @@ async fn download_file(
         let path = path.to_owned();
         run_blocking(move || target_path(&output_dir, &path)).await?;
     }
+    let already_local = fetcher.local_bytes(&entry.hash).await?;
     if on_event(DownloadEvent::FileStarted {
         path,
         size: entry.size,
+        already_local,
     })
     .is_break()
     {

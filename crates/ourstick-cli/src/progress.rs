@@ -46,17 +46,27 @@ fn describe(path: PathKind) -> &'static str {
 pub struct Progress {
     path: Option<PathKind>,
     total: u64,
-    /// Bytes of the files already finished in this run.
+    /// Sizes of the files finished in this run.
     finished: u64,
+    /// Bytes received over the network for the files finished in this run.
+    finished_network: u64,
     current_size: u64,
+    /// What the current file already had locally, from an interrupted run.
+    current_local: u64,
     current_received: u64,
     last_line_at: Duration,
-    bytes_at_last_line: u64,
+    network_at_last_line: u64,
 }
 
 impl Progress {
+    /// How much of the stick is here, including what an earlier run left.
     fn so_far(&self) -> u64 {
-        self.finished + self.current_received
+        self.finished + (self.current_local + self.current_received).min(self.current_size)
+    }
+
+    /// What came over the network in this run; the speed is based on this.
+    fn network(&self) -> u64 {
+        self.finished_network + self.current_received
     }
 
     /// Lines to print for `event`, which happened `elapsed` after the start.
@@ -85,8 +95,13 @@ impl Progress {
                 };
                 vec![format!("[{at}] {files} files, {}{note}.", bytes(total))]
             }
-            DownloadEvent::FileStarted { size, .. } => {
+            DownloadEvent::FileStarted {
+                size,
+                already_local,
+                ..
+            } => {
                 self.current_size = size;
+                self.current_local = already_local;
                 self.current_received = 0;
                 Vec::new()
             }
@@ -97,17 +112,21 @@ impl Progress {
                     return Vec::new();
                 }
                 let now = self.so_far();
-                let speed = rate(now.saturating_sub(self.bytes_at_last_line), since);
+                let network = self.network();
+                let speed = rate(network.saturating_sub(self.network_at_last_line), since);
                 self.last_line_at = elapsed;
-                self.bytes_at_last_line = now;
+                self.network_at_last_line = network;
                 let percent = if self.total > 0 {
                     now.min(self.total) * 100 / self.total
                 } else {
                     100
                 };
-                let path = self.path.map(|path| path.to_string()).unwrap_or_default();
+                let path = self
+                    .path
+                    .map(|path| format!(", {path}"))
+                    .unwrap_or_default();
                 vec![format!(
-                    "[{at}] {} of {} ({percent}%), {speed}, {path}",
+                    "[{at}] {} of {} ({percent}%), {speed}{path}",
                     bytes(now),
                     bytes(self.total)
                 )]
@@ -118,6 +137,8 @@ impl Progress {
                 received,
             } => {
                 self.finished += self.current_size;
+                self.finished_network += received;
+                self.current_local = 0;
                 self.current_received = 0;
                 let resumed = if already_local > 0 {
                     format!(", resumed after {}", bytes(already_local))
@@ -199,6 +220,7 @@ mod tests {
             DownloadEvent::FileStarted {
                 path: "movie.mkv",
                 size: 1_000_000_000,
+                already_local: 0,
             },
             secs(1),
         );
@@ -230,6 +252,54 @@ mod tests {
             line,
             vec!["[00:07] 700.0 MB of 1.0 GB (70%), 133.3 MB/s, direct"]
         );
+    }
+
+    #[test]
+    fn resumed_file_counts_what_is_here_but_speed_only_the_network() {
+        let mut progress = Progress::default();
+        progress.on_event(
+            DownloadEvent::Manifest {
+                seq: 1,
+                files: 2,
+                bytes: 6_000_000_000,
+                unchanged: true,
+            },
+            secs(0),
+        );
+        // A small file that was already complete: finished at once, nothing received.
+        progress.on_event(
+            DownloadEvent::FileStarted {
+                path: "extra.mkv",
+                size: 200_000_000,
+                already_local: 200_000_000,
+            },
+            secs(0),
+        );
+        progress.on_event(
+            DownloadEvent::FileDone {
+                path: "extra.mkv",
+                already_local: 200_000_000,
+                received: 0,
+            },
+            secs(1),
+        );
+        // The big file had 1.2 GB from the interrupted run.
+        progress.on_event(
+            DownloadEvent::FileStarted {
+                path: "movie.mkv",
+                size: 5_800_000_000,
+                already_local: 1_200_000_000,
+            },
+            secs(1),
+        );
+        let line = progress.on_event(
+            DownloadEvent::Progress {
+                path: "movie.mkv",
+                received: 21_000_000,
+            },
+            secs(3),
+        );
+        assert_eq!(line, vec!["[00:03] 1.4 GB of 6.0 GB (23%), 7.0 MB/s"]);
     }
 
     #[test]

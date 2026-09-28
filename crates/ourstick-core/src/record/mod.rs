@@ -76,6 +76,8 @@ pub enum RecordError {
     OlderThanTicket { seq: u64, ticket_seq: u64 },
     #[error("manifest record {seq} names a different manifest than the ticket with the same seq")]
     ConflictsWithTicket { seq: u64 },
+    #[error("manifest record {seq} names a different manifest than the one already accepted with the same seq")]
+    ConflictsWithCurrent { seq: u64 },
     #[error("manifest record {seq} is not newer than {last_seen}, the latest already accepted")]
     NotNewer { seq: u64, last_seen: u64 },
 }
@@ -88,6 +90,16 @@ pub enum RecordError {
 /// See `docs/decisions/0004-signed-manifest-records.md`.
 pub fn next_seq(last_signed_seq: u64, now_ms: u64) -> Option<u64> {
     Some(last_signed_seq.checked_add(1)?.max(now_ms))
+}
+
+/// Outcome of [`SignedManifestRecord::check`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordCheck {
+    /// Newer than what the reader holds: accept it and store it.
+    Newer(ManifestRecord),
+    /// Exactly the record the reader already holds (same `seq`, same manifest):
+    /// nothing to store, but the reader may finish or resume that manifest.
+    Unchanged(ManifestRecord),
 }
 
 impl StickSigningKey {
@@ -111,6 +123,36 @@ impl SignedManifestRecord {
     /// own records (e.g. to store them); readers must use [`Self::verify`].
     pub(crate) fn unverified_record(&self) -> &ManifestRecord {
         &self.record
+    }
+
+    /// Like [`Self::verify`], for a reader that holds `current` (the `seq` and
+    /// manifest hash of the record it accepted last, if any). The same record
+    /// again is [`RecordCheck::Unchanged`] rather than an error, so a reader can
+    /// resume. A different manifest under the same `seq` is
+    /// [`RecordError::ConflictsWithCurrent`]; an older `seq` is
+    /// [`RecordError::NotNewer`].
+    pub fn check(
+        &self,
+        expected: &StickId,
+        ticket_hint: &ManifestHint,
+        current: Option<&ManifestHint>,
+    ) -> Result<RecordCheck, RecordError> {
+        let record = self.verify(expected, ticket_hint, None)?;
+        let Some(current) = current else {
+            return Ok(RecordCheck::Newer(record));
+        };
+        if record.seq > current.seq {
+            Ok(RecordCheck::Newer(record))
+        } else if record.seq < current.seq {
+            Err(RecordError::NotNewer {
+                seq: record.seq,
+                last_seen: current.seq,
+            })
+        } else if record.manifest_hash == current.hash {
+            Ok(RecordCheck::Unchanged(record))
+        } else {
+            Err(RecordError::ConflictsWithCurrent { seq: record.seq })
+        }
     }
 
     pub fn to_bytes(&self) -> [u8; SIGNED_RECORD_LEN] {

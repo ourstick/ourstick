@@ -1,0 +1,265 @@
+//! The owner's side on iroh: an encrypted blob cache (iroh-blobs `FsStore`) that
+//! serves only the current manifest's blobs, plus the record protocol.
+//! See ADR 0005.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+
+use iroh::protocol::Router;
+use iroh::Endpoint;
+use iroh_blobs::api::blobs::{AddPathOptions, BlobStatus, ImportMode};
+use iroh_blobs::api::TempTag;
+use iroh_blobs::provider::events::{
+    AbortReason, EventMask, EventSender, ProviderMessage, RequestMode,
+};
+use iroh_blobs::store::fs::options::Options;
+use iroh_blobs::store::fs::FsStore;
+use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
+use iroh_blobs::{BlobFormat, BlobsProtocol, Hash};
+
+use super::record_protocol::{RecordServer, RECORD_ALPN};
+use super::{absolute, address_hints, bind, node_id, IrohConfig};
+use crate::record::SignedManifestRecord;
+use crate::stick_id::StickId;
+use crate::ticket::{AddressHint, NodeId};
+use crate::transport::{BlobHash, Publisher, TransportError};
+
+/// Serves one stick from an encrypted blob cache in `cache_dir`.
+pub struct IrohPublisher {
+    router: Router,
+    store: FsStore,
+    cache_dir: PathBuf,
+    staging_dir: PathBuf,
+    record: Arc<RwLock<Option<SignedManifestRecord>>>,
+    allowed: Arc<RwLock<HashSet<Hash>>>,
+    /// A temp tag for every blob that must stay: those of the current manifest
+    /// and those imported since. Held from import on, so there is no moment when
+    /// a wanted blob is unprotected (iroh-blobs #247).
+    protected: Mutex<HashMap<Hash, TempTag>>,
+    /// Set by the first publish. Until then every GC run is aborted, so a
+    /// restart never deletes the cache before its blobs are protected again.
+    published: Arc<AtomicBool>,
+}
+
+fn storage(error: impl std::fmt::Display) -> TransportError {
+    TransportError::Storage(error.to_string())
+}
+
+impl IrohPublisher {
+    /// Opens (or creates) the cache in `cache_dir` and starts serving `stick_id`.
+    /// Nothing is served until the first [`Publisher::publish`].
+    pub async fn start(
+        config: &IrohConfig,
+        stick_id: StickId,
+        cache_dir: &Path,
+    ) -> Result<Self, TransportError> {
+        let cache_dir = absolute(cache_dir)?;
+        let store_dir = cache_dir.join("blobs");
+        let staging_dir = cache_dir.join("staging");
+        tokio::fs::create_dir_all(&store_dir).await?;
+        tokio::fs::create_dir_all(&staging_dir).await?;
+
+        let allowed = Arc::new(RwLock::new(HashSet::new()));
+        let published = Arc::new(AtomicBool::new(false));
+        let protect: ProtectCb = {
+            let allowed = allowed.clone();
+            let published = published.clone();
+            Arc::new(move |live: &mut HashSet<Hash>| {
+                let outcome = if published.load(Ordering::SeqCst) {
+                    // Belt and braces next to the temp tags: the served set.
+                    live.extend(read(&allowed).iter().copied());
+                    ProtectOutcome::Continue
+                } else {
+                    ProtectOutcome::Abort
+                };
+                Box::pin(std::future::ready(outcome))
+            })
+        };
+        let mut options = Options::new(&store_dir);
+        options.gc = Some(GcConfig {
+            interval: config.gc_interval,
+            add_protected: Some(protect),
+        });
+        let store = FsStore::load_with_opts(store_dir.join("blobs.db"), options)
+            .await
+            .map_err(storage)?;
+
+        let record = Arc::new(RwLock::new(None));
+        let blobs = BlobsProtocol::new(&store, Some(only_allowed_gets(allowed.clone())));
+        let endpoint: Endpoint = bind(config, Vec::new()).await?;
+        let router = Router::builder(endpoint)
+            .accept(iroh_blobs::ALPN, blobs)
+            .accept(
+                RECORD_ALPN,
+                RecordServer {
+                    stick_id,
+                    record: record.clone(),
+                },
+            )
+            .spawn();
+
+        Ok(Self {
+            router,
+            store,
+            cache_dir,
+            staging_dir,
+            record,
+            allowed,
+            protected: Mutex::new(HashMap::new()),
+            published,
+        })
+    }
+}
+
+impl IrohPublisher {
+    /// Waits until the node is connected to its home relay, so the address
+    /// hints include it. Returns false on timeout (the ticket then has direct
+    /// addresses only). Do not call with [`Network::LocalOnly`](super::Network):
+    /// there is no relay to wait for.
+    pub async fn online(&self, timeout: std::time::Duration) -> bool {
+        tokio::time::timeout(timeout, self.router.endpoint().online())
+            .await
+            .is_ok()
+    }
+}
+
+fn read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The single place that decides what a peer may receive: a plain get of a raw
+/// blob whose hash is currently allowed. Everything else is refused, including
+/// push, get-many and observe (iroh-blobs 0.103 routes all of them through the
+/// `get` mode, so they arrive here as their own messages).
+fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>) -> EventSender {
+    let mask = EventMask {
+        get: RequestMode::Intercept,
+        ..EventMask::DEFAULT
+    };
+    let (sender, mut messages) = EventSender::channel(32, mask);
+    tokio::spawn(async move {
+        while let Some(message) = messages.recv().await {
+            match message {
+                ProviderMessage::GetRequestReceived(message) => {
+                    let request = &message.request;
+                    let permitted =
+                        request.ranges.is_blob() && read(&allowed).contains(&request.hash);
+                    if !permitted {
+                        tracing::debug!("refused a request for a blob that is not served");
+                    }
+                    let answer = if permitted {
+                        Ok(())
+                    } else {
+                        Err(AbortReason::Permission)
+                    };
+                    message.tx.send(answer).await.ok();
+                }
+                ProviderMessage::PushRequestReceived(message) => {
+                    tracing::warn!("refused a push request");
+                    message.tx.send(Err(AbortReason::Permission)).await.ok();
+                }
+                ProviderMessage::GetManyRequestReceived(message) => {
+                    message.tx.send(Err(AbortReason::Permission)).await.ok();
+                }
+                ProviderMessage::ObserveRequestReceived(message) => {
+                    message.tx.send(Err(AbortReason::Permission)).await.ok();
+                }
+                // Anything else is a notification we did not ask for, or a
+                // request whose reply channel is dropped here, which refuses it.
+                _ => {}
+            }
+        }
+    });
+    sender
+}
+
+impl Publisher for IrohPublisher {
+    fn node_id(&self) -> NodeId {
+        node_id(self.router.endpoint())
+    }
+
+    fn address_hints(&self) -> Vec<AddressHint> {
+        address_hints(self.router.endpoint())
+    }
+
+    fn cache_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
+    fn staging_dir(&self) -> &Path {
+        &self.staging_dir
+    }
+
+    async fn import_blob(&self, blob_file: &Path) -> Result<BlobHash, TransportError> {
+        let options = AddPathOptions {
+            path: absolute(blob_file)?,
+            format: BlobFormat::Raw,
+            mode: ImportMode::Copy,
+        };
+        let tag = self
+            .store
+            .blobs()
+            .add_path_with_opts(options)
+            .temp_tag()
+            .await
+            .map_err(storage)?;
+        let hash = tag.hash();
+        self.protected
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(hash, tag);
+        Ok(*hash.as_bytes())
+    }
+
+    async fn publish(
+        &self,
+        record: SignedManifestRecord,
+        allowed: HashSet<BlobHash>,
+    ) -> Result<(), TransportError> {
+        let allowed: HashSet<Hash> = allowed.into_iter().map(Hash::from_bytes).collect();
+        for hash in &allowed {
+            if !matches!(
+                self.store.blobs().status(*hash).await.map_err(storage)?,
+                BlobStatus::Complete { .. }
+            ) {
+                return Err(TransportError::Storage(format!(
+                    "blob {} is not in the cache",
+                    hash.fmt_short()
+                )));
+            }
+        }
+        *write(&self.allowed) = allowed.clone();
+        *write(&self.record) = Some(record);
+        // Drop protection only for blobs that left the manifest; the GC removes them.
+        self.protected
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|hash, _| allowed.contains(hash));
+        self.published.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
+        let status = self
+            .store
+            .blobs()
+            .status(Hash::from_bytes(*hash))
+            .await
+            .map_err(storage)?;
+        Ok(matches!(status, BlobStatus::Complete { .. }))
+    }
+
+    async fn shutdown(self) {
+        // Shutting down the router also shuts down the store (BlobsProtocol).
+        if let Err(error) = self.router.shutdown().await {
+            tracing::warn!(%error, "router did not shut down cleanly");
+        }
+    }
+}

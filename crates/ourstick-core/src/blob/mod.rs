@@ -98,6 +98,13 @@ pub struct BlobInfo {
     pub blob_len: u64,
 }
 
+/// The exact length of the blob that [`encrypt_blob`] writes for a plaintext of
+/// `plaintext_len` bytes: header, plaintext, and one tag per chunk (at least one).
+pub fn blob_len(cipher: &dyn Cipher, plaintext_len: u64) -> u64 {
+    let chunks = plaintext_len.div_ceil(CHUNK_SIZE as u64).max(1);
+    2 + cipher.nonce_prefix_len() as u64 + plaintext_len + chunks * cipher.tag_len() as u64
+}
+
 /// Encrypts `plaintext` into a blob written to `out`.
 ///
 /// Reads `plaintext` twice: once to hash it and derive the nonce prefix, once to

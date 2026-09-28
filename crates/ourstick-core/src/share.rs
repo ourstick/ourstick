@@ -1,0 +1,253 @@
+//! The owner's side of sharing a folder: estimate the cache, encrypt the folder
+//! into it, sign a record for the new manifest, and publish. See ADR 0005.
+
+use std::collections::{BTreeSet, HashSet};
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use crate::blob::{blob_len, encrypt_blob};
+use crate::blocking::run_blocking;
+use crate::cipher::{cipher_for, Cipher, CipherError, StickKey};
+use crate::clock::Clock;
+use crate::manifest::build::regular_files;
+use crate::manifest::{Manifest, ManifestError};
+use crate::record::{next_seq, SignedManifestRecord};
+use crate::stick_id::StickSigningKey;
+use crate::store::{Store, StoreError};
+use crate::transport::{BlobHash, Publisher, TransportError};
+
+/// What sharing a folder will take, known before anything is encrypted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SharePlan {
+    pub files: u64,
+    pub plaintext_bytes: u64,
+    /// Estimated size of the encrypted cache: every blob plus its bao outboard.
+    pub cache_bytes: u64,
+}
+
+/// Size of the bao outboard iroh-blobs keeps for a blob: 64 bytes per pair of
+/// 16 KiB chunk groups.
+fn outboard_len(blob_len: u64) -> u64 {
+    blob_len.div_ceil(16 * 1024).saturating_sub(1) * 64
+}
+
+/// Walks `root` (file sizes only, nothing is read) and estimates the cache.
+/// Blocking: call from `spawn_blocking` in async code.
+pub fn plan_share(root: &Path, cipher: &dyn Cipher) -> Result<SharePlan, ShareError> {
+    let mut plan = SharePlan {
+        files: 0,
+        plaintext_bytes: 0,
+        cache_bytes: 0,
+    };
+    for path in regular_files(root)? {
+        let size = std::fs::metadata(&path)
+            .map_err(|source| ShareError::Io {
+                path: path.clone(),
+                source,
+            })?
+            .len();
+        let blob = blob_len(cipher, size);
+        plan.files += 1;
+        plan.plaintext_bytes += size;
+        plan.cache_bytes += blob + outboard_len(blob);
+    }
+    Ok(plan)
+}
+
+/// A published version of a stick.
+#[derive(Debug, Clone)]
+pub struct Publication {
+    pub manifest: Manifest,
+    pub manifest_hash: BlobHash,
+    /// The `seq` of `record`, for the ticket's manifest hint.
+    pub seq: u64,
+    pub record: SignedManifestRecord,
+}
+
+/// Why sharing failed. The messages are meant for users.
+#[derive(Debug, thiserror::Error)]
+pub enum ShareError {
+    #[error("this device does not own that stick")]
+    NotOwned,
+    #[error("the stick has signed so many versions that no seq is left")]
+    SeqExhausted,
+    #[error("the cache returned a different hash than expected for {0}")]
+    CacheMismatch(PathBuf),
+    #[error(transparent)]
+    Manifest(#[from] ManifestError),
+    #[error(transparent)]
+    Cipher(#[from] CipherError),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+    #[error("I/O error on {path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Removes leftovers of an earlier, interrupted run from the staging directory.
+fn clear_staging(staging: &Path) -> Result<(), ShareError> {
+    let io = |source| ShareError::Io {
+        path: staging.to_path_buf(),
+        source,
+    };
+    for entry in std::fs::read_dir(staging).map_err(io)? {
+        let path = entry.map_err(io)?.path();
+        if path.is_file() {
+            std::fs::remove_file(&path).map_err(|source| ShareError::Io { path, source })?;
+        }
+    }
+    Ok(())
+}
+
+/// Encrypts the stick's folder into the publisher's cache, signs a record for
+/// the new manifest with the next `seq`, stores it, and publishes it.
+///
+/// The folder, cipher and last `seq` come from the owned stick in `store`.
+pub async fn publish_folder(
+    publisher: &impl Publisher,
+    store: Arc<dyn Store>,
+    clock: &dyn Clock,
+    signing_key: &StickSigningKey,
+    stick_key: &StickKey,
+) -> Result<Publication, ShareError> {
+    let stick_id = signing_key.stick_id();
+    let owned = {
+        let store = store.clone();
+        run_blocking(move || store.owned_stick(&stick_id)).await?
+    }
+    .ok_or(ShareError::NotOwned)?;
+    let cipher = cipher_for(owned.cipher, stick_key);
+    let staging = publisher.staging_dir().to_path_buf();
+
+    let (manifest, blob_files, manifest_file, manifest_hash) = {
+        let cipher = cipher.clone();
+        let root = owned.root_path.clone();
+        run_blocking(move || encrypt_stick(&root, cipher.as_ref(), &staging)).await?
+    };
+
+    for blob_file in blob_files.iter().chain([&manifest_file]) {
+        let expected = blob_file
+            .file_stem()
+            .and_then(|stem| data_encoding::HEXLOWER.decode(stem.as_encoded_bytes()).ok());
+        let hash = publisher.import_blob(blob_file).await?;
+        if expected.as_deref() != Some(&hash[..]) {
+            return Err(ShareError::CacheMismatch(blob_file.clone()));
+        }
+        tokio::fs::remove_file(blob_file)
+            .await
+            .map_err(|source| ShareError::Io {
+                path: blob_file.clone(),
+                source,
+            })?;
+    }
+
+    let seq = next_seq(owned.last_signed_seq, clock.now_ms()).ok_or(ShareError::SeqExhausted)?;
+    let record = signing_key.sign_record(seq, manifest_hash);
+    {
+        let store = store.clone();
+        let record = record.clone();
+        // Stored before it is served, so a seq is never used twice.
+        run_blocking(move || store.save_signed_record(&record)).await?;
+    }
+
+    let mut allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
+    allowed.insert(manifest_hash);
+    publisher.publish(record.clone(), allowed).await?;
+    tracing::info!(seq, files = manifest.entries.len(), "published stick");
+    Ok(Publication {
+        manifest,
+        manifest_hash,
+        seq,
+        record,
+    })
+}
+
+/// Blocking part of [`publish_folder`]: encrypts every file and the manifest
+/// into `staging`, each as `<hex hash>.blob`.
+fn encrypt_stick(
+    root: &Path,
+    cipher: &dyn Cipher,
+    staging: &Path,
+) -> Result<(Manifest, Vec<PathBuf>, PathBuf, BlobHash), ShareError> {
+    clear_staging(staging)?;
+    let (manifest, kept) = Manifest::from_dir_keeping_blobs(root, cipher, staging)?;
+    // Identical files share one blob; import each blob once.
+    let blob_files: Vec<PathBuf> = kept
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut manifest_blob = Vec::new();
+    encrypt_blob(
+        cipher,
+        &mut Cursor::new(manifest.to_bytes()?),
+        &mut manifest_blob,
+    )?;
+    let manifest_hash = *blake3::hash(&manifest_blob).as_bytes();
+    let manifest_file = staging.join(format!(
+        "{}.blob",
+        data_encoding::HEXLOWER.encode(&manifest_hash)
+    ));
+    std::fs::write(&manifest_file, &manifest_blob).map_err(|source| ShareError::Io {
+        path: manifest_file.clone(),
+        source,
+    })?;
+    Ok((manifest, blob_files, manifest_file, manifest_hash))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cipher::{ChaChaCipher, NoCipher};
+
+    #[test]
+    fn plan_counts_files_and_estimates_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("a"), vec![1u8; 100]).unwrap();
+        std::fs::write(dir.path().join("sub/b"), vec![2u8; 200_000]).unwrap();
+
+        let cipher = ChaChaCipher::new(&StickKey::from_bytes([1; 32]));
+        let plan = plan_share(dir.path(), &cipher).unwrap();
+        assert_eq!(plan.files, 2);
+        assert_eq!(plan.plaintext_bytes, 200_100);
+        let blobs = blob_len(&cipher, 100) + blob_len(&cipher, 200_000);
+        assert!(plan.cache_bytes > blobs && plan.cache_bytes < blobs + 2_000);
+
+        let plain = plan_share(dir.path(), &NoCipher).unwrap();
+        assert!(plain.cache_bytes < plan.cache_bytes);
+    }
+
+    #[test]
+    fn outboard_len_matches_bao_for_16_kib_groups() {
+        assert_eq!(outboard_len(0), 0);
+        assert_eq!(outboard_len(16 * 1024), 0);
+        assert_eq!(outboard_len(16 * 1024 + 1), 64);
+        assert_eq!(outboard_len(1024 * 1024), 63 * 64);
+    }
+
+    #[test]
+    fn encrypt_stick_names_every_blob_after_its_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), b"same").unwrap();
+        std::fs::write(dir.path().join("b"), b"same").unwrap();
+        std::fs::write(staging.path().join("leftover.partial"), b"x").unwrap();
+        let cipher = ChaChaCipher::new(&StickKey::from_bytes([1; 32]));
+
+        let (manifest, blobs, manifest_file, manifest_hash) =
+            encrypt_stick(dir.path(), &cipher, staging.path()).unwrap();
+        assert_eq!(manifest.entries.len(), 2);
+        assert_eq!(blobs.len(), 1, "identical files share one blob");
+        let bytes = std::fs::read(&manifest_file).unwrap();
+        assert_eq!(*blake3::hash(&bytes).as_bytes(), manifest_hash);
+        assert!(!staging.path().join("leftover.partial").exists());
+    }
+}

@@ -4,7 +4,7 @@
 //! - [`build`]: creating a manifest from a folder on disk.
 //! - [`encoding`]: the wire format (see `docs/protocol.md`).
 
-mod build;
+pub(crate) mod build;
 mod encoding;
 
 use std::io;

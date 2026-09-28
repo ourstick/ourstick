@@ -271,3 +271,18 @@ fn decrypt_never_panics_on_random_input() {
         let _ = decrypt(&NoCipher, &blob);
     }
 }
+
+#[test]
+fn blob_len_matches_what_encrypt_writes() {
+    let ciphers: [&dyn Cipher; 2] = [&NoCipher, &chacha()];
+    for cipher in ciphers {
+        for size in SIZES {
+            let blob = encrypt(cipher, &pattern(size));
+            assert_eq!(
+                blob_len(cipher, size as u64),
+                blob.len() as u64,
+                "size {size}"
+            );
+        }
+    }
+}

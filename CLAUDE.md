@@ -25,7 +25,8 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 1. **Το `ourstick-core` δεν κάνει import τίποτα από `apps/` ή `ourstick-cli`.**
    Αν χρειάζεται κάτι από το UI, ο σχεδιασμός είναι λάθος.
 2. **Κάθε εξωτερική εξάρτηση μπαίνει πίσω από trait** στο core:
-   `Transport` (iroh), `Store` (SQLite), `Cipher` (κρυπτογράφηση), `Clock`.
+   `Publisher`/`Fetcher` (iroh, στο `transport/`), `Store` (SQLite), `SecretStore`,
+   `Cipher` (κρυπτογράφηση), `Clock`.
    Έτσι τα tests τρέχουν με in-memory υλοποιήσεις, χωρίς δίκτυο ή δίσκο.
 3. **Η κατάσταση ζει σε SQLite** (`rusqlite`), με migrations σε `crates/ourstick-core/migrations/`.
    Όχι JSON αρχεία για state. Όχι global mutable state.
@@ -99,7 +100,8 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 2. `cipher.rs`: trait `Cipher` + `NoCipher` + `ChaChaCipher`. Tests roundtrip.
 3. `ticket.rs`: encode/decode. Tests roundtrip + fuzz-ish (κακό input δεν κάνει panic).
 4. `store/`: SQLite schema + trait `Store` + `SqliteStore` + `MemoryStore`. Tests.
-5. `transport/`: trait `Transport` + `IrohTransport`. Integration test 2 peers.
+5. `transport/`: traits `Publisher` (owner) / `Fetcher` (reader) + `IrohPublisher` / `IrohFetcher`.
+   Integration test 2 peers.
    Το integration test στην ίδια μηχανή δεν αρκεί. Το βήμα κλείνει με χειροκίνητη δοκιμή
    PC → laptop σε hotspot κινητού, και το CLI τυπώνει αν η σύνδεση είναι direct ή relay.
 6. `cli`: share / ls / get.

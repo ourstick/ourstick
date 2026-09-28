@@ -44,6 +44,14 @@ impl CipherId {
     }
 }
 
+/// The cipher a stick uses, keyed with its `StickKey`.
+pub fn cipher_for(id: CipherId, key: &StickKey) -> std::sync::Arc<dyn Cipher> {
+    match id {
+        CipherId::None => std::sync::Arc::new(NoCipher),
+        CipherId::XChaCha20Poly1305 => std::sync::Arc::new(ChaChaCipher::new(key)),
+    }
+}
+
 /// The secret of a stick. Whoever holds it can read the stick.
 ///
 /// `Debug` never prints the bytes, so a key cannot leak through logs.
@@ -145,6 +153,14 @@ mod tests {
         }
         assert_eq!(CipherId::None.to_byte(), 0);
         assert_eq!(CipherId::XChaCha20Poly1305.to_byte(), 1);
+    }
+
+    #[test]
+    fn cipher_for_picks_the_named_cipher() {
+        let key = StickKey::from_bytes([1; 32]);
+        for id in [CipherId::None, CipherId::XChaCha20Poly1305] {
+            assert_eq!(cipher_for(id, &key).id(), id);
+        }
     }
 
     #[test]

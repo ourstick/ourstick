@@ -2925,6 +2925,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ourstick-core",
+ "rand 0.8.8",
  "tokio",
  "tracing",
  "tracing-subscriber",

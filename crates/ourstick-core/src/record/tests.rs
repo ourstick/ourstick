@@ -246,3 +246,65 @@ fn unverified_record_exposes_what_was_signed() {
     assert_eq!(signed.unverified_record().seq, 9);
     assert_eq!(signed.unverified_record().stick_id, owner().stick_id());
 }
+
+#[test]
+fn check_distinguishes_newer_unchanged_older_and_conflict() {
+    let hint = NO_FLOOR;
+    let current = ManifestHint {
+        seq: 5,
+        hash: [9; 32],
+    };
+    let stick_id = owner().stick_id();
+
+    let first = owner().sign_record(5, [9; 32]);
+    assert!(matches!(
+        first.check(&stick_id, &hint, None),
+        Ok(RecordCheck::Newer(record)) if record.seq == 5
+    ));
+    assert!(matches!(
+        first.check(&stick_id, &hint, Some(&current)),
+        Ok(RecordCheck::Unchanged(record)) if record.seq == 5
+    ));
+    assert!(matches!(
+        owner().sign_record(6, [1; 32]).check(&stick_id, &hint, Some(&current)),
+        Ok(RecordCheck::Newer(record)) if record.seq == 6
+    ));
+    assert_eq!(
+        owner()
+            .sign_record(4, [9; 32])
+            .check(&stick_id, &hint, Some(&current)),
+        Err(RecordError::NotNewer {
+            seq: 4,
+            last_seen: 5
+        })
+    );
+    assert_eq!(
+        owner()
+            .sign_record(5, [1; 32])
+            .check(&stick_id, &hint, Some(&current)),
+        Err(RecordError::ConflictsWithCurrent { seq: 5 })
+    );
+}
+
+#[test]
+fn check_still_enforces_ticket_floor_and_signature() {
+    let hint = ManifestHint {
+        seq: 10,
+        hash: [9; 32],
+    };
+    let stick_id = owner().stick_id();
+    assert!(matches!(
+        owner()
+            .sign_record(9, [9; 32])
+            .check(&stick_id, &hint, None),
+        Err(RecordError::OlderThanTicket { .. })
+    ));
+    let forged = StickSigningKey::from_bytes(&[8; 32]).sign_record(20, [0; 32]);
+    let mut bytes = forged.to_bytes();
+    bytes[1..33].copy_from_slice(&stick_id.to_bytes());
+    let parsed = SignedManifestRecord::from_bytes(&bytes).unwrap();
+    assert_eq!(
+        parsed.check(&stick_id, &hint, None),
+        Err(RecordError::BadSignature)
+    );
+}

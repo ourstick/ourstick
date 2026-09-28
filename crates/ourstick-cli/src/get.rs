@@ -47,18 +47,22 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
         }
         ControlFlow::Continue(())
     };
-    let result = download(
-        &fetcher,
-        setup.store.clone(),
-        &SystemClock,
-        &ticket,
-        &output,
-        &mut on_event,
-    )
-    .await;
+    // Ctrl-C stops the download here instead of killing the process, so the
+    // blob store is closed cleanly and keeps everything received so far.
+    let outcome = tokio::select! {
+        result = download(
+            &fetcher,
+            setup.store.clone(),
+            &SystemClock,
+            &ticket,
+            &output,
+            &mut on_event,
+        ) => Some(result),
+        _ = tokio::signal::ctrl_c() => None,
+    };
 
-    match result {
-        Ok(report) => {
+    match outcome {
+        Some(Ok(report)) => {
             // Everything is in the output folder; the blob store is no longer needed.
             fetcher.shutdown(false).await?;
             let output = output.display().to_string();
@@ -67,11 +71,26 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
             }
             Ok(())
         }
-        Err(error) => {
+        Some(Err(error)) => {
             // Keep partial blobs so the next run resumes.
             fetcher.shutdown(true).await?;
             println!("[{}] Stopped.", clock(started.elapsed()));
             Err(error).context("download stopped; run the same command again to resume")
+        }
+        None => {
+            println!("[{}] Stopping…", clock(started.elapsed()));
+            // A second Ctrl-C quits at once, should closing hang.
+            tokio::spawn(async {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    std::process::exit(130);
+                }
+            });
+            fetcher.shutdown(true).await?;
+            println!(
+                "[{}] Stopped. Run the same command again to resume.",
+                clock(started.elapsed())
+            );
+            std::process::exit(130);
         }
     }
 }

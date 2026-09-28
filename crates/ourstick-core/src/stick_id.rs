@@ -36,6 +36,12 @@ impl StickId {
     }
 }
 
+impl std::hash::Hash for StickId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.to_bytes().hash(state);
+    }
+}
+
 impl fmt::Debug for StickId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let hex = data_encoding::HEXLOWER.encode(&self.to_bytes());

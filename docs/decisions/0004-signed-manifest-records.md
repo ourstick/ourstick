@@ -46,7 +46,14 @@ stick to one machine and rule out seeds.
   means the stick can never be updated again; the owner must create a new stick
   and share new tickets. `seq` must never repeat or go back, even after a restart
   or a restore from backup, or readers will reject every new manifest.
-  Step 4 persists both.
+  Step 4 persists both: the signing key in the secret store, `seq` in SQLite.
+- **Choosing `seq`.** The owner signs each new record with
+  `seq = max(last_signed_seq + 1, unix_time_ms)`, where `last_signed_seq` is the
+  stored value (0 if none). Normally the clock term wins, so `seq` stays ahead
+  even if the database is lost or restored from an old backup, as long as the
+  clock is not set back by more than the time since the last publish. The
+  `+ 1` term keeps `seq` strictly increasing when the clock stalls or jumps back.
+  A u64 of milliseconds does not run out.
 - Records are not encrypted. Anyone who sees one learns the StickId, how often
   the stick changes, and the hash of the encrypted manifest, but nothing about
   its content.

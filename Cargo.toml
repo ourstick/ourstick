@@ -13,7 +13,7 @@ license = "Apache-2.0"
 repository = "https://github.com/ourstick/ourstick"
 homepage = "https://ourstick.com"
 authors = ["Giorgos"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 # async
@@ -36,6 +36,12 @@ blake3 = "1"
 chacha20poly1305 = "0.10"
 ed25519-dalek = "3"
 rand = "0.8"
+
+# secrets: keyring-core with an explicitly chosen backend (never a mock);
+# async-io runtime so blocking calls never collide with tokio.
+keyring-core = "1"
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-crypto-rust"] }
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 
 # db
 rusqlite = { version = "0.32", features = ["bundled"] }

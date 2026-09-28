@@ -1,18 +1,9 @@
 //! Formatting for the terminal.
 
-/// Makes text from a peer (file names in a manifest) safe to print: control
-/// characters, including the escape character that starts terminal sequences,
-/// are shown as `\u{..}` instead of being sent to the terminal.
+/// Makes text from a peer (file names in a manifest) safe to print; see
+/// [`ourstick_core::untrusted::escape`].
 pub fn untrusted(text: &str) -> String {
-    text.chars()
-        .map(|character| {
-            if character.is_control() {
-                format!("\\u{{{:x}}}", character as u32)
-            } else {
-                character.to_string()
-            }
-        })
-        .collect()
+    ourstick_core::untrusted::escape(text)
 }
 
 /// A byte count for humans, e.g. `1.5 MB`.

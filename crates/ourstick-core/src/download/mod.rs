@@ -275,7 +275,11 @@ async fn download_file(
     let path = entry.path.as_str();
     // Early check, so a bad path fails before the transfer; checked again
     // right before the file is moved into place.
-    target_path(output_dir, path)?;
+    {
+        let output_dir = output_dir.to_path_buf();
+        let path = path.to_owned();
+        run_blocking(move || target_path(&output_dir, &path)).await?;
+    }
     if on_event(DownloadEvent::FileStarted {
         path,
         size: entry.size,

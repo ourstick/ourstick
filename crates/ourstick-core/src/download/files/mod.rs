@@ -10,6 +10,7 @@ use super::{io_error, DownloadError, PARTIAL_DIR};
 use crate::blob::decrypt_blob;
 use crate::cipher::Cipher;
 use crate::manifest::{Entry, Manifest};
+use crate::untrusted::escape;
 
 /// Why one path component cannot be written safely on this reader, if it
 /// cannot. Manifest paths are already free of `\`, NUL, `.`, `..` and empty
@@ -57,9 +58,10 @@ fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
     None
 }
 
+/// Errors carry the path escaped: it comes from the owner.
 fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
     DownloadError::UnsafePath {
-        path: path.to_owned(),
+        path: escape(path),
         reason,
     }
 }
@@ -89,8 +91,8 @@ pub(super) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
         }
         if let Some(earlier) = by_folded_path.insert(path.to_lowercase(), path) {
             return Err(DownloadError::PathCollision {
-                first: earlier.to_owned(),
-                second: path.to_owned(),
+                first: escape(earlier),
+                second: escape(path),
             });
         }
     }
@@ -101,8 +103,8 @@ pub(super) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
         while let Some((parent, _)) = ancestor.rsplit_once('/') {
             if let Some(file) = by_folded_path.get(parent) {
                 return Err(DownloadError::PathCollision {
-                    first: (*file).to_owned(),
-                    second: entry.path.clone(),
+                    first: escape(file),
+                    second: escape(&entry.path),
                 });
             }
             ancestor = parent;
@@ -172,7 +174,7 @@ pub(super) fn decrypt_into_place(
     if written != entry.size {
         let _ = std::fs::remove_file(plaintext);
         return Err(DownloadError::SizeMismatch {
-            path: entry.path.clone(),
+            path: escape(&entry.path),
             expected: entry.size,
             actual: written,
         });

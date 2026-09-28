@@ -162,6 +162,17 @@ fn a_file_that_is_also_a_folder_is_refused() {
     check_manifest_paths(&manifest(&["a/b", "a/c"])).unwrap();
 }
 
+#[test]
+fn paths_in_errors_are_escaped() {
+    let nasty = "\u{1b}[2J/c:evil";
+    let message = refused(&[nasty]).to_string();
+    assert!(!message.contains('\u{1b}'), "{message:?}");
+    assert!(message.contains("\\u{1b}"), "{message:?}");
+
+    let message = refused(&["A\u{1b}", "a\u{1b}"]).to_string();
+    assert!(!message.contains('\u{1b}'), "{message:?}");
+}
+
 // 2: symbolic links, at the start and again right before the move.
 
 #[cfg(unix)]

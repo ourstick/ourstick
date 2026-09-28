@@ -80,6 +80,16 @@ pub enum RecordError {
     NotNewer { seq: u64, last_seen: u64 },
 }
 
+/// The `seq` for the owner's next record: `max(last_signed_seq + 1, now_ms)`.
+///
+/// The clock term keeps `seq` ahead even if the stored value was lost or rolled
+/// back; the `+ 1` term keeps it increasing when the clock stalls or goes back.
+/// Returns `None` only if `last_signed_seq` is already `u64::MAX`.
+/// See `docs/decisions/0004-signed-manifest-records.md`.
+pub fn next_seq(last_signed_seq: u64, now_ms: u64) -> Option<u64> {
+    Some(last_signed_seq.checked_add(1)?.max(now_ms))
+}
+
 impl StickSigningKey {
     /// Signs the record `(this stick, seq, manifest_hash)`. The caller must use a
     /// `seq` greater than any it has signed before for this stick.
@@ -97,6 +107,12 @@ impl StickSigningKey {
 }
 
 impl SignedManifestRecord {
+    /// The record's content without checking the signature. Only for the owner's
+    /// own records (e.g. to store them); readers must use [`Self::verify`].
+    pub(crate) fn unverified_record(&self) -> &ManifestRecord {
+        &self.record
+    }
+
     pub fn to_bytes(&self) -> [u8; SIGNED_RECORD_LEN] {
         let mut bytes = [0u8; SIGNED_RECORD_LEN];
         bytes[..SIGNED_PART_LEN].copy_from_slice(&self.record.signed_part());

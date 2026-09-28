@@ -270,9 +270,10 @@ implementation of the two sections above.
 
 Secrets never go into SQLite. They are: the stick signing seed, the StickKey,
 the iroh node secret key, and on a reader the tickets it holds. SQLite keeps
-only non-secret state (StickId, NodeId, `seq`, highest accepted `seq`, folders,
-manifests, transfers) and, in place of each secret, the name of its entry in
-the secret store.
+only non-secret state (StickId, NodeId, `seq`, highest accepted `seq`, folders)
+and which secret store the device uses. The name of each secret is derived
+from the StickId (below), so SQLite needs no column for it. See
+`docs/schema.md`.
 
 | Platform                  | Where secrets live                                            | Status  |
 |---------------------------|---------------------------------------------------------------|---------|

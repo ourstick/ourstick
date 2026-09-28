@@ -220,3 +220,29 @@ fn from_bytes_never_panics_on_random_input() {
         }
     }
 }
+
+#[test]
+fn next_seq_follows_the_clock_but_always_increases() {
+    // Clock ahead of the stored value: the clock wins.
+    assert_eq!(next_seq(5, 1_700_000_000_000), Some(1_700_000_000_000));
+    // Clock behind or equal (stalled, set back): last + 1 wins.
+    assert_eq!(
+        next_seq(1_700_000_000_000, 1_600_000_000_000),
+        Some(1_700_000_000_001)
+    );
+    assert_eq!(
+        next_seq(1_700_000_000_000, 1_700_000_000_000),
+        Some(1_700_000_000_001)
+    );
+    // Nothing stored yet.
+    assert_eq!(next_seq(0, 0), Some(1));
+    // Exhausted.
+    assert_eq!(next_seq(u64::MAX, 0), None);
+}
+
+#[test]
+fn unverified_record_exposes_what_was_signed() {
+    let signed = owner().sign_record(9, [1; 32]);
+    assert_eq!(signed.unverified_record().seq, 9);
+    assert_eq!(signed.unverified_record().stick_id, owner().stick_id());
+}

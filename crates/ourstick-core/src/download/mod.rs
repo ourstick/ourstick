@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod files;
+mod path;
 
 use files::{check_manifest_paths, decrypt_into_place, prepare_partial_dir, target_path};
+use path::ReceivingPath;
 
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
@@ -31,7 +33,7 @@ pub enum DownloadEvent<'a> {
     Connected {
         path: PathKind,
     },
-    /// The connection switched between direct and relay.
+    /// The data now mostly arrives over another kind of path.
     PathChanged {
         path: PathKind,
     },
@@ -234,7 +236,7 @@ async fn download_over(
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
     let mut received = 0;
-    let mut last_path = connection.path();
+    let mut receiving = ReceivingPath::new(connection.path(), connection.usage());
     for entry in &manifest.entries {
         received += download_file(
             fetcher,
@@ -243,7 +245,7 @@ async fn download_over(
             entry,
             output_dir,
             &partial,
-            &mut last_path,
+            &mut receiving,
             on_event,
         )
         .await?;
@@ -276,7 +278,7 @@ async fn download_file(
     entry: &Entry,
     output_dir: &Path,
     partial: &Path,
-    last_path: &mut PathKind,
+    receiving: &mut ReceivingPath,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<u64, DownloadError> {
     let path = entry.path.as_str();
@@ -296,12 +298,13 @@ async fn download_file(
         return Err(DownloadError::Cancelled);
     }
 
+    let mut previous = 0;
     let stats = connection
         .fetch_blob(&entry.hash, &mut |received| {
-            let now = connection.path();
-            if now != *last_path {
-                *last_path = now;
-                on_event(DownloadEvent::PathChanged { path: now })?;
+            let new_bytes = received.saturating_sub(previous);
+            previous = received;
+            if let Some(kind) = receiving.on_received(new_bytes, || connection.usage()) {
+                on_event(DownloadEvent::PathChanged { path: kind })?;
             }
             on_event(DownloadEvent::Progress { path, received })
         })

@@ -163,7 +163,10 @@ pub trait Fetcher: Send + Sync {
 
 /// A connection from a reader to an owner.
 pub trait PeerConnection: Send + Sync {
-    /// How the connection reaches the owner right now.
+    /// The path this side currently *sends* on. With multipath QUIC the two
+    /// sides choose independently: a reader that sends little can stay on the
+    /// relay while the data comes over a direct path. To know how the data
+    /// arrives, compare [`PeerConnection::usage`] over time.
     fn path(&self) -> PathKind;
 
     /// Receives the path every time it changes, until the connection closes.

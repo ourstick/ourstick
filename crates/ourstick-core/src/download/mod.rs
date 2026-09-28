@@ -188,6 +188,8 @@ pub async fn download(
     let mut relay = RelayState::default();
     let mut reconnects = 0;
     let mut total = PathUsage::default();
+    // Blob bytes received, over all connections (a stopped fetch counts too).
+    let mut received = 0;
     loop {
         // Read again on every attempt: an earlier attempt may have accepted
         // the record, which makes it "unchanged" now.
@@ -208,6 +210,7 @@ pub async fn download(
             policy,
             consent,
             &mut relay,
+            &mut received,
             on_event,
         )
         .await;
@@ -220,6 +223,7 @@ pub async fn download(
         let event = match result {
             Ok(report) => {
                 return Ok(DownloadReport {
+                    received,
                     usage: total,
                     ..report
                 })
@@ -254,6 +258,7 @@ async fn download_over(
     policy: &RelayPolicy,
     consent: &impl RelayConsent,
     relay: &mut RelayState,
+    received: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
     // What the user was told. The tracker below starts from this, not from
@@ -335,10 +340,9 @@ async fn download_over(
         let output_dir = output_dir.to_path_buf();
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
-    let mut received = 0;
     let mut receiving = ReceivingPath::new(reported_path, connected_usage);
     for entry in &manifest.entries {
-        received += download_file(
+        download_file(
             fetcher,
             connection,
             &cipher,
@@ -347,6 +351,7 @@ async fn download_over(
             &partial,
             &mut receiving,
             watch,
+            received,
             on_event,
         )
         .await?;
@@ -359,7 +364,8 @@ async fn download_over(
         seq: record.seq,
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
-        received,
+        // Both are counted over all connections by `download`.
+        received: 0,
         usage: PathUsage::default(),
     })
 }

@@ -145,10 +145,13 @@ async fn no_direct_path_and_user_says_yes_downloads_through_the_relay() {
 
     let (result, seen) = run(&stick, &fetcher, test_policy(), &consent, output.path()).await;
 
-    result.unwrap();
+    let report = result.unwrap();
     assert_eq!(consent.asked.lock().unwrap().len(), 1);
     assert_eq!(seen.budget_used.len(), 1);
     assert!(relay_total(&fetcher) >= 20 * MIB);
+    // The report counts both connections, not only the last one.
+    assert!(report.received >= 20 * MIB, "received {}", report.received);
+    assert_eq!(report.usage.relay, relay_total(&fetcher));
     assert_eq!(
         std::fs::read(output.path().join("movie.bin")).unwrap(),
         stick.data

@@ -24,8 +24,9 @@ pub(super) async fn download_file(
     partial: &Path,
     receiving: &mut ReceivingPath,
     watch: Watch,
+    received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<u64, DownloadError> {
+) -> Result<(), DownloadError> {
     let path = entry.path.as_str();
     // Early check, so a bad path fails before the transfer; checked again
     // right before the file is moved into place.
@@ -51,6 +52,7 @@ pub(super) async fn download_file(
         .fetch_blob(&entry.hash, &mut |received| {
             let new_bytes = received.saturating_sub(previous);
             previous = received;
+            *received_total += new_bytes;
             if let Some(check) = receiving.on_received(new_bytes, || connection.usage()) {
                 if check.changed {
                     on_event(DownloadEvent::PathChanged { path: check.kind })?;
@@ -109,5 +111,5 @@ pub(super) async fn download_file(
     {
         return Err(DownloadError::Cancelled);
     }
-    Ok(stats.received)
+    Ok(())
 }

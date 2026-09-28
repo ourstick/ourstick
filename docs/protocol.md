@@ -373,5 +373,3 @@ Rules on every platform:
   key per run, because a reader needs no lasting identity and must not share the
   device's node key with a `share` running at the same time. A stable reader
   identity needs its own key in the secret store, separate from the owner's.
-- Checking the reader-side hash verification end to end needs a provider that
-  sends bytes not matching their hash; iroh-blobs' own store refuses to (ADR 0005).

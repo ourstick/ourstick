@@ -50,6 +50,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 walkdir = "2"
 notify = "7"
 tempfile = "3"
+# Tests only: build a consistent outboard for deliberately wrong data.
+bao-tree = { version = "0.16.1", default-features = false }
 data-encoding = "2"
 
 # networking — versions from `cargo add iroh iroh-blobs` (2026-09-28), not from memory.

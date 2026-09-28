@@ -32,3 +32,4 @@ zbus-secret-service-keyring-store.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true
+bao-tree.workspace = true

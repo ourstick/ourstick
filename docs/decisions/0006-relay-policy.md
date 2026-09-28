@@ -1,6 +1,8 @@
 # ADR 0006: Relay policy — relays introduce, direct paths carry data
 
-**Status:** accepted — 2026-09-29
+**Status:** accepted — 2026-09-29, revised the same day: a relay budget per
+download replaces the up-front 15 s wait for larger transfers, which left the
+download idle.
 
 ## Context
 OurStick uses iroh. When two peers cannot reach each other directly, iroh
@@ -22,19 +24,25 @@ Earlier "relay" readings in those tests were a display bug, since fixed.
 1. **Relays introduce, direct paths carry data.** A relay is used to find the
    owner, coordinate hole punching, and fetch the signed record and the
    manifest (kilobytes).
-2. **Small transfers may use the relay without asking.** If what is left to
-   download is at most 100 MB, the reader does not wait for a direct path and
-   does not ask.
-3. **Larger transfers wait for a direct path.** Before any file data is
-   fetched, the reader waits up to 15 seconds for a direct path. If none opens,
-   it stops, explains the likely reason (this device's network, what the owner
-   offered), and asks whether to continue through the relay. The default answer
+2. **A short wait first.** When file data is about to be fetched and there is
+   no direct path yet, the reader waits up to 5 seconds for one (in the field
+   tests it appeared within 1–2 seconds). Then it starts, over whatever path
+   exists.
+3. **A relay budget of 100 MB per download.** Up to 100 MB of file data may
+   arrive through the relay without asking, while iroh keeps looking for a
+   direct path; once one opens, the data moves there by itself. Transfers of at
+   most 100 MB therefore never ask.
+4. **When the budget is used up**, without a direct path, the reader stops
+   fetching, reconnects and waits up to 15 seconds for a direct path. If none
+   opens, it explains the likely reason (this device's network, what the owner
+   offered) and asks whether to continue through the relay. The default answer
    is no. `--allow-relay` answers yes for non-interactive use; without a
-   terminal and without the flag the answer is no.
-4. **A direct path lost mid-transfer is retried, then asked about.** If the
-   data starts arriving through the relay during a larger transfer, the reader
-   pauses, reconnects and waits again for a direct path (step 3). Only if that
-   fails does it ask. Nothing received is lost: downloads resume.
+   terminal and without the flag the answer is no. After the budget is used up,
+   data arriving through the relay again (a lost direct path) leads to the same
+   wait and question.
+   A direct path lost earlier, while budget is left, needs nothing special: the
+   data continues through the relay within the budget until iroh finds a direct
+   path again.
 5. **The relay is configurable.** The transport takes its relays from its
    configuration: the public n0 relays by default, and optionally further relay
    URLs **next to** n0's (never instead of them). The question to the user names
@@ -47,14 +55,21 @@ Earlier "relay" readings in those tests were a display bug, since fixed.
   transfer is acceptable, instead of it happening silently.
 - 100 MB keeps small shares (documents, a few photos) working everywhere without
   questions, while films and libraries cannot end up on a relay by accident.
+- A budget instead of an up-front wait keeps the download moving: data flows
+  through the relay during the seconds a direct path needs, instead of idling.
 
 ## Consequences
+- A large download can put up to 100 MB on the relay; in practice only the few
+  MB of the first seconds, since direct paths open within 1–2 seconds.
 - On networks where hole punching fails (strict corporate firewalls, some
-  IPv4-only mobile networks), a large download stops after 15 seconds and asks.
+  IPv4-only mobile networks), a large download stops after its first 100 MB and
+  15 more seconds, and asks.
   How often this happens is unknown; more field tests on other networks will
   tell.
-- Up to about 4 MiB can arrive through the relay before a lost direct path is
-  noticed (the reader checks which path the data arrives on every 4 MiB).
+- The budget is checked every 4 MiB, so up to about 4 MiB more than 100 MB can
+  arrive through the relay before the reader stops.
+- The budget counts per run of `get`: a resumed download starts a new budget.
+  Keeping it per stick in the Store is possible if that is ever abused.
 - A declined relay leaves a resumable download.
 
 ## Future direction (not in v1)

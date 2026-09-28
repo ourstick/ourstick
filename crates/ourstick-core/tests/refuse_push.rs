@@ -1,4 +1,5 @@
-//! A peer must not be able to write into the owner's cache. The publisher refuses every
+//! A peer must not be able to write into the owner's cache, nor read from it
+//! except by a plain get of an allowed blob. The publisher refuses every
 //! other request explicitly (ADR 0005). This test pushes like an attacker would.
 
 mod common;
@@ -6,7 +7,7 @@ mod common;
 use common::{noise, Owner};
 use iroh::endpoint::presets;
 use iroh::Endpoint;
-use iroh_blobs::protocol::{ChunkRangesSeq, PushRequest};
+use iroh_blobs::protocol::{ChunkRangesSeq, GetManyRequest, PushRequest};
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::Hash;
 use ourstick_core::transport::Publisher;
@@ -50,5 +51,36 @@ async fn owner_refuses_pushed_blobs() {
     assert!(!stored, "the pushed blob must not be in the owner's cache");
 
     attacker.close().await;
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owner_refuses_get_many_even_for_allowed_blobs() {
+    let owner = Owner::new(&[("a.bin", &noise(50_000, 10))]).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let allowed = Hash::from_bytes(publication.manifest.entries[0].hash);
+
+    let reader_store = MemStore::new();
+    let reader = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let owner_key = iroh::PublicKey::from_bytes(&ticket.node_id.0).unwrap();
+    let mut owner_addr = iroh::EndpointAddr::new(owner_key);
+    for hint in &ticket.address_hints {
+        if let ourstick_core::AddressHint::Ipv4 { ip, port } = hint {
+            owner_addr = owner_addr.with_ip_addr(SocketAddr::from((*ip, *port)));
+        }
+    }
+    let connection = reader.connect(owner_addr, iroh_blobs::ALPN).await.unwrap();
+    let result = reader_store
+        .remote()
+        .execute_get_many(
+            connection,
+            GetManyRequest::new(vec![allowed], ChunkRangesSeq::all()),
+        )
+        .await;
+
+    assert!(result.is_err(), "get-many should be refused: {result:?}");
+    assert!(!reader_store.has(allowed).await.unwrap());
+    reader.close().await;
     owner.publisher.shutdown().await;
 }

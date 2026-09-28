@@ -12,7 +12,7 @@ use iroh::Endpoint;
 use iroh_blobs::api::blobs::{AddPathOptions, BlobStatus, ImportMode};
 use iroh_blobs::api::TempTag;
 use iroh_blobs::provider::events::{
-    AbortReason, EventMask, EventSender, ProviderMessage, RequestMode,
+    AbortReason, EventMask, EventSender, ObserveMode, ProviderMessage, RequestMode,
 };
 use iroh_blobs::store::fs::options::Options;
 use iroh_blobs::store::fs::FsStore;
@@ -134,16 +134,24 @@ fn write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Every request kind is set explicitly: gets, get-many and observe are
+/// intercepted (and refused below unless allowed), push is disabled.
+fn serving_event_mask() -> EventMask {
+    EventMask {
+        get: RequestMode::Intercept,
+        get_many: RequestMode::Intercept,
+        push: RequestMode::Disabled,
+        observe: ObserveMode::Intercept,
+        ..EventMask::DEFAULT
+    }
+}
+
 /// The single place that decides what a peer may receive: a plain get of a raw
 /// blob whose hash is currently allowed. Everything else is refused, including
 /// push, get-many and observe (iroh-blobs 0.103 routes all of them through the
 /// `get` mode, so they arrive here as their own messages).
 fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>) -> EventSender {
-    let mask = EventMask {
-        get: RequestMode::Intercept,
-        ..EventMask::DEFAULT
-    };
-    let (sender, mut messages) = EventSender::channel(32, mask);
+    let (sender, mut messages) = EventSender::channel(32, serving_event_mask());
     tokio::spawn(async move {
         while let Some(message) = messages.recv().await {
             match message {
@@ -261,5 +269,19 @@ impl Publisher for IrohPublisher {
         if let Err(error) = self.router.shutdown().await {
             tracing::warn!(%error, "router did not shut down cleanly");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_request_kind_is_intercepted_or_disabled() {
+        let mask = serving_event_mask();
+        assert_eq!(mask.get, RequestMode::Intercept);
+        assert_eq!(mask.get_many, RequestMode::Intercept);
+        assert_eq!(mask.push, RequestMode::Disabled);
+        assert_eq!(mask.observe, ObserveMode::Intercept);
     }
 }

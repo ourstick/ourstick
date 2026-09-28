@@ -127,6 +127,19 @@ fn absolute(path: &Path) -> Result<PathBuf, TransportError> {
     Ok(std::path::absolute(path)?)
 }
 
+/// This endpoint's latest network report, in our own terms.
+fn network_report(endpoint: &Endpoint) -> Option<super::NetworkReport> {
+    use iroh::Watcher as _;
+    let report = endpoint.net_report().get()?;
+    Some(super::NetworkReport {
+        udp_v4: report.udp_v4,
+        udp_v6: report.udp_v6,
+        ipv4_mapping_varies: report.mapping_varies_by_dest_ipv4,
+        public_v4: report.global_v4.map(SocketAddr::V4),
+        public_v6: report.global_v6.map(SocketAddr::V6),
+    })
+}
+
 /// True if any address in the set is a relay (used to describe paths).
 fn is_relay(addr: &TransportAddr) -> bool {
     matches!(addr, TransportAddr::Relay(_))

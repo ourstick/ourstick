@@ -64,7 +64,11 @@ mod tests {
     use super::*;
 
     fn usage(direct: u64, relay: u64) -> PathUsage {
-        PathUsage { direct, relay }
+        PathUsage {
+            direct,
+            relay,
+            direct_ipv6: 0,
+        }
     }
 
     #[test]

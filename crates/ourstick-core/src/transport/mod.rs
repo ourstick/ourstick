@@ -5,6 +5,7 @@
 //! the implementation in [`iroh`] can be replaced without touching the rest of
 //! the core (ADR 0005).
 
+pub mod diagnosis;
 pub mod iroh;
 
 use std::collections::HashSet;
@@ -15,6 +16,8 @@ use std::path::Path;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId, Ticket};
+
+pub use diagnosis::{describe_network, relay_reasons, NetworkReport};
 
 /// A BLAKE3 hash of a blob.
 pub type BlobHash = [u8; 32];
@@ -46,6 +49,8 @@ impl std::fmt::Display for PathKind {
 pub struct PathUsage {
     pub direct: u64,
     pub relay: u64,
+    /// The part of `direct` that came over IPv6.
+    pub direct_ipv6: u64,
 }
 
 /// Counters for one blob fetch.
@@ -94,6 +99,9 @@ pub trait Publisher: Send + Sync {
     /// Where this node can be reached now, for tickets.
     fn address_hints(&self) -> Vec<AddressHint>;
 
+    /// What this node found out about its network, once measured.
+    fn network_report(&self) -> Option<NetworkReport>;
+
     /// Where the encrypted blob cache lives on disk.
     fn cache_dir(&self) -> &Path;
 
@@ -130,6 +138,9 @@ pub trait Publisher: Send + Sync {
 /// The reader's side: a local blob store and connections to owners.
 pub trait Fetcher: Send + Sync {
     type Connection: PeerConnection;
+
+    /// What this node found out about its network, once measured.
+    fn network_report(&self) -> Option<NetworkReport>;
 
     /// Connects to the owner named in `ticket`.
     fn connect(

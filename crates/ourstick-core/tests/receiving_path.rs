@@ -18,7 +18,8 @@ use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{download, DownloadEvent};
 use ourstick_core::share::publish_folder;
 use ourstick_core::transport::{
-    BlobHash, FetchStats, Fetcher, PathKind, PathUsage, PeerConnection, Publisher, TransportError,
+    BlobHash, FetchStats, Fetcher, NetworkReport, PathKind, PathUsage, PeerConnection, Publisher,
+    TransportError,
 };
 use ourstick_core::{
     AddressHint, CipherId, ManifestHint, MemoryStore, NodeId, OwnedStick, SignedManifestRecord,
@@ -44,6 +45,9 @@ impl Publisher for MemoryPublisher {
     }
     fn address_hints(&self) -> Vec<AddressHint> {
         Vec::new()
+    }
+    fn network_report(&self) -> Option<NetworkReport> {
+        None
     }
     fn cache_dir(&self) -> &Path {
         self.staging.path()
@@ -93,6 +97,10 @@ struct MemoryConnection {
 
 impl Fetcher for MemoryFetcher {
     type Connection = MemoryConnection;
+
+    fn network_report(&self) -> Option<NetworkReport> {
+        None
+    }
 
     async fn connect(&self, _ticket: &Ticket) -> Result<MemoryConnection, TransportError> {
         // The reader's own (sending) path is the relay, and stays there.

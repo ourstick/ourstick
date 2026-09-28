@@ -18,7 +18,7 @@ use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::watch;
 
 use super::record_protocol::{request_record, RECORD_ALPN};
-use super::{absolute, bind, is_relay, owner_addr, IrohConfig};
+use super::{absolute, bind, is_relay, network_report, owner_addr, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::Ticket;
@@ -29,13 +29,21 @@ use crate::transport::{
 /// Bytes received per path, keyed by the path id (its `Debug` form: iroh does
 /// not export the id type). Open paths are read live, closed ones are kept
 /// from their close event, so nothing is counted twice.
-type UsageByPath = Arc<Mutex<BTreeMap<String, (PathKind, u64)>>>;
+type UsageByPath = Arc<Mutex<BTreeMap<String, (Route, u64)>>>;
 
-fn kind_of(addr: &iroh::TransportAddr) -> PathKind {
-    if is_relay(addr) {
-        PathKind::Relay
-    } else {
-        PathKind::Direct
+/// How one path reaches the peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Relay,
+    DirectIpv4,
+    DirectIpv6,
+}
+
+fn route_of(addr: &iroh::TransportAddr) -> Route {
+    match addr {
+        iroh::TransportAddr::Ip(ip) if ip.is_ipv6() => Route::DirectIpv6,
+        _ if is_relay(addr) => Route::Relay,
+        _ => Route::DirectIpv4,
     }
 }
 
@@ -72,6 +80,10 @@ impl IrohFetcher {
 
 impl Fetcher for IrohFetcher {
     type Connection = IrohConnection;
+
+    fn network_report(&self) -> Option<crate::transport::NetworkReport> {
+        network_report(&self.endpoint)
+    }
 
     async fn connect(&self, ticket: &Ticket) -> Result<IrohConnection, TransportError> {
         let addr = owner_addr(ticket)?;
@@ -159,7 +171,7 @@ async fn watch_path(connection: Connection, sender: watch::Sender<PathKind>, usa
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .insert(
                     format!("{id:?}"),
-                    (kind_of(remote_addr), last_stats.udp_rx.bytes),
+                    (route_of(remote_addr), last_stats.udp_rx.bytes),
                 );
         }
         if matches!(event, PathEvent::Selected { .. } | PathEvent::Closed { .. }) {
@@ -225,14 +237,18 @@ impl PeerConnection for IrohConnection {
         for path in self.blobs.paths().iter() {
             by_path.insert(
                 format!("{:?}", path.id()),
-                (kind_of(path.remote_addr()), path.stats().udp_rx.bytes),
+                (route_of(path.remote_addr()), path.stats().udp_rx.bytes),
             );
         }
         let mut usage = PathUsage::default();
-        for (kind, bytes) in by_path.values() {
-            match kind {
-                PathKind::Relay => usage.relay += bytes,
-                _ => usage.direct += bytes,
+        for (route, bytes) in by_path.values() {
+            match route {
+                Route::Relay => usage.relay += bytes,
+                Route::DirectIpv4 => usage.direct += bytes,
+                Route::DirectIpv6 => {
+                    usage.direct += bytes;
+                    usage.direct_ipv6 += bytes;
+                }
             }
         }
         usage

@@ -20,7 +20,7 @@ use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobFormat, BlobsProtocol, Hash};
 
 use super::record_protocol::{RecordServer, RECORD_ALPN};
-use super::{absolute, address_hints, bind, node_id, IrohConfig};
+use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId};
@@ -195,6 +195,10 @@ impl Publisher for IrohPublisher {
 
     fn address_hints(&self) -> Vec<AddressHint> {
         address_hints(self.router.endpoint())
+    }
+
+    fn network_report(&self) -> Option<crate::transport::NetworkReport> {
+        network_report(self.router.endpoint())
     }
 
     fn cache_dir(&self) -> &Path {

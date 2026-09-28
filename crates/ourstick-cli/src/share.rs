@@ -9,7 +9,7 @@ use ourstick_core::clock::SystemClock;
 use ourstick_core::secrets::SecretName;
 use ourstick_core::share::{plan_share, publish_folder};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
-use ourstick_core::transport::Publisher;
+use ourstick_core::transport::{describe_network, Publisher};
 use ourstick_core::{
     cipher_for, CipherId, ManifestHint, OwnedStick, StickKey, StickSigningKey, Ticket,
 };
@@ -111,6 +111,9 @@ pub async fn run(folder: &Path) -> Result<()> {
     .await?;
     if !publisher.online(Duration::from_secs(30)).await {
         println!("Warning: no relay reachable; the ticket only has direct addresses.");
+    }
+    if let Some(report) = publisher.network_report() {
+        println!("This network: {}.", describe_network(&report));
     }
 
     let ticket = Ticket {

@@ -23,6 +23,20 @@ async fn transfer_over_public_network() {
         "no home relay within 30 s"
     );
     let ticket = owner.ticket(&publication);
+    // The network report is measured in the background; give it a moment.
+    for _ in 0..20 {
+        if owner.publisher.network_report().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    match owner.publisher.network_report() {
+        Some(report) => println!(
+            "owner network: {}",
+            ourstick_core::transport::describe_network(&report)
+        ),
+        None => println!("owner network: not measured yet"),
+    }
     assert!(
         ticket
             .address_hints

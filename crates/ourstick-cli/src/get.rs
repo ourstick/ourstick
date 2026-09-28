@@ -4,16 +4,38 @@
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::download::{download, DownloadEvent};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
-use ourstick_core::transport::Fetcher;
+use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
 use ourstick_core::Ticket;
 
 use crate::progress::{clock, Progress};
+
+/// How long data may arrive through the relay before `get` explains why.
+const EXPLAIN_AFTER: Duration = Duration::from_secs(6);
+
+/// This device's network and the likely reasons the data uses the relay.
+fn relay_explanation(fetcher: &IrohFetcher, ticket: &Ticket, elapsed: Duration) -> Vec<String> {
+    let report = fetcher.network_report();
+    let mut lines = vec![format!(
+        "[{}] Using the relay. Likely reasons:",
+        clock(elapsed)
+    )];
+    for reason in relay_reasons(report.as_ref(), &ticket.address_hints) {
+        lines.push(format!("        - {reason}"));
+    }
+    if let Some(report) = report {
+        lines.push(format!(
+            "        This network: {}.",
+            describe_network(&report)
+        ));
+    }
+    lines
+}
 use crate::setup::{self, hex, random_key};
 
 pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
@@ -41,9 +63,18 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
 
     let started = Instant::now();
     let mut progress = Progress::default();
+    let mut explained = false;
     let mut on_event = |event: DownloadEvent<'_>| {
-        for line in progress.on_event(event, started.elapsed()) {
+        let elapsed = started.elapsed();
+        for line in progress.on_event(event, elapsed) {
             println!("{line}");
+        }
+        // Still on the relay after a few seconds: say why, once.
+        if !explained && progress.path() == Some(PathKind::Relay) && elapsed >= EXPLAIN_AFTER {
+            explained = true;
+            for line in relay_explanation(&fetcher, &ticket, elapsed) {
+                println!("{line}");
+            }
         }
         ControlFlow::Continue(())
     };

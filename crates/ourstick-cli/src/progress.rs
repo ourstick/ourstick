@@ -64,6 +64,11 @@ impl Progress {
         self.finished + (self.current_local + self.current_received).min(self.current_size)
     }
 
+    /// The path the data currently arrives on, as last reported.
+    pub fn path(&self) -> Option<PathKind> {
+        self.path
+    }
+
     /// What came over the network in this run; the speed is based on this.
     fn network(&self) -> u64 {
         self.finished_network + self.current_received
@@ -165,8 +170,9 @@ impl Progress {
                 rate(report.received, elapsed)
             ),
             format!(
-                "        Received directly: {}, through a relay: {}.",
+                "        Received directly: {} ({} over IPv6), through a relay: {}.",
                 bytes(report.usage.direct),
+                bytes(report.usage.direct_ipv6),
                 bytes(report.usage.relay)
             ),
         ]
@@ -329,6 +335,7 @@ mod tests {
             usage: PathUsage {
                 direct: 5_000_000_000,
                 relay: 950_000_000,
+                direct_ipv6: 4_000_000_000,
             },
         };
         let lines = Progress::summary(&report, "/Users/a/received", secs(252));
@@ -338,7 +345,7 @@ mod tests {
         );
         assert_eq!(
             lines[1],
-            "        Received directly: 5.0 GB, through a relay: 950.0 MB."
+            "        Received directly: 5.0 GB (4.0 GB over IPv6), through a relay: 950.0 MB."
         );
     }
 }

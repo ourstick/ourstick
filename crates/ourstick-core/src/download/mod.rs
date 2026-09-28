@@ -6,17 +6,27 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod entry;
 mod files;
 mod path;
+mod relay;
 
-use files::{check_manifest_paths, decrypt_into_place, prepare_partial_dir, target_path};
+use entry::download_file;
+use files::{check_manifest_paths, prepare_partial_dir};
 use path::ReceivingPath;
+use relay::{settle, RelayState};
+
+pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
+
+/// How many times a download reconnects after losing its direct path before
+/// giving up.
+const MAX_RECONNECTS: u32 = 3;
 
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, CipherError, CipherId};
 use crate::clock::Clock;
-use crate::manifest::{Entry, Manifest, ManifestError};
+use crate::manifest::{Manifest, ManifestError};
 use crate::record::{ManifestHint, RecordCheck, RecordError};
 use crate::store::{JoinedStick, Store, StoreError};
 use crate::ticket::Ticket;
@@ -37,6 +47,14 @@ pub enum DownloadEvent<'a> {
     PathChanged {
         path: PathKind,
     },
+    /// A larger transfer waits this long for a direct path before asking
+    /// about the relay (ADR 0006).
+    WaitingForDirect {
+        seconds: u64,
+    },
+    /// The direct path was lost and data started to arrive through the relay;
+    /// the download reconnects and tries for a direct path again.
+    DirectLost,
     Manifest {
         seq: u64,
         files: usize,
@@ -85,6 +103,10 @@ pub enum DownloadError {
         expected: u64,
         actual: u64,
     },
+    #[error("no direct connection to the owner could be made and using the relay was declined ({remaining} bytes left); run again later, or allow the relay")]
+    RelayDeclined { remaining: u64 },
+    #[error("the direct connection to the owner kept dropping; run again to resume")]
+    DirectLost,
     #[error("refusing to write {path}: {reason}")]
     UnsafePath { path: String, reason: &'static str },
     #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]
@@ -125,16 +147,21 @@ fn cancelled(error: TransportError) -> DownloadError {
 /// `store`. On any error nothing half-written is left under a final name; run
 /// again to resume. The caller shuts the fetcher down afterwards (keeping its
 /// store on error, so the next run resumes).
+/// Whether file data may go through the relay follows `policy` (ADR 0006);
+/// `consent` is asked when a larger transfer has no direct path.
+#[allow(clippy::too_many_arguments)]
 pub async fn download(
     fetcher: &impl Fetcher,
     store: Arc<dyn Store>,
     clock: &dyn Clock,
     ticket: &Ticket,
     output_dir: &Path,
+    policy: &RelayPolicy,
+    consent: &impl RelayConsent,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
     let stick_id = ticket.stick_id;
-    let joined = {
+    {
         let store = store.clone();
         let output_dir = output_dir.to_path_buf();
         let now = clock.now_ms();
@@ -146,28 +173,53 @@ pub async fn download(
                 Ok::<_, StoreError>(joined)
             }
         })
-        .await?
-    };
+        .await?;
+    }
 
-    let connection = fetcher.connect(ticket).await?;
-    let result = download_over(
-        fetcher,
-        &connection,
-        store,
-        ticket,
-        &joined,
-        output_dir,
-        on_event,
-    )
-    .await
-    .map(|report| DownloadReport {
-        usage: connection.usage(),
-        ..report
-    });
-    connection.close().await;
-    result
+    let mut relay = RelayState::default();
+    let mut reconnects = 0;
+    loop {
+        // Read again on every attempt: an earlier attempt may have accepted
+        // the record, which makes it "unchanged" now.
+        let joined = {
+            let store = store.clone();
+            run_blocking(move || store.joined_stick(&stick_id))
+                .await?
+                .ok_or(StoreError::StickNotFound)?
+        };
+        let connection = fetcher.connect(ticket).await?;
+        let result = download_over(
+            fetcher,
+            &connection,
+            store.clone(),
+            ticket,
+            &joined,
+            output_dir,
+            policy,
+            consent,
+            &mut relay,
+            on_event,
+        )
+        .await
+        .map(|report| DownloadReport {
+            usage: connection.usage(),
+            ..report
+        });
+        connection.close().await;
+        match result {
+            Err(DownloadError::DirectLost) if reconnects < MAX_RECONNECTS => {
+                reconnects += 1;
+                relay.direct_was_lost = true;
+                if on_event(DownloadEvent::DirectLost).is_break() {
+                    return Err(DownloadError::Cancelled);
+                }
+            }
+            other => return other,
+        }
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn download_over(
     fetcher: &impl Fetcher,
     connection: &impl PeerConnection,
@@ -175,6 +227,9 @@ async fn download_over(
     ticket: &Ticket,
     joined: &JoinedStick,
     output_dir: &Path,
+    policy: &RelayPolicy,
+    consent: &impl RelayConsent,
+    relay: &mut RelayState,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
     // What the user was told. The tracker below starts from this, not from
@@ -238,6 +293,19 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
+    // ADR 0006: file data only over a direct path, unless it is small or the
+    // user agreed. The record and manifest above may use the relay.
+    let mut remaining = 0;
+    for entry in &manifest.entries {
+        remaining += entry
+            .size
+            .saturating_sub(fetcher.local_bytes(&entry.hash).await?);
+    }
+    let direct_only = settle(
+        fetcher, connection, ticket, policy, consent, relay, remaining, on_event,
+    )
+    .await?;
+
     let partial = {
         let output_dir = output_dir.to_path_buf();
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
@@ -253,6 +321,7 @@ async fn download_over(
             output_dir,
             &partial,
             &mut receiving,
+            direct_only,
             on_event,
         )
         .await?;
@@ -275,88 +344,6 @@ async fn download_over(
 fn cipher_of(manifest_blob: &[u8], ticket: &Ticket) -> Result<Arc<dyn Cipher>, DownloadError> {
     let byte = *manifest_blob.get(1).ok_or(CipherError::Truncated)?;
     Ok(cipher_for(CipherId::from_byte(byte)?, &ticket.stick_key))
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn download_file(
-    fetcher: &impl Fetcher,
-    connection: &impl PeerConnection,
-    cipher: &Arc<dyn Cipher>,
-    entry: &Entry,
-    output_dir: &Path,
-    partial: &Path,
-    receiving: &mut ReceivingPath,
-    on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<u64, DownloadError> {
-    let path = entry.path.as_str();
-    // Early check, so a bad path fails before the transfer; checked again
-    // right before the file is moved into place.
-    {
-        let output_dir = output_dir.to_path_buf();
-        let path = path.to_owned();
-        run_blocking(move || target_path(&output_dir, &path)).await?;
-    }
-    let already_local = fetcher.local_bytes(&entry.hash).await?;
-    if on_event(DownloadEvent::FileStarted {
-        path,
-        size: entry.size,
-        already_local,
-    })
-    .is_break()
-    {
-        return Err(DownloadError::Cancelled);
-    }
-
-    let mut previous = 0;
-    let stats = connection
-        .fetch_blob(&entry.hash, &mut |received| {
-            let new_bytes = received.saturating_sub(previous);
-            previous = received;
-            if let Some(kind) = receiving.on_received(new_bytes, || connection.usage()) {
-                on_event(DownloadEvent::PathChanged { path: kind })?;
-            }
-            on_event(DownloadEvent::Progress { path, received })
-        })
-        .await
-        .map_err(cancelled)?;
-
-    let name = data_encoding::HEXLOWER.encode(&entry.hash);
-    let ciphertext = partial.join(format!("{name}.blob"));
-    let plaintext = partial.join(format!("{name}.plain"));
-    for leftover in [&ciphertext, &plaintext] {
-        if let Err(error) = tokio::fs::remove_file(leftover).await {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(io_error(leftover)(error));
-            }
-        }
-    }
-    fetcher.export_blob(&entry.hash, &ciphertext).await?;
-    {
-        let cipher = cipher.clone();
-        let entry = entry.clone();
-        let output_dir = output_dir.to_path_buf();
-        run_blocking(move || {
-            decrypt_into_place(
-                cipher.as_ref(),
-                &entry,
-                &ciphertext,
-                &plaintext,
-                &output_dir,
-            )
-        })
-        .await?;
-    }
-
-    if on_event(DownloadEvent::FileDone {
-        path,
-        already_local: stats.already_local,
-        received: stats.received,
-    })
-    .is_break()
-    {
-        return Err(DownloadError::Cancelled);
-    }
-    Ok(stats.received)
 }
 
 #[cfg(test)]

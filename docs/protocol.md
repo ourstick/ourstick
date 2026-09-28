@@ -323,6 +323,14 @@ One request per connection, on one bidirectional stream.
 The record is not trusted because of where it came from: the reader always
 checks it (rules above).
 
+### Relay policy (reader)
+
+Relays introduce peers and carry the record and manifest. File data goes over
+a direct path, except for transfers of at most 100 MB, or when the user agrees
+after 15 s without a direct path (also after a direct path is lost and a new
+attempt fails). See ADR 0006. Owners follow no policy of their own: they send
+over whatever path the connection uses.
+
 ### What an owner serves
 
 An owner answers a blob request only if it is a plain get of a raw blob whose

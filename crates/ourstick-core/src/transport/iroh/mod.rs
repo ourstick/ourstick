@@ -36,6 +36,19 @@ pub struct IrohConfig {
     secret_key: [u8; 32],
     network: Network,
     gc_interval: Duration,
+    relays: Relays,
+}
+
+/// Which relays a [`Network::Public`] node uses (ADR 0006: configurable, not
+/// tied to n0). Further relays are added next to n0's, never instead of them.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Relays {
+    /// The public relays run by n0 (iroh's default).
+    #[default]
+    N0Public,
+    /// n0's public relays and these ones, e.g. a future
+    /// `https://relay.ourstick.com`.
+    N0PublicAnd(Vec<String>),
 }
 
 impl IrohConfig {
@@ -45,6 +58,24 @@ impl IrohConfig {
             secret_key,
             network,
             gc_interval: Duration::from_secs(60),
+            relays: Relays::default(),
+        }
+    }
+
+    /// Which relays to use with [`Network::Public`].
+    pub fn with_relays(mut self, relays: Relays) -> Self {
+        self.relays = relays;
+        self
+    }
+
+    /// Which relay this configuration uses, for the user.
+    pub fn relay_description(&self) -> String {
+        match (&self.network, &self.relays) {
+            (Network::LocalOnly, _) => "no relay (local only)".to_owned(),
+            (Network::Public, Relays::N0Public) => "the public iroh relays run by n0".to_owned(),
+            (Network::Public, Relays::N0PublicAnd(urls)) => {
+                format!("the public iroh relays run by n0 and {}", urls.join(", "))
+            }
         }
     }
 
@@ -67,15 +98,26 @@ impl fmt::Debug for IrohConfig {
             .field("node_id", &Self::node_id_of(&self.secret_key))
             .field("network", &self.network)
             .field("gc_interval", &self.gc_interval)
+            .field("relays", &self.relays)
             .finish_non_exhaustive()
     }
 }
 
 async fn bind(config: &IrohConfig, alpns: Vec<Vec<u8>>) -> Result<Endpoint, TransportError> {
-    let builder = match config.network {
+    let mut builder = match config.network {
         Network::Public => Endpoint::builder(presets::N0),
         Network::LocalOnly => Endpoint::builder(presets::Minimal),
     };
+    if let (Network::Public, Relays::N0PublicAnd(extra)) = (&config.network, &config.relays) {
+        let mut urls: Vec<RelayUrl> = iroh::defaults::prod::default_relay_map().urls();
+        for url in extra {
+            urls.push(
+                url.parse::<RelayUrl>()
+                    .map_err(|_| TransportError::Bind(format!("invalid relay URL: {url}")))?,
+            );
+        }
+        builder = builder.relay_mode(iroh::RelayMode::custom(urls));
+    }
     builder
         .secret_key(SecretKey::from_bytes(&config.secret_key))
         .alpns(alpns)
@@ -200,6 +242,37 @@ mod tests {
         let printed = format!("{config:?}");
         assert!(!printed.contains(&"ab".repeat(8)), "{printed}");
         assert!(!printed.contains("171"), "{printed}");
+    }
+
+    #[test]
+    fn relay_description_names_the_relay() {
+        let key = [1; 32];
+        assert_eq!(
+            IrohConfig::new(key, Network::Public).relay_description(),
+            "the public iroh relays run by n0"
+        );
+        assert_eq!(
+            IrohConfig::new(key, Network::Public)
+                .with_relays(Relays::N0PublicAnd(
+                    vec!["https://relay.example.org".into()]
+                ))
+                .relay_description(),
+            "the public iroh relays run by n0 and https://relay.example.org"
+        );
+        assert_eq!(
+            IrohConfig::new(key, Network::LocalOnly).relay_description(),
+            "no relay (local only)"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_custom_relay_is_a_clear_error() {
+        let config = IrohConfig::new([1; 32], Network::Public)
+            .with_relays(Relays::N0PublicAnd(vec!["not a url".into()]));
+        assert!(matches!(
+            bind(&config, Vec::new()).await,
+            Err(TransportError::Bind(message)) if message.contains("not a url")
+        ));
     }
 
     #[test]

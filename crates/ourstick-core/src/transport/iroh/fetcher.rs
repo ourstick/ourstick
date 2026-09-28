@@ -52,6 +52,7 @@ pub struct IrohFetcher {
     endpoint: Endpoint,
     store: FsStore,
     store_dir: PathBuf,
+    relay_description: String,
 }
 
 fn storage(error: impl std::fmt::Display) -> TransportError {
@@ -74,6 +75,7 @@ impl IrohFetcher {
             endpoint,
             store,
             store_dir,
+            relay_description: config.relay_description(),
         })
     }
 }
@@ -83,6 +85,10 @@ impl Fetcher for IrohFetcher {
 
     fn network_report(&self) -> Option<crate::transport::NetworkReport> {
         network_report(&self.endpoint)
+    }
+
+    fn relay_description(&self) -> String {
+        self.relay_description.clone()
     }
 
     async fn connect(&self, ticket: &Ticket) -> Result<IrohConnection, TransportError> {
@@ -227,6 +233,10 @@ impl PeerConnection for IrohConnection {
 
     fn path_changes(&self) -> watch::Receiver<PathKind> {
         self.path_receiver.clone()
+    }
+
+    fn has_direct_path(&self) -> bool {
+        self.blobs.paths().iter().any(|path| path.is_ip())
     }
 
     fn usage(&self) -> PathUsage {

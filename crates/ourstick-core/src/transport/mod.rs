@@ -142,6 +142,10 @@ pub trait Fetcher: Send + Sync {
     /// What this node found out about its network, once measured.
     fn network_report(&self) -> Option<NetworkReport>;
 
+    /// Which relay this node uses, for the user (e.g. when asking whether a
+    /// transfer may go through it).
+    fn relay_description(&self) -> String;
+
     /// Connects to the owner named in `ticket`.
     fn connect(
         &self,
@@ -185,6 +189,9 @@ pub trait PeerConnection: Send + Sync {
 
     /// How many bytes arrived over direct and over relay paths so far.
     fn usage(&self) -> PathUsage;
+
+    /// Whether a direct (non-relay) path to the peer is open right now.
+    fn has_direct_path(&self) -> bool;
 
     /// Asks the owner for the latest signed record of `stick_id`. The record is
     /// not verified here.

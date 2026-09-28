@@ -13,6 +13,14 @@ use crate::transport::{PathKind, PathUsage};
 /// keeps this free of clocks.
 pub(super) const CHECK_EVERY: u64 = 4 * 1024 * 1024;
 
+/// The result of one check: where the latest data came from, and whether that
+/// differs from what was reported before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Check {
+    pub(super) kind: PathKind,
+    pub(super) changed: bool,
+}
+
 pub(super) struct ReceivingPath {
     kind: PathKind,
     last_usage: PathUsage,
@@ -29,13 +37,13 @@ impl ReceivingPath {
     }
 
     /// Call with the bytes received since the last call. Every
-    /// [`CHECK_EVERY`] bytes it reads `usage` and returns the new path if the
-    /// data now mostly arrives over a different one.
+    /// [`CHECK_EVERY`] bytes it reads `usage` and returns which kind of path
+    /// the data since the previous check mostly came over.
     pub(super) fn on_received(
         &mut self,
         bytes: u64,
         usage: impl FnOnce() -> PathUsage,
-    ) -> Option<PathKind> {
+    ) -> Option<Check> {
         self.unchecked += bytes;
         if self.unchecked < CHECK_EVERY {
             return None;
@@ -57,12 +65,9 @@ impl ReceivingPath {
             std::cmp::Ordering::Less => PathKind::Relay,
             std::cmp::Ordering::Equal => return None,
         };
-        if kind == self.kind {
-            None
-        } else {
-            self.kind = kind;
-            Some(kind)
-        }
+        let changed = kind != self.kind;
+        self.kind = kind;
+        Some(Check { kind, changed })
     }
 }
 
@@ -88,12 +93,18 @@ mod tests {
         );
         assert_eq!(
             path.on_received(1, || usage(5_000_000, 12_000)),
-            Some(PathKind::Direct)
+            Some(Check {
+                kind: PathKind::Direct,
+                changed: true
+            })
         );
-        // Still direct: nothing to report.
+        // Still direct: checked, nothing changed.
         assert_eq!(
             path.on_received(CHECK_EVERY, || usage(10_000_000, 13_000)),
-            None
+            Some(Check {
+                kind: PathKind::Direct,
+                changed: false
+            })
         );
     }
 
@@ -102,7 +113,10 @@ mod tests {
         let mut path = ReceivingPath::new(PathKind::Direct, usage(0, 0));
         assert_eq!(
             path.on_received(CHECK_EVERY, || usage(1_000, 4_000_000)),
-            Some(PathKind::Relay)
+            Some(Check {
+                kind: PathKind::Relay,
+                changed: true
+            })
         );
     }
 

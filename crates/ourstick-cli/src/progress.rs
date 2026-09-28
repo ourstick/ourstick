@@ -82,6 +82,12 @@ impl Progress {
                 self.path = Some(path);
                 vec![format!("[{at}] Connected: {}.", describe(path))]
             }
+            DownloadEvent::WaitingForDirect { seconds } => vec![format!(
+                "[{at}] Large transfer: waiting up to {seconds} s for a direct connection…"
+            )],
+            DownloadEvent::DirectLost => vec![format!(
+                "[{at}] The direct connection was lost; reconnecting to find it again…"
+            )],
             DownloadEvent::PathChanged { path } => {
                 self.path = Some(path);
                 vec![format!("[{at}] Now: {}.", describe(path))]

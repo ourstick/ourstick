@@ -1,5 +1,6 @@
 //! `ourstick` CLI: share / get.
 
+mod consent;
 mod display;
 mod get;
 mod progress;
@@ -15,7 +16,11 @@ ourstick — a USB stick you can send
 
 Usage:
   ourstick share <folder>                  Share a folder and print its ticket
-  ourstick get <ticket> [--out <folder>]   Download a stick (resumes if interrupted)
+  ourstick get <ticket> [--out <folder>] [--allow-relay]
+                                           Download a stick (resumes if interrupted)
+
+Over 100 MB, `get` waits 15 s for a direct connection and asks before using a
+relay; --allow-relay says yes in advance (for scripts).
 
 Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 
@@ -26,6 +31,7 @@ enum Command {
     Get {
         ticket: String,
         output: Option<PathBuf>,
+        allow_relay: bool,
     },
     Help,
 }
@@ -35,20 +41,33 @@ fn parse(args: &[String]) -> Result<Command> {
         [command, folder] if command == "share" => Ok(Command::Share {
             folder: folder.into(),
         }),
-        [command, ticket] if command == "get" => Ok(Command::Get {
-            ticket: ticket.clone(),
-            output: None,
-        }),
-        [command, ticket, flag, output] if command == "get" && flag == "--out" => {
-            Ok(Command::Get {
-                ticket: ticket.clone(),
-                output: Some(output.into()),
-            })
-        }
+        [command, ticket, options @ ..] if command == "get" => parse_get(ticket, options),
         [] => Ok(Command::Help),
         [flag] if flag == "-h" || flag == "--help" || flag == "help" => Ok(Command::Help),
         _ => bail!("unknown command\n\n{USAGE}"),
     }
+}
+
+/// `get <ticket>` followed by `--out <folder>` and/or `--allow-relay`, in any order.
+fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
+    let mut output = None;
+    let mut allow_relay = false;
+    let mut options = options.iter();
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "--out" => match options.next() {
+                Some(folder) if output.is_none() => output = Some(PathBuf::from(folder)),
+                _ => bail!("--out needs one folder\n\n{USAGE}"),
+            },
+            "--allow-relay" => allow_relay = true,
+            other => bail!("unknown option {other}\n\n{USAGE}"),
+        }
+    }
+    Ok(Command::Get {
+        ticket: ticket.to_owned(),
+        output,
+        allow_relay,
+    })
 }
 
 #[tokio::main]
@@ -61,7 +80,11 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args)? {
         Command::Share { folder } => share::run(&folder).await,
-        Command::Get { ticket, output } => get::run(&ticket, output).await,
+        Command::Get {
+            ticket,
+            output,
+            allow_relay,
+        } => get::run(&ticket, output, allow_relay).await,
         Command::Help => {
             println!("{USAGE}");
             Ok(())
@@ -85,7 +108,7 @@ mod tests {
         ));
         assert!(matches!(
             parse(&args(&["get", "T"])),
-            Ok(Command::Get { ticket, output: None }) if ticket == "T"
+            Ok(Command::Get { ticket, output: None, allow_relay: false }) if ticket == "T"
         ));
         assert!(matches!(
             parse(&args(&["get", "T", "--out", "dir"])),
@@ -95,5 +118,12 @@ mod tests {
         assert!(matches!(parse(&args(&["--help"])), Ok(Command::Help)));
         assert!(parse(&args(&["share"])).is_err());
         assert!(parse(&args(&["get", "T", "--in", "dir"])).is_err());
+        assert!(matches!(
+            parse(&args(&["get", "T", "--allow-relay", "--out", "dir"])),
+            Ok(Command::Get { output: Some(output), allow_relay: true, .. })
+                if output == std::path::Path::new("dir")
+        ));
+        assert!(parse(&args(&["get", "T", "--out"])).is_err());
+        assert!(parse(&args(&["get", "T", "--out", "a", "--out", "b"])).is_err());
     }
 }

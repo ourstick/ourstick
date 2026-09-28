@@ -8,11 +8,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
-use ourstick_core::download::{download, DownloadEvent};
+use ourstick_core::download::{download, DownloadError, DownloadEvent, RelayPolicy};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
 use ourstick_core::Ticket;
 
+use crate::consent::CliConsent;
 use crate::progress::{clock, Progress};
 
 /// How long data may arrive through the relay before `get` explains why.
@@ -38,7 +39,7 @@ fn relay_explanation(fetcher: &IrohFetcher, ticket: &Ticket, elapsed: Duration) 
 }
 use crate::setup::{self, hex, random_key};
 
-pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
+pub async fn run(ticket_text: &str, output: Option<PathBuf>, allow_relay: bool) -> Result<()> {
     let ticket: Ticket = ticket_text.parse()?;
     let stick_hex = hex(&ticket.stick_id.to_bytes());
     let output = match output {
@@ -62,6 +63,8 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
     println!("Connecting to the owner…");
 
     let started = Instant::now();
+    let consent = CliConsent::new(allow_relay, started);
+    let policy = RelayPolicy::default();
     let mut progress = Progress::default();
     let mut explained = false;
     let mut on_event = |event: DownloadEvent<'_>| {
@@ -70,7 +73,11 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
             println!("{line}");
         }
         // Still on the relay after a few seconds: say why, once.
-        if !explained && progress.path() == Some(PathKind::Relay) && elapsed >= EXPLAIN_AFTER {
+        if !explained
+            && !consent.explained()
+            && progress.path() == Some(PathKind::Relay)
+            && elapsed >= EXPLAIN_AFTER
+        {
             explained = true;
             for line in relay_explanation(&fetcher, &ticket, elapsed) {
                 println!("{line}");
@@ -87,6 +94,8 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
             &SystemClock,
             &ticket,
             &output,
+            &policy,
+            &consent,
             &mut on_event,
         ) => Some(result),
         _ = tokio::signal::ctrl_c() => None,
@@ -106,6 +115,9 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>) -> Result<()> {
             // Keep partial blobs so the next run resumes.
             fetcher.shutdown(true).await?;
             println!("[{}] Stopped.", clock(started.elapsed()));
+            if matches!(error, DownloadError::RelayDeclined { .. }) {
+                println!("        To continue through the relay, run again with --allow-relay.");
+            }
             Err(error).context("download stopped; run the same command again to resume")
         }
         None => {

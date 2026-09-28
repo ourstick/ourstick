@@ -36,9 +36,9 @@ Earlier "relay" readings in those tests were a display bug, since fixed.
    pauses, reconnects and waits again for a direct path (step 3). Only if that
    fails does it ask. Nothing received is lost: downloads resume.
 5. **The relay is configurable.** The transport takes its relays from its
-   configuration (the public n0 relays by default, or a list of relay URLs), and
-   the question to the user names the relay that would be used. Nothing in the
-   policy is tied to n0.
+   configuration: the public n0 relays by default, and optionally further relay
+   URLs **next to** n0's (never instead of them). The question to the user names
+   the relays that would be used. Nothing in the policy is tied to n0.
 
 ## Why
 - The public relays are someone else's service. Using them for introductions is
@@ -58,8 +58,16 @@ Earlier "relay" readings in those tests were a display bug, since fixed.
 - A declined relay leaves a resumable download.
 
 ## Future direction (not in v1)
-Relays of our own as a **paid tier**, with no limit on size or speed. Then the
-question in step 3 becomes "continue through OurStick Cloud" for subscribers,
-and the relay configuration (step 5) points at those relays. This goes together
-with the cloud seed that CLAUDE.md already defers. No code for our own relays is
-written now.
+A relay of our own, e.g. `relay.ourstick.com`, added **next to** the n0 relays
+through the configuration of step 5, not replacing them. Two tiers on it:
+
+- **Free tier:** does exactly what the n0 relays do under this policy:
+  introductions, hole punching coordination, the record and manifest, and
+  transfers up to 100 MB.
+- **Cloud tier (paid):** "continue through the relay" for larger transfers, with
+  no limit on size or speed. The question in step 3 becomes "continue through
+  OurStick Cloud" for subscribers.
+
+This goes together with the cloud seed that CLAUDE.md already defers. CLAUDE.md
+(no infrastructure of our own in v1) is unchanged, and no code for our own relay
+is written now.

@@ -177,8 +177,13 @@ async fn download_over(
     output_dir: &Path,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
+    // What the user was told. The tracker below starts from this, not from
+    // the path at that later moment: hole punching often succeeds while the
+    // manifest is fetched, and a change nobody reported would never be shown.
+    let reported_path = connection.path();
+    let connected_usage = connection.usage();
     if on_event(DownloadEvent::Connected {
-        path: connection.path(),
+        path: reported_path,
     })
     .is_break()
     {
@@ -238,7 +243,7 @@ async fn download_over(
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
     let mut received = 0;
-    let mut receiving = ReceivingPath::new(connection.path(), connection.usage());
+    let mut receiving = ReceivingPath::new(reported_path, connected_usage);
     for entry in &manifest.entries {
         received += download_file(
             fetcher,

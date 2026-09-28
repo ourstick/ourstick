@@ -44,6 +44,13 @@ impl ReceivingPath {
         let now = usage();
         let direct = now.direct.saturating_sub(self.last_usage.direct);
         let relay = now.relay.saturating_sub(self.last_usage.relay);
+        tracing::debug!(
+            total_direct = now.direct,
+            total_relay = now.relay,
+            new_direct = direct,
+            new_relay = relay,
+            "receiving path check"
+        );
         self.last_usage = now;
         let kind = match direct.cmp(&relay) {
             std::cmp::Ordering::Greater => PathKind::Direct,

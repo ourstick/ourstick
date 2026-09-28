@@ -87,12 +87,17 @@ struct Local {
 struct MemoryFetcher {
     served: Arc<Mutex<Served>>,
     local: Arc<Mutex<Local>>,
+    /// Hole punching succeeds during the first fetch (the manifest): from then
+    /// on the reader sends directly too.
+    punch_during_first_fetch: bool,
 }
 
 struct MemoryConnection {
     served: Arc<Mutex<Served>>,
     local: Arc<Mutex<Local>>,
-    path: tokio::sync::watch::Receiver<PathKind>,
+    /// The path this reader sends on.
+    path: Arc<Mutex<PathKind>>,
+    punch_during_first_fetch: bool,
 }
 
 impl Fetcher for MemoryFetcher {
@@ -104,11 +109,12 @@ impl Fetcher for MemoryFetcher {
 
     async fn connect(&self, _ticket: &Ticket) -> Result<MemoryConnection, TransportError> {
         // The reader's own (sending) path is the relay, and stays there.
-        let (_sender, path) = tokio::sync::watch::channel(PathKind::Relay);
+        // The reader starts out sending over the relay.
         Ok(MemoryConnection {
             served: self.served.clone(),
             local: self.local.clone(),
-            path,
+            path: Arc::new(Mutex::new(PathKind::Relay)),
+            punch_during_first_fetch: self.punch_during_first_fetch,
         })
     }
     async fn read_blob(&self, hash: &BlobHash) -> Result<Vec<u8>, TransportError> {
@@ -135,10 +141,10 @@ impl Fetcher for MemoryFetcher {
 
 impl PeerConnection for MemoryConnection {
     fn path(&self) -> PathKind {
-        *self.path.borrow()
+        *self.path.lock().unwrap()
     }
     fn path_changes(&self) -> tokio::sync::watch::Receiver<PathKind> {
-        self.path.clone()
+        tokio::sync::watch::channel(self.path()).1
     }
     fn usage(&self) -> PathUsage {
         self.local.lock().unwrap().usage
@@ -171,6 +177,9 @@ impl PeerConnection for MemoryConnection {
                 .cloned()
                 .ok_or(TransportError::Refused)?
         };
+        if self.punch_during_first_fetch {
+            *self.path.lock().unwrap() = PathKind::Direct;
+        }
         let mut received = 0u64;
         for piece in bytes.chunks(1024 * 1024) {
             received += piece.len() as u64;
@@ -195,8 +204,9 @@ fn random_key() -> [u8; 32] {
     key
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn reader_reports_direct_when_data_arrives_directly_while_it_sends_via_relay() {
+/// Downloads a 20 MiB stick whose data all arrives directly, and returns the
+/// paths the download reported, in order.
+async fn reported_paths(punch_during_first_fetch: bool) -> Vec<PathKind> {
     // Owner: a folder with one 20 MiB file, published into memory.
     let folder = tempfile::tempdir().unwrap();
     let data: Vec<u8> = (0..20 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
@@ -242,6 +252,7 @@ async fn reader_reports_direct_when_data_arrives_directly_while_it_sends_via_rel
     let fetcher = MemoryFetcher {
         served,
         local: Arc::new(Mutex::new(Local::default())),
+        punch_during_first_fetch,
     };
     let output = tempfile::tempdir().unwrap();
     let mut reported: Vec<PathKind> = Vec::new();
@@ -270,13 +281,26 @@ async fn reader_reports_direct_when_data_arrives_directly_while_it_sends_via_rel
     );
     assert_eq!(report.usage.relay, 0);
     assert!(report.usage.direct >= data.len() as u64);
+    reported
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reader_reports_direct_when_data_arrives_directly_while_it_sends_via_relay() {
+    let reported = reported_paths(false).await;
     // It starts on the relay (true for the reader's own sending path) ...
     assert_eq!(reported.first(), Some(&PathKind::Relay));
     // ... but all data came directly, so that is what it must end up saying.
-    assert_eq!(
-        reported.last(),
-        Some(&PathKind::Direct),
-        "reported paths: {reported:?}, usage: {:?}",
-        report.usage
-    );
+    assert_eq!(reported.last(), Some(&PathKind::Direct), "{reported:?}");
+}
+
+/// Second bug from the same field test, on a phone over 5G: hole punching
+/// succeeded while the manifest was fetched, so by the time the files started
+/// the reader's own path was already direct. The tracker started from that
+/// path instead of the reported one ("relay"), saw no change, and every line
+/// kept saying "relay" while all data arrived directly.
+#[tokio::test(flavor = "multi_thread")]
+async fn reader_reports_direct_when_punching_succeeds_before_the_files() {
+    let reported = reported_paths(true).await;
+    assert_eq!(reported.first(), Some(&PathKind::Relay));
+    assert_eq!(reported.last(), Some(&PathKind::Direct), "{reported:?}");
 }

@@ -23,6 +23,8 @@ rusqlite.workspace = true
 walkdir.workspace = true
 notify.workspace = true
 data-encoding.workspace = true
+iroh.workspace = true
+iroh-blobs.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store.workspace = true

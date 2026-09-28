@@ -18,9 +18,10 @@ Peer-to-peer, end-to-end encrypted, no accounts, no size limits.
 
 ## Development
 
-Requires Rust 1.88 or newer (`rust-version` in `Cargo.toml`). The floor comes
+Requires Rust 1.91 or newer (`rust-version` in `Cargo.toml`). The floor comes
 from our dependencies, not from our own code:
 
+- `iroh` 1.x and `iroh-blobs` (networking and blob transfer) need 1.91.
 - `zbus-secret-service-keyring-store` (the Linux Secret Service backend for
   keeping keys) needs 1.88.
 - `ed25519-dalek` 3 (stick signing keys) and `argon2` 0.6 (key files) need 1.85.

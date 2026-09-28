@@ -122,7 +122,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - `cargo fmt` πάντα. `cargo clippy -- -D warnings` πρέπει να περνά.
 - Σχόλια και docs στα αγγλικά (το repo είναι δημόσιο). Commits στα αγγλικά, conventional commits.
 - Commits απευθείας στο `main`, χωρίς feature branches.
-- Το `rust-version` (σήμερα 1.88) δεν ανεβαίνει χωρίς να ρωτήσεις τον Γιώργο. Αν μια εξάρτηση
+- Το `rust-version` (σήμερα 1.91) δεν ανεβαίνει χωρίς να ρωτήσεις τον Γιώργο. Αν μια εξάρτηση
   το απαιτεί, ρώτα πρώτα ή διάλεξε έκδοση που δεν το απαιτεί. Ενημέρωσε και το README.
 - Ονόματα: `snake_case` για functions/modules, `CamelCase` για types, χωρίς συντομογραφίες
   (`manifest`, όχι `mf`).

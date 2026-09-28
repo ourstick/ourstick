@@ -13,7 +13,7 @@ license = "Apache-2.0"
 repository = "https://github.com/ourstick/ourstick"
 homepage = "https://ourstick.com"
 authors = ["Giorgos"]
-rust-version = "1.88"
+rust-version = "1.91"
 
 [workspace.dependencies]
 # async
@@ -52,10 +52,9 @@ notify = "7"
 tempfile = "3"
 data-encoding = "2"
 
-# networking — ΜΗΝ ορίσεις εκδόσεις εδώ από μνήμη.
-# Τρέξε μέσα στο crates/ourstick-core:
-#   cargo add iroh iroh-blobs
-# και μετά μετέφερε τις εκδόσεις εδώ.
+# networking — versions from `cargo add iroh iroh-blobs` (2026-09-28), not from memory.
+iroh = "1.2.0"
+iroh-blobs = "0.103.0"
 
 [profile.release]
 lto = "thin"

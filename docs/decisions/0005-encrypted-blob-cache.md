@@ -37,7 +37,11 @@ is not in the current manifest is never served.
 - **Reader.** The reader keeps a per-stick `FsStore` so interrupted downloads
   resume (only missing ranges are requested). It runs no GC, since GC would
   delete partial, untagged blobs and lose the resume state. After a complete sync
-  its files are already in the output folder, so the store is emptied.
+  its files are already in the output folder, so the store is emptied. The
+  core does not do this itself: `download()` leaves the store as it is, and the
+  caller decides with `Fetcher::shutdown(keep)`. The CLI passes `keep = false`
+  after a successful download (store deleted) and `keep = true` after an error
+  (store kept for the resume).
 - **Visibility.** `share` prints where the cache is and how much space it will
   take before it starts encrypting.
 

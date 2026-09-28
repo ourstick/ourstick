@@ -59,9 +59,26 @@ A reader rejects the whole manifest if any rule fails. A writer never produces o
   gives no component that is empty, `.` or `..`. This rules out absolute paths
   and escaping the output folder.
 
-The rules are platform-neutral. A receiver must still map names that are
-invalid on its own platform (e.g. `:` or reserved names like `CON` on Windows)
-before writing to disk.
+The rules are platform-neutral: a manifest that follows them is valid on the
+wire. Before writing anything, a reader additionally refuses the whole
+manifest (nothing is written, its record is not accepted) if any path:
+
+- has a component that is not a single plain name on the reader's platform;
+- has a component that looks like a Windows drive (an ASCII letter followed
+  by `:`, e.g. `c:evil`), on every platform, so a stick behaves the same
+  everywhere;
+- on Windows, has a component with `< > : " | ? *` or a control character,
+  ending in a dot or space, or named like a device (`CON`, `PRN`, `AUX`,
+  `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension);
+- starts with the reader's partial directory `.ourstick-partial`, in any
+  letter case;
+- equals another path when letter case is ignored, or is a file that another
+  path needs as a folder (e.g. `a` and `a/b`, also `A` and `a/b`).
+
+A reader also refuses to write through a symbolic link that exists in its
+output folder, checking when a file starts and again right before it is moved
+into place. Mapping such names to safe ones instead of refusing them is an
+open question.
 
 ### What the manifest hash covers
 
@@ -261,6 +278,11 @@ A reader accepts a record only if, in this order:
 5. `seq` is strictly greater than the highest `seq` it has accepted before for
    this stick, if any. That value is kept in the Store.
 
+   One exception, so an interrupted download can resume: a record with the
+   *same* `seq` and the *same* `manifest_hash` as the one already accepted is
+   not an update and is not stored again, but the reader may keep downloading
+   that manifest. The same `seq` with a different `manifest_hash` is rejected.
+
 Rule 4 gives every reader a floor from its first contact on: nobody can serve
 it a manifest older than the one its ticket was made with. The ticket's
 `manifest_seq` and `manifest_hash` are therefore both a hint (the reader may
@@ -368,6 +390,16 @@ Rules on every platform:
   empty database the app finds old keys. Deleting them automatically would kill
   every ticket shared with them, so it must not happen silently. Options: offer
   to restore those sticks, or ask the user. Decided with the iOS app.
+- Zeroizing secrets in memory (`StickKey`, signing seeds, the node key, the
+  key-file key, decrypted manifests) when they are dropped. Today they stay in
+  memory until reused, so they can end up in swap or core dumps. Would add
+  `zeroize` as a direct dependency (it is already in the tree through
+  `ed25519-dalek` and `chacha20poly1305`).
+- `joined_sticks.output_dir` is stored when a stick is joined but not read
+  again: each `get` uses the folder it is given. Decide with the watcher
+  (step 7) whether the stored folder is the default, or is updated.
+- Mapping names that a reader cannot write (Windows device names, `:`,
+  letter-case collisions) to safe ones, instead of refusing the manifest.
 - A reader will need a stable node identity later (e.g. for seeds, per-reader
   access, or being reachable for updates). In v1 `get` uses a fresh random node
   key per run, because a reader needs no lasting identity and must not share the

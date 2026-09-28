@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ourstick-core",
+    "crates/ourstick-cli",
+    # "apps/app/src-tauri",   # ενεργοποίησε όταν φτιαχτεί το Tauri app
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ourstick/ourstick"
+homepage = "https://ourstick.com"
+authors = ["Giorgos"]
+rust-version = "1.80"
+
+[workspace.dependencies]
+# async
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# errors / logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+
+# hashing / crypto
+blake3 = "1"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+
+# db
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# fs / misc
+walkdir = "2"
+notify = "7"
+tempfile = "3"
+data-encoding = "2"
+
+# networking — ΜΗΝ ορίσεις εκδόσεις εδώ από μνήμη.
+# Τρέξε μέσα στο crates/ourstick-core:
+#   cargo add iroh iroh-blobs
+# και μετά μετέφερε τις εκδόσεις εδώ.
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

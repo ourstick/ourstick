@@ -1,0 +1,23 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Tauri / Node
+apps/app/node_modules
+apps/app/dist
+apps/app/src-tauri/target
+apps/app/src-tauri/gen/schemas
+apps/website/node_modules
+apps/website/dist
+
+# local state
+*.db
+*.db-*
+.env
+.env.*
+
+# editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

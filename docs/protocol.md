@@ -325,11 +325,14 @@ checks it (rules above).
 
 ### Relay policy (reader)
 
-Relays introduce peers and carry the record and manifest. File data goes over
-a direct path, except for transfers of at most 100 MB, or when the user agrees
-after 15 s without a direct path (also after a direct path is lost and a new
-attempt fails). See ADR 0006. Owners follow no policy of their own: they send
-over whatever path the connection uses.
+Relays introduce peers and carry the record and manifest. Before file data,
+the reader waits up to 5 s for a direct path, then starts over whatever path
+exists. Up to 100 MB of file data per download may come through the relay
+while iroh keeps looking for a direct path. Once that budget is used up, the
+reader reconnects, waits up to 15 s for a direct path and, without one, asks
+the user before going on through the relay (also when a direct path found
+after that is lost). See ADR 0006. Owners follow no policy of their own: they
+send over whatever path the connection uses.
 
 ### What an owner serves
 

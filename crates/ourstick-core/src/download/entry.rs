@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use super::files::{decrypt_into_place, target_path};
 use super::path::ReceivingPath;
+use super::relay::{Stop, Watch};
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
 use crate::blocking::run_blocking;
 use crate::cipher::Cipher;
@@ -22,7 +23,7 @@ pub(super) async fn download_file(
     output_dir: &Path,
     partial: &Path,
     receiving: &mut ReceivingPath,
-    direct_only: bool,
+    watch: Watch,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<u64, DownloadError> {
     let path = entry.path.as_str();
@@ -45,7 +46,7 @@ pub(super) async fn download_file(
     }
 
     let mut previous = 0;
-    let mut went_through_relay = false;
+    let mut stopped = None;
     let stats = connection
         .fetch_blob(&entry.hash, &mut |received| {
             let new_bytes = received.saturating_sub(previous);
@@ -54,21 +55,22 @@ pub(super) async fn download_file(
                 if check.changed {
                     on_event(DownloadEvent::PathChanged { path: check.kind })?;
                 }
-                // Only a direct path is acceptable: stop, reconnect, try again.
-                if direct_only && check.kind == PathKind::Relay {
-                    went_through_relay = true;
+                // The relay policy may want to stop here, reconnect and look
+                // for a direct path (ADR 0006).
+                if let Some(stop) =
+                    watch.must_stop(check.kind == PathKind::Relay, check.relay_total)
+                {
+                    stopped = Some(stop);
                     return ControlFlow::Break(());
                 }
             }
             on_event(DownloadEvent::Progress { path, received })
         })
         .await
-        .map_err(|error| {
-            if went_through_relay {
-                DownloadError::DirectLost
-            } else {
-                cancelled(error)
-            }
+        .map_err(|error| match stopped {
+            Some(Stop::BudgetUsed) => DownloadError::RelayBudgetUsed,
+            Some(Stop::DirectLost) => DownloadError::DirectLost,
+            None => cancelled(error),
         })?;
 
     let name = data_encoding::HEXLOWER.encode(&entry.hash);

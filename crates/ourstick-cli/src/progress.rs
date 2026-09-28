@@ -82,8 +82,22 @@ impl Progress {
                 self.path = Some(path);
                 vec![format!("[{at}] Connected: {}.", describe(path))]
             }
-            DownloadEvent::WaitingForDirect { seconds } => vec![format!(
-                "[{at}] Large transfer: waiting up to {seconds} s for a direct connection…"
+            DownloadEvent::WaitingForDirect {
+                seconds,
+                budget_used: false,
+            } => vec![format!(
+                "[{at}] No direct connection yet: waiting up to {seconds} s for one…"
+            )],
+            DownloadEvent::WaitingForDirect {
+                seconds,
+                budget_used: true,
+            } => vec![format!(
+                "[{at}] Waiting up to {seconds} s for a direct connection…"
+            )],
+            DownloadEvent::RelayBudgetUsed { bytes: used } => vec![format!(
+                "[{at}] {} came through the relay, the most allowed without asking; \
+                 reconnecting to look for a direct connection…",
+                bytes(used)
             )],
             DownloadEvent::DirectLost => vec![format!(
                 "[{at}] The direct connection was lost; reconnecting to find it again…"
@@ -263,6 +277,31 @@ mod tests {
         assert_eq!(
             line,
             vec!["[00:07] 700.0 MB of 1.0 GB (70%), 133.3 MB/s, direct"]
+        );
+    }
+
+    #[test]
+    fn relay_policy_events_say_what_happens() {
+        let mut progress = Progress::default();
+        let mut line = |event| progress.on_event(event, secs(5)).join("\n");
+        assert_eq!(
+            line(DownloadEvent::WaitingForDirect {
+                seconds: 5,
+                budget_used: false
+            }),
+            "[00:05] No direct connection yet: waiting up to 5 s for one…"
+        );
+        assert_eq!(
+            line(DownloadEvent::RelayBudgetUsed { bytes: 104_000_000 }),
+            "[00:05] 104.0 MB came through the relay, the most allowed without asking; \
+             reconnecting to look for a direct connection…"
+        );
+        assert_eq!(
+            line(DownloadEvent::WaitingForDirect {
+                seconds: 15,
+                budget_used: true
+            }),
+            "[00:05] Waiting up to 15 s for a direct connection…"
         );
     }
 

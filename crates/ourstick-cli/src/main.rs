@@ -19,8 +19,10 @@ Usage:
   ourstick get <ticket> [--out <folder>] [--allow-relay]
                                            Download a stick (resumes if interrupted)
 
-Over 100 MB, `get` waits 15 s for a direct connection and asks before using a
-relay; --allow-relay says yes in advance (for scripts).
+`get` waits up to 5 s for a direct connection, then starts. Up to 100 MB may
+come through a relay while it keeps looking; after that it waits up to 15 s
+more and asks before going on through the relay. --allow-relay says yes in
+advance (for scripts).
 
 Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 

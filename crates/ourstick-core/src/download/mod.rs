@@ -18,8 +18,8 @@ use relay::{settle, RelayState};
 
 pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
 
-/// How many times a download reconnects after losing its direct path before
-/// giving up.
+/// How many times a download reconnects (budget used up, direct path lost)
+/// before giving up.
 const MAX_RECONNECTS: u32 = 3;
 
 use crate::blob::decrypt_blob;
@@ -47,13 +47,19 @@ pub enum DownloadEvent<'a> {
     PathChanged {
         path: PathKind,
     },
-    /// A larger transfer waits this long for a direct path before asking
-    /// about the relay (ADR 0006).
+    /// No direct path yet: waiting this long for one (ADR 0006). Before the
+    /// start (`budget_used` false), or once the relay budget is used up.
     WaitingForDirect {
         seconds: u64,
+        budget_used: bool,
     },
-    /// The direct path was lost and data started to arrive through the relay;
-    /// the download reconnects and tries for a direct path again.
+    /// This many bytes came through the relay, the whole budget; the download
+    /// reconnects and looks for a direct path before going on.
+    RelayBudgetUsed {
+        bytes: u64,
+    },
+    /// After the budget was used up, the direct path was lost; the download
+    /// reconnects and tries for a direct path again.
     DirectLost,
     Manifest {
         seq: u64,
@@ -86,7 +92,8 @@ pub struct DownloadReport {
     pub bytes: u64,
     /// Blob bytes received over the network (less than the total after a resume).
     pub received: u64,
-    /// Bytes that arrived over direct and over relay paths.
+    /// Bytes that arrived over direct and over relay paths, over all
+    /// connections of this download.
     pub usage: PathUsage,
 }
 
@@ -107,6 +114,8 @@ pub enum DownloadError {
     RelayDeclined { remaining: u64 },
     #[error("the direct connection to the owner kept dropping; run again to resume")]
     DirectLost,
+    #[error("the free amount of data through the relay is used up; run again to resume")]
+    RelayBudgetUsed,
     #[error("refusing to write {path}: {reason}")]
     UnsafePath { path: String, reason: &'static str },
     #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]
@@ -178,6 +187,7 @@ pub async fn download(
 
     let mut relay = RelayState::default();
     let mut reconnects = 0;
+    let mut total = PathUsage::default();
     loop {
         // Read again on every attempt: an earlier attempt may have accepted
         // the record, which makes it "unchanged" now.
@@ -200,21 +210,35 @@ pub async fn download(
             &mut relay,
             on_event,
         )
-        .await
-        .map(|report| DownloadReport {
-            usage: connection.usage(),
-            ..report
-        });
+        .await;
+        let usage = connection.usage();
+        total.direct += usage.direct;
+        total.relay += usage.relay;
+        total.direct_ipv6 += usage.direct_ipv6;
+        relay.relay_used = total.relay;
         connection.close().await;
-        match result {
-            Err(DownloadError::DirectLost) if reconnects < MAX_RECONNECTS => {
-                reconnects += 1;
-                relay.direct_was_lost = true;
-                if on_event(DownloadEvent::DirectLost).is_break() {
-                    return Err(DownloadError::Cancelled);
+        let event = match result {
+            Ok(report) => {
+                return Ok(DownloadReport {
+                    usage: total,
+                    ..report
+                })
+            }
+            Err(DownloadError::RelayBudgetUsed) if reconnects < MAX_RECONNECTS => {
+                relay.budget_spent = true;
+                DownloadEvent::RelayBudgetUsed {
+                    bytes: relay.relay_used,
                 }
             }
-            other => return other,
+            Err(DownloadError::DirectLost) if reconnects < MAX_RECONNECTS => {
+                relay.direct_was_lost = true;
+                DownloadEvent::DirectLost
+            }
+            Err(error) => return Err(error),
+        };
+        reconnects += 1;
+        if on_event(event).is_break() {
+            return Err(DownloadError::Cancelled);
         }
     }
 }
@@ -293,15 +317,16 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
-    // ADR 0006: file data only over a direct path, unless it is small or the
-    // user agreed. The record and manifest above may use the relay.
+    // ADR 0006: a short wait for a direct path, then a relay budget, then only
+    // a direct path unless the user agrees. The record and manifest above may
+    // use the relay.
     let mut remaining = 0;
     for entry in &manifest.entries {
         remaining += entry
             .size
             .saturating_sub(fetcher.local_bytes(&entry.hash).await?);
     }
-    let direct_only = settle(
+    let watch = settle(
         fetcher, connection, ticket, policy, consent, relay, remaining, on_event,
     )
     .await?;
@@ -321,7 +346,7 @@ async fn download_over(
             output_dir,
             &partial,
             &mut receiving,
-            direct_only,
+            watch,
             on_event,
         )
         .await?;

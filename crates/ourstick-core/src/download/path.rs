@@ -19,6 +19,8 @@ pub(super) const CHECK_EVERY: u64 = 4 * 1024 * 1024;
 pub(super) struct Check {
     pub(super) kind: PathKind,
     pub(super) changed: bool,
+    /// Relay bytes received on this connection so far.
+    pub(super) relay_total: u64,
 }
 
 pub(super) struct ReceivingPath {
@@ -67,7 +69,11 @@ impl ReceivingPath {
         };
         let changed = kind != self.kind;
         self.kind = kind;
-        Some(Check { kind, changed })
+        Some(Check {
+            kind,
+            changed,
+            relay_total: now.relay,
+        })
     }
 }
 
@@ -95,7 +101,8 @@ mod tests {
             path.on_received(1, || usage(5_000_000, 12_000)),
             Some(Check {
                 kind: PathKind::Direct,
-                changed: true
+                changed: true,
+                relay_total: 12_000
             })
         );
         // Still direct: checked, nothing changed.
@@ -103,7 +110,8 @@ mod tests {
             path.on_received(CHECK_EVERY, || usage(10_000_000, 13_000)),
             Some(Check {
                 kind: PathKind::Direct,
-                changed: false
+                changed: false,
+                relay_total: 13_000
             })
         );
     }
@@ -115,7 +123,8 @@ mod tests {
             path.on_received(CHECK_EVERY, || usage(1_000, 4_000_000)),
             Some(Check {
                 kind: PathKind::Relay,
-                changed: true
+                changed: true,
+                relay_total: 4_000_000
             })
         );
     }

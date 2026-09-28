@@ -34,6 +34,9 @@ pub struct Link {
     pub direct: bool,
     /// Once this many bytes have arrived, the direct path is lost for good.
     pub lose_direct_after: Option<u64>,
+    /// Once this many bytes have arrived, a direct path opens (hole punching
+    /// succeeded while data went through the relay).
+    pub direct_after: Option<u64>,
     /// Hole punching succeeds during the first fetch (the manifest).
     pub punch_during_first_fetch: bool,
     /// Bytes delivered so far, over any path.
@@ -83,7 +86,8 @@ impl Publisher for MemoryPublisher {
     async fn shutdown(self) {}
 }
 
-/// The reader's blobs (complete or partial) and what arrived over which path.
+/// The reader's blobs (complete or partial) and what arrived over which path,
+/// over all connections.
 #[derive(Default)]
 pub struct Local {
     blobs: HashMap<BlobHash, Vec<u8>>,
@@ -120,6 +124,8 @@ pub struct MemoryConnection {
     link: Arc<Mutex<Link>>,
     /// The path this reader sends on.
     path: Arc<Mutex<PathKind>>,
+    /// What arrived over which path on this connection, as with iroh.
+    usage: Mutex<PathUsage>,
 }
 
 impl Fetcher for MemoryFetcher {
@@ -139,6 +145,7 @@ impl Fetcher for MemoryFetcher {
             local: self.local.clone(),
             link: self.link.clone(),
             path: Arc::new(Mutex::new(PathKind::Relay)),
+            usage: Mutex::default(),
         })
     }
     async fn read_blob(&self, hash: &BlobHash) -> Result<Vec<u8>, TransportError> {
@@ -171,7 +178,7 @@ impl PeerConnection for MemoryConnection {
         tokio::sync::watch::channel(self.path()).1
     }
     fn usage(&self) -> PathUsage {
-        self.local.lock().unwrap().usage
+        *self.usage.lock().unwrap()
     }
     fn has_direct_path(&self) -> bool {
         self.link.lock().unwrap().direct
@@ -227,15 +234,24 @@ impl PeerConnection for MemoryConnection {
                     .is_some_and(|limit| link.delivered >= limit)
                 {
                     link.direct = false;
+                } else if link
+                    .direct_after
+                    .is_some_and(|limit| link.delivered >= limit)
+                {
+                    link.direct_after = None;
+                    link.direct = true;
                 }
                 direct
             };
             {
                 let mut local = self.local.lock().unwrap();
-                if direct {
-                    local.usage.direct += piece.len() as u64;
-                } else {
-                    local.usage.relay += piece.len() as u64;
+                let mut usage = self.usage.lock().unwrap();
+                for usage in [&mut local.usage, &mut *usage] {
+                    if direct {
+                        usage.direct += piece.len() as u64;
+                    } else {
+                        usage.relay += piece.len() as u64;
+                    }
                 }
                 local
                     .blobs

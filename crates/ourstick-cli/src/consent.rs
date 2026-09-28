@@ -1,5 +1,5 @@
-//! Asking the user whether a larger download may continue through the relay
-//! (ADR 0006). Default no; `--allow-relay` says yes in advance; without a
+//! Asking the user whether a download may continue through the relay once
+//! the relay budget is used up (ADR 0006). Default no; `--allow-relay` says yes in advance; without a
 //! terminal to ask, the answer is no.
 
 use std::io::{IsTerminal, Write};
@@ -41,7 +41,8 @@ pub fn question_lines(question: &RelayQuestion, at: &str) -> Vec<String> {
         "No direct connection to the owner could be made"
     };
     let mut lines = vec![format!(
-        "[{at}] {what}. {} are left to download.",
+        "[{at}] {what}. {} came through the relay; {} are left to download.",
+        bytes(question.relay_used),
         bytes(question.remaining)
     )];
     lines.push("        Likely reasons:".to_owned());
@@ -100,6 +101,7 @@ mod tests {
     fn question(direct_was_lost: bool) -> RelayQuestion {
         RelayQuestion {
             remaining: 4_500_000_000,
+            relay_used: 104_000_000,
             relay: "the public iroh relays run by n0".to_owned(),
             reasons: vec!["reason one".to_owned(), "reason two".to_owned()],
             direct_was_lost,
@@ -111,7 +113,7 @@ mod tests {
         assert_eq!(
             question_lines(&question(false), "00:15"),
             vec![
-                "[00:15] No direct connection to the owner could be made. 4.5 GB are left to download.",
+                "[00:15] No direct connection to the owner could be made. 104.0 MB came through the relay; 4.5 GB are left to download.",
                 "        Likely reasons:",
                 "        - reason one",
                 "        - reason two",

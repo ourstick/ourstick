@@ -33,3 +33,21 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       it needs the release signing key first.
 - [ ] The macOS signing and the other items in `docs/gui-spec.md`, "Before
       the first public release".
+
+## After the Windows stage
+
+- [ ] **Stick full, by hand:** fill the stick to its size and drop more; the
+      app must refuse the copy and say how much is free (`StickFull`,
+      `DriveError::Full`).
+- [ ] **Linux without our usual desktop:** an X11 session, and GNOME without
+      the AppIndicator extension. The app must not crash; without a tray host
+      it logs why and the window stays reachable.
+- [ ] **Packages:** `.deb` (with a proper `.desktop` file and icon), `.dmg`,
+      `.msi`.
+- [ ] **macOS signing,** once there is an Apple Developer account: a signed
+      app keeps its keychain access across updates.
+- [ ] **macOS data protection keychain** (apple-native-keyring-store's
+      `protected` store), which needs the signed app's entitlements and never
+      prompts.
+- [ ] **A USB drive icon for the Linux bookmark,** if the file managers allow
+      one (today Nautilus and Thunar show bookmarks with a folder icon).

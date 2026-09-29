@@ -255,6 +255,22 @@ async fn known_files(
     Ok(known)
 }
 
+/// The latest record this device signed for `stick_id`, as a ticket's
+/// manifest hint; `None` before the first publish. Blocking.
+pub fn latest_hint(
+    store: &dyn Store,
+    stick_id: &StickId,
+) -> Result<Option<crate::record::ManifestHint>, ShareError> {
+    let stick = store.owned_stick(stick_id)?.ok_or(ShareError::NotOwned)?;
+    Ok(stick.latest_record.map(|record| {
+        let record = record.unverified_record();
+        crate::record::ManifestHint {
+            seq: record.seq,
+            hash: record.manifest_hash,
+        }
+    }))
+}
+
 /// The bytes in the files of `root` that belong to the stick (system files
 /// left out, see [`crate::manifest::ignore`]). Blocking.
 pub fn folder_size(root: &Path) -> Result<u64, ShareError> {

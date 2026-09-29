@@ -6,6 +6,7 @@
 
 mod commands;
 mod drive;
+mod serving;
 mod state;
 
 use tauri::Manager;
@@ -36,10 +37,38 @@ fn main() {
             }
         }))
         .manage(state)
+        .setup(|app| {
+            // A stick from an earlier run is shared again at once.
+            let has_stick = app
+                .state::<state::AppState>()
+                .drive_stick()
+                .map(|stick| stick.is_some())
+                .unwrap_or(false);
+            if has_stick {
+                state::start_sharing(app.handle());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::plug_in,
+            commands::stick,
+            commands::add_paths,
+            commands::remove_entry,
         ])
-        .run(tauri::generate_context!())
-        .expect("the app could not start its window");
+        .build(tauri::generate_context!())
+        .expect("the app could not start its window")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Close the cache cleanly and release the share lock.
+                let state = app.state::<state::AppState>();
+                tauri::async_runtime::block_on(async {
+                    let sharing =
+                        std::mem::replace(&mut *state.sharing.lock().await, state::Sharing::Off);
+                    if let state::Sharing::On(serving) = sharing {
+                        serving.stop().await;
+                    }
+                });
+            }
+        });
 }

@@ -20,3 +20,50 @@ export function appState(): Promise<AppState> {
 export function plugIn(sizeGb: number): Promise<void> {
   return invoke("plug_in", { sizeGb });
 }
+
+export interface Entry {
+  name: string;
+  size: number;
+  is_dir: boolean;
+}
+
+export interface Sharing {
+  state: "off" | "starting" | "on" | "failed";
+  message: string | null;
+  has_link: boolean;
+  readers: number;
+  bytes_per_second: number;
+}
+
+export interface Stick {
+  name: string;
+  size: number;
+  used: number;
+  entries: Entry[];
+  sharing: Sharing;
+}
+
+/** A problem with sharing (event `share-problem`). */
+export type ShareProblem =
+  | { kind: "failed"; message: string }
+  | { kind: "ejected" }
+  | { kind: "cleared" };
+
+export interface Activity {
+  readers: number;
+  bytes_per_second: number;
+}
+
+export function stick(): Promise<Stick> {
+  return invoke("stick");
+}
+
+/** Copies dropped files and folders onto the stick. */
+export function addPaths(paths: string[]): Promise<void> {
+  return invoke("add_paths", { paths });
+}
+
+/** Removes a file or folder from the stick (the stick's copy). */
+export function removeEntry(name: string): Promise<void> {
+  return invoke("remove_entry", { name });
+}

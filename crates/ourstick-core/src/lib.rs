@@ -9,6 +9,7 @@ pub mod cipher;
 pub mod clock;
 pub mod device;
 pub mod download;
+pub mod drive;
 pub mod manifest;
 pub mod record;
 pub mod secrets;

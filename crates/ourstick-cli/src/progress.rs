@@ -211,14 +211,22 @@ impl Progress {
     }
 
     /// The closing lines of a finished download.
-    pub fn summary(report: &DownloadReport, output: &str, elapsed: Duration) -> Vec<String> {
-        let at = clock(elapsed);
+    /// `at` is the time since `get` started, `took` how long this download
+    /// took (they differ with `--follow`).
+    pub fn summary(
+        report: &DownloadReport,
+        output: &str,
+        at: Duration,
+        took: Duration,
+    ) -> Vec<String> {
         let mut lines = vec![
             format!(
-                "[{at}] Done in {at}: {} files in {output} ({} received, average {}).",
-                report.files,
+                "[{}] Done in {}: {} in {output} ({} received, average {}).",
+                clock(at),
+                clock(took),
+                count(report.files),
                 bytes(report.received),
-                rate(report.received, elapsed)
+                rate(report.received, took)
             ),
             format!(
                 "        Received directly: {} ({} over IPv6), through a relay: {}.",
@@ -233,7 +241,7 @@ impl Progress {
         }
         if report.changed_here > 0 {
             kept.push(format!(
-                "{} changed here and left as they were",
+                "{} changed here, left untouched",
                 count(report.changed_here)
             ));
         }

@@ -213,7 +213,7 @@ impl Getter<'_> {
         .await?;
         let output = self.output.display().to_string();
         let took = self.started.elapsed().saturating_sub(begun);
-        for line in Progress::summary(&report, &output, took) {
+        for line in Progress::summary(&report, &output, self.started.elapsed(), took) {
             println!("{line}");
         }
         Ok(report)

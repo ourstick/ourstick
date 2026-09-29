@@ -182,7 +182,7 @@ fn summary_says_how_long_and_which_path() {
             direct_ipv6: 4_000_000_000,
         },
     };
-    let lines = Progress::summary(&report, "/Users/a/received", secs(252));
+    let lines = Progress::summary(&report, "/Users/a/received", secs(252), secs(252));
     assert_eq!(lines.len(), 2);
     assert_eq!(
         lines[0],
@@ -241,7 +241,22 @@ fn files_not_downloaded_are_accounted_for() {
         usage: PathUsage::default(),
     };
     assert_eq!(
-        Progress::summary(&report, "/out", secs(3))[2],
-        "        Not downloaded: 1 file already here; 2 files changed here and left as they were."
+        Progress::summary(&report, "/out", secs(3), secs(3))[2],
+        "        Not downloaded: 1 file already here; 2 files changed here, left untouched."
     );
+}
+
+#[test]
+fn a_later_download_says_both_when_and_how_long() {
+    let report = DownloadReport {
+        seq: 1,
+        files: 1,
+        bytes: 10,
+        received: 10,
+        already_here: 0,
+        changed_here: 0,
+        usage: PathUsage::default(),
+    };
+    assert!(Progress::summary(&report, "/out", secs(95), secs(2))[0]
+        .starts_with("[01:35] Done in 00:02: 1 file in /out"));
 }

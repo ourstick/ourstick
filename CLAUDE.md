@@ -81,6 +81,10 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Ένα stick, ένας owner, N readers, read-only.
 - Το stick ενημερώνεται όταν αλλάζει ο φάκελος (watcher) — ο reader βλέπει νέο manifest.
 - Δημόσια relays του iroh. Καμία δική μας υποδομή.
+- Desktop GUI (στάδιο 1), όπως στο `docs/gui-spec.md`: Tauri 2 + Svelte στο `apps/app`,
+  ο δικός του φάκελος stick ως δίσκος (disk image στο macOS, bookmark στο Linux), tray,
+  share popup. Το app είναι λεπτό περίβλημα όπως το CLI: καλεί μόνο `ourstick-core`,
+  και το core δεν ξέρει τίποτα για UI (κανόνας 1).
 
 ## Τι ΔΕΝ κάνει η v1
 
@@ -88,11 +92,12 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Δικαιώματα εγγραφής για readers.
 - Πολλαπλά sticks σε ένα ticket.
 - Cloud seed, billing, accounts.
-- Mount ως drive (FUSE, File Provider, Cloud Files API).
+- Mount ως drive (FUSE, File Provider, Cloud Files API). Ο δίσκος του GUI είναι κανονικός
+  φάκελος (disk image ή bookmark), όχι virtual filesystem.
 - Δικά μας relays.
 - Web receiver (λήψη από browser χωρίς app).
 - Ανάκληση πρόσβασης εκτός από «άλλαξε κλειδί».
-- GUI. Πρώτα CLI. Το Tauri app ξεκινά μόνο όταν το CLI δουλεύει από σπίτι σε laptop με hotspot κινητού.
+- GUI για τον παραλήπτη και mobile apps. Windows build (έρχεται μετά το στάδιο 1).
 
 ## Σειρά υλοποίησης
 
@@ -106,7 +111,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
    PC → laptop σε hotspot κινητού, και το CLI τυπώνει αν η σύνδεση είναι direct ή relay.
 6. `cli`: share / ls / get.
 7. `watcher.rs`.
-8. Μετά: Tauri.
+8. Desktop GUI (Tauri), με τη σειρά commits του σχεδίου για το βήμα 8.
 
 Ένα βήμα τη φορά. Κάθε βήμα τελειώνει με `cargo test` πράσινο και `cargo clippy` καθαρό.
 

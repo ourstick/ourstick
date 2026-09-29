@@ -21,8 +21,8 @@ const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
 /// Why this device could not be set up. The messages are meant for users.
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
-    #[error("cannot find your home folder ($HOME is not set)")]
-    NoHome,
+    #[error("cannot find your home folder ({0} is not set)")]
+    NoHome(&'static str),
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -50,16 +50,31 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> DeviceError + '_ {
     }
 }
 
-/// `$OURSTICK_DATA_DIR`, else `$XDG_DATA_HOME/ourstick`, else
-/// `$HOME/.local/share/ourstick`.
+/// `$OURSTICK_DATA_DIR`, else on Windows `%LOCALAPPDATA%\OurStick`, else
+/// `$XDG_DATA_HOME/ourstick`, else `$HOME/.local/share/ourstick`.
 pub fn data_dir() -> Result<PathBuf, DeviceError> {
-    if let Some(dir) = std::env::var_os("OURSTICK_DATA_DIR") {
+    data_dir_from(|name| std::env::var_os(name), cfg!(windows))
+}
+
+/// [`data_dir`] for the environment `variable` and the system `windows`.
+fn data_dir_from(
+    variable: impl Fn(&str) -> Option<std::ffi::OsString>,
+    windows: bool,
+) -> Result<PathBuf, DeviceError> {
+    let set = |name: &str| variable(name).filter(|value| !value.is_empty());
+    if let Some(dir) = set("OURSTICK_DATA_DIR") {
         return Ok(PathBuf::from(dir));
     }
-    if let Some(dir) = std::env::var_os("XDG_DATA_HOME").filter(|dir| !dir.is_empty()) {
+    if windows {
+        // Local, not roaming: the keys' ids, the database and the blob cache
+        // belong to this device.
+        let local = set("LOCALAPPDATA").ok_or(DeviceError::NoHome("%LOCALAPPDATA%"))?;
+        return Ok(PathBuf::from(local).join("OurStick"));
+    }
+    if let Some(dir) = set("XDG_DATA_HOME") {
         return Ok(PathBuf::from(dir).join("ourstick"));
     }
-    let home = std::env::var_os("HOME").ok_or(DeviceError::NoHome)?;
+    let home = set("HOME").ok_or(DeviceError::NoHome("$HOME"))?;
     Ok(PathBuf::from(home).join(".local/share/ourstick"))
 }
 
@@ -231,6 +246,48 @@ impl ShareLock {
 mod tests {
     use super::*;
     use crate::secrets::MemorySecretStore;
+
+    fn environment<'a>(
+        values: &'a [(&str, &str)],
+    ) -> impl Fn(&str) -> Option<std::ffi::OsString> + 'a {
+        move |name| {
+            values
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| value.into())
+        }
+    }
+
+    #[test]
+    fn the_data_folder_follows_the_system() {
+        let unix = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "")];
+        assert_eq!(
+            data_dir_from(environment(&unix), false).unwrap(),
+            PathBuf::from("/home/anna/.local/share/ourstick")
+        );
+        let xdg = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "/data")];
+        assert_eq!(
+            data_dir_from(environment(&xdg), false).unwrap(),
+            PathBuf::from("/data/ourstick")
+        );
+        let windows = [("LOCALAPPDATA", r"C:\Users\anna\AppData\Local")];
+        assert_eq!(
+            data_dir_from(environment(&windows), true).unwrap(),
+            PathBuf::from(r"C:\Users\anna\AppData\Local").join("OurStick")
+        );
+        // $HOME alone does not count on Windows.
+        assert!(matches!(
+            data_dir_from(environment(&[("HOME", "/home/anna")]), true),
+            Err(DeviceError::NoHome("%LOCALAPPDATA%"))
+        ));
+        let chosen = [("OURSTICK_DATA_DIR", "/elsewhere"), ("HOME", "/home/anna")];
+        for windows in [false, true] {
+            assert_eq!(
+                data_dir_from(environment(&chosen), windows).unwrap(),
+                PathBuf::from("/elsewhere")
+            );
+        }
+    }
     use crate::store::MemoryStore;
 
     #[test]

@@ -37,8 +37,9 @@ directly between the two devices when possible. Without a direct path it goes
 through a public relay, at up to 10 Mbps, while a direct path is still looked
 for; a download never stops because of it.
 
-`share` keeps its keys in the Secret Service (GNOME Keyring, KWallet). Where
-there is none (macOS for now, SSH sessions, servers), use
+`share` keeps its keys in the system keyring: the Secret Service (GNOME
+Keyring, KWallet) on Linux, the keychain on macOS. Where there is none (SSH
+sessions, servers, Windows for now), use
 `ourstick share --key-file <path> <folder>` once; later runs use that file and
 ask for its passphrase. Losing the keys or the passphrase ends every link
 shared from that device.
@@ -51,8 +52,9 @@ from our dependencies, not from our own code:
 - `iroh` 1.x and `iroh-blobs` (networking and blob transfer) need 1.91.
 - `zbus-secret-service-keyring-store` (the Linux Secret Service backend for
   keeping keys) needs 1.88.
-- `ed25519-dalek` 3 (stick signing keys), `argon2` 0.6 (key files) and
-  `rpassword` 7 (reading key-file passphrases) need 1.85.
+- `ed25519-dalek` 3 (stick signing keys), `argon2` 0.6 (key files),
+  `rpassword` 7 (reading key-file passphrases) and `apple-native-keyring-store`
+  (the macOS keychain) need 1.85.
 
 ```
 cargo test --workspace

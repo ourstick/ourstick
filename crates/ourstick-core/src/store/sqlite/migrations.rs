@@ -12,6 +12,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0003_owned_files.sql"),
     include_str!("../../../migrations/0004_downloaded_files.sql"),
     include_str!("../../../migrations/0005_drive_size.sql"),
+    include_str!("../../../migrations/0006_keychain_backend.sql"),
 ];
 
 /// The schema version this code creates and understands.

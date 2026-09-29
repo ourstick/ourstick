@@ -5,7 +5,7 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 6);
 }
 
 #[test]
@@ -48,6 +48,34 @@ fn migration_2_moves_the_floor_out_and_forgets_what_folders_held() {
             JoinedStick::new(seen, "/tmp/a", 10),
             JoinedStick::new(unseen, "/tmp/b", 20),
         ]
+    );
+}
+
+#[test]
+fn migration_6_keeps_the_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    {
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..5] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 5).unwrap();
+        connection
+            .execute(
+                "INSERT INTO device VALUES (1, ?1, 'key-file', '/k.oskf', 7)",
+                [[9u8; 32].to_vec()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert_eq!(
+        store.device().unwrap(),
+        Some(Device {
+            node_id: NodeId([9; 32]),
+            secret_backend: SecretBackend::KeyFile("/k.oskf".into()),
+            created_at_ms: 7,
+        })
     );
 }
 
@@ -106,6 +134,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO device VALUES (2, zeroblob(32), 'secret-service', NULL, 0)",
         "INSERT INTO device VALUES (1, zeroblob(31), 'secret-service', NULL, 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'plaintext-file', NULL, 0)",
+        "INSERT INTO device VALUES (1, zeroblob(32), 'keychain', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'key-file', NULL, 0)",
         "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL)",
         "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL)",

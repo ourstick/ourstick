@@ -1,50 +1,66 @@
-//! Secrets in the freedesktop Secret Service (GNOME Keyring, KWallet), over D-Bus.
+//! Secrets in the system keyring: the freedesktop Secret Service (GNOME
+//! Keyring, KWallet) over D-Bus on Linux, the login keychain on macOS.
 //!
-//! Uses `keyring-core` with the zbus Secret Service store chosen explicitly, so
-//! there is no default or mock store to fall back to. Items are stored with
-//! service `ourstick` and the [`SecretName`] as user.
+//! Uses `keyring-core` with the platform's store chosen explicitly, so there
+//! is no default or mock store to fall back to. Items are stored with service
+//! `ourstick` and the [`SecretName`] as user.
 
 use std::sync::Arc;
 
-use keyring_core::api::CredentialStoreApi;
-use keyring_core::{CredentialPersistence, Error as KeyringError};
-use zbus_secret_service_keyring_store::Store;
+use keyring_core::{CredentialPersistence, CredentialStore, Error as KeyringError};
 
 use super::{Durability, SecretError, SecretName, SecretStore};
 
 const SERVICE: &str = "ourstick";
-const STORE_NAME: &str = "Secret Service";
 
-/// A [`SecretStore`] backed by the user's Secret Service.
-pub struct SecretServiceStore {
-    store: Arc<Store>,
+/// A [`SecretStore`] backed by the system keyring.
+pub struct KeyringStore {
+    store: Arc<CredentialStore>,
+    name: &'static str,
 }
 
-impl SecretServiceStore {
+impl KeyringStore {
     /// Connects to the Secret Service on the session D-Bus.
     ///
     /// Fails with [`SecretError::Unavailable`] when there is no session bus or
     /// no Secret Service provider, e.g. over SSH or on a server.
-    pub fn connect() -> Result<Self, SecretError> {
-        let store = Store::new().map_err(|error| SecretError::Unavailable {
-            store: STORE_NAME.to_owned(),
-            reason: format!(
-                "{error}. Start and unlock a keyring (GNOME Keyring or KWallet), \
-                 or use a key file instead"
-            ),
+    #[cfg(target_os = "linux")]
+    pub fn secret_service() -> Result<Self, SecretError> {
+        const NAME: &str = "Secret Service";
+        let store = zbus_secret_service_keyring_store::Store::new().map_err(|error| {
+            SecretError::Unavailable {
+                store: NAME.to_owned(),
+                reason: format!(
+                    "{error}. Start and unlock a keyring (GNOME Keyring or KWallet), \
+                     or use a key file instead"
+                ),
+            }
         })?;
-        Ok(Self { store })
+        Ok(Self { store, name: NAME })
+    }
+
+    /// Opens the user's login keychain.
+    #[cfg(target_os = "macos")]
+    pub fn keychain() -> Result<Self, SecretError> {
+        const NAME: &str = "the macOS keychain";
+        let store = apple_native_keyring_store::keychain::Store::new().map_err(|error| {
+            SecretError::Unavailable {
+                store: NAME.to_owned(),
+                reason: error.to_string(),
+            }
+        })?;
+        Ok(Self { store, name: NAME })
     }
 
     fn entry(&self, name: &SecretName) -> Result<keyring_core::Entry, SecretError> {
         self.store
             .build(SERVICE, &name.as_key(), None)
-            .map_err(to_secret_error)
+            .map_err(|error| to_secret_error(self.name, error))
     }
 }
 
-fn to_secret_error(error: KeyringError) -> SecretError {
-    let store = STORE_NAME.to_owned();
+fn to_secret_error(store: &str, error: KeyringError) -> SecretError {
+    let store = store.to_owned();
     match error {
         KeyringError::NoStorageAccess(reason) => SecretError::AccessDenied {
             store,
@@ -53,6 +69,11 @@ fn to_secret_error(error: KeyringError) -> SecretError {
         KeyringError::NoDefaultStore => SecretError::Unavailable {
             store,
             reason: "no store was configured".to_owned(),
+        },
+        // The operating system's own error message; it carries no secret.
+        KeyringError::PlatformFailure(error) => SecretError::Backend {
+            store,
+            reason: format!("platform failure: {error}"),
         },
         // Other variants may carry the stored bytes (e.g. BadEncoding), so only
         // the kind of error is reported, never its payload.
@@ -78,9 +99,9 @@ fn error_kind(error: &KeyringError) -> &'static str {
     }
 }
 
-impl SecretStore for SecretServiceStore {
+impl SecretStore for KeyringStore {
     fn describe(&self) -> String {
-        STORE_NAME.to_owned()
+        self.name.to_owned()
     }
 
     fn durability(&self) -> Durability {
@@ -93,21 +114,21 @@ impl SecretStore for SecretServiceStore {
     fn put(&self, name: &SecretName, secret: &[u8]) -> Result<(), SecretError> {
         self.entry(name)?
             .set_secret(secret)
-            .map_err(to_secret_error)
+            .map_err(|error| to_secret_error(self.name, error))
     }
 
     fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
         match self.entry(name)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             Err(KeyringError::NoEntry) => Ok(None),
-            Err(error) => Err(to_secret_error(error)),
+            Err(error) => Err(to_secret_error(self.name, error)),
         }
     }
 
     fn delete(&self, name: &SecretName) -> Result<(), SecretError> {
         match self.entry(name)?.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-            Err(error) => Err(to_secret_error(error)),
+            Err(error) => Err(to_secret_error(self.name, error)),
         }
     }
 }
@@ -117,14 +138,17 @@ mod tests {
     use super::*;
     use crate::secrets::check_secret_store;
 
-    /// Talks to the real Secret Service of the user running the tests, so it is
+    /// Talks to the real keyring of the user running the tests, so it is
     /// ignored by default (CI has none). It writes one short-lived test entry
     /// under service `ourstick` and deletes it.
-    /// Run with: `cargo test -p ourstick-core -- --ignored secret_service`
+    /// Run with: `cargo test -p ourstick-core -- --ignored keyring`
     #[test]
-    #[ignore = "needs a running, unlocked Secret Service"]
-    fn secret_service_passes_startup_check_and_roundtrips() {
-        let store = SecretServiceStore::connect().expect("Secret Service available");
+    #[ignore = "needs an unlocked system keyring"]
+    fn keyring_passes_startup_check_and_roundtrips() {
+        #[cfg(target_os = "linux")]
+        let store = KeyringStore::secret_service().expect("Secret Service available");
+        #[cfg(target_os = "macos")]
+        let store = KeyringStore::keychain().expect("keychain available");
         check_secret_store(&store).unwrap();
 
         let name = SecretName::HealthCheck(*b"roundtrp");

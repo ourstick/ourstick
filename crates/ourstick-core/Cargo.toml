@@ -29,6 +29,9 @@ iroh-blobs.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true

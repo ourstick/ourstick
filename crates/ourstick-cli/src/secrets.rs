@@ -57,25 +57,33 @@ impl Passphrases for TerminalPassphrases {
     }
 }
 
+/// This system's keyring: the Secret Service on Linux, the keychain on macOS.
+pub struct SystemKeyring<'a> {
+    /// `None` where OurStick has no keyring backend (Windows, for now).
+    pub backend: Option<SecretBackend>,
+    pub open: &'a dyn Fn() -> Result<Box<dyn SecretStore>>,
+}
+
+/// A backend's name, for messages.
+fn backend_name(backend: &SecretBackend) -> String {
+    match backend {
+        SecretBackend::SecretService => "the Secret Service".to_owned(),
+        SecretBackend::Keychain => "the macOS keychain".to_owned(),
+        SecretBackend::KeyFile(path) => path.display().to_string(),
+    }
+}
+
 /// The secret store to use, and the backend to record for a new device.
 ///
-/// `recorded` is the backend in the database (`None` for a new device);
-/// `secret_service` opens the Secret Service when it is the one to use.
+/// `recorded` is the backend in the database (`None` for a new device).
 pub fn open_secrets(
     recorded: Option<&SecretBackend>,
     choice: &SecretsChoice,
-    secret_service: &dyn Fn() -> Result<Box<dyn SecretStore>>,
+    system: &SystemKeyring<'_>,
     passphrases: &dyn Passphrases,
     params: KeyFileParams,
 ) -> Result<(Box<dyn SecretStore>, SecretBackend)> {
     match (recorded, choice) {
-        (Some(SecretBackend::SecretService), SecretsChoice::KeyFile(_)) => bail!(
-            "this device keeps its keys in the Secret Service. Moving them to a key file \
-             is not supported yet; run without --key-file."
-        ),
-        (Some(SecretBackend::SecretService), SecretsChoice::Default) => {
-            Ok((secret_service()?, SecretBackend::SecretService))
-        }
         (Some(SecretBackend::KeyFile(recorded)), choice) => {
             if let SecretsChoice::KeyFile(given) = choice {
                 if absolute(given)? != *recorded {
@@ -91,6 +99,21 @@ pub fn open_secrets(
             let store = KeyFileStore::open(recorded, &passphrase)
                 .with_context(|| format!("cannot open the key file {}", recorded.display()))?;
             Ok((Box::new(store), SecretBackend::KeyFile(recorded.clone())))
+        }
+        (Some(backend), SecretsChoice::KeyFile(_)) => bail!(
+            "this device keeps its keys in {}. Moving them to a key file is not \
+             supported yet; run without --key-file.",
+            backend_name(backend)
+        ),
+        (Some(backend), SecretsChoice::Default) => {
+            if system.backend.as_ref() != Some(backend) {
+                bail!(
+                    "this device's keys are in {}, which this system does not have \
+                     (was the database copied from another computer?)",
+                    backend_name(backend)
+                );
+            }
+            Ok(((system.open)()?, backend.clone()))
         }
         (None, SecretsChoice::KeyFile(given)) => {
             let path = absolute(given)?;
@@ -114,11 +137,14 @@ pub fn open_secrets(
             Ok((Box::new(store), SecretBackend::KeyFile(path)))
         }
         (None, SecretsChoice::Default) => {
-            let store = secret_service().context(
-                "no Secret Service to keep the keys in. To keep them in a file protected \
-                 by a passphrase instead, run: ourstick share --key-file <path> <folder>",
-            )?;
-            Ok((store, SecretBackend::SecretService))
+            let no_keyring = "no system keyring to keep the keys in. To keep them in a file \
+                 protected by a passphrase instead, run: ourstick share --key-file <path> \
+                 <folder>";
+            let Some(backend) = system.backend.clone() else {
+                bail!("{no_keyring}");
+            };
+            let store = (system.open)().context(no_keyring)?;
+            Ok((store, backend))
         }
     }
 }
@@ -167,7 +193,23 @@ mod tests {
         choice: &SecretsChoice,
         answers: &Answers,
     ) -> Result<(Box<dyn SecretStore>, SecretBackend)> {
-        open_secrets(recorded, choice, &no_secret_service, answers, FAST)
+        let system = SystemKeyring {
+            backend: Some(SecretBackend::SecretService),
+            open: &no_secret_service,
+        };
+        open_secrets(recorded, choice, &system, answers, FAST)
+    }
+
+    #[test]
+    fn keys_in_another_systems_keyring_are_not_looked_for_here() {
+        let error = open(
+            Some(&SecretBackend::Keychain),
+            &SecretsChoice::Default,
+            &GOOD,
+        )
+        .err()
+        .expect("an error");
+        assert!(error.to_string().contains("the macOS keychain"), "{error}");
     }
 
     #[test]

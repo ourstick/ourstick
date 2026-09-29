@@ -23,7 +23,11 @@ pub use sqlite::{SqliteStore, SCHEMA_VERSION};
 /// Where this device keeps its secrets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecretBackend {
+    /// The freedesktop Secret Service (Linux).
     SecretService,
+    /// The login keychain (macOS).
+    Keychain,
+    /// A key file the user chose.
     KeyFile(PathBuf),
 }
 

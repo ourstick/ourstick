@@ -48,7 +48,7 @@ impl MemoryStore {
 /// Same order as the SQLite store: oldest first, then by stick id.
 fn sorted<T: Clone>(items: impl Iterator<Item = (u64, [u8; 32], T)>) -> Vec<T> {
     let mut items: Vec<_> = items.collect();
-    items.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    items.sort_by_key(|item| (item.0, item.1));
     items.into_iter().map(|(_, _, item)| item).collect()
 }
 

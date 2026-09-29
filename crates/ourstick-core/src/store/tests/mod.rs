@@ -68,6 +68,15 @@ fn device_with_key_file_roundtrips(store: &dyn Store) {
     assert_eq!(store.device().unwrap(), Some(device));
 }
 
+fn device_with_keychain_roundtrips(store: &dyn Store) {
+    let device = Device {
+        secret_backend: SecretBackend::Keychain,
+        ..device()
+    };
+    store.create_device(&device).unwrap();
+    assert_eq!(store.device().unwrap(), Some(device));
+}
+
 fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
     store.add_owned_stick(&owned(2, 20)).unwrap();
     store.add_owned_stick(&owned(1, 10)).unwrap();
@@ -350,6 +359,7 @@ macro_rules! for_every_store {
 for_every_store!(
     device_is_created_once,
     device_with_key_file_roundtrips,
+    device_with_keychain_roundtrips,
     owned_sticks_roundtrip_in_order,
     signed_records_only_move_forward,
     signed_record_for_unknown_stick_fails,

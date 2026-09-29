@@ -152,11 +152,9 @@ impl Progress {
                 let speed = rate(network.saturating_sub(self.network_at_last_line), since);
                 self.last_line_at = elapsed;
                 self.network_at_last_line = network;
-                let percent = if self.total > 0 {
-                    now.min(self.total) * 100 / self.total
-                } else {
-                    100
-                };
+                let percent = (now.min(self.total) * 100)
+                    .checked_div(self.total)
+                    .unwrap_or(100);
                 let path = match (self.path, self.relay_limit) {
                     // The limit stays in view while it applies (ADR 0006).
                     (Some(PathKind::Relay), Some(limit)) => {

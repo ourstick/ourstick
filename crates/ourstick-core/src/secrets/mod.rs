@@ -8,9 +8,9 @@
 //! All methods block. From async code, call them inside `spawn_blocking`.
 
 mod key_file;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod keyring;
 mod memory;
-#[cfg(target_os = "linux")]
-mod secret_service;
 
 use std::fmt;
 
@@ -19,9 +19,9 @@ use rand::RngCore;
 use crate::stick_id::StickId;
 
 pub use key_file::{KeyFileParams, KeyFileStore};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use keyring::KeyringStore;
 pub use memory::MemorySecretStore;
-#[cfg(target_os = "linux")]
-pub use secret_service::SecretServiceStore;
 
 /// How long a store keeps what is written to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -114,6 +114,7 @@ impl Store for SqliteStore {
         };
         let secret_backend = match (backend.as_str(), key_file_path) {
             ("secret-service", None) => SecretBackend::SecretService,
+            ("keychain", None) => SecretBackend::Keychain,
             ("key-file", Some(path)) => SecretBackend::KeyFile(PathBuf::from(path)),
             _ => return Err(StoreError::Corrupt(format!("secret_backend {backend}"))),
         };
@@ -128,6 +129,7 @@ impl Store for SqliteStore {
         check_device(device)?;
         let (backend, key_file_path) = match &device.secret_backend {
             SecretBackend::SecretService => ("secret-service", None),
+            SecretBackend::Keychain => ("keychain", None),
             SecretBackend::KeyFile(path) => ("key-file", Some(path_str(path)?)),
         };
         let inserted = self.connection().execute(

@@ -7,10 +7,10 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use ourstick_core::secrets::{check_secret_store, KeyFileParams, SecretName, SecretStore};
 use ourstick_core::transport::iroh::IrohConfig;
-use ourstick_core::{Device, SqliteStore, Store};
+use ourstick_core::{Device, SecretBackend, SqliteStore, Store};
 use rand::RngCore;
 
-use crate::secrets::{open_secrets, SecretsChoice, TerminalPassphrases};
+use crate::secrets::{open_secrets, SecretsChoice, SystemKeyring, TerminalPassphrases};
 
 pub struct Setup {
     pub data_dir: PathBuf,
@@ -44,15 +44,33 @@ fn create_private_dir(dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn secret_store() -> Result<Box<dyn SecretStore>> {
-    let store = ourstick_core::secrets::SecretServiceStore::connect()?;
-    Ok(Box::new(store))
-}
-
-#[cfg(not(target_os = "linux"))]
-fn secret_store() -> Result<Box<dyn SecretStore>> {
-    bail!("on this system OurStick can use only a key file for now")
+/// This system's keyring (see [`SystemKeyring`]).
+fn system_keyring() -> SystemKeyring<'static> {
+    #[cfg(target_os = "linux")]
+    fn open() -> Result<Box<dyn SecretStore>> {
+        Ok(Box::new(
+            ourstick_core::secrets::KeyringStore::secret_service()?,
+        ))
+    }
+    #[cfg(target_os = "macos")]
+    fn open() -> Result<Box<dyn SecretStore>> {
+        Ok(Box::new(ourstick_core::secrets::KeyringStore::keychain()?))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn open() -> Result<Box<dyn SecretStore>> {
+        bail!("on this system OurStick can use only a key file for now")
+    }
+    let backend = if cfg!(target_os = "linux") {
+        Some(SecretBackend::SecretService)
+    } else if cfg!(target_os = "macos") {
+        Some(SecretBackend::Keychain)
+    } else {
+        None
+    };
+    SystemKeyring {
+        backend,
+        open: &open,
+    }
 }
 
 pub fn random_key() -> [u8; 32] {
@@ -101,7 +119,7 @@ pub fn open(choice: &SecretsChoice) -> Result<Setup> {
     let (secrets, backend) = open_secrets(
         device.as_ref().map(|device| &device.secret_backend),
         choice,
-        &secret_store,
+        &system_keyring(),
         &TerminalPassphrases,
         KeyFileParams::default(),
     )?;

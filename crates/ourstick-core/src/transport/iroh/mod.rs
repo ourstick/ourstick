@@ -170,6 +170,19 @@ fn absolute(path: &Path) -> Result<PathBuf, TransportError> {
 }
 
 /// This endpoint's latest network report, in our own terms.
+/// Waits up to `timeout` for the first complete network report, then returns
+/// what there is (`None` if the measurement has not finished).
+async fn wait_network_report(
+    endpoint: &Endpoint,
+    timeout: std::time::Duration,
+) -> Option<super::NetworkReport> {
+    use iroh::Watcher as _;
+    let mut watcher = endpoint.net_report();
+    // A timeout is not an error: the caller says the report is not ready.
+    let _ = tokio::time::timeout(timeout, watcher.initialized()).await;
+    network_report(endpoint)
+}
+
 fn network_report(endpoint: &Endpoint) -> Option<super::NetworkReport> {
     use iroh::Watcher as _;
     let report = endpoint.net_report().get()?;

@@ -10,7 +10,7 @@ use ourstick_core::clock::SystemClock;
 use ourstick_core::secrets::SecretName;
 use ourstick_core::share::{plan_share, publish_folder};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
-use ourstick_core::transport::{describe_network, Publisher};
+use ourstick_core::transport::{describe_network, NetworkReport, Publisher};
 use ourstick_core::{
     cipher_for, CipherId, ManifestHint, OwnedStick, StickKey, StickSigningKey, Ticket,
 };
@@ -21,6 +21,19 @@ use crate::secrets::SecretsChoice;
 use crate::setup::{self, hex, load_key, now_ms};
 
 const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
+/// How long `share` waits, once online, for the network measurement.
+const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
+
+/// The "This network" line: what was measured, or that it is not known yet;
+/// never nothing.
+fn network_line(report: Option<&NetworkReport>) -> String {
+    match report {
+        Some(report) => format!("This network: {}.", describe_network(report)),
+        None => "This network: not measured yet (readers still connect; \
+                 `get` explains the path it uses)."
+            .to_owned(),
+    }
+}
 
 /// Finds the stick already made for `folder`, or makes one with new keys.
 fn owned_stick_for(
@@ -115,9 +128,8 @@ pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
     if !publisher.online(Duration::from_secs(30)).await {
         println!("Warning: no relay reachable; the ticket only has direct addresses.");
     }
-    if let Some(report) = publisher.network_report() {
-        println!("This network: {}.", describe_network(&report));
-    }
+    let report = publisher.wait_network_report(NETWORK_REPORT_WAIT).await;
+    println!("{}", network_line(report.as_ref()));
 
     let ticket = Ticket {
         stick_id: stick.stick_id,
@@ -145,4 +157,25 @@ pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
     println!("Stopping…");
     publisher.shutdown().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_line_is_never_empty() {
+        assert!(network_line(None).starts_with("This network: not measured yet"));
+        let report = NetworkReport {
+            udp_v4: true,
+            udp_v6: false,
+            ipv4_mapping_varies: Some(false),
+            public_v4: Some("203.0.113.32:35611".parse().unwrap()),
+            public_v6: None,
+        };
+        assert_eq!(
+            network_line(Some(&report)),
+            format!("This network: {}.", describe_network(&report))
+        );
+    }
 }

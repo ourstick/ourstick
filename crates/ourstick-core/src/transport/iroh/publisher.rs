@@ -123,6 +123,15 @@ impl IrohPublisher {
             .await
             .is_ok()
     }
+
+    /// The network report once measured, waiting up to `timeout` for it;
+    /// `None` if the measurement has not finished by then.
+    pub async fn wait_network_report(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<crate::transport::NetworkReport> {
+        super::wait_network_report(self.router.endpoint(), timeout).await
+    }
 }
 
 fn read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {

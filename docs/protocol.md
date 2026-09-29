@@ -371,14 +371,14 @@ checks it (rules above).
 
 ### Relay policy (reader)
 
-Relays introduce peers and carry the record and manifest. Before file data,
-the reader waits up to 5 s for a direct path, then starts over whatever path
-exists. Up to 100 MB of file data per download may come through the relay
-while iroh keeps looking for a direct path. Once that budget is used up, the
-reader reconnects, waits up to 15 s for a direct path and, without one, asks
-the user before going on through the relay (also when a direct path found
-after that is lost). See ADR 0006. Owners follow no policy of their own: they
-send over whatever path the connection uses.
+ADR 0006, version 2. Relays introduce peers and carry the record and manifest.
+File data goes over whatever path exists, at once: the reader never stops and
+never asks. Data that arrives through a relay is limited to a configured rate,
+10 Mbps by default, and the reader says so while it lasts; data over a direct
+path is never limited, and iroh keeps looking for one. Relay connections go
+through an HTTP(S) proxy if `HTTP_PROXY`/`HTTPS_PROXY` (or the lowercase forms)
+is set. Owners follow no policy of their own: they send over whatever path the
+connection uses.
 
 ### What an owner serves
 
@@ -441,6 +441,9 @@ Rules on every platform:
 - Keys are never regenerated once a ticket has been shared (CLAUDE.md rule 9).
 
 ## Open questions
+
+- A reader telling the owner how much it still needs, so the owner can show
+  "X GB remaining" (the owner only sees what it sends). Not in stage 1.
 
 - Readers learn of new versions by asking (`get --follow`: the signed record,
   137 bytes, every 15 s over one connection). A push from the owner would be

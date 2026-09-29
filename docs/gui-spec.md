@@ -10,28 +10,59 @@ The app is a virtual USB stick. The user should never need to learn anything
 they don't already know from a physical stick. Every screen has the minimum
 number of elements. No settings page in stage 1.
 
-## Platforms
+## The stick is a folder
 
-- Linux: full experience, including mount (FUSE).
-- Windows, macOS: same window, **no mount**. Files are dropped on the window.
-  The "Mounted" pill is replaced by nothing; the menu has no Eject.
-- Mobile: not in stage 1.
+The stick is one ordinary folder, like the contents of a real USB stick. Files
+dropped on the window are **copied** into it, as onto a real stick; the
+originals are not touched. Sharing, the watcher and the size limit all work on
+that folder. The app shows the folder as a drive, per platform:
+
+- **macOS:** a sparse APFS disk image,
+  `hdiutil create -type SPARSE -fs APFS -size <size> -volname OurStick`, kept in
+  `~/Library/Application Support/OurStick/` and attached with `hdiutil attach`.
+  It appears in Finder's Locations as a drive with an eject button. The mounted
+  volume is the stick folder. Ejecting in Finder is a real detach, and the app
+  notices. The image enforces the size limit.
+- **Linux:** the folder `~/OurStick`, added as a bookmark to the file manager's
+  sidebar (GTK bookmarks for Nautilus, `user-places.xbel` for Dolphin) with a
+  USB drive icon where the file manager allows one. No loop device (it needs
+  root). The watcher enforces the size limit.
+- **Windows:** not in stage 1 (later: a VHDX with `Mount-DiskImage`, or `subst`
+  as a simple alternative).
+- **Mobile:** not in stage 1.
+
+**Eject** detaches the image (macOS) or removes the bookmark (Linux). Sharing
+goes on with the last published version; changes are picked up again after
+Mount. An ejected stick is never published as empty.
+
+Hidden files that operating systems and file managers put on drives are never
+part of the stick (see "Owner-side rules" in `docs/protocol.md`): `.DS_Store`,
+`._*`, `.Spotlight-V100`, `.fseventsd`, `.Trashes`, `.TemporaryItems`,
+`.Trash-*`, `.directory`, and the like. The image gets `.metadata_never_index`
+so Spotlight leaves it alone.
 
 ## Panels
 
 ### 1 · Main window
 
 - Title: `OurStick (10 GB)` — the size chosen at first launch.
-- Right: pill `● Mounted ▾` (Linux only). Click opens a two-item menu:
-  `Open in file manager`, `Eject (keeps sharing)`.
+- Right: pill `● Mounted ▾` (macOS, Linux; `○ Ejected ▾` after eject). Click
+  opens a two-item menu: `Open in file manager`, `Eject (keeps sharing)` (or
+  `Mount` when ejected).
 - Drop zone: "Drop files or folders here", below it `N files · size`.
-  Dropping copies nothing: it adds the path to the stick (same as CLI share).
-- File list: name and size, folders with trailing `/`. Read-only list;
-  removing is done in the file manager (Linux) or via right-click → Remove (all).
-- Capacity: `used / stick size`, bar. Stick size is the cache budget: when
-  exceeded, the drop is refused with "Stick is full (10 GB)".
+  Dropping **copies** into the stick folder, like onto a real stick. A drop
+  that does not fit is refused with "Stick is full (10 GB)".
+- File list: the top level of the stick folder, name and size, folders with
+  trailing `/`. Removing is done in the file manager, or via right-click →
+  Remove, which deletes the copy on the stick (never an original).
+- Capacity: `used / stick size`, bar. If the folder grows past the size anyway
+  (on Linux, e.g. by copying in the file manager), the stick is not published
+  and the window shows "Stick is full, remove N MB".
 - Activity line (only while someone downloads):
-  `● 1 person downloading · 2.1 MB/s · direct` (or `relay`).
+  `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`.
+  Readers have no names, and the owner cannot tell how much a reader still
+  needs (see "Open questions"). `· direct` / `· relay` is added only if iroh
+  gives it cheaply on the owner's side.
 - `⤴ Share` button → panel 2.
 
 ### 2 · Share popup
@@ -53,15 +84,17 @@ number of elements. No settings page in stage 1.
 
 - "Stop sharing OurStick?" / "Anyone with the link will no longer be able to
   download."
-- If a download is in progress: bold line `<name or "Someone"> is still
-  downloading — X GB remaining.`
+- If a download is in progress: bold line `Someone is still downloading.`
+  (no names, no remaining size in stage 1).
 - Buttons: `Keep sharing`, `Stop` (red). Quit shows the same dialog.
 
 ### 5 · First launch
 
 - Title "Welcome to OurStick", three sentences (see image).
 - Stick size dropdown: 5 / 10 / 20 / 50 GB, default 10.
-- Button `Plug it in` → creates keys, mounts (Linux), opens panel 1.
+- Button `Plug it in` → creates keys (Secret Service on Linux, Keychain on
+  macOS), creates the stick folder (the disk image on macOS, `~/OurStick` on
+  Linux), mounts it or adds the bookmark, and opens panel 1.
 - Shown once. Size can't be changed in stage 1 (documented limitation).
 
 ## Semantics that must hold
@@ -69,11 +102,22 @@ number of elements. No settings page in stage 1.
 - **Eject ≠ stop sharing.** Eject only unmounts. Sharing continues, tray stays.
 - **Stop sharing** is the only thing that stops serving. Always confirmed.
 - **Link is the key.** Never logged, never sent anywhere by the app itself.
-- **Relay policy (ADR 0006)** stays, but the question becomes a dialog:
-  "Connection is slow (no direct path). Continue anyway?" — only on the
-  receiver side, which is CLI/mobile for now, so no dialog in stage 1.
+- **Relay policy (ADR 0006 v2):** never stop, never ask. Without a direct
+  path, data goes through the relay at a limited speed, with a message that
+  stays visible. That is on the receiver side (CLI for now); nothing to show
+  in the stage 1 window.
 - **Sleep:** while someone is downloading, inhibit system sleep
-  (org.freedesktop.login1 on Linux; later caffeinate / SetThreadExecutionState).
+  (`org.freedesktop.login1` on Linux, a power assertion on macOS).
+
+## Known limitations (stage 1)
+
+- The stick size cannot be changed after first launch.
+- The encrypted cache is a second copy of the stick: a 10 GB stick can take up
+  to about 20 GB of disk.
+- macOS: a sparse image does not shrink when files are deleted; it gets
+  smaller only after `hdiutil compact` while detached.
+- Linux: the bookmark's icon is up to the file manager; Nautilus shows its
+  bookmarks with a folder icon.
 
 ## Theming: native look per platform
 
@@ -116,7 +160,20 @@ Rules:
 Not in stage 1. Receivers use `ourstick get` (CLI) until the receiver window
 and mobile apps exist. The link page at ourstick.com/s/ says how to install.
 
+## Open questions
+
+- **Link a folder without copying** it onto the stick (share in place, as the
+  CLI does).
+- **"X GB remaining"** for the owner: needs a small addition to the protocol,
+  where the reader tells the owner how much it still needs.
+- **macOS mount point:** whether Finder shows the volume in Locations when it
+  is attached elsewhere than `/Volumes` (to be tried on the MacBook). Under
+  `/Volumes` its name can change (`OurStick 1`), so the app identifies the
+  stick by its image, not by the path.
+- **Windows:** VHDX with `Mount-DiskImage`, or `subst`.
+
 ## Out of scope (stage 1)
 
-Windows/macOS mount, right-click "Send to" in file managers, multiple sticks,
-permissions, expiry, revoke, settings page, auto-start at login, updates.
+Windows (build and drive), FUSE or any virtual filesystem, right-click "Send
+to" in file managers, multiple sticks, permissions, expiry, revoke, settings
+page, auto-start at login, updates, the receiver window.

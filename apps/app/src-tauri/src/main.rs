@@ -8,6 +8,8 @@ mod commands;
 mod dialog;
 mod drive;
 mod inhibit;
+#[cfg(target_os = "macos")]
+mod menu;
 mod qr;
 mod serving;
 mod share;
@@ -31,7 +33,18 @@ fn main() {
         }
     };
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // macOS: our own app menu, whose ⌘Q asks before quitting. Elsewhere the
+    // windows have no menu bar.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build).on_menu_event(|app, event| {
+        if event.id.as_ref() == menu::QUIT {
+            if let Err(error) = dialog::open(app, dialog::Mode::Quit) {
+                tracing::warn!(error = %format!("{error:#}"), "cannot ask before quitting");
+            }
+        }
+    });
+    builder
         // A second launch shows the running app instead: two would serve with
         // one node identity (see device::ShareLock).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

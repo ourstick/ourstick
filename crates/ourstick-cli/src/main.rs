@@ -1,6 +1,5 @@
 //! `ourstick` CLI: share / ls / get.
 
-mod consent;
 mod display;
 mod get;
 mod ls;
@@ -23,14 +22,12 @@ Usage:
   ourstick share [--key-file <path>] [--rescan] <folder>
                                            Share a folder and print its ticket
   ourstick ls <ticket>                     List a stick's files without downloading
-  ourstick get <ticket> [--out <folder>] [--allow-relay] [--follow]
+  ourstick get <ticket> [--out <folder>] [--follow]
                                            Download a stick (resumes if interrupted;
                                            later runs fetch only what changed)
 
-`get` waits up to 5 s for a direct connection, then starts. Up to 100 MB may
-come through a relay while it keeps looking; after that it waits up to 15 s
-more and asks before going on through the relay. --allow-relay says yes in
-advance (for scripts).
+Without a direct connection, `get` goes on through a relay, at up to 10 Mbps
+while it keeps looking for a direct one; it never stops because of it.
 
 `share` keeps this device's keys in the Secret Service (GNOME Keyring,
 KWallet). Where there is none (macOS for now, SSH sessions, servers), the first
@@ -57,7 +54,6 @@ enum Command {
     Get {
         ticket: String,
         output: Option<PathBuf>,
-        allow_relay: bool,
         follow: bool,
     },
     Help,
@@ -108,7 +104,6 @@ fn parse_share(options: &[String]) -> Result<Command> {
 /// `get <ticket>` followed by `--out <folder>` and/or `--allow-relay`, in any order.
 fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     let mut output = None;
-    let mut allow_relay = false;
     let mut follow = false;
     let mut options = options.iter();
     while let Some(option) = options.next() {
@@ -117,7 +112,6 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
                 Some(folder) if output.is_none() => output = Some(PathBuf::from(folder)),
                 _ => bail!("--out needs one folder\n\n{USAGE}"),
             },
-            "--allow-relay" => allow_relay = true,
             "--follow" => follow = true,
             other => bail!("unknown option {other}\n\n{USAGE}"),
         }
@@ -125,7 +119,6 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     Ok(Command::Get {
         ticket: ticket.to_owned(),
         output,
-        allow_relay,
         follow,
     })
 }
@@ -148,9 +141,8 @@ async fn main() -> Result<()> {
         Command::Get {
             ticket,
             output,
-            allow_relay,
             follow,
-        } => get::run(&ticket, output, allow_relay, follow).await,
+        } => get::run(&ticket, output, follow).await,
         Command::Help => {
             println!("{USAGE}");
             Ok(())
@@ -195,7 +187,7 @@ mod tests {
         assert!(parse(&args(&["share", "--keyfile", "k", "a"])).is_err());
         assert!(matches!(
             parse(&args(&["get", "T"])),
-            Ok(Command::Get { ticket, output: None, allow_relay: false, follow: false })
+            Ok(Command::Get { ticket, output: None, follow: false })
                 if ticket == "T"
         ));
         assert!(matches!(
@@ -213,10 +205,12 @@ mod tests {
         assert!(parse(&args(&["share"])).is_err());
         assert!(parse(&args(&["get", "T", "--in", "dir"])).is_err());
         assert!(matches!(
-            parse(&args(&["get", "T", "--allow-relay", "--out", "dir"])),
-            Ok(Command::Get { output: Some(output), allow_relay: true, .. })
+            parse(&args(&["get", "T", "--follow", "--out", "dir"])),
+            Ok(Command::Get { output: Some(output), follow: true, .. })
                 if output == std::path::Path::new("dir")
         ));
+        // Gone with ADR 0006 v2: the relay is never refused.
+        assert!(parse(&args(&["get", "T", "--allow-relay"])).is_err());
         assert!(matches!(
             parse(&args(&["get", "T", "--follow"])),
             Ok(Command::Get { follow: true, .. })

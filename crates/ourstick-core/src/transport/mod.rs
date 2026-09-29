@@ -53,6 +53,13 @@ pub struct PathUsage {
     pub direct_ipv6: u64,
 }
 
+/// What a fetch does after reporting progress: `Continue(wait)` goes on after
+/// `wait` (zero: at once), `Break` cancels.
+pub type Pace = ControlFlow<(), std::time::Duration>;
+
+/// Go on at once.
+pub const GO: Pace = ControlFlow::Continue(std::time::Duration::ZERO);
+
 /// Counters for one blob fetch.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchStats {
@@ -210,11 +217,12 @@ pub trait PeerConnection: Send + Sync {
 
     /// Downloads the missing parts of a blob into the local store, verifying
     /// every chunk against `hash`. `on_progress` gets the bytes received so far
-    /// in this fetch and can cancel it.
+    /// in this fetch, and says whether to go on (after waiting a while, which
+    /// slows the sender through flow control) or to cancel.
     fn fetch_blob(
         &self,
         hash: &BlobHash,
-        on_progress: &mut (dyn FnMut(u64) -> ControlFlow<()> + Send),
+        on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> impl Future<Output = Result<FetchStats, TransportError>> + Send;
 
     /// Closes the connection.

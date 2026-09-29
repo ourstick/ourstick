@@ -8,7 +8,6 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use common::memory::{publish_versions, Link, MemoryFetcher, Versions};
-use common::NeverAsked;
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{
     download, DownloadError, DownloadEvent, DownloadReport, RelayPolicy,
@@ -39,7 +38,6 @@ async fn download_while(
         &stick.ticket,
         output,
         &RelayPolicy::default(),
-        &NeverAsked,
         &mut |event| {
             match event {
                 DownloadEvent::FileDone { .. } => {

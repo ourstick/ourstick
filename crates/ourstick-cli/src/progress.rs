@@ -56,6 +56,18 @@ pub struct Progress {
     current_received: u64,
     last_line_at: Duration,
     network_at_last_line: u64,
+    /// The relay limit, while data arrives through the relay.
+    relay_limit: Option<u64>,
+}
+
+/// A bit rate for humans, e.g. `10 Mbps`.
+fn mbps(bits_per_second: u64) -> String {
+    let mbps = bits_per_second as f64 / 1_000_000.0;
+    if mbps.fract() == 0.0 {
+        format!("{mbps:.0} Mbps")
+    } else {
+        format!("{mbps:.1} Mbps")
+    }
 }
 
 /// "1 file", "2 files".
@@ -90,28 +102,19 @@ impl Progress {
                 self.path = Some(path);
                 vec![format!("[{at}] Connected: {}.", describe(path))]
             }
-            DownloadEvent::WaitingForDirect {
-                seconds,
-                budget_used: false,
-            } => vec![format!(
-                "[{at}] No direct connection yet: waiting up to {seconds} s for one…"
-            )],
-            DownloadEvent::WaitingForDirect {
-                seconds,
-                budget_used: true,
-            } => vec![format!(
-                "[{at}] Waiting up to {seconds} s for a direct connection…"
-            )],
-            DownloadEvent::RelayBudgetUsed { bytes: used } => vec![format!(
-                "[{at}] {} came through the relay, the most allowed without asking; \
-                 reconnecting to look for a direct connection…",
-                bytes(used)
-            )],
-            DownloadEvent::DirectLost => vec![format!(
-                "[{at}] The direct connection was lost; reconnecting to find it again…"
-            )],
+            DownloadEvent::RelayLimited { bits_per_second } => {
+                self.relay_limit = Some(bits_per_second);
+                vec![format!(
+                    "[{at}] No direct connection found; continuing through the relay, \
+                     up to {} on the free relays. A direct connection is still looked for.",
+                    mbps(bits_per_second)
+                )]
+            }
             DownloadEvent::PathChanged { path } => {
                 self.path = Some(path);
+                if path == PathKind::Direct {
+                    self.relay_limit = None;
+                }
                 vec![format!("[{at}] Now: {}.", describe(path))]
             }
             DownloadEvent::Manifest {
@@ -154,10 +157,14 @@ impl Progress {
                 } else {
                     100
                 };
-                let path = self
-                    .path
-                    .map(|path| format!(", {path}"))
-                    .unwrap_or_default();
+                let path = match (self.path, self.relay_limit) {
+                    // The limit stays in view while it applies (ADR 0006).
+                    (Some(PathKind::Relay), Some(limit)) => {
+                        format!(", relay, up to {}", mbps(limit))
+                    }
+                    (Some(path), _) => format!(", {path}"),
+                    (None, _) => String::new(),
+                };
                 vec![format!(
                     "[{at}] {} of {} ({percent}%), {speed}{path}",
                     bytes(now),

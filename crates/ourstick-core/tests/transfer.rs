@@ -4,6 +4,8 @@
 
 mod common;
 
+use ourstick_core::transport::GO;
+
 use std::ops::ControlFlow;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -234,9 +236,7 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
     let fetcher = reader.fetcher().await;
     let connection = fetcher.connect(&ticket).await.unwrap();
     for hash in [removed_hash, [9; 32]] {
-        let result = connection
-            .fetch_blob(&hash, &mut |_| ControlFlow::Continue(()))
-            .await;
+        let result = connection.fetch_blob(&hash, &mut |_| GO).await;
         assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");
     }
     connection.close().await;

@@ -2,7 +2,6 @@
 //! fetch and decrypt the manifest it names, check every path, and raise the
 //! record floor (ADR 0004). `get` goes on to the files; `ls` stops here.
 
-use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use super::files::check_manifest_paths;
@@ -14,7 +13,7 @@ use crate::manifest::Manifest;
 use crate::record::{ManifestHint, RecordCheck};
 use crate::store::{ManifestVersion, Store};
 use crate::ticket::Ticket;
-use crate::transport::{Fetcher, PeerConnection};
+use crate::transport::{Fetcher, PeerConnection, GO};
 
 /// A stick's current manifest, verified.
 #[derive(Debug, Clone)]
@@ -46,7 +45,7 @@ pub(super) async fn fetch_listing(
     };
 
     connection
-        .fetch_blob(&record.manifest_hash, &mut |_| ControlFlow::Continue(()))
+        .fetch_blob(&record.manifest_hash, &mut |_| GO)
         .await
         .map_err(cancelled)?;
     let manifest_blob = fetcher.read_blob(&record.manifest_hash).await?;

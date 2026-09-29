@@ -78,28 +78,58 @@ fn every_line_has_the_time_and_progress_is_throttled() {
 }
 
 #[test]
-fn relay_policy_events_say_what_happens() {
+fn the_relay_limit_is_said_once_and_stays_in_view_until_direct() {
     let mut progress = Progress::default();
-    let mut line = |event| progress.on_event(event, secs(5)).join("\n");
-    assert_eq!(
-        line(DownloadEvent::WaitingForDirect {
-            seconds: 5,
-            budget_used: false
-        }),
-        "[00:05] No direct connection yet: waiting up to 5 s for one…"
+    progress.on_event(
+        DownloadEvent::Connected {
+            path: PathKind::Relay,
+        },
+        secs(0),
+    );
+    progress.on_event(
+        DownloadEvent::Manifest {
+            seq: 1,
+            files: 1,
+            bytes: 100_000_000,
+            unchanged: false,
+        },
+        secs(0),
     );
     assert_eq!(
-        line(DownloadEvent::RelayBudgetUsed { bytes: 104_000_000 }),
-        "[00:05] 104.0 MB came through the relay, the most allowed without asking; \
-         reconnecting to look for a direct connection…"
+        progress.on_event(
+            DownloadEvent::RelayLimited {
+                bits_per_second: 10_000_000
+            },
+            secs(4)
+        ),
+        vec![
+            "[00:04] No direct connection found; continuing through the relay, \
+             up to 10 Mbps on the free relays. A direct connection is still looked for."
+        ]
     );
-    assert_eq!(
-        line(DownloadEvent::WaitingForDirect {
-            seconds: 15,
-            budget_used: true
-        }),
-        "[00:05] Waiting up to 15 s for a direct connection…"
+    let line = progress.on_event(
+        DownloadEvent::Progress {
+            path: "movie.mkv",
+            received: 5_000_000,
+        },
+        secs(8),
     );
+    assert!(line[0].ends_with(", relay, up to 10 Mbps"), "{line:?}");
+    progress.on_event(
+        DownloadEvent::PathChanged {
+            path: PathKind::Direct,
+        },
+        secs(9),
+    );
+    let line = progress.on_event(
+        DownloadEvent::Progress {
+            path: "movie.mkv",
+            received: 50_000_000,
+        },
+        secs(12),
+    );
+    assert!(line[0].ends_with(", direct"), "{line:?}");
+    assert_eq!(mbps(2_500_000), "2.5 Mbps");
 }
 
 #[test]

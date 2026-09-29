@@ -23,7 +23,7 @@ use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::Ticket;
 use crate::transport::{
-    BlobHash, FetchStats, Fetcher, PathKind, PathUsage, PeerConnection, TransportError,
+    BlobHash, FetchStats, Fetcher, Pace, PathKind, PathUsage, PeerConnection, TransportError,
 };
 
 /// Bytes received per path, keyed by the path id (its `Debug` form: iroh does
@@ -281,7 +281,7 @@ impl PeerConnection for IrohConnection {
     async fn fetch_blob(
         &self,
         hash: &BlobHash,
-        on_progress: &mut (dyn FnMut(u64) -> ControlFlow<()> + Send),
+        on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let local = self
             .store
@@ -303,14 +303,21 @@ impl PeerConnection for IrohConnection {
             .stream());
         while let Some(item) = progress.next().await {
             match item {
-                GetProgressItem::Progress(received) => {
-                    if on_progress(received).is_break() {
+                GetProgressItem::Progress(received) => match on_progress(received) {
+                    ControlFlow::Break(()) => {
                         // Closing the connection stops the transfer mid-way;
                         // what was verified so far stays in the store.
                         self.blobs.close(0u32.into(), b"cancelled");
                         return Err(TransportError::Cancelled);
                     }
-                }
+                    // The fetch runs inside this stream: while it is not
+                    // polled nothing is read, and QUIC flow control slows
+                    // the sender.
+                    ControlFlow::Continue(wait) if !wait.is_zero() => {
+                        tokio::time::sleep(wait).await;
+                    }
+                    ControlFlow::Continue(_) => {}
+                },
                 GetProgressItem::Done(stats) => {
                     return Ok(FetchStats {
                         already_local,

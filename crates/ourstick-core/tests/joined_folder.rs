@@ -9,7 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use common::memory::{publish_one_file, Link, MemoryFetcher, Published};
-use common::NeverAsked;
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{download, DownloadError, DownloadEvent, RelayPolicy};
 use ourstick_core::{MemoryStore, Store};
@@ -37,7 +36,6 @@ async fn get(
         &stick.ticket,
         output,
         &RelayPolicy::default(),
-        &NeverAsked,
         &mut |event| match event {
             DownloadEvent::Manifest { unchanged: now, .. } => {
                 unchanged = Some(now);

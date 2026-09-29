@@ -17,7 +17,6 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use common::memory::{publish_one_file, Link, MemoryFetcher};
-use common::NeverAsked;
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{download, DownloadEvent, RelayPolicy};
 use ourstick_core::transport::PathKind;
@@ -37,7 +36,6 @@ async fn reported_paths(link: Link) -> Vec<PathKind> {
         &stick.ticket,
         output.path(),
         &RelayPolicy::default(),
-        &NeverAsked,
         &mut |event| {
             if let DownloadEvent::Connected { path } | DownloadEvent::PathChanged { path } = event {
                 reported.push(path);

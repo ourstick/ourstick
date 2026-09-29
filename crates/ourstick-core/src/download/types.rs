@@ -20,20 +20,11 @@ pub enum DownloadEvent<'a> {
     PathChanged {
         path: PathKind,
     },
-    /// No direct path yet: waiting this long for one (ADR 0006). Before the
-    /// start (`budget_used` false), or once the relay budget is used up.
-    WaitingForDirect {
-        seconds: u64,
-        budget_used: bool,
+    /// Data now arrives through a relay and is limited to this rate
+    /// (ADR 0006). Lasts until a `PathChanged` to a direct path.
+    RelayLimited {
+        bits_per_second: u64,
     },
-    /// This many bytes came through the relay, the whole budget; the download
-    /// reconnects and looks for a direct path before going on.
-    RelayBudgetUsed {
-        bytes: u64,
-    },
-    /// After the budget was used up, the direct path was lost; the download
-    /// reconnects and tries for a direct path again.
-    DirectLost,
     /// The owner published a new version while this one downloaded; the
     /// download goes on with it (files already done are not fetched again).
     NewVersion {
@@ -107,12 +98,6 @@ pub enum DownloadError {
         expected: u64,
         actual: u64,
     },
-    #[error("no direct connection to the owner could be made and using the relay was declined ({remaining} bytes left); run again later, or allow the relay")]
-    RelayDeclined { remaining: u64 },
-    #[error("the direct connection to the owner kept dropping; run again to resume")]
-    DirectLost,
-    #[error("the free amount of data through the relay is used up; run again to resume")]
-    RelayBudgetUsed,
     #[error("refusing to write {path}: {reason}")]
     UnsafePath { path: String, reason: &'static str },
     #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]

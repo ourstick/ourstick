@@ -33,9 +33,9 @@ changed. It never overwrites a file you changed in its folder, and keeps files
 that left the stick.
 
 The link carries the key: anyone who has it can read the stick. Data goes
-directly between the two devices when possible. Up to 100 MB of a download may
-go through a public relay while a direct path is looked for; after that, `get`
-asks first (`--allow-relay` says yes in advance).
+directly between the two devices when possible. Without a direct path it goes
+through a public relay, at up to 10 Mbps, while a direct path is still looked
+for; a download never stops because of it.
 
 `share` keeps its keys in the Secret Service (GNOME Keyring, KWallet). Where
 there is none (macOS for now, SSH sessions, servers), use

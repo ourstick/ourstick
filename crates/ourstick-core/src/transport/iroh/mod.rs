@@ -105,7 +105,9 @@ impl fmt::Debug for IrohConfig {
 
 async fn bind(config: &IrohConfig, alpns: Vec<Vec<u8>>) -> Result<Endpoint, TransportError> {
     let mut builder = match config.network {
-        Network::Public => Endpoint::builder(presets::N0),
+        // Relay connections go through an HTTP(S) proxy if the environment
+        // names one (ADR 0006).
+        Network::Public => Endpoint::builder(presets::N0).proxy_from_env(),
         Network::LocalOnly => Endpoint::builder(presets::Minimal),
     };
     if let (Network::Public, Relays::N0PublicAnd(extra)) = (&config.network, &config.relays) {

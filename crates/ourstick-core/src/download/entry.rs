@@ -4,15 +4,19 @@
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::files::{decrypt_into_place, target_path};
 use super::path::ReceivingPath;
-use super::relay::{Stop, Watch};
+use super::relay::RelayLimiter;
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
 use crate::blocking::run_blocking;
 use crate::cipher::Cipher;
 use crate::manifest::{Entry, FileStamp};
-use crate::transport::{Fetcher, PathKind, PeerConnection};
+use crate::transport::{Fetcher, PathKind, PeerConnection, GO};
+
+/// How often, in received bytes, the relay limit looks at the relay count.
+const LIMIT_SAMPLE: u64 = 256 * 1024;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn download_file(
@@ -23,7 +27,7 @@ pub(super) async fn download_file(
     output_dir: &Path,
     partial: &Path,
     receiving: &mut ReceivingPath,
-    watch: Watch,
+    limiter: &mut Option<RelayLimiter>,
     replaceable: Option<FileStamp>,
     received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
@@ -48,7 +52,7 @@ pub(super) async fn download_file(
     }
 
     let mut previous = 0;
-    let mut stopped = None;
+    let mut unsampled = 0;
     let stats = connection
         .fetch_blob(&entry.hash, &mut |received| {
             let new_bytes = received.saturating_sub(previous);
@@ -58,23 +62,28 @@ pub(super) async fn download_file(
                 if check.changed {
                     on_event(DownloadEvent::PathChanged { path: check.kind })?;
                 }
-                // The relay policy may want to stop here, reconnect and look
-                // for a direct path (ADR 0006).
-                if let Some(stop) =
-                    watch.must_stop(check.kind == PathKind::Relay, check.relay_total)
-                {
-                    stopped = Some(stop);
-                    return ControlFlow::Break(());
+                if let Some(limiter) = limiter.as_mut() {
+                    if limiter.announce(check.kind == PathKind::Relay) {
+                        on_event(DownloadEvent::RelayLimited {
+                            bits_per_second: limiter.bits_per_second(),
+                        })?;
+                    }
                 }
             }
-            on_event(DownloadEvent::Progress { path, received })
+            on_event(DownloadEvent::Progress { path, received })?;
+            // ADR 0006: data through a relay is slowed to the limit, never
+            // stopped. Sampled now and then: `usage` is not free.
+            unsampled += new_bytes;
+            match limiter.as_mut() {
+                Some(limiter) if unsampled >= LIMIT_SAMPLE => {
+                    unsampled = 0;
+                    ControlFlow::Continue(limiter.wait(connection.usage().relay, Instant::now()))
+                }
+                _ => GO,
+            }
         })
         .await
-        .map_err(|error| match stopped {
-            Some(Stop::BudgetUsed) => DownloadError::RelayBudgetUsed,
-            Some(Stop::DirectLost) => DownloadError::DirectLost,
-            None => cancelled(error),
-        })?;
+        .map_err(cancelled)?;
 
     let name = data_encoding::HEXLOWER.encode(&entry.hash);
     let ciphertext = partial.join(format!("{name}.blob"));

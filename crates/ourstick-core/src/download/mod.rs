@@ -20,16 +20,13 @@ use files::prepare_partial_dir;
 use folder::{plan_folder, FilePlan};
 use listing::fetch_listing;
 use path::ReceivingPath;
-use relay::{settle, RelayState, Watch};
+use relay::RelayLimiter;
 
 pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use listing::{list, Listing};
-pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
+pub use relay::RelayPolicy;
 pub use types::{DownloadError, DownloadEvent, DownloadReport};
 
-/// How many times a download reconnects (budget used up, direct path lost)
-/// before giving up.
-const MAX_RECONNECTS: u32 = 3;
 /// How many new versions a download follows before giving up; a folder that
 /// never stops changing cannot keep it going forever.
 const MAX_NEW_VERSIONS: u32 = 10;
@@ -77,8 +74,8 @@ fn cancelled(error: TransportError) -> DownloadError {
 /// the version once all its files are in `output_dir`. On any error nothing half-written is left under a final name; run
 /// again to resume. The caller shuts the fetcher down afterwards (keeping its
 /// store on error, so the next run resumes).
-/// Whether file data may go through the relay follows `policy` (ADR 0006);
-/// `consent` is asked when a larger transfer has no direct path.
+/// Data through a relay is limited as `policy` says (ADR 0006); the download
+/// never stops or asks because of the relay.
 #[allow(clippy::too_many_arguments)]
 pub async fn download(
     fetcher: &impl Fetcher,
@@ -87,7 +84,6 @@ pub async fn download(
     ticket: &Ticket,
     output_dir: &Path,
     policy: &RelayPolicy,
-    consent: &impl RelayConsent,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
     let stick_id = ticket.stick_id;
@@ -104,8 +100,6 @@ pub async fn download(
         .await?;
     }
 
-    let mut relay = RelayState::default();
-    let mut reconnects = 0;
     let mut total = PathUsage::default();
     let mut carried = Carried::default();
     let mut new_versions = 0;
@@ -132,8 +126,6 @@ pub async fn download(
             floor,
             output_dir,
             policy,
-            consent,
-            &mut relay,
             &mut carried,
             on_event,
         )
@@ -142,9 +134,8 @@ pub async fn download(
         total.direct += usage.direct;
         total.relay += usage.relay;
         total.direct_ipv6 += usage.direct_ipv6;
-        relay.relay_used = total.relay;
         connection.close().await;
-        let event = match result {
+        match result {
             Ok(report) => {
                 return Ok(DownloadReport {
                     received: carried.received,
@@ -162,23 +153,8 @@ pub async fn download(
             ) if new_versions < MAX_NEW_VERSIONS && carried.refused.is_none() => {
                 new_versions += 1;
                 carried.refused = Some((carried.seq, error));
-                continue;
-            }
-            Err(DownloadError::RelayBudgetUsed) if reconnects < MAX_RECONNECTS => {
-                relay.budget_spent = true;
-                DownloadEvent::RelayBudgetUsed {
-                    bytes: relay.relay_used,
-                }
-            }
-            Err(DownloadError::DirectLost) if reconnects < MAX_RECONNECTS => {
-                relay.direct_was_lost = true;
-                DownloadEvent::DirectLost
             }
             Err(error) => return Err(error),
-        };
-        reconnects += 1;
-        if on_event(event).is_break() {
-            return Err(DownloadError::Cancelled);
         }
     }
 }
@@ -193,8 +169,6 @@ async fn download_over(
     floor: Option<ManifestVersion>,
     output_dir: &Path,
     policy: &RelayPolicy,
-    consent: &impl RelayConsent,
-    relay: &mut RelayState,
     carried: &mut Carried,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
@@ -262,29 +236,9 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
-    // ADR 0006: a short wait for a direct path, then a relay budget, then only
-    // a direct path unless the user agrees. The record and manifest above may
-    // use the relay. Nothing to fetch, nothing to wait for.
-    let mut remaining = 0;
-    for (entry, file) in manifest.entries.iter().zip(&plan.files) {
-        if matches!(file, FilePlan::Download { .. }) {
-            remaining += entry
-                .size
-                .saturating_sub(fetcher.local_bytes(&entry.hash).await?);
-        }
-    }
-    let to_fetch = plan
-        .files
-        .iter()
-        .any(|file| matches!(file, FilePlan::Download { .. }));
-    let watch = if to_fetch {
-        settle(
-            fetcher, connection, ticket, policy, consent, relay, remaining, on_event,
-        )
-        .await?
-    } else {
-        Watch::Nothing
-    };
+    // ADR 0006: never wait, never ask; data through a relay is only slowed.
+    let mut limiter =
+        RelayLimiter::new(policy, connection.usage().relay, std::time::Instant::now());
 
     let partial = {
         let output_dir = output_dir.to_path_buf();
@@ -317,7 +271,7 @@ async fn download_over(
                     output_dir,
                     &partial,
                     &mut receiving,
-                    watch,
+                    &mut limiter,
                     replaceable,
                     &mut carried.received,
                     on_event,

@@ -13,8 +13,7 @@ use std::time::Duration;
 
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{
-    download, DownloadError, DownloadEvent, DownloadReport, RelayConsent, RelayPolicy,
-    RelayQuestion,
+    download, DownloadError, DownloadEvent, DownloadReport, RelayPolicy,
 };
 use ourstick_core::share::{publish_folder, Publication};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, IrohPublisher, Network};
@@ -24,16 +23,6 @@ use ourstick_core::{
 };
 use rand::RngCore;
 use tempfile::TempDir;
-
-/// For transfers that must never reach the relay question (loopback is
-/// always direct).
-pub struct NeverAsked;
-
-impl RelayConsent for NeverAsked {
-    async fn allow_relay(&self, question: RelayQuestion) -> bool {
-        panic!("unexpected relay question: {question:?}")
-    }
-}
 
 pub fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];
@@ -195,7 +184,6 @@ impl Reader {
             ticket,
             self.output.path(),
             &RelayPolicy::default(),
-            &NeverAsked,
             on_event,
         )
         .await;

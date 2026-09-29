@@ -7,10 +7,9 @@ use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use ourstick_core::download::{RelayConsent, RelayQuestion};
 use ourstick_core::transport::{
-    BlobHash, FetchStats, Fetcher, NetworkReport, PathKind, PathUsage, PeerConnection, Publisher,
-    TransportError,
+    BlobHash, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage, PeerConnection,
+    Publisher, TransportError,
 };
 use ourstick_core::{AddressHint, NodeId, SignedManifestRecord, StickId, Ticket};
 
@@ -193,7 +192,7 @@ impl PeerConnection for MemoryConnection {
     async fn fetch_blob(
         &self,
         hash: &BlobHash,
-        on_progress: &mut (dyn FnMut(u64) -> ControlFlow<()> + Send),
+        on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let blob = {
             let served = self.served.lock().unwrap();
@@ -258,8 +257,10 @@ impl PeerConnection for MemoryConnection {
                     .extend_from_slice(piece);
             }
             received += piece.len() as u64;
-            if on_progress(received).is_break() {
-                return Err(TransportError::Cancelled);
+            match on_progress(received) {
+                ControlFlow::Break(()) => return Err(TransportError::Cancelled),
+                ControlFlow::Continue(wait) if !wait.is_zero() => tokio::time::sleep(wait).await,
+                ControlFlow::Continue(_) => {}
             }
         }
         Ok(FetchStats {
@@ -268,28 +269,6 @@ impl PeerConnection for MemoryConnection {
         })
     }
     async fn close(self) {}
-}
-
-/// Answers the relay question with `answer` and keeps every question asked.
-pub struct MemoryConsent {
-    answer: bool,
-    pub asked: Mutex<Vec<RelayQuestion>>,
-}
-
-impl MemoryConsent {
-    pub fn answering(answer: bool) -> Self {
-        Self {
-            answer,
-            asked: Mutex::new(Vec::new()),
-        }
-    }
-}
-
-impl RelayConsent for MemoryConsent {
-    async fn allow_relay(&self, question: RelayQuestion) -> bool {
-        self.asked.lock().unwrap().push(question);
-        self.answer
-    }
 }
 
 // Each test binary uses a different subset.

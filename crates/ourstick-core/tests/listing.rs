@@ -7,7 +7,6 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use common::memory::{publish_one_file, Link, MemoryFetcher};
-use common::NeverAsked;
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{download, list, DownloadError, DownloadEvent, RelayPolicy};
 use ourstick_core::{ManifestRecord, MemoryStore, RecordError, Store};
@@ -88,7 +87,6 @@ async fn get_after_list_downloads_everything_and_is_not_unchanged() {
         &stick.ticket,
         output.path(),
         &RelayPolicy::default(),
-        &NeverAsked,
         &mut |event| {
             if let DownloadEvent::Manifest { unchanged: now, .. } = event {
                 unchanged = Some(now);

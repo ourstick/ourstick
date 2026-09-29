@@ -19,7 +19,6 @@ use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKin
 use ourstick_core::Store;
 use ourstick_core::Ticket;
 
-use crate::consent::CliConsent;
 use crate::display::untrusted;
 use crate::progress::{clock, Progress};
 use crate::setup::{self, hex, random_key};
@@ -46,12 +45,7 @@ fn relay_explanation(fetcher: &IrohFetcher, ticket: &Ticket, elapsed: Duration) 
     lines
 }
 
-pub async fn run(
-    ticket_text: &str,
-    output: Option<PathBuf>,
-    allow_relay: bool,
-    follow: bool,
-) -> Result<()> {
+pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Result<()> {
     let ticket: Ticket = ticket_text.parse()?;
     let stick_hex = hex(&ticket.stick_id.to_bytes());
     let output = match output {
@@ -79,7 +73,6 @@ pub async fn run(
         store: setup.store.clone(),
         ticket: &ticket,
         output: &output,
-        consent: CliConsent::new(allow_relay, Instant::now()),
         started: Instant::now(),
         explained: std::sync::atomic::AtomicBool::new(false),
     };
@@ -101,9 +94,6 @@ pub async fn run(
             // Keep partial blobs so the next run resumes.
             fetcher.shutdown(true).await?;
             println!("[{}] Stopped.", clock(started.elapsed()));
-            if matches!(error, DownloadError::RelayDeclined { .. }) {
-                println!("        To continue through the relay, run again with --allow-relay.");
-            }
             Err(error).context("download stopped; run the same command again to resume")
         }
         None => {
@@ -130,7 +120,6 @@ struct Getter<'a> {
     store: std::sync::Arc<dyn Store>,
     ticket: &'a Ticket,
     output: &'a std::path::Path,
-    consent: CliConsent,
     started: Instant,
     /// Set once the reasons for the relay have been printed.
     explained: std::sync::atomic::AtomicBool,
@@ -163,8 +152,6 @@ impl Getter<'_> {
             );
             match self.download_once().await {
                 Ok(report) => seq = report.seq,
-                // Asking again every few seconds would be no answer at all.
-                Err(error @ DownloadError::RelayDeclined { .. }) => return Err(error),
                 Err(error) => {
                     println!(
                         "[{}] Download stopped: {}. Trying again at the next check.",
@@ -187,7 +174,6 @@ impl Getter<'_> {
             }
             // Still on the relay after a few seconds: say why, once.
             if !self.explained.load(std::sync::atomic::Ordering::SeqCst)
-                && !self.consent.explained()
                 && progress.path() == Some(PathKind::Relay)
                 && elapsed >= EXPLAIN_AFTER
             {
@@ -207,7 +193,6 @@ impl Getter<'_> {
             self.ticket,
             self.output,
             &RelayPolicy::default(),
-            &self.consent,
             &mut on_event,
         )
         .await?;

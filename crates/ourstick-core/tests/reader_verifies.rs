@@ -7,7 +7,6 @@
 //! without any checks: asked for hash H, it answers with a well-formed bao
 //! stream of *other* data.
 
-use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use bao_tree::io::outboard::PreOrderMemOutboard;
@@ -16,7 +15,7 @@ use iroh::endpoint::{presets, Connection};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::Endpoint;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
-use ourstick_core::transport::{Fetcher, PeerConnection, TransportError};
+use ourstick_core::transport::{Fetcher, PeerConnection, TransportError, GO};
 use ourstick_core::{AddressHint, ManifestHint, NodeId, StickKey, StickSigningKey, Ticket};
 
 /// iroh-blobs uses 16 KiB chunk groups (`IROH_BLOCK_SIZE`).
@@ -92,9 +91,7 @@ async fn reader_rejects_bytes_that_do_not_match_the_hash() {
     );
     let fetcher = IrohFetcher::start(&config, store_dir.path()).await.unwrap();
     let connection = fetcher.connect(&ticket).await.unwrap();
-    let result = connection
-        .fetch_blob(&requested, &mut |_| ControlFlow::Continue(()))
-        .await;
+    let result = connection.fetch_blob(&requested, &mut |_| GO).await;
 
     assert!(matches!(result, Err(TransportError::Corrupt)), "{result:?}");
     assert_eq!(
@@ -143,7 +140,7 @@ async fn honest_bao_response_is_accepted() {
     let fetcher = IrohFetcher::start(&config, store_dir.path()).await.unwrap();
     let connection = fetcher.connect(&ticket).await.unwrap();
     let stats = connection
-        .fetch_blob(&requested, &mut |_| ControlFlow::Continue(()))
+        .fetch_blob(&requested, &mut |_| GO)
         .await
         .unwrap();
     assert_eq!(stats.received, honest.len() as u64);

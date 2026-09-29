@@ -77,8 +77,13 @@ macOS needs only the Xcode command line tools. The UI needs Node.js 22 or 24
 cd apps/app
 npm install
 npm run tauri dev      # the app, reloading as the UI changes
+npm run tauri build    # a release build, with the UI inside
 npm run check          # type-check the UI
 ```
+
+A release build made with plain cargo needs the UI built first (`npm run build`)
+and `--features tauri/custom-protocol`; without it the app looks for the
+development server and shows an empty window.
 
 ## License
 

@@ -56,24 +56,29 @@ pub fn plug_in_and_share(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
         let store = state.store.clone();
-        let mounted = tauri::async_runtime::spawn_blocking(move || -> Result<bool> {
+        // Whether sharing must start again to follow the folder: always
+        // after a disk image was attached (its old watch is gone), on Linux
+        // only if the folder moved.
+        let mounted = tauri::async_runtime::spawn_blocking(move || -> Result<Option<bool>> {
             let Some(stick) = store
                 .owned_sticks()?
                 .into_iter()
                 .find(|stick| stick.drive_size.is_some())
             else {
-                return Ok(false);
+                return Ok(None);
             };
             let root = crate::drive::mount(&stick.root_path)?;
-            if root != stick.root_path {
+            let moved = root != stick.root_path;
+            if moved {
                 store.move_owned_stick(&stick.stick_id, &root)?;
             }
-            Ok(true)
+            Ok(Some(moved || cfg!(target_os = "macos")))
         })
         .await;
+        let mut restart = true;
         match mounted {
-            Ok(Ok(true)) => {}
-            Ok(Ok(false)) => return,
+            Ok(Ok(Some(follow))) => restart = follow,
+            Ok(Ok(None)) => return,
             Ok(Err(error)) => {
                 // Sharing still serves the last version from the cache.
                 tracing::warn!(error = %format!("{error:#}"), "the stick could not be mounted");
@@ -87,10 +92,15 @@ pub fn plug_in_and_share(app: &AppHandle) {
             Err(error) => tracing::warn!(%error, "mounting did not finish"),
         }
         let _ = app.emit("mount-changed", ());
-        // The watcher follows the folder where it is now.
-        let old = std::mem::replace(&mut *state.sharing.lock().await, Sharing::Off);
-        if let Sharing::On(serving) = old {
-            serving.stop().await;
+        {
+            let mut sharing = state.sharing.lock().await;
+            if !restart && matches!(*sharing, Sharing::On(_) | Sharing::Starting) {
+                return;
+            }
+            // The watcher follows the folder where it is now.
+            if let Sharing::On(serving) = std::mem::replace(&mut *sharing, Sharing::Off) {
+                serving.stop().await;
+            }
         }
         start_sharing(&app);
     });

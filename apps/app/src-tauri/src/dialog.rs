@@ -77,8 +77,14 @@ pub fn start_sharing_again(app: AppHandle) {
     start_sharing(&app);
 }
 
+/// Set once the user confirmed Quit: any other way out (the Dock, ⌘Q, the
+/// app menu) is held back and shows the dialog first (see main).
+pub static QUIT_CONFIRMED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Quits the app; sharing stops on the way out (see main).
 #[tauri::command]
 pub fn quit(app: AppHandle) {
+    QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
 }

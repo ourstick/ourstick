@@ -88,6 +88,16 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("the app could not start its window")
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                // Quit is always confirmed (docs/gui-spec.md): from the Dock,
+                // with ⌘Q or from the app menu too, not only from the tray.
+                if !dialog::QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    if let Err(error) = dialog::open(app, dialog::Mode::Quit) {
+                        tracing::warn!(error = %format!("{error:#}"), "cannot ask before quitting");
+                    }
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 // Close the cache cleanly and release the share lock.
                 let state = app.state::<state::AppState>();

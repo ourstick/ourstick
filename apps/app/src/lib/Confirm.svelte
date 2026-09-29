@@ -27,17 +27,25 @@
 </script>
 
 <main class="card dialog">
-  {#if quitting && view && !view.sharing}
+  <!-- Nothing until the app says whether it shares: never the wrong words. -->
+  {#if view && quitting}
     <h1>Quit OurStick?</h1>
-    <p>The stick is not being shared.</p>
+    {#if view.sharing}
+      <p>Sharing stops: anyone with the link will no longer be able to download.</p>
+      {#if view.readers > 0}
+        <p><strong>Someone is still downloading.</strong></p>
+      {/if}
+    {:else}
+      <p>The stick is not being shared.</p>
+    {/if}
     <div class="actions">
-      <button onclick={close} disabled={busy}>Cancel</button>
-      <button class="primary" onclick={stop} disabled={busy}>Quit</button>
+      <button onclick={close} disabled={busy}>{view.sharing ? "Keep sharing" : "Cancel"}</button>
+      <button class={view.sharing ? "danger" : "primary"} onclick={stop} disabled={busy}>Quit</button>
     </div>
-  {:else}
+  {:else if view}
     <h1>Stop sharing OurStick?</h1>
     <p>Anyone with the link will no longer be able to download.</p>
-    {#if view && view.readers > 0}
+    {#if view.readers > 0}
       <p><strong>Someone is still downloading.</strong></p>
     {/if}
     <div class="actions">

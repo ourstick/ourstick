@@ -48,9 +48,7 @@ fn icon(active: bool) -> Result<(Image<'static>, bool)> {
 /// Shows the main window again (from the tray, or a second launch).
 pub fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        crate::windows::bring_forward(&window);
     }
 }
 
@@ -59,6 +57,7 @@ pub fn create(app: &AppHandle) -> Result<()> {
     let share = MenuItem::with_id(app, "share", "Share…", true, None::<&str>)?;
     let mount = MenuItem::with_id(app, "mount", "Eject", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop sharing…", true, None::<&str>)?;
+    app.manage(SharingItem(stop.clone()));
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &share, &mount, &separator, &stop, &quit])?;
@@ -81,7 +80,8 @@ pub fn create(app: &AppHandle) -> Result<()> {
                     toggle_mount(app);
                     Ok(())
                 }
-                "stop" => dialog::open(app, dialog::Mode::StopSharing),
+                // "Stop sharing…" asks first; "Start sharing" just starts.
+                "stop" => toggle_sharing(app),
                 "quit" => dialog::open(app, dialog::Mode::Quit),
                 _ => Ok(()),
             };
@@ -138,4 +138,36 @@ fn toggle_mount(app: &AppHandle) {
             crate::state::plug_in_and_share(&app);
         }
     });
+}
+
+/// The tray's Stop sharing / Start sharing item, to change its text.
+struct SharingItem(MenuItem<tauri::Wry>);
+
+/// The item reads "Stop sharing…" while sharing and "Start sharing" when not.
+pub fn set_sharing(app: &AppHandle, sharing: bool) {
+    if let Some(item) = app.try_state::<SharingItem>() {
+        let _ = item.0.set_text(if sharing {
+            "Stop sharing…"
+        } else {
+            "Start sharing"
+        });
+    }
+}
+
+fn toggle_sharing(app: &AppHandle) -> Result<()> {
+    let state = app.state::<crate::state::AppState>();
+    // Never wait on the main thread: a busy lock means sharing is changing,
+    // so ask as if it were on.
+    let sharing = state.sharing.try_lock().map_or(true, |sharing| {
+        matches!(
+            *sharing,
+            crate::state::Sharing::On(_) | crate::state::Sharing::Starting
+        )
+    });
+    if sharing {
+        dialog::open(app, dialog::Mode::StopSharing)
+    } else {
+        crate::state::start_sharing(app);
+        Ok(())
+    }
 }

@@ -151,6 +151,7 @@ pub fn start_sharing(app: &AppHandle) {
         let _ = app.emit("sharing-changed", ());
         let started =
             serving::start(app.clone(), state.data_dir.clone(), state.store.clone()).await;
+        crate::tray::set_sharing(&app, started.is_ok());
         *state.sharing.lock().await = match started {
             Ok(serving) => Sharing::On(serving),
             Err(error) => {

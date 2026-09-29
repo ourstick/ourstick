@@ -15,6 +15,7 @@ mod serving;
 mod share;
 mod state;
 mod tray;
+mod windows;
 
 use tauri::Manager;
 

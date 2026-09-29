@@ -18,12 +18,12 @@ const QR_IMAGE_SCALE: usize = 8;
 /// Shows the Share window, making it if needed.
 pub fn open(app: &AppHandle) -> Result<()> {
     if let Some(window) = app.get_webview_window("share") {
-        window.show()?;
-        window.set_focus()?;
+        crate::windows::bring_forward(&window);
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "share", WebviewUrl::App("index.html#share".into()))
         .title("Share OurStick")
+        .focused(crate::windows::FOCUS_NEW)
         .inner_size(400.0, 560.0)
         .resizable(false)
         .build()?;

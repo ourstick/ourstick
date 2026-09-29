@@ -24,6 +24,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
     };
     WebviewWindowBuilder::new(app, "confirm", WebviewUrl::App(page.into()))
         .title("OurStick")
+        .focused(crate::windows::FOCUS_NEW)
         .inner_size(420.0, 230.0)
         .resizable(false)
         .always_on_top(true)
@@ -68,6 +69,7 @@ pub async fn stop_sharing(app: AppHandle, state: State<'_, AppState>) -> Result<
         serving.stop().await;
     }
     crate::tray::set_active(&app, false);
+    crate::tray::set_sharing(&app, false);
     let _ = tauri::Emitter::emit(&app, "sharing-changed", ());
     Ok(())
 }

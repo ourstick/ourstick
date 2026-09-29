@@ -98,6 +98,15 @@ pub enum TransportError {
     Io(#[from] std::io::Error),
 }
 
+/// What readers are doing, as the owner sees it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReaderActivity {
+    /// Readers with a transfer in progress (connections, strictly).
+    pub readers: usize,
+    /// How fast data leaves, over the last couple of seconds.
+    pub bytes_per_second: u64,
+}
+
 /// The owner's side: holds the encrypted blobs and serves the current record.
 pub trait Publisher: Send + Sync {
     /// This device's node id, for tickets.
@@ -145,6 +154,10 @@ pub trait Publisher: Send + Sync {
         &self,
         hash: &BlobHash,
     ) -> impl Future<Output = Result<bool, TransportError>> + Send;
+
+    /// What readers are doing, updated about twice a second while it
+    /// changes.
+    fn activity(&self) -> tokio::sync::watch::Receiver<ReaderActivity>;
 
     /// Stops serving and closes the cache cleanly.
     fn shutdown(self) -> impl Future<Output = ()> + Send;

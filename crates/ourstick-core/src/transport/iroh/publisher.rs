@@ -12,13 +12,14 @@ use iroh::Endpoint;
 use iroh_blobs::api::blobs::{AddPathOptions, BlobStatus, ImportMode};
 use iroh_blobs::api::TempTag;
 use iroh_blobs::provider::events::{
-    AbortReason, EventMask, EventSender, ObserveMode, ProviderMessage, RequestMode,
+    AbortReason, EventMask, EventSender, ObserveMode, ProviderMessage, RequestMode, RequestUpdate,
 };
 use iroh_blobs::store::fs::options::Options;
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobFormat, BlobsProtocol, Hash};
 
+use super::activity::Activity;
 use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
 use crate::record::SignedManifestRecord;
@@ -41,6 +42,9 @@ pub struct IrohPublisher {
     /// Set by the first publish. Until then every GC run is aborted, so a
     /// restart never deletes the cache before its blobs are protected again.
     published: Arc<AtomicBool>,
+    activity: Activity,
+    /// Recomputes `activity`; stopped at shutdown.
+    reporter: tokio::task::JoinHandle<()>,
 }
 
 fn storage(error: impl std::fmt::Display) -> TransportError {
@@ -87,7 +91,12 @@ impl IrohPublisher {
             .map_err(storage)?;
 
         let record = Arc::new(RwLock::new(None));
-        let blobs = BlobsProtocol::new(&store, Some(only_allowed_gets(allowed.clone())));
+        let activity = Activity::new();
+        let reporter = tokio::spawn(activity.clone().report());
+        let blobs = BlobsProtocol::new(
+            &store,
+            Some(only_allowed_gets(allowed.clone(), activity.clone())),
+        );
         let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let router = Router::builder(endpoint)
             .accept(iroh_blobs::ALPN, blobs)
@@ -109,6 +118,8 @@ impl IrohPublisher {
             allowed,
             protected: Mutex::new(HashMap::new()),
             published,
+            activity,
+            reporter,
         })
     }
 }
@@ -147,7 +158,9 @@ fn write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
 /// intercepted (and refused below unless allowed), push is disabled.
 fn serving_event_mask() -> EventMask {
     EventMask {
-        get: RequestMode::Intercept,
+        // Intercept, so every request is decided below; with the log of each
+        // transfer, for the reader activity.
+        get: RequestMode::InterceptLog,
         get_many: RequestMode::Intercept,
         push: RequestMode::Disabled,
         observe: ObserveMode::Intercept,
@@ -159,7 +172,9 @@ fn serving_event_mask() -> EventMask {
 /// blob whose hash is currently allowed. Everything else is refused, including
 /// push, get-many and observe (iroh-blobs 0.103 routes all of them through the
 /// `get` mode, so they arrive here as their own messages).
-fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>) -> EventSender {
+///
+/// Accepted transfers are followed, to count readers and bytes sent.
+fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>, activity: Activity) -> EventSender {
     let (sender, mut messages) = EventSender::channel(32, serving_event_mask());
     tokio::spawn(async move {
         while let Some(message) = messages.recv().await {
@@ -176,7 +191,38 @@ fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>) -> EventSender {
                     } else {
                         Err(AbortReason::Permission)
                     };
+                    let connection = message.inner.connection_id;
                     message.tx.send(answer).await.ok();
+                    if permitted {
+                        let mut updates = message.rx;
+                        let activity = activity.clone();
+                        tokio::spawn(async move {
+                            let mut open = false;
+                            let mut offset = 0;
+                            while let Ok(Some(update)) = updates.recv().await {
+                                match update {
+                                    RequestUpdate::Started(_) => {
+                                        activity.started(connection);
+                                        open = true;
+                                        offset = 0;
+                                    }
+                                    RequestUpdate::Progress(progress) => {
+                                        activity.sent(progress.end_offset.saturating_sub(offset));
+                                        offset = progress.end_offset;
+                                    }
+                                    RequestUpdate::Completed(_) | RequestUpdate::Aborted(_) => {
+                                        if open {
+                                            activity.ended(connection);
+                                            open = false;
+                                        }
+                                    }
+                                }
+                            }
+                            if open {
+                                activity.ended(connection);
+                            }
+                        });
+                    }
                 }
                 ProviderMessage::PushRequestReceived(message) => {
                     tracing::warn!("refused a push request");
@@ -294,7 +340,12 @@ impl Publisher for IrohPublisher {
         Ok(matches!(status, BlobStatus::Complete { .. }))
     }
 
+    fn activity(&self) -> tokio::sync::watch::Receiver<crate::transport::ReaderActivity> {
+        self.activity.subscribe()
+    }
+
     async fn shutdown(self) {
+        self.reporter.abort();
         // Shutting down the router also shuts down the store (BlobsProtocol).
         if let Err(error) = self.router.shutdown().await {
             tracing::warn!(%error, "router did not shut down cleanly");
@@ -309,7 +360,7 @@ mod tests {
     #[test]
     fn every_request_kind_is_intercepted_or_disabled() {
         let mask = serving_event_mask();
-        assert_eq!(mask.get, RequestMode::Intercept);
+        assert_eq!(mask.get, RequestMode::InterceptLog);
         assert_eq!(mask.get_many, RequestMode::Intercept);
         assert_eq!(mask.push, RequestMode::Disabled);
         assert_eq!(mask.observe, ObserveMode::Intercept);

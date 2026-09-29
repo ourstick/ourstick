@@ -1,6 +1,7 @@
 //! [`Publisher`](super::Publisher) and [`Fetcher`](super::Fetcher) on iroh 1.x
 //! and iroh-blobs. This is the only place in the workspace that uses them.
 
+mod activity;
 mod fetcher;
 mod publisher;
 mod record_protocol;

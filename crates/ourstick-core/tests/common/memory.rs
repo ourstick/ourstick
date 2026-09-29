@@ -74,6 +74,9 @@ impl Publisher for MemoryPublisher {
         served.allowed = allowed;
         Ok(())
     }
+    fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {
+        tokio::sync::watch::channel(Default::default()).1
+    }
     async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         self.has_blob(hash).await
     }

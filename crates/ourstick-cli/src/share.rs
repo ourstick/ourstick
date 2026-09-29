@@ -10,7 +10,7 @@ use ourstick_core::clock::SystemClock;
 use ourstick_core::secrets::SecretName;
 use ourstick_core::share::{plan_share, publish_folder};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
-use ourstick_core::transport::{describe_network, NetworkReport, Publisher};
+use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
 };
@@ -18,26 +18,18 @@ use ourstick_core::{
     cipher_for, CipherId, ManifestHint, OwnedStick, StickKey, StickSigningKey, Ticket,
 };
 
-use crate::display::{bytes, untrusted};
-use crate::progress::clock;
+use crate::display::bytes;
 use crate::qr::qr_lines;
 use crate::secrets::SecretsChoice;
 use crate::setup::{self, hex, load_key, now_ms};
 
+mod lines;
+
+use lines::{network_line, readers_line, watch_lines};
+
 const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
-
-/// The "This network" line: what was measured, or that it is not known yet;
-/// never nothing.
-fn network_line(report: Option<&NetworkReport>) -> String {
-    match report {
-        Some(report) => format!("This network: {}.", describe_network(report)),
-        None => "This network: not measured yet (readers still connect; \
-                 `get` explains the path it uses)."
-            .to_owned(),
-    }
-}
 
 /// Finds the stick already made for `folder`, or makes one with new keys.
 fn owned_stick_for(
@@ -215,168 +207,22 @@ async fn serve(
             println!("{line}");
         }
     };
+    let readers = async {
+        let mut activity = owner.publisher.activity();
+        let mut before = 0;
+        while activity.changed().await.is_ok() {
+            let now = *activity.borrow();
+            if let Some(line) = readers_line(before, &now, started.elapsed()) {
+                println!("{line}");
+            }
+            before = now.readers;
+        }
+    };
     tokio::select! {
         () = follow_folder(owner, folder, &mut events, timing, current, &mut on_event) => {
             anyhow::bail!("the folder watch ended unexpectedly")
         }
+        () = readers => anyhow::bail!("the reader activity ended unexpectedly"),
         result = tokio::signal::ctrl_c() => Ok(result?),
-    }
-}
-
-/// Lines for what the watcher did. Nothing when signs of change changed
-/// nothing (e.g. a file saved with the same content).
-fn watch_lines(event: &WatchEvent<'_>, elapsed: Duration, timing: WatchTiming) -> Vec<String> {
-    let at = clock(elapsed);
-    match event {
-        WatchEvent::Unchanged => Vec::new(),
-        WatchEvent::Ejected => vec![format!(
-            "[{at}] The stick's drive is not there (ejected?); readers keep getting \
-             the last version until it is back."
-        )],
-        WatchEvent::StillChanging => {
-            vec![format!("[{at}] A file is still being written; waiting…")]
-        }
-        WatchEvent::Failed { error } => vec![format!(
-            "[{at}] Could not share the change: {}. Trying again at the next change, \
-             or in {} s.",
-            untrusted(&error.to_string()),
-            timing.retry.as_secs()
-        )],
-        WatchEvent::Published {
-            changes,
-            publication,
-        } => {
-            let mut parts = Vec::new();
-            for (count, what) in [
-                (changes.added.len(), "added"),
-                (changes.changed.len(), "changed"),
-                (changes.removed.len(), "removed"),
-            ] {
-                if count > 0 {
-                    parts.push(format!("{count} {what}"));
-                }
-            }
-            let mut lines = vec![format!(
-                "[{at}] Folder changed: {}. Readers now get version {}.",
-                parts.join(", "),
-                publication.seq
-            )];
-            let named = changes
-                .added
-                .iter()
-                .map(|path| ("+", path))
-                .chain(changes.changed.iter().map(|path| ("~", path)))
-                .chain(changes.removed.iter().map(|path| ("-", path)));
-            let total = changes.added.len() + changes.changed.len() + changes.removed.len();
-            for (mark, path) in named.take(MAX_NAMED) {
-                lines.push(format!("        {mark} {}", untrusted(path)));
-            }
-            if total > MAX_NAMED {
-                lines.push(format!("        … and {} more", total - MAX_NAMED));
-            }
-            lines
-        }
-    }
-}
-
-/// At most this many changed paths are listed after a change.
-const MAX_NAMED: usize = 5;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn publication(seq: u64) -> ourstick_core::share::Publication {
-        let key = ourstick_core::StickSigningKey::from_bytes(&[1; 32]);
-        ourstick_core::share::Publication {
-            manifest: ourstick_core::Manifest::empty(),
-            manifest_hash: [0; 32],
-            seq,
-            record: key.sign_record(seq, [0; 32]),
-            new_version: true,
-            reused: 0,
-        }
-    }
-
-    #[test]
-    fn watch_lines_say_what_changed_briefly_and_safely() {
-        let timing = WatchTiming::default();
-        let at = Duration::from_secs(75);
-        let changes = ourstick_core::watcher::ChangeSummary {
-            added: (1..=6).map(|index| format!("new{index}.txt")).collect(),
-            changed: vec!["\u{1b}[31mred.txt".to_owned()],
-            removed: vec![],
-        };
-        let publication = publication(42);
-        let lines = watch_lines(
-            &WatchEvent::Published {
-                changes: &changes,
-                publication: &publication,
-            },
-            at,
-            timing,
-        );
-        assert_eq!(
-            lines,
-            vec![
-                "[01:15] Folder changed: 6 added, 1 changed. Readers now get version 42.",
-                "        + new1.txt",
-                "        + new2.txt",
-                "        + new3.txt",
-                "        + new4.txt",
-                "        + new5.txt",
-                "        … and 2 more",
-            ]
-        );
-        assert!(watch_lines(&WatchEvent::Unchanged, at, timing).is_empty());
-        let failed = watch_lines(
-            &WatchEvent::Failed {
-                error: &ourstick_core::share::ShareError::NotOwned,
-            },
-            at,
-            timing,
-        );
-        assert_eq!(
-            failed,
-            vec![
-                "[01:15] Could not share the change: this device does not own that stick. \
-                 Trying again at the next change, or in 30 s."
-            ]
-        );
-    }
-
-    #[test]
-    fn changed_names_are_escaped() {
-        let changes = ourstick_core::watcher::ChangeSummary {
-            added: vec![],
-            changed: vec!["\u{1b}[31mred.txt".to_owned()],
-            removed: vec![],
-        };
-        let publication = publication(1);
-        let lines = watch_lines(
-            &WatchEvent::Published {
-                changes: &changes,
-                publication: &publication,
-            },
-            Duration::ZERO,
-            WatchTiming::default(),
-        );
-        assert_eq!(lines[1], "        ~ \\u{1b}[31mred.txt");
-    }
-
-    #[test]
-    fn network_line_is_never_empty() {
-        assert!(network_line(None).starts_with("This network: not measured yet"));
-        let report = NetworkReport {
-            udp_v4: true,
-            udp_v6: false,
-            ipv4_mapping_varies: Some(false),
-            public_v4: Some("203.0.113.32:35611".parse().unwrap()),
-            public_v6: None,
-        };
-        assert_eq!(
-            network_line(Some(&report)),
-            format!("This network: {}.", describe_network(&report))
-        );
     }
 }

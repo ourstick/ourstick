@@ -80,6 +80,31 @@ pub fn open_store(data_dir: &Path) -> Result<Arc<dyn Store>, DeviceError> {
     Ok(Arc::new(SqliteStore::open(data_dir.join("state.sqlite"))?))
 }
 
+/// Where this system keeps secrets by default: the Secret Service on Linux,
+/// the keychain on macOS; `None` where OurStick has no keyring backend yet.
+pub fn system_keyring_backend() -> Option<SecretBackend> {
+    if cfg!(target_os = "linux") {
+        Some(SecretBackend::SecretService)
+    } else if cfg!(target_os = "macos") {
+        Some(SecretBackend::Keychain)
+    } else {
+        None
+    }
+}
+
+/// Opens this system's keyring (see [`system_keyring_backend`]).
+pub fn open_system_keyring() -> Result<Box<dyn SecretStore>, DeviceError> {
+    #[cfg(target_os = "linux")]
+    return Ok(Box::new(crate::secrets::KeyringStore::secret_service()?));
+    #[cfg(target_os = "macos")]
+    return Ok(Box::new(crate::secrets::KeyringStore::keychain()?));
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    Err(DeviceError::Secret(SecretError::Unavailable {
+        store: "the system keyring".to_owned(),
+        reason: "OurStick has no keyring backend for this system yet".to_owned(),
+    }))
+}
+
 /// 32 random bytes, for a node key.
 pub fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];

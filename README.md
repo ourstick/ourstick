@@ -62,6 +62,24 @@ cargo clippy --workspace -- -D warnings
 cargo run -p ourstick-cli
 ```
 
+The desktop app (`apps/app`, Tauri 2 + Svelte) is part of the workspace, so the
+commands above need its system libraries too. On Debian/Ubuntu:
+
+```
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+    libxdo-dev libssl-dev build-essential file
+```
+
+macOS needs only the Xcode command line tools. The UI needs Node.js 22 or 24
+(LTS):
+
+```
+cd apps/app
+npm install
+npm run tauri dev      # the app, reloading as the UI changes
+npm run check          # type-check the UI
+```
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).

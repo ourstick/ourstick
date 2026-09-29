@@ -1,0 +1,166 @@
+/* Native look per platform (docs/gui-spec.md, "Theming"). One structure, one
+   theme per data-platform on <html>, light and dark. System fonts only. */
+
+:root {
+  --font: system-ui, sans-serif;
+  --size: 14px;
+  --bg: #fafafa;
+  --card: #ffffff;
+  --border: #d8d8d8;
+  --text: #1e1e1e;
+  --muted: #5e5e5e;
+  --accent: #3584e4;
+  --accent-text: #ffffff;
+  --danger: #e01b24;
+  --radius: 8px;
+  --button-radius: 6px;
+  --button-height: 34px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #242424;
+    --card: #303030;
+    --border: #3a3a3a;
+    --text: #f0f0f0;
+    --muted: #b0b0b0;
+  }
+}
+
+/* Linux: GNOME / Adwaita. */
+:root[data-platform="linux"] {
+  --font: "Cantarell", system-ui, sans-serif;
+  --size: 14px;
+  --accent: #3584e4;
+  --danger: #e01b24;
+  --radius: 8px;
+  --button-radius: 6px;
+}
+
+/* Windows 11: Fluent. */
+:root[data-platform="windows"] {
+  --font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --size: 14px;
+  --bg: #f3f3f3;
+  --card: #ffffff;
+  --border: #e5e5e5;
+  --accent: #0067c0;
+  --danger: #c42b1c;
+  --radius: 4px;
+  --button-radius: 4px;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="windows"] {
+    --bg: #202020;
+    --card: #2b2b2b;
+    --border: #383838;
+  }
+}
+
+/* macOS. */
+:root[data-platform="macos"] {
+  --font: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --size: 13px;
+  --bg: #ececec;
+  --card: #ffffff;
+  --border: #d1d1d1;
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+  --radius: 10px;
+  --button-radius: 6px;
+  --button-height: 22px;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="macos"] {
+    --bg: #1e1e1e;
+    --card: #282828;
+    --border: #3c3c3c;
+  }
+}
+
+/* The system accent where the WebView knows it. */
+@supports (color: AccentColor) {
+  :root[data-platform="windows"],
+  :root[data-platform="macos"] {
+    --accent: AccentColor;
+    --accent-text: AccentColorText;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--size) / 1.45 var(--font);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.card {
+  margin: 16px;
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 1.35em;
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+button,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--button-radius);
+  min-height: var(--button-height);
+  padding: 0 12px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+}
+
+button:disabled,
+select:disabled {
+  opacity: 0.6;
+}
+
+.error {
+  color: var(--danger);
+}

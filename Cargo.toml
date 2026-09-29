@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/ourstick-core",
     "crates/ourstick-cli",
-    # "apps/app/src-tauri",   # ενεργοποίησε όταν φτιαχτεί το Tauri app
+    "apps/app/src-tauri",
 ]
 
 [workspace.package]
@@ -51,6 +51,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 # fs / misc
 walkdir = "2"
+# The desktop app (docs/gui-spec.md). Linux needs webkit2gtk-4.1 and friends,
+# see the README.
+tauri = "2.12"
+tauri-build = "2.7"
+tauri-plugin-single-instance = "2.5"
 # The ticket as a QR code in the terminal; no image/svg rendering.
 qrcode = { version = "0.14", default-features = false }
 # Key-file passphrases read from the terminal without echo.

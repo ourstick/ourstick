@@ -12,7 +12,7 @@ Peer-to-peer, end-to-end encrypted, no accounts, no size limits.
 
 - [x] Core library (manifest, cipher, ticket, store, transport)
 - [x] CLI: `ourstick share` / `ourstick ls` / `ourstick get`
-- [ ] The stick follows changes to the shared folder
+- [x] The stick follows changes to the shared folder
 - [ ] Desktop app (Linux, Windows, macOS)
 - [ ] Android
 - [ ] iOS
@@ -23,7 +23,14 @@ Peer-to-peer, end-to-end encrypted, no accounts, no size limits.
 ourstick share <folder>                  # prints a link and a QR code, then serves
 ourstick ls '<link>'                     # lists the files
 ourstick get '<link>' [--out <folder>]   # downloads them; run again to resume
+ourstick get '<link>' --follow           # ... and every new version as it comes
 ```
+
+While `share` runs, changes to the folder are shared as they happen; only
+files that changed are encrypted again (judged by size and modification
+times; `share --rescan` reads every file). A later `get` fetches only what
+changed. It never overwrites a file you changed in its folder, and keeps files
+that left the stick.
 
 The link carries the key: anyone who has it can read the stick. Data goes
 directly between the two devices when possible. Up to 100 MB of a download may

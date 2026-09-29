@@ -442,7 +442,14 @@ Rules on every platform:
 
 ## Open questions
 
-- How manifest updates are announced to connected readers.
+- Readers learn of new versions by asking (`get --follow`: the signed record,
+  137 bytes, every 15 s over one connection). A push from the owner would be
+  quicker and cheaper with many readers; decide when there are apps that stay
+  open, not before.
+- The owner's device going to sleep stops sharing (a MacBook sleeps after a
+  minute idle by default). `share` could keep the system awake while it serves
+  (macOS power assertion, systemd-inhibit on Linux, `SetThreadExecutionState`
+  on Windows); decide with the desktop app.
 - iOS keeps Keychain items after the app is uninstalled. On first start with an
   empty database the app finds old keys. Deleting them automatically would kill
   every ticket shared with them, so it must not happen silently. Options: offer

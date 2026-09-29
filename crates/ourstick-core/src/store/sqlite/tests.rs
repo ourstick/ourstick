@@ -5,7 +5,7 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 3);
+    assert_eq!(SCHEMA_VERSION, 4);
 }
 
 #[test]
@@ -129,6 +129,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
             "INSERT INTO owned_files VALUES (zeroblob(32), 'a', -1, 1, 1, zeroblob(32))",
             "INSERT INTO owned_files VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(31))",
             "INSERT INTO owned_files VALUES (zeroblob(32), NULL, 1, 1, 1, zeroblob(32))",
+            "INSERT INTO downloaded_files VALUES (randomblob(32), 'a', 1, 1, 1, zeroblob(32))",
         ],
     ]
     .concat();

@@ -25,9 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 3
+## Version 4
 
-Version 3 (`0003_owned_files.sql`) added `owned_files`, below.
+Version 4 (`0004_downloaded_files.sql`) added `downloaded_files`, and version 3
+(`0003_owned_files.sql`) added `owned_files`, both below.
 
 Version 1 (`0001_initial.sql`) created the other tables. Version 2
 (`0002_record_floors.sql`) moved the seq floor of ADR 0004 out of
@@ -130,6 +131,25 @@ read. This is a heuristic with a known limit ("Known limits" in
 `docs/protocol.md`); `share --rescan` ignores the table. The stamp is taken
 before the file is read, so a file that changes afterwards has a newer stamp
 than its row and is read again next time.
+
+### `downloaded_files`
+
+What `get` wrote into a joined stick's folder, per file, so the next `get`
+fetches only what changed and never overwrites a file changed in the folder.
+
+| Column      | Type    | Meaning                                                    |
+|-------------|---------|------------------------------------------------------------|
+| `stick_id`  | BLOB 32 | The joined stick (foreign key to `joined_sticks`)          |
+| `path`      | TEXT    | Path relative to the folder, as in the manifest            |
+| `size`      | INTEGER | The file right after `get` wrote it: size in bytes         |
+| `mtime_ns`  | INTEGER | … modification time, ns since the Unix epoch               |
+| `ctime_ns`  | INTEGER | … inode change time on Unix, ns; 0 elsewhere               |
+| `blob_hash` | BLOB 32 | The blob it was decrypted from                             |
+
+Primary key `(stick_id, path)`. A row is written after each file is in place,
+so an interrupted `get` keeps what it finished. Moving the stick to another
+folder deletes its rows (in the same transaction as the move). Rows of files
+that left the stick stay, so their files are known as `get`'s own.
 
 ## Not yet in the schema
 

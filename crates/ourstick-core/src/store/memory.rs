@@ -8,8 +8,9 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{
-    check_device, check_joined_stick, check_owned_file, check_owned_stick, check_seq, path_str,
-    Device, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, Store, StoreError,
+    check_device, check_joined_stick, check_owned_file, check_owned_stick, check_seq, check_stamp,
+    path_str, Device, DownloadedFile, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, Store,
+    StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -21,6 +22,7 @@ struct State {
     joined: BTreeMap<[u8; 32], JoinedStick>,
     floors: BTreeMap<[u8; 32], ManifestVersion>,
     owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
+    downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
 }
 
 /// A [`Store`] that forgets everything when dropped.
@@ -167,6 +169,7 @@ impl Store for MemoryStore {
             .ok_or(StoreError::StickNotFound)?;
         stick.output_dir = output_dir.to_path_buf();
         stick.completed = None;
+        state.downloaded_files.remove(&stick_id.to_bytes());
         Ok(())
     }
 
@@ -192,6 +195,34 @@ impl Store for MemoryStore {
             .get_mut(&key)
             .ok_or(StoreError::StickNotFound)?;
         stick.completed = Some(version);
+        Ok(())
+    }
+
+    fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
+        let state = self.state();
+        Ok(state
+            .downloaded_files
+            .get(&stick_id.to_bytes())
+            .map(|files| files.values().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    fn record_downloaded_file(
+        &self,
+        stick_id: &StickId,
+        file: &DownloadedFile,
+    ) -> Result<(), StoreError> {
+        check_stamp(&file.stamp)?;
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if !state.joined.contains_key(&key) {
+            return Err(StoreError::StickNotFound);
+        }
+        state
+            .downloaded_files
+            .entry(key)
+            .or_default()
+            .insert(file.path.clone(), file.clone());
         Ok(())
     }
 

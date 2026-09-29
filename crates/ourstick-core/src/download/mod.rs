@@ -3,140 +3,41 @@
 //! resume, because the fetcher keeps partial blobs.
 
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 mod entry;
 mod files;
+mod folder;
 mod listing;
 mod path;
 mod relay;
+mod types;
 
 use entry::download_file;
 use files::prepare_partial_dir;
+use folder::{plan_folder, FilePlan};
 use listing::fetch_listing;
 use path::ReceivingPath;
-use relay::{settle, RelayState};
+use relay::{settle, RelayState, Watch};
 
 pub use listing::{list, Listing};
 pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
+pub use types::{DownloadError, DownloadEvent, DownloadReport};
 
 /// How many times a download reconnects (budget used up, direct path lost)
 /// before giving up.
 const MAX_RECONNECTS: u32 = 3;
 
 use crate::blocking::run_blocking;
-use crate::cipher::CipherError;
 use crate::clock::Clock;
-use crate::manifest::ManifestError;
-use crate::record::RecordError;
-use crate::store::{JoinedStick, ManifestVersion, Store, StoreError};
+use crate::store::{DownloadedFile, JoinedStick, ManifestVersion, Store, StoreError};
 use crate::ticket::Ticket;
-use crate::transport::{Fetcher, PathKind, PathUsage, PeerConnection, TransportError};
+use crate::transport::{Fetcher, PathUsage, PeerConnection, TransportError};
 
 /// Where partially written files live inside the output folder, so the final
 /// rename stays on one file system. Removed at the end.
 const PARTIAL_DIR: &str = ".ourstick-partial";
-
-/// Progress of a download, for display. Return [`ControlFlow::Break`] from the
-/// callback to cancel.
-#[derive(Debug, Clone, Copy)]
-pub enum DownloadEvent<'a> {
-    Connected {
-        path: PathKind,
-    },
-    /// The data now mostly arrives over another kind of path.
-    PathChanged {
-        path: PathKind,
-    },
-    /// No direct path yet: waiting this long for one (ADR 0006). Before the
-    /// start (`budget_used` false), or once the relay budget is used up.
-    WaitingForDirect {
-        seconds: u64,
-        budget_used: bool,
-    },
-    /// This many bytes came through the relay, the whole budget; the download
-    /// reconnects and looks for a direct path before going on.
-    RelayBudgetUsed {
-        bytes: u64,
-    },
-    /// After the budget was used up, the direct path was lost; the download
-    /// reconnects and tries for a direct path again.
-    DirectLost,
-    Manifest {
-        seq: u64,
-        files: usize,
-        bytes: u64,
-        unchanged: bool,
-    },
-    FileStarted {
-        path: &'a str,
-        size: u64,
-        /// Blob bytes already stored locally from an earlier, interrupted run.
-        already_local: u64,
-    },
-    Progress {
-        path: &'a str,
-        received: u64,
-    },
-    FileDone {
-        path: &'a str,
-        already_local: u64,
-        received: u64,
-    },
-}
-
-/// What a finished download did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DownloadReport {
-    pub seq: u64,
-    pub files: usize,
-    pub bytes: u64,
-    /// Blob bytes received over the network (less than the total after a resume).
-    pub received: u64,
-    /// Bytes that arrived over direct and over relay paths, over all
-    /// connections of this download.
-    pub usage: PathUsage,
-}
-
-/// Why a download failed. The messages are meant for users.
-#[derive(Debug, thiserror::Error)]
-pub enum DownloadError {
-    #[error("the download was cancelled; run the same command again to resume")]
-    Cancelled,
-    #[error("the owner's manifest record was rejected: {0}")]
-    Record(#[from] RecordError),
-    #[error("{path}: expected {expected} bytes, got {actual}")]
-    SizeMismatch {
-        path: String,
-        expected: u64,
-        actual: u64,
-    },
-    #[error("no direct connection to the owner could be made and using the relay was declined ({remaining} bytes left); run again later, or allow the relay")]
-    RelayDeclined { remaining: u64 },
-    #[error("the direct connection to the owner kept dropping; run again to resume")]
-    DirectLost,
-    #[error("the free amount of data through the relay is used up; run again to resume")]
-    RelayBudgetUsed,
-    #[error("refusing to write {path}: {reason}")]
-    UnsafePath { path: String, reason: &'static str },
-    #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]
-    PathCollision { first: String, second: String },
-    #[error(transparent)]
-    Transport(#[from] TransportError),
-    #[error(transparent)]
-    Manifest(#[from] ManifestError),
-    #[error(transparent)]
-    Cipher(#[from] CipherError),
-    #[error(transparent)]
-    Store(#[from] StoreError),
-    #[error("I/O error on {path}: {source}")]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-}
 
 fn io_error(path: &Path) -> impl FnOnce(std::io::Error) -> DownloadError + '_ {
     move |source| DownloadError::Io {
@@ -296,44 +197,114 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
+    // What the folder already holds, file by file. Nothing is fetched for a
+    // file that is there, and nothing is written over a file changed there.
+    let plan = {
+        let store = store.clone();
+        let stick_id = ticket.stick_id;
+        let recorded = run_blocking(move || store.downloaded_files(&stick_id)).await?;
+        let output_dir = output_dir.to_path_buf();
+        let manifest = manifest.clone();
+        let cipher = cipher.clone();
+        run_blocking(move || plan_folder(&output_dir, &manifest, &recorded, cipher.as_ref()))
+            .await?
+    };
+    for found in plan.found.clone() {
+        record_downloaded(&store, ticket, found).await?;
+    }
+    if plan.no_longer_in_stick > 0
+        && on_event(DownloadEvent::NoLongerInStick {
+            count: plan.no_longer_in_stick,
+        })
+        .is_break()
+    {
+        return Err(DownloadError::Cancelled);
+    }
+
     // ADR 0006: a short wait for a direct path, then a relay budget, then only
     // a direct path unless the user agrees. The record and manifest above may
-    // use the relay.
+    // use the relay. Nothing to fetch, nothing to wait for.
     let mut remaining = 0;
-    for entry in &manifest.entries {
-        remaining += entry
-            .size
-            .saturating_sub(fetcher.local_bytes(&entry.hash).await?);
+    for (entry, file) in manifest.entries.iter().zip(&plan.files) {
+        if matches!(file, FilePlan::Download { .. }) {
+            remaining += entry
+                .size
+                .saturating_sub(fetcher.local_bytes(&entry.hash).await?);
+        }
     }
-    let watch = settle(
-        fetcher, connection, ticket, policy, consent, relay, remaining, on_event,
-    )
-    .await?;
+    let to_fetch = plan
+        .files
+        .iter()
+        .any(|file| matches!(file, FilePlan::Download { .. }));
+    let watch = if to_fetch {
+        settle(
+            fetcher, connection, ticket, policy, consent, relay, remaining, on_event,
+        )
+        .await?
+    } else {
+        Watch::Nothing
+    };
 
     let partial = {
         let output_dir = output_dir.to_path_buf();
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
     let mut receiving = ReceivingPath::new(reported_path, connected_usage);
-    for entry in &manifest.entries {
-        download_file(
-            fetcher,
-            connection,
-            &cipher,
-            entry,
-            output_dir,
-            &partial,
-            &mut receiving,
-            watch,
-            received,
-            on_event,
-        )
-        .await?;
+    let (mut already_here, mut changed_here) = (0, 0);
+    for (entry, file) in manifest.entries.iter().zip(&plan.files) {
+        let event = match *file {
+            FilePlan::AlreadyHere => {
+                already_here += 1;
+                DownloadEvent::FileAlreadyHere {
+                    path: &entry.path,
+                    size: entry.size,
+                }
+            }
+            FilePlan::ChangedHere => {
+                changed_here += 1;
+                DownloadEvent::FileChangedHere {
+                    path: &entry.path,
+                    size: entry.size,
+                }
+            }
+            FilePlan::Download { replaceable } => {
+                let written = download_file(
+                    fetcher,
+                    connection,
+                    &cipher,
+                    entry,
+                    output_dir,
+                    &partial,
+                    &mut receiving,
+                    watch,
+                    replaceable,
+                    received,
+                    on_event,
+                )
+                .await?;
+                match written {
+                    Some(stamp) => {
+                        let file = DownloadedFile {
+                            path: entry.path.clone(),
+                            stamp,
+                            blob_hash: entry.hash,
+                        };
+                        record_downloaded(&store, ticket, file).await?;
+                    }
+                    None => changed_here += 1,
+                }
+                continue;
+            }
+        };
+        if on_event(event).is_break() {
+            return Err(DownloadError::Cancelled);
+        }
     }
     tokio::fs::remove_dir_all(&partial)
         .await
         .map_err(io_error(&partial))?;
-    {
+    // Complete only if the folder holds every file of this version.
+    if changed_here == 0 {
         let store = store.clone();
         let stick_id = ticket.stick_id;
         run_blocking(move || store.complete_download(&stick_id, version)).await?;
@@ -345,8 +316,21 @@ async fn download_over(
         bytes: manifest.total_size(),
         // Both are counted over all connections by `download`.
         received: 0,
+        already_here,
+        changed_here,
         usage: PathUsage::default(),
     })
+}
+
+async fn record_downloaded(
+    store: &Arc<dyn Store>,
+    ticket: &Ticket,
+    file: DownloadedFile,
+) -> Result<(), DownloadError> {
+    let store = store.clone();
+    let stick_id = ticket.stick_id;
+    run_blocking(move || store.record_downloaded_file(&stick_id, &file)).await?;
+    Ok(())
 }
 
 #[cfg(test)]

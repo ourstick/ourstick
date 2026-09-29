@@ -115,6 +115,22 @@ carries only the key). Every file blob of that stick must use the same cipher.
   A failed publish (e.g. an unreadable file) is reported and tried again at
   the next change or after 30 s.
 
+### Reader-side rules for the output folder
+
+- A file whose stamp is as `get` left it (`downloaded_files`) is fetched again
+  only if the manifest names another blob for it.
+- A file with another stamp, or one `get` never wrote, is compared by content:
+  the reader encrypts it with the stick's key and compares blob hashes (the
+  nonce is derived from the content, so equal content gives an equal hash).
+  Equal: it is already here. Different: it was changed in the folder, and it
+  is left as it is and reported, every time, until the user moves or deletes
+  it; then the stick's version is written.
+- Right before a file is moved into place, the file there is checked again:
+  it must be absent, or still as planned. Otherwise it is left and reported.
+- Files that left the stick are kept and reported, never deleted.
+- A version counts as complete in a folder (`joined_sticks.completed_*`) only
+  if every file of it is there; a file left as changed keeps it incomplete.
+
 ### Known limits
 
 - **Unchanged-file detection is a heuristic.** The owner records, per file,

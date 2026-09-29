@@ -117,7 +117,7 @@ impl Write for HashAndKeep<'_> {
 /// Encrypts one file, hashes the resulting blob and builds the entry. The size is
 /// the number of plaintext bytes actually encrypted, so it always matches the hash.
 /// With `blob_dir`, the blob is also kept as `blob_dir/<hex hash>.blob`.
-pub(super) fn hash_file(
+pub(crate) fn hash_file(
     root: &Path,
     path: &Path,
     cipher: &dyn Cipher,

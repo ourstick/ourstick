@@ -13,7 +13,8 @@ use rows::{blob32, to_u64, JoinedRow, OwnedRow, JOINED_COLUMNS, OWNED_COLUMNS};
 
 use super::{
     check_device, check_joined_stick, check_owned_stick, check_seq, check_time, path_str, Device,
-    JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
+    DownloadedFile, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store,
+    StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -24,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0001_initial.sql"),
     include_str!("../../../migrations/0002_record_floors.sql"),
     include_str!("../../../migrations/0003_owned_files.sql"),
+    include_str!("../../../migrations/0004_downloaded_files.sql"),
 ];
 
 /// The schema version this code creates and understands.
@@ -312,17 +314,23 @@ impl Store for SqliteStore {
     }
 
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
-        let updated = self.connection().execute(
+        let mut connection = self.connection();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = transaction.execute(
             "UPDATE joined_sticks
              SET output_dir = ?1, completed_seq = NULL, completed_manifest_hash = NULL
              WHERE stick_id = ?2",
             params![path_str(output_dir)?, stick_id.to_bytes()],
         )?;
-        if updated == 1 {
-            Ok(())
-        } else {
-            Err(StoreError::StickNotFound)
+        if updated != 1 {
+            return Err(StoreError::StickNotFound);
         }
+        transaction.execute(
+            "DELETE FROM downloaded_files WHERE stick_id = ?1",
+            [stick_id.to_bytes()],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 
     fn complete_download(
@@ -356,6 +364,18 @@ impl Store for SqliteStore {
         }
         transaction.commit()?;
         Ok(())
+    }
+
+    fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
+        files::downloaded_files(&self.connection(), stick_id)
+    }
+
+    fn record_downloaded_file(
+        &self,
+        stick_id: &StickId,
+        file: &DownloadedFile,
+    ) -> Result<(), StoreError> {
+        files::record_downloaded_file(&self.connection(), stick_id, file)
     }
 
     fn record_floor(&self, stick_id: &StickId) -> Result<Option<ManifestVersion>, StoreError> {

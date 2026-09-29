@@ -6,10 +6,11 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
+use super::folder::may_replace;
 use super::{io_error, DownloadError, PARTIAL_DIR};
 use crate::blob::decrypt_blob;
 use crate::cipher::Cipher;
-use crate::manifest::{Entry, Manifest};
+use crate::manifest::{Entry, FileStamp, Manifest};
 use crate::untrusted::escape;
 
 /// Why one path component cannot be written safely on this reader, if it
@@ -156,13 +157,18 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
 /// Decrypts `ciphertext` into `plaintext`, checks the size, sets the modification
 /// time, and renames it to the entry's place under `output_dir`, checking for
 /// symbolic links again right before. Removes `ciphertext` when done.
+///
+/// The file there is replaced only if it is still as planned (absent, or with
+/// the stamp `replaceable`); otherwise it was changed meanwhile and is left
+/// alone. Returns the stamp of the written file, or `None` if it was left.
 pub(super) fn decrypt_into_place(
     cipher: &dyn Cipher,
     entry: &Entry,
     ciphertext: &Path,
     plaintext: &Path,
     output_dir: &Path,
-) -> Result<(), DownloadError> {
+    replaceable: Option<FileStamp>,
+) -> Result<Option<FileStamp>, DownloadError> {
     let source = File::open(ciphertext).map_err(io_error(ciphertext))?;
     let output = File::create_new(plaintext).map_err(io_error(plaintext))?;
     let mut writer = BufWriter::new(output);
@@ -192,9 +198,15 @@ pub(super) fn decrypt_into_place(
     // Again, now that the folders exist: nothing may have been swapped for a
     // symbolic link since the download started.
     let target = check_no_symlinks(output_dir, &entry.path)?;
+    if !may_replace(&target, replaceable) {
+        std::fs::remove_file(plaintext).map_err(io_error(plaintext))?;
+        std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
+        return Ok(None);
+    }
     std::fs::rename(plaintext, &target).map_err(io_error(&target))?;
     std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
-    Ok(())
+    let written = std::fs::metadata(&target).map_err(io_error(&target))?;
+    Ok(Some(FileStamp::of(&written)))
 }
 
 #[cfg(test)]

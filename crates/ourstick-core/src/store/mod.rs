@@ -112,6 +112,17 @@ pub struct OwnedFile {
     pub blob_hash: [u8; 32],
 }
 
+/// A file `get` wrote into a joined stick's folder: the blob it came from,
+/// and the file's stamp right after it was written. A file whose stamp is no
+/// longer this was changed locally and is not overwritten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadedFile {
+    /// Path relative to the folder, as in the manifest.
+    pub path: String,
+    pub stamp: FileStamp,
+    pub blob_hash: [u8; 32],
+}
+
 /// Local state storage.
 pub trait Store: Send + Sync {
     fn device(&self) -> Result<Option<Device>, StoreError>;
@@ -151,7 +162,7 @@ pub trait Store: Send + Sync {
     fn joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError>;
 
     /// Points a joined stick at another folder, which holds nothing yet:
-    /// clears `completed`.
+    /// clears `completed` and the downloaded files.
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError>;
 
     /// Records that every file of `version` is in the stick's folder. Fails
@@ -161,6 +172,16 @@ pub trait Store: Send + Sync {
         &self,
         stick_id: &StickId,
         version: ManifestVersion,
+    ) -> Result<(), StoreError>;
+
+    /// The files `get` wrote into a joined stick's current folder, by path.
+    fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError>;
+
+    /// Records (or replaces) one file `get` wrote into the stick's folder.
+    fn record_downloaded_file(
+        &self,
+        stick_id: &StickId,
+        file: &DownloadedFile,
     ) -> Result<(), StoreError>;
 
     /// The highest record accepted for a stick (the `last_seen` of ADR 0004),
@@ -263,10 +284,14 @@ pub(crate) fn check_joined_stick(stick: &JoinedStick) -> Result<(), StoreError> 
 
 /// Checks that every number of a recorded file fits in an SQLite INTEGER.
 pub(crate) fn check_owned_file(file: &OwnedFile) -> Result<(), StoreError> {
+    check_stamp(&file.stamp)
+}
+
+pub(crate) fn check_stamp(stamp: &FileStamp) -> Result<(), StoreError> {
     for (name, value) in [
-        ("file size", file.stamp.size),
-        ("mtime", file.stamp.mtime_ns),
-        ("ctime", file.stamp.ctime_ns),
+        ("file size", stamp.size),
+        ("mtime", stamp.mtime_ns),
+        ("ctime", stamp.ctime_ns),
     ] {
         if value > MAX_STORED_SEQ {
             return Err(StoreError::ValueOutOfRange(name, value));

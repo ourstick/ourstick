@@ -219,6 +219,7 @@ fn symlink_planted_after_the_first_check_is_caught_before_the_move() {
         &ciphertext,
         &partial.join("x.plain"),
         output.path(),
+        None,
     );
     assert!(
         matches!(result, Err(DownloadError::UnsafePath { .. })),
@@ -249,4 +250,49 @@ fn partial_directory_is_created_and_reused() {
     let second = prepare_partial_dir(output.path()).unwrap();
     assert_eq!(first, second);
     assert!(first.is_dir());
+}
+
+#[test]
+fn a_file_changed_while_downloading_is_left_alone() {
+    let output = tempfile::tempdir().unwrap();
+    let partial = prepare_partial_dir(output.path()).unwrap();
+    let place = |name: &str, replaceable| {
+        let mut blob = Vec::new();
+        encrypt_blob(&NoCipher, &mut std::io::Cursor::new(b"data"), &mut blob).unwrap();
+        let ciphertext = partial.join(format!("{name}.blob"));
+        std::fs::write(&ciphertext, blob).unwrap();
+        let entry = Entry {
+            path: "file.txt".into(),
+            size: 4,
+            mtime: 0,
+            hash: [0; 32],
+        };
+        let plaintext = partial.join(format!("{name}.plain"));
+        let result = decrypt_into_place(
+            &NoCipher,
+            &entry,
+            &ciphertext,
+            &plaintext,
+            output.path(),
+            replaceable,
+        )
+        .unwrap();
+        assert!(!ciphertext.exists() && !plaintext.exists());
+        result
+    };
+    // Planned as absent, but the user created it meanwhile.
+    std::fs::write(output.path().join("file.txt"), b"mine").unwrap();
+    assert_eq!(place("a", None), None);
+    assert_eq!(
+        std::fs::read(output.path().join("file.txt")).unwrap(),
+        b"mine"
+    );
+    // Planned with its stamp and still so: replaced, and the new stamp returned.
+    let stamp = FileStamp::of(&std::fs::metadata(output.path().join("file.txt")).unwrap());
+    let written = place("b", Some(stamp)).unwrap();
+    assert_eq!(
+        std::fs::read(output.path().join("file.txt")).unwrap(),
+        b"data"
+    );
+    assert_eq!(written.size, 4);
 }

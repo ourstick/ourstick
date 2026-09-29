@@ -58,6 +58,14 @@ pub struct Progress {
     network_at_last_line: u64,
 }
 
+/// "1 file", "2 files".
+fn count(files: usize) -> String {
+    match files {
+        1 => "1 file".to_owned(),
+        files => format!("{files} files"),
+    }
+}
+
 impl Progress {
     /// How much of the stick is here, including what an earlier run left.
     fn so_far(&self) -> u64 {
@@ -156,6 +164,26 @@ impl Progress {
                     bytes(self.total)
                 )]
             }
+            DownloadEvent::FileAlreadyHere { size, .. } => {
+                self.finished += size;
+                Vec::new()
+            }
+            DownloadEvent::FileChangedHere { path, size } => {
+                // Also when it changed while downloading: what came counts.
+                self.finished += size;
+                self.finished_network += self.current_received;
+                self.current_size = 0;
+                self.current_local = 0;
+                self.current_received = 0;
+                vec![format!(
+                    "[{at}]   {}: changed in this folder, left as it is",
+                    untrusted(path)
+                )]
+            }
+            DownloadEvent::NoLongerInStick { count: files } => vec![format!(
+                "[{at}] {} no longer in the stick; kept in this folder.",
+                count(files)
+            )],
             DownloadEvent::FileDone {
                 path,
                 already_local,
@@ -182,7 +210,7 @@ impl Progress {
     /// The closing lines of a finished download.
     pub fn summary(report: &DownloadReport, output: &str, elapsed: Duration) -> Vec<String> {
         let at = clock(elapsed);
-        vec![
+        let mut lines = vec![
             format!(
                 "[{at}] Done in {at}: {} files in {output} ({} received, average {}).",
                 report.files,
@@ -195,7 +223,21 @@ impl Progress {
                 bytes(report.usage.direct_ipv6),
                 bytes(report.usage.relay)
             ),
-        ]
+        ];
+        let mut kept = Vec::new();
+        if report.already_here > 0 {
+            kept.push(format!("{} already here", count(report.already_here)));
+        }
+        if report.changed_here > 0 {
+            kept.push(format!(
+                "{} changed here and left as they were",
+                count(report.changed_here)
+            ));
+        }
+        if !kept.is_empty() {
+            lines.push(format!("        Not downloaded: {}.", kept.join("; ")));
+        }
+        lines
     }
 }
 
@@ -377,6 +419,8 @@ mod tests {
             files: 7,
             bytes: 5_900_000_000,
             received: 5_900_000_000,
+            already_here: 0,
+            changed_here: 0,
             usage: PathUsage {
                 direct: 5_000_000_000,
                 relay: 950_000_000,
@@ -384,6 +428,7 @@ mod tests {
             },
         };
         let lines = Progress::summary(&report, "/Users/a/received", secs(252));
+        assert_eq!(lines.len(), 2);
         assert_eq!(
             lines[0],
             "[04:12] Done in 04:12: 7 files in /Users/a/received (5.9 GB received, average 23.4 MB/s)."
@@ -391,6 +436,58 @@ mod tests {
         assert_eq!(
             lines[1],
             "        Received directly: 5.0 GB (4.0 GB over IPv6), through a relay: 950.0 MB."
+        );
+    }
+
+    #[test]
+    fn files_not_downloaded_are_accounted_for() {
+        let mut progress = Progress::default();
+        progress.on_event(
+            DownloadEvent::Manifest {
+                seq: 1,
+                files: 3,
+                bytes: 300,
+                unchanged: false,
+            },
+            secs(0),
+        );
+        assert!(progress
+            .on_event(
+                DownloadEvent::FileAlreadyHere {
+                    path: "a",
+                    size: 100
+                },
+                secs(1)
+            )
+            .is_empty());
+        assert_eq!(
+            progress.on_event(
+                DownloadEvent::FileChangedHere {
+                    path: "b\u{7}",
+                    size: 100
+                },
+                secs(1)
+            ),
+            vec!["[00:01]   b\\u{7}: changed in this folder, left as it is"]
+        );
+        assert_eq!(progress.so_far(), 200);
+        assert_eq!(
+            progress.on_event(DownloadEvent::NoLongerInStick { count: 1 }, secs(2)),
+            vec!["[00:02] 1 file no longer in the stick; kept in this folder."]
+        );
+
+        let report = DownloadReport {
+            seq: 1,
+            files: 3,
+            bytes: 300,
+            received: 100,
+            already_here: 1,
+            changed_here: 2,
+            usage: PathUsage::default(),
+        };
+        assert_eq!(
+            Progress::summary(&report, "/out", secs(3))[2],
+            "        Not downloaded: 1 file already here; 2 files changed here and left as they were."
         );
     }
 }

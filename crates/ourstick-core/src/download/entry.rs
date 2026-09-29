@@ -11,7 +11,7 @@ use super::relay::{Stop, Watch};
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
 use crate::blocking::run_blocking;
 use crate::cipher::Cipher;
-use crate::manifest::Entry;
+use crate::manifest::{Entry, FileStamp};
 use crate::transport::{Fetcher, PathKind, PeerConnection};
 
 #[allow(clippy::too_many_arguments)]
@@ -24,9 +24,10 @@ pub(super) async fn download_file(
     partial: &Path,
     receiving: &mut ReceivingPath,
     watch: Watch,
+    replaceable: Option<FileStamp>,
     received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<(), DownloadError> {
+) -> Result<Option<FileStamp>, DownloadError> {
     let path = entry.path.as_str();
     // Early check, so a bad path fails before the transfer; checked again
     // right before the file is moved into place.
@@ -86,7 +87,7 @@ pub(super) async fn download_file(
         }
     }
     fetcher.export_blob(&entry.hash, &ciphertext).await?;
-    {
+    let written = {
         let cipher = cipher.clone();
         let entry = entry.clone();
         let output_dir = output_dir.to_path_buf();
@@ -97,19 +98,26 @@ pub(super) async fn download_file(
                 &ciphertext,
                 &plaintext,
                 &output_dir,
+                replaceable,
             )
         })
-        .await?;
-    }
+        .await?
+    };
 
-    if on_event(DownloadEvent::FileDone {
-        path,
-        already_local: stats.already_local,
-        received: stats.received,
-    })
-    .is_break()
-    {
+    let event = match written {
+        Some(_) => DownloadEvent::FileDone {
+            path,
+            already_local: stats.already_local,
+            received: stats.received,
+        },
+        // Changed in the folder while it downloaded.
+        None => DownloadEvent::FileChangedHere {
+            path,
+            size: entry.size,
+        },
+    };
+    if on_event(event).is_break() {
         return Err(DownloadError::Cancelled);
     }
-    Ok(())
+    Ok(written)
 }

@@ -126,10 +126,11 @@ async fn direct_path_found_midway_lifts_the_limit() {
     assert_eq!(seen.paths.last(), Some(&PathKind::Direct), "{seen:?}");
     assert!(relay <= 4 * MIB, "{relay} relay bytes");
     // Relay only, 8 MiB would take about 7.9 s; here only the first 3 MiB
-    // were limited (about 2.6 s).
+    // were limited (about 2.6 s), plus the direct rest, which takes a second
+    // or two on a slow machine (seen in a Windows VM: 4.4 s in all).
     let relay_only = (8.0 * MIB as f64 - BURST_BYTES) / BYTES_PER_SECOND;
     assert!(
-        elapsed.as_secs_f64() < relay_only / 2.0,
+        elapsed.as_secs_f64() < relay_only * 0.8,
         "{elapsed:?}, relay only would be {relay_only:.2} s"
     );
 }

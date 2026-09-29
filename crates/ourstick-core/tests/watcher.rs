@@ -175,6 +175,12 @@ async fn the_operating_system_drives_it_end_to_end() {
     .await;
 
     // Publishing reads every file; those reads must not trigger more publishes.
-    assert_eq!(seen, vec![r#"published 2000 +["new/b.txt"] ~[] -[]"#]);
+    // Windows may report the new folder once more afterwards, which costs a
+    // look that finds nothing changed.
+    assert_eq!(seen[0], r#"published 2000 +["new/b.txt"] ~[] -[]"#);
+    assert!(
+        seen[1..].iter().all(|event| event == "unchanged"),
+        "{seen:?}"
+    );
     owner.publisher.shutdown().await;
 }

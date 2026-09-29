@@ -200,9 +200,11 @@ impl Shared {
             let mut on_event = |event: WatchEvent<'_>| on_watch_event(&app, &event);
             let mut activity = publisher.activity();
             let forward = async {
+                let mut awake = crate::inhibit::KeepAwake::default();
                 while activity.changed().await.is_ok() {
                     let now = *activity.borrow();
                     crate::tray::set_active(&app, now.readers > 0);
+                    awake.set(now.readers > 0).await;
                     let _ = app.emit(
                         "activity",
                         ActivityView {

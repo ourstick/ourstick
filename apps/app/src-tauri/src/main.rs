@@ -7,6 +7,7 @@
 mod commands;
 mod dialog;
 mod drive;
+mod inhibit;
 mod qr;
 mod serving;
 mod share;

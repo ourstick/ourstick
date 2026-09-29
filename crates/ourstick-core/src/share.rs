@@ -11,9 +11,9 @@ use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, CipherError, StickKey};
 use crate::clock::Clock;
 use crate::manifest::build::regular_files;
-use crate::manifest::{Encrypted, KnownFiles, Manifest, ManifestError};
+use crate::manifest::{Encrypted, KnownFiles, Manifest, ManifestError, DRIVE_MARKER};
 use crate::record::{next_seq, SignedManifestRecord};
-use crate::stick_id::StickSigningKey;
+use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{OwnedFile, Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
@@ -79,6 +79,10 @@ pub enum ShareError {
     SeqExhausted,
     #[error("the cache returned a different hash than expected for {0}")]
     CacheMismatch(PathBuf),
+    #[error("the stick is not plugged in: {} is not its drive (ejected?)", .path.display())]
+    DriveMissing { path: PathBuf },
+    #[error("the stick is full: it holds {used} bytes, more than its {size}")]
+    StickFull { size: u64, used: u64 },
     #[error(transparent)]
     Manifest(#[from] ManifestError),
     #[error(transparent)]
@@ -136,6 +140,15 @@ pub async fn publish_folder(
     .ok_or(ShareError::NotOwned)?;
     let cipher = cipher_for(owned.cipher, stick_key);
     let staging = publisher.staging_dir().to_path_buf();
+    if let Some(size) = owned.drive_size {
+        // Never publish an ejected drive (an empty mount point) as an empty
+        // stick, nor a stick that does not fit.
+        let root = owned.root_path.clone();
+        let used = run_blocking(move || check_drive(&root, &stick_id)).await?;
+        if used > size {
+            return Err(ShareError::StickFull { size, used });
+        }
+    }
 
     let known = if rescan {
         KnownFiles::new()
@@ -226,7 +239,7 @@ pub async fn publish_folder(
 async fn known_files(
     publisher: &impl Publisher,
     store: &Arc<dyn Store>,
-    stick_id: &crate::stick_id::StickId,
+    stick_id: &StickId,
 ) -> Result<KnownFiles, ShareError> {
     let recorded = {
         let store = store.clone();
@@ -240,6 +253,45 @@ async fn known_files(
         }
     }
     Ok(known)
+}
+
+/// The bytes in the files of `root` that belong to the stick (system files
+/// left out, see [`crate::manifest::ignore`]). Blocking.
+pub fn folder_size(root: &Path) -> Result<u64, ShareError> {
+    let mut size = 0;
+    for path in regular_files(root)? {
+        let metadata = std::fs::metadata(&path).map_err(|source| ShareError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        size += metadata.len();
+    }
+    Ok(size)
+}
+
+/// Makes `root` the drive of `stick_id` by writing the drive marker into it.
+/// Blocking.
+pub fn mark_drive(root: &Path, stick_id: &StickId) -> Result<(), ShareError> {
+    let path = root.join(DRIVE_MARKER);
+    std::fs::write(&path, drive_marker_text(stick_id))
+        .map_err(|source| ShareError::Io { path, source })
+}
+
+/// What the drive marker of `stick_id` holds: the StickId in hex.
+fn drive_marker_text(stick_id: &StickId) -> String {
+    data_encoding::HEXLOWER.encode(&stick_id.to_bytes())
+}
+
+/// Checks that `root` is the drive of `stick_id` (its marker is there and
+/// names this stick) and returns its size. Blocking.
+fn check_drive(root: &Path, stick_id: &StickId) -> Result<u64, ShareError> {
+    let marker = std::fs::read_to_string(root.join(DRIVE_MARKER)).unwrap_or_default();
+    if marker.trim() != drive_marker_text(stick_id) {
+        return Err(ShareError::DriveMissing {
+            path: root.to_path_buf(),
+        });
+    }
+    folder_size(root)
 }
 
 /// Blocking part of [`publish_folder`]: encrypts every file not in `known`,

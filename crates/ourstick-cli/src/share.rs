@@ -229,6 +229,10 @@ fn watch_lines(event: &WatchEvent<'_>, elapsed: Duration, timing: WatchTiming) -
     let at = clock(elapsed);
     match event {
         WatchEvent::Unchanged => Vec::new(),
+        WatchEvent::Ejected => vec![format!(
+            "[{at}] The stick's drive is not there (ejected?); readers keep getting \
+             the last version until it is back."
+        )],
         WatchEvent::StillChanging => {
             vec![format!("[{at}] A file is still being written; waiting…")]
         }

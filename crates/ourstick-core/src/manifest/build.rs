@@ -8,6 +8,7 @@ use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 use super::encoding::validate_path;
+use super::ignore::is_ignored;
 use super::{Entry, Manifest, ManifestError};
 use crate::blob::encrypt_blob;
 use crate::cipher::{Cipher, CipherError};
@@ -63,14 +64,20 @@ impl Manifest {
 }
 
 /// All regular files under `root`, in walk order. Symlinks are not followed and
-/// not returned; other non-regular files are skipped.
+/// not returned; other non-regular files are skipped, and so are system files
+/// and folders ([`super::ignore`]).
 pub(crate) fn regular_files(root: &Path) -> Result<Vec<PathBuf>, ManifestError> {
     let root_metadata = std::fs::metadata(root).map_err(|e| ManifestError::io(root, e))?;
     if !root_metadata.is_dir() {
         return Err(ManifestError::NotADirectory(root.to_path_buf()));
     }
     let mut files = Vec::new();
-    for item in WalkDir::new(root).follow_links(false) {
+    let walk = WalkDir::new(root).follow_links(false).into_iter();
+    // Not the root itself: a stick may live in a folder of any name.
+    let walk = walk.filter_entry(|item| {
+        item.depth() == 0 || !item.file_name().to_str().is_some_and(is_ignored)
+    });
+    for item in walk {
         let item = item.map_err(|e| {
             let path = e.path().unwrap_or(root).to_path_buf();
             ManifestError::Io {

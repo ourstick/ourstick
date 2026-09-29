@@ -7,6 +7,7 @@
 
 pub(crate) mod build;
 mod encoding;
+pub mod ignore;
 pub mod reuse;
 mod stamp;
 
@@ -18,6 +19,11 @@ use serde::{Deserialize, Serialize};
 pub use encoding::MANIFEST_FORMAT_VERSION;
 pub use reuse::{Encrypted, KnownFiles};
 pub use stamp::FileStamp;
+
+/// The file in a drive stick's folder that says which stick it is (its
+/// StickId in hex). Without it the folder is not the stick, e.g. an ejected
+/// disk image's empty mount point, and is never published.
+pub const DRIVE_MARKER: &str = ".ourstick-drive";
 
 /// Index of all files in a stick.
 ///

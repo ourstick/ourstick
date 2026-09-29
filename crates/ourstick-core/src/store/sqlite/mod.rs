@@ -151,7 +151,7 @@ impl Store for SqliteStore {
         check_owned_stick(stick)?;
         let inserted = self.connection().execute(
             &format!(
-                "INSERT INTO owned_sticks ({OWNED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+                "INSERT INTO owned_sticks ({OWNED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
             ),
             params![
                 stick.stick_id.to_bytes(),
@@ -164,6 +164,8 @@ impl Store for SqliteStore {
                     .as_ref()
                     .map(|record| record.to_bytes().to_vec()),
                 time_i64(stick.created_at_ms)?,
+                // Checked by check_owned_stick: fits in i64.
+                stick.drive_size.map(|size| size as i64),
             ],
         );
         match inserted {

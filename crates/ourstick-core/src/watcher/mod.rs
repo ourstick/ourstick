@@ -96,6 +96,9 @@ pub enum WatchEvent<'a> {
     Unchanged,
     /// Publishing failed; tried again at the next change, or after `retry`.
     Failed { error: &'a ShareError },
+    /// The stick's drive is not there (ejected): the last version is still
+    /// served, and publishing resumes when it is back. Reported once.
+    Ejected,
 }
 
 /// What the owner publishes with.
@@ -152,6 +155,7 @@ pub async fn follow_folder(
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
     let mut retry = false;
+    let mut ejected = false;
     loop {
         if !next_change(events, retry.then_some(timing.retry)).await {
             return;
@@ -173,7 +177,17 @@ pub async fn follow_folder(
         )
         .await;
         retry = false;
+        if published.is_ok() {
+            ejected = false;
+        }
         match published {
+            Err(ShareError::DriveMissing { .. }) => {
+                if !ejected {
+                    ejected = true;
+                    on_event(WatchEvent::Ejected);
+                }
+                retry = true;
+            }
             Ok(publication) if publication.new_version => {
                 let changes = ChangeSummary::between(&current, &publication.manifest);
                 on_event(WatchEvent::Published {

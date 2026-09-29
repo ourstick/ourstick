@@ -102,6 +102,18 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - Symlinks are not followed and not included. Sockets, devices and other
   non-regular files are skipped. Empty directories are not recorded.
 - A file name that is not UTF-8, or that breaks the path rules above, is an error.
+- System files are never part of a stick, at any depth, as a file or as a
+  folder: `.DS_Store`, `.Spotlight-V100`, `.fseventsd`, `.Trashes`,
+  `.TemporaryItems`, `.DocumentRevisions-V100`, `.VolumeIcon.icns`, `.apdisk`,
+  `.metadata_never_index`, `.com.apple.timemachine.donotpresent`, `Thumbs.db`,
+  `desktop.ini`, `$RECYCLE.BIN`, `System Volume Information`, `.directory`,
+  `.ourstick-drive`, `.ourstick-partial`, and names starting with `._` or
+  `.Trash-`. The shared folder itself may have any name.
+- A **drive** (the app's stick, `owned_sticks.drive_size`) carries the file
+  `.ourstick-drive`, holding its StickId in hex. Without it (an ejected disk
+  image, an empty mount point, another stick's drive) the owner does not
+  publish, and keeps serving the last version. A drive whose files hold more
+  than its size is not published either.
 - A version changes only when the folder does: if the new manifest hash equals
   the one in the last signed record, that record is served again and no new
   `seq` is signed.

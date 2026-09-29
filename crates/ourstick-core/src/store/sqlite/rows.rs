@@ -33,10 +33,11 @@ pub(super) struct OwnedRow {
     last_signed_seq: i64,
     latest_record: Option<Vec<u8>>,
     created_at_ms: i64,
+    drive_size: Option<i64>,
 }
 
 pub(super) const OWNED_COLUMNS: &str =
-    "stick_id, name, root_path, cipher, last_signed_seq, latest_record, created_at_ms";
+    "stick_id, name, root_path, cipher, last_signed_seq, latest_record, created_at_ms, drive_size";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -48,6 +49,7 @@ impl OwnedRow {
             last_signed_seq: row.get(4)?,
             latest_record: row.get(5)?,
             created_at_ms: row.get(6)?,
+            drive_size: row.get(7)?,
         })
     }
 
@@ -71,6 +73,10 @@ impl OwnedRow {
             last_signed_seq: to_u64(self.last_signed_seq, "last_signed_seq")?,
             latest_record,
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
+            drive_size: self
+                .drive_size
+                .map(|size| to_u64(size, "drive_size"))
+                .transpose()?,
         })
     }
 }

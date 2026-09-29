@@ -61,6 +61,18 @@ impl Owner {
 
     /// Like [`Owner::new`], on the given network.
     pub async fn on(network: Network, files: &[(&str, &[u8])]) -> Self {
+        Self::with(network, files, None).await
+    }
+
+    /// A drive of `size` bytes (the app's stick), marked as such.
+    pub async fn drive(size: u64, files: &[(&str, &[u8])]) -> Self {
+        let owner = Self::with(Network::LocalOnly, files, Some(size)).await;
+        ourstick_core::share::mark_drive(owner.folder.path(), &owner.signing_key.stick_id())
+            .unwrap();
+        owner
+    }
+
+    async fn with(network: Network, files: &[(&str, &[u8])], drive_size: Option<u64>) -> Self {
         let folder = tempfile::tempdir().unwrap();
         for (path, contents) in files {
             write_file(folder.path(), path, contents);
@@ -68,13 +80,16 @@ impl Owner {
         let signing_key = StickSigningKey::from_bytes(&random_key());
         let store = Arc::new(MemoryStore::new());
         store
-            .add_owned_stick(&OwnedStick::new(
-                signing_key.stick_id(),
-                "test stick",
-                folder.path(),
-                CipherId::XChaCha20Poly1305,
-                1,
-            ))
+            .add_owned_stick(&OwnedStick {
+                drive_size,
+                ..OwnedStick::new(
+                    signing_key.stick_id(),
+                    "test stick",
+                    folder.path(),
+                    CipherId::XChaCha20Poly1305,
+                    1,
+                )
+            })
             .unwrap();
         let cache = tempfile::tempdir().unwrap();
         let config =

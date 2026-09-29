@@ -47,6 +47,10 @@ pub struct OwnedStick {
     /// The latest signed record, if any. Its `seq` equals `last_signed_seq`.
     pub latest_record: Option<SignedManifestRecord>,
     pub created_at_ms: u64,
+    /// `Some(size in bytes)` for a drive (the app's stick): its folder must
+    /// carry the drive marker and may hold at most this much. `None` for a
+    /// plain shared folder.
+    pub drive_size: Option<u64>,
 }
 
 impl OwnedStick {
@@ -66,6 +70,7 @@ impl OwnedStick {
             last_signed_seq: 0,
             latest_record: None,
             created_at_ms,
+            drive_size: None,
         }
     }
 }
@@ -250,6 +255,13 @@ pub(crate) fn path_str(path: &Path) -> Result<&str, StoreError> {
 /// Checks the rules every store enforces before writing an owned stick.
 pub(crate) fn check_owned_stick(stick: &OwnedStick) -> Result<(), StoreError> {
     check_seq(stick.last_signed_seq)?;
+    match stick.drive_size {
+        Some(0) => return Err(StoreError::Inconsistent("a drive of size 0")),
+        Some(size) if size > MAX_STORED_SEQ => {
+            return Err(StoreError::ValueOutOfRange("drive size", size))
+        }
+        _ => {}
+    }
     check_time(stick.created_at_ms)?;
     path_str(&stick.root_path)?;
     match &stick.latest_record {

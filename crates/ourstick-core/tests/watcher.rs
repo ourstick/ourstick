@@ -36,6 +36,7 @@ fn describe(event: WatchEvent<'_>) -> String {
         WatchEvent::StillChanging => "still changing".to_owned(),
         WatchEvent::Unchanged => "unchanged".to_owned(),
         WatchEvent::Failed { .. } => "failed".to_owned(),
+        WatchEvent::Ejected => "ejected".to_owned(),
         WatchEvent::Published {
             changes,
             publication,

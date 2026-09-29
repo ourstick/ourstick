@@ -25,9 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 4
+## Version 5
 
-Version 4 (`0004_downloaded_files.sql`) added `downloaded_files`, and version 3
+Version 5 (`0005_drive_size.sql`) added `owned_sticks.drive_size`. Version 4
+(`0004_downloaded_files.sql`) added `downloaded_files`, and version 3
 (`0003_owned_files.sql`) added `owned_files`, both below.
 
 Version 1 (`0001_initial.sql`) created the other tables. Version 2
@@ -69,6 +70,7 @@ Sticks this device owns. One row per stick.
 | `last_signed_seq` | INTEGER  | Highest `seq` ever signed; 0 if none. Only increases.      |
 | `latest_record`   | BLOB 137 | The latest signed manifest record, or NULL                 |
 | `created_at_ms`   | INTEGER  | When the stick was created                                 |
+| `drive_size`      | INTEGER  | Size in bytes of a drive (the app's stick); NULL for a plain shared folder. A drive's folder must carry `.ourstick-drive` and may not hold more than this. |
 
 `last_signed_seq` and `latest_record` change together, in one statement that
 only succeeds if the new `seq` is greater than the stored one. Two processes

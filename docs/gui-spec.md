@@ -116,8 +116,14 @@ so Spotlight leaves it alone.
   to about 20 GB of disk.
 - macOS: a sparse image does not shrink when files are deleted; it gets
   smaller only after `hdiutil compact` while detached.
-- Linux: the bookmark's icon is up to the file manager; Nautilus shows its
-  bookmarks with a folder icon.
+- Linux: the bookmark's icon is up to the file manager; Nautilus and Thunar
+  show bookmarks with a folder icon (the folder itself gets the USB drive icon
+  where the file manager honours `metadata::custom-icon-name`).
+- Linux: the app runs WebKitGTK without compositing
+  (`WEBKIT_DISABLE_COMPOSITING_MODE=1`, unless the user set it). With it,
+  WebKitGTK draws a scrolling list on its own layer with other antialiasing,
+  and the file names turned bold once the list scrolled. The UI is the same
+  everywhere; this is only how the Linux engine draws it.
 
 ## Theming: native look per platform
 
@@ -151,7 +157,8 @@ Rules:
   on Windows, SF-Symbols-like on macOS). One icon set with per-platform
   stroke weight is enough; do not ship three sets.
 - Tray icon: monochrome, follows the panel theme (light/dark), green dot for
-  activity.
+  activity. A vertical USB stick (connector with two holes, filled body)
+  using the icon's whole height, so it reads at 16–22 px.
 - KDE, XFCE etc. get the GNOME theme; refine later if users ask.
 - Never use a non-system font. No web fonts, no downloads.
 

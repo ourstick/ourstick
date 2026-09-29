@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OurStick mockup</title>
+<style>
+  body { margin:0; background:#e9e9ec; font-family: -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif; color:#1a1a1a; display:flex; gap:40px; padding:40px; align-items:flex-start; }
+  .win { width:340px; background:#f7f7f8; border:1px solid #cfcfd3; border-radius:10px; box-shadow:0 4px 18px rgba(0,0,0,.12); }
+  .titlebar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #dcdce0; }
+  .titlebar .name { font-weight:600; flex:1; }
+  .pill { border:1px solid #b9b9bf; border-radius:6px; padding:3px 9px; font-size:12px; display:flex; align-items:center; gap:5px; background:#fff; }
+  .pill .dot { width:8px; height:8px; border-radius:50%; background:#2e9d4a; }
+  .body { padding:14px; }
+  .drop { border:2px dashed #b3b3b9; border-radius:8px; text-align:center; padding:18px 10px; color:#333; }
+  .drop .big { font-size:15px; font-weight:600; margin-top:6px; }
+  .drop .small { font-size:12px; color:#666; margin-top:2px; }
+  .file { display:flex; justify-content:space-between; border:1px solid #cfcfd3; border-radius:6px; padding:6px 10px; font-size:13px; margin-top:8px; background:#fff; }
+  .file span:last-child { color:#555; }
+  .cap { display:flex; justify-content:space-between; font-size:13px; margin-top:14px; }
+  .bar { height:8px; background:#d9d9de; border-radius:4px; margin-top:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:4.4%; background:#2b2b2b; border-radius:4px; }
+  .dl { margin-top:12px; font-size:12px; color:#2e6b3a; display:flex; align-items:center; gap:6px; }
+  .dl .dot { width:7px; height:7px; border-radius:50%; background:#2e9d4a; }
+  .btn { margin-top:14px; border:1px solid #b9b9bf; background:#fff; border-radius:8px; padding:9px; text-align:center; font-size:14px; font-weight:500; }
+  .menu { position:absolute; background:#fff; border:1px solid #c4c4c9; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.15); font-size:13px; min-width:170px; }
+  .menu div { padding:8px 14px; }
+  .menu div + div { border-top:1px solid #eee; }
+  .menu .danger { color:#b3261e; }
+  .rel { position:relative; }
+  .tray { display:flex; flex-direction:column; gap:6px; }
+  .tray .icon { width:34px; height:34px; border-radius:8px; background:#2b2b2b; display:flex; align-items:center; justify-content:center; position:relative; }
+  .tray .icon i { width:8px; height:8px; border-radius:50%; background:#2e9d4a; position:absolute; right:-2px; top:-2px; border:2px solid #e9e9ec; }
+  .caption { font-size:12px; color:#555; margin-top:8px; }
+  .popup { width:300px; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  .row input { flex:1; border:1px solid #cfcfd3; border-radius:6px; padding:7px 9px; font-size:12px; font-family:monospace; background:#fff; }
+  .row .sm { border:1px solid #b9b9bf; border-radius:6px; padding:6px 10px; font-size:12px; background:#fff; }
+  .qr { width:140px; height:140px; margin:14px auto 0; background:
+    repeating-linear-gradient(90deg,#000 0 6px,#fff 6px 12px),
+    repeating-linear-gradient(0deg,#000 0 6px,#fff 6px 12px); background-blend-mode:difference; border:6px solid #fff; outline:1px solid #cfcfd3; }
+  .warn { width:320px; }
+  .warn p { font-size:13px; margin:6px 0 0; line-height:1.4; }
+  .warn .btns { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .warn .btns div { border:1px solid #b9b9bf; border-radius:6px; padding:6px 12px; font-size:13px; background:#fff; }
+  .warn .btns .stop { background:#b3261e; color:#fff; border-color:#b3261e; }
+  h4 { margin:0 0 4px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#777; font-weight:600; }
+  .col { display:flex; flex-direction:column; gap:28px; }
+</style>
+</head>
+<body>
+
+<div class="col">
+<h4>1 · Main window</h4>
+<div class="win rel">
+  <div class="titlebar">
+    <span>▭</span><span class="name">OurStick (10 GB)</span>
+    <span class="pill"><span class="dot"></span>Mounted ▾</span>
+  </div>
+  <div class="menu" style="right:10px; top:38px;">
+    <div>Open in file manager</div>
+    <div>Eject (keeps sharing)</div>
+  </div>
+  <div class="body">
+    <div class="drop">
+      <div>⇧</div>
+      <div class="big">Drop files or folders here</div>
+      <div class="small">3 files · 438 MB</div>
+    </div>
+    <div class="file"><span>archive_backup.tar.gz</span><span>420 MB</span></div>
+    <div class="file"><span>schematics_rev2.pdf</span><span>18 MB</span></div>
+    <div class="file"><span>wedding/</span><span>0 MB</span></div>
+    <div class="cap"><span>Capacity</span><span>438 MB / 10 GB</span></div>
+    <div class="bar"><i></i></div>
+    <div class="dl"><span class="dot"></span>1 person downloading · 2.1 MB/s · direct</div>
+    <div class="btn">⤴ Share</div>
+  </div>
+</div>
+<div class="caption">«Mounted ▾» opens the small menu. Eject only unmounts; sharing continues.</div>
+</div>
+
+<div class="col">
+<h4>2 · Share popup</h4>
+<div class="win popup">
+  <div class="titlebar"><span class="name">Share OurStick</span><span>✕</span></div>
+  <div class="body">
+    <div style="font-size:12px;color:#555">Anyone with this link can read the stick.</div>
+    <div class="row"><input value="https://ourstick.com/s/ag7g…#crkp…" readonly><div class="sm">Copy</div></div>
+    <div class="qr"></div>
+    <div class="row"><div class="sm" style="flex:1;text-align:center">Copy QR image</div><div class="sm" style="flex:1;text-align:center">Send by email</div></div>
+  </div>
+</div>
+
+<h4>3 · Tray menu</h4>
+<div style="display:flex; gap:14px; align-items:flex-start">
+  <div class="tray"><div class="icon"><i></i><span style="color:#fff;font-size:16px">▭</span></div><div class="caption" style="margin:0">dot = someone<br>is downloading</div></div>
+  <div class="menu" style="position:static">
+    <div>Open OurStick</div>
+    <div>Share…</div>
+    <div>Eject / Mount</div>
+    <div class="danger">Stop sharing…</div>
+    <div>Quit</div>
+  </div>
+</div>
+</div>
+
+<div class="col">
+<h4>4 · Stop sharing (also on Quit)</h4>
+<div class="win warn">
+  <div class="body">
+    <div style="font-weight:600">Stop sharing OurStick?</div>
+    <p>Anyone with the link will no longer be able to download.</p>
+    <p><b>Anna is still downloading</b> — 2.1 GB remaining.</p>
+    <div class="btns"><div>Keep sharing</div><div class="stop">Stop</div></div>
+  </div>
+</div>
+
+<h4>5 · First launch</h4>
+<div class="win warn">
+  <div class="body">
+    <div style="font-weight:600;font-size:15px">Welcome to OurStick</div>
+    <p>OurStick is a virtual USB stick. It appears in your file manager like any USB drive. Put files on it, then share the link — the other person sees the same stick.</p>
+    <p>Stick size: <span class="sm" style="border:1px solid #b9b9bf;border-radius:6px;padding:3px 8px;background:#fff">10 GB ▾</span></p>
+    <div class="btns"><div class="stop" style="background:#2b2b2b;border-color:#2b2b2b">Plug it in</div></div>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

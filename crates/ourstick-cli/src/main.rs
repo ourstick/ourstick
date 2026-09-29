@@ -5,6 +5,7 @@ mod display;
 mod get;
 mod ls;
 mod progress;
+mod qr;
 mod setup;
 mod share;
 

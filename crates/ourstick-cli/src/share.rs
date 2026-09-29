@@ -1,6 +1,7 @@
 //! `ourstick share <folder>`: encrypt the folder into the cache, print a
 //! ticket, and serve until Ctrl-C.
 
+use std::io::IsTerminal;
 use std::path::Path;
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ use ourstick_core::{
 };
 
 use crate::display::bytes;
+use crate::qr::qr_lines;
 use crate::setup::{self, hex, load_key, now_ms};
 
 const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
@@ -126,11 +128,16 @@ pub async fn run(folder: &Path) -> Result<()> {
         address_hints: publisher.address_hints(),
         stick_key,
     };
-    // Printed for the user only; never logged.
-    println!(
-        "\nTicket (anyone with it can read this stick):\n\n{}\n",
-        ticket.to_link()?
-    );
+    // Printed for the user only; never logged. The QR code only on a
+    // terminal, where a phone can scan it; not into files or pipes.
+    let link = ticket.to_link()?;
+    println!("\nTicket (anyone with it can read this stick):\n\n{link}\n");
+    if std::io::stdout().is_terminal() {
+        for line in qr_lines(&link)? {
+            println!("{line}");
+        }
+        println!();
+    }
     println!("Serving. Press Ctrl-C to stop.");
 
     tokio::signal::ctrl_c().await?;

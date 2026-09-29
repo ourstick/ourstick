@@ -5,6 +5,8 @@ members = [
     "crates/ourstick-cli",
     "apps/app/src-tauri",
 ]
+# Vendored dependencies are not ours to test or lint.
+exclude = ["third_party"]
 
 [workspace.package]
 version = "0.1.0"

@@ -101,7 +101,7 @@ fn parse_share(options: &[String]) -> Result<Command> {
     })
 }
 
-/// `get <ticket>` followed by `--out <folder>` and/or `--allow-relay`, in any order.
+/// `get <ticket>` followed by `--out <folder>` and/or `--follow`, in any order.
 fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     let mut output = None;
     let mut follow = false;

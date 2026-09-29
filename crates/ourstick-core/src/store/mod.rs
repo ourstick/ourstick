@@ -12,6 +12,7 @@ mod sqlite;
 use std::path::{Path, PathBuf};
 
 use crate::cipher::CipherId;
+use crate::manifest::FileStamp;
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
 use crate::ticket::NodeId;
@@ -101,6 +102,16 @@ impl JoinedStick {
     }
 }
 
+/// What the owner last encrypted for one file of a stick: the file's stamp
+/// then, and the blob made from it. Lets an unchanged file skip encryption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedFile {
+    /// Path relative to the stick root, as in the manifest.
+    pub path: String,
+    pub stamp: FileStamp,
+    pub blob_hash: [u8; 32],
+}
+
 /// Local state storage.
 pub trait Store: Send + Sync {
     fn device(&self) -> Result<Option<Device>, StoreError>;
@@ -120,6 +131,16 @@ pub trait Store: Send + Sync {
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one,
     /// checked and updated atomically.
     fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError>;
+
+    /// The files recorded at the last publish of an owned stick, by path.
+    fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError>;
+
+    /// Replaces the recorded files of an owned stick, all at once.
+    fn replace_owned_files(
+        &self,
+        stick_id: &StickId,
+        files: &[OwnedFile],
+    ) -> Result<(), StoreError>;
 
     /// Records a new joined stick. Fails if it exists.
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError>;
@@ -167,6 +188,8 @@ pub enum StoreError {
     SeqOutOfRange(u64),
     #[error("time {0} ms is too large to store")]
     TimeOutOfRange(u64),
+    #[error("{0} {1} is too large to store")]
+    ValueOutOfRange(&'static str, u64),
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(PathBuf),
     #[error("inconsistent data: {0}")]
@@ -234,6 +257,20 @@ pub(crate) fn check_joined_stick(stick: &JoinedStick) -> Result<(), StoreError> 
     check_time(stick.joined_at_ms)?;
     if let Some(completed) = &stick.completed {
         check_seq(completed.seq)?;
+    }
+    Ok(())
+}
+
+/// Checks that every number of a recorded file fits in an SQLite INTEGER.
+pub(crate) fn check_owned_file(file: &OwnedFile) -> Result<(), StoreError> {
+    for (name, value) in [
+        ("file size", file.stamp.size),
+        ("mtime", file.stamp.mtime_ns),
+        ("ctime", file.stamp.ctime_ns),
+    ] {
+        if value > MAX_STORED_SEQ {
+            return Err(StoreError::ValueOutOfRange(name, value));
+        }
     }
     Ok(())
 }

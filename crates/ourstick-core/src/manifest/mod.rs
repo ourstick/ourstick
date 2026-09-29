@@ -2,10 +2,13 @@
 //! It is the first thing a reader downloads.
 //!
 //! - [`build`]: creating a manifest from a folder on disk.
+//! - [`reuse`]: the same, encrypting only files that changed since last time.
 //! - [`encoding`]: the wire format (see `docs/protocol.md`).
 
 pub(crate) mod build;
 mod encoding;
+pub mod reuse;
+mod stamp;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,6 +16,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use encoding::MANIFEST_FORMAT_VERSION;
+pub use reuse::{Encrypted, KnownFiles};
+pub use stamp::FileStamp;
 
 /// Index of all files in a stick.
 ///

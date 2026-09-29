@@ -104,12 +104,18 @@ impl Owner {
     }
 
     pub async fn publish(&self) -> Publication {
+        self.publish_with(false).await
+    }
+
+    /// Publishes, reading every file again if `rescan`.
+    pub async fn publish_with(&self, rescan: bool) -> Publication {
         publish_folder(
             &self.publisher,
             self.store.clone(),
             &self.clock,
             &self.signing_key,
             &self.stick_key,
+            rescan,
         )
         .await
         .unwrap()

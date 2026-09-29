@@ -8,8 +8,8 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{
-    check_device, check_joined_stick, check_owned_stick, check_seq, path_str, Device, JoinedStick,
-    ManifestVersion, OwnedStick, Store, StoreError,
+    check_device, check_joined_stick, check_owned_file, check_owned_stick, check_seq, path_str,
+    Device, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -20,6 +20,7 @@ struct State {
     owned: BTreeMap<[u8; 32], OwnedStick>,
     joined: BTreeMap<[u8; 32], JoinedStick>,
     floors: BTreeMap<[u8; 32], ManifestVersion>,
+    owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
 }
 
 /// A [`Store`] that forgets everything when dropped.
@@ -102,6 +103,36 @@ impl Store for MemoryStore {
         }
         stick.last_signed_seq = content.seq;
         stick.latest_record = Some(record.clone());
+        Ok(())
+    }
+
+    fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError> {
+        let state = self.state();
+        Ok(state
+            .owned_files
+            .get(&stick_id.to_bytes())
+            .map(|files| files.values().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    fn replace_owned_files(
+        &self,
+        stick_id: &StickId,
+        files: &[OwnedFile],
+    ) -> Result<(), StoreError> {
+        for file in files {
+            check_owned_file(file)?;
+        }
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if !state.owned.contains_key(&key) {
+            return Err(StoreError::StickNotFound);
+        }
+        let files = files
+            .iter()
+            .map(|file| (file.path.clone(), file.clone()))
+            .collect();
+        state.owned_files.insert(key, files);
         Ok(())
     }
 

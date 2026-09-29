@@ -102,6 +102,25 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - Symlinks are not followed and not included. Sockets, devices and other
   non-regular files are skipped. Empty directories are not recorded.
 - A file name that is not UTF-8, or that breaks the path rules above, is an error.
+- A version changes only when the folder does: if the new manifest hash equals
+  the one in the last signed record, that record is served again and no new
+  `seq` is signed.
+- A file is encrypted again only if it changed since the last publish, judged
+  by a stamp (see "Known limits" below); otherwise its recorded blob hash is
+  used. `share --rescan` reads and encrypts every file.
+
+### Known limits
+
+- **Unchanged-file detection is a heuristic.** The owner records, per file,
+  the size, mtime and (on Unix) ctime in nanoseconds at the last publish
+  (`owned_files`, `docs/schema.md`), and does not read a file whose stamp is
+  unchanged. A change that keeps all three is not seen, and readers keep
+  getting the old content for that file. On Unix, ctime changes on every write
+  and cannot be set back by ordinary tools, so this needs a file system with
+  coarse or missing timestamps, a clock set backwards, or a deliberate change of
+  the system time. Elsewhere only size and mtime count, and a tool that
+  restores mtime after writing (some sync and archive tools do) is enough.
+  `ourstick share --rescan` ignores the record and reads every file.
 
 ## Blob format (version 1)
 

@@ -267,6 +267,23 @@ impl Publisher for IrohPublisher {
         Ok(())
     }
 
+    async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
+        let hash = Hash::from_bytes(*hash);
+        // Protect first, then check: the GC cannot slip in between (#247).
+        let tag = self.store.tags().temp_tag(hash).await.map_err(storage)?;
+        if !matches!(
+            self.store.blobs().status(hash).await.map_err(storage)?,
+            BlobStatus::Complete { .. }
+        ) {
+            return Ok(false);
+        }
+        self.protected
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(hash, tag);
+        Ok(true)
+    }
+
     async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         let status = self
             .store

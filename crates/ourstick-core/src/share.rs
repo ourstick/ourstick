@@ -11,10 +11,10 @@ use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, CipherError, StickKey};
 use crate::clock::Clock;
 use crate::manifest::build::regular_files;
-use crate::manifest::{Manifest, ManifestError};
+use crate::manifest::{Encrypted, KnownFiles, Manifest, ManifestError};
 use crate::record::{next_seq, SignedManifestRecord};
 use crate::stick_id::StickSigningKey;
-use crate::store::{Store, StoreError};
+use crate::store::{OwnedFile, Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
 /// What sharing a folder will take, known before anything is encrypted.
@@ -66,6 +66,8 @@ pub struct Publication {
     /// False if the folder was as last published: the same record is served
     /// again, with no new `seq`.
     pub new_version: bool,
+    /// Files that kept their blob from the last publish without being read.
+    pub reused: usize,
 }
 
 /// Why sharing failed. The messages are meant for users.
@@ -114,12 +116,17 @@ fn clear_staging(staging: &Path) -> Result<(), ShareError> {
 /// a version changes only when the folder does.
 ///
 /// The folder, cipher and last `seq` come from the owned stick in `store`.
+///
+/// A file whose size, mtime and ctime are as at the last publish, and whose
+/// blob is still in the cache, is not encrypted again (a heuristic; see
+/// "Known limits" in `docs/protocol.md`). With `rescan`, every file is.
 pub async fn publish_folder(
     publisher: &impl Publisher,
     store: Arc<dyn Store>,
     clock: &dyn Clock,
     signing_key: &StickSigningKey,
     stick_key: &StickKey,
+    rescan: bool,
 ) -> Result<Publication, ShareError> {
     let stick_id = signing_key.stick_id();
     let owned = {
@@ -130,11 +137,22 @@ pub async fn publish_folder(
     let cipher = cipher_for(owned.cipher, stick_key);
     let staging = publisher.staging_dir().to_path_buf();
 
-    let (manifest, blob_files, manifest_file, manifest_hash) = {
+    let known = if rescan {
+        KnownFiles::new()
+    } else {
+        known_files(publisher, &store, &stick_id).await?
+    };
+    let (encrypted, blob_files, manifest_file, manifest_hash) = {
         let cipher = cipher.clone();
         let root = owned.root_path.clone();
-        run_blocking(move || encrypt_stick(&root, cipher.as_ref(), &staging)).await?
+        run_blocking(move || encrypt_stick(&root, cipher.as_ref(), &staging, &known)).await?
     };
+    let Encrypted {
+        manifest,
+        files,
+        reused,
+        ..
+    } = encrypted;
 
     for blob_file in blob_files.iter().chain([&manifest_file]) {
         let expected = blob_file
@@ -174,9 +192,22 @@ pub async fn publish_folder(
     let mut allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
     allowed.insert(manifest_hash);
     publisher.publish(record.clone(), allowed).await?;
+    {
+        let files: Vec<OwnedFile> = files
+            .into_iter()
+            .map(|(path, stamp, blob_hash)| OwnedFile {
+                path,
+                stamp,
+                blob_hash,
+            })
+            .collect();
+        let store = store.clone();
+        run_blocking(move || store.replace_owned_files(&stick_id, &files)).await?;
+    }
     tracing::info!(
         seq,
         new_version,
+        reused,
         files = manifest.entries.len(),
         "published stick"
     );
@@ -186,21 +217,47 @@ pub async fn publish_folder(
         seq,
         record,
         new_version,
+        reused,
     })
 }
 
-/// Blocking part of [`publish_folder`]: encrypts every file and the manifest
-/// into `staging`, each as `<hex hash>.blob`.
+/// The files recorded at the last publish whose blobs the cache still holds;
+/// each of those blobs is kept from now on, as if imported.
+async fn known_files(
+    publisher: &impl Publisher,
+    store: &Arc<dyn Store>,
+    stick_id: &crate::stick_id::StickId,
+) -> Result<KnownFiles, ShareError> {
+    let recorded = {
+        let store = store.clone();
+        let stick_id = *stick_id;
+        run_blocking(move || store.owned_files(&stick_id)).await?
+    };
+    let mut known = KnownFiles::new();
+    for file in recorded {
+        if publisher.keep_blob(&file.blob_hash).await? {
+            known.insert(file.path, (file.stamp, file.blob_hash));
+        }
+    }
+    Ok(known)
+}
+
+/// Blocking part of [`publish_folder`]: encrypts every file not in `known`,
+/// and the manifest, into `staging`, each as `<hex hash>.blob`.
 fn encrypt_stick(
     root: &Path,
     cipher: &dyn Cipher,
     staging: &Path,
-) -> Result<(Manifest, Vec<PathBuf>, PathBuf, BlobHash), ShareError> {
+    known: &KnownFiles,
+) -> Result<(Encrypted, Vec<PathBuf>, PathBuf, BlobHash), ShareError> {
     clear_staging(staging)?;
-    let (manifest, kept) = Manifest::from_dir_keeping_blobs(root, cipher, staging)?;
+    let encrypted = Manifest::from_dir_reusing(root, cipher, staging, known)?;
+    let manifest = &encrypted.manifest;
     // Identical files share one blob; import each blob once.
-    let blob_files: Vec<PathBuf> = kept
-        .into_iter()
+    let blob_files: Vec<PathBuf> = encrypted
+        .new_blobs
+        .iter()
+        .cloned()
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -220,7 +277,7 @@ fn encrypt_stick(
         path: manifest_file.clone(),
         source,
     })?;
-    Ok((manifest, blob_files, manifest_file, manifest_hash))
+    Ok((encrypted, blob_files, manifest_file, manifest_hash))
 }
 
 #[cfg(test)]
@@ -263,9 +320,9 @@ mod tests {
         std::fs::write(staging.path().join("leftover.partial"), b"x").unwrap();
         let cipher = ChaChaCipher::new(&StickKey::from_bytes([1; 32]));
 
-        let (manifest, blobs, manifest_file, manifest_hash) =
-            encrypt_stick(dir.path(), &cipher, staging.path()).unwrap();
-        assert_eq!(manifest.entries.len(), 2);
+        let (encrypted, blobs, manifest_file, manifest_hash) =
+            encrypt_stick(dir.path(), &cipher, staging.path(), &KnownFiles::new()).unwrap();
+        assert_eq!(encrypted.manifest.entries.len(), 2);
         assert_eq!(blobs.len(), 1, "identical files share one blob");
         let bytes = std::fs::read(&manifest_file).unwrap();
         assert_eq!(*blake3::hash(&bytes).as_bytes(), manifest_hash);

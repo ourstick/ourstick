@@ -80,6 +80,9 @@ impl Publisher for MemoryPublisher {
         served.allowed = allowed;
         Ok(())
     }
+    async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
+        self.has_blob(hash).await
+    }
     async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         Ok(self.served.lock().unwrap().blobs.contains_key(hash))
     }
@@ -336,6 +339,7 @@ pub async fn publish_one_file(size: usize) -> Published {
         &FixedClock::new(1_000),
         &signing_key,
         &stick_key,
+        false,
     )
     .await
     .unwrap();

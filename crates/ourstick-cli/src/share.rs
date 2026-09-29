@@ -80,7 +80,7 @@ fn owned_stick_for(
     Ok((stick, signing_key, stick_key))
 }
 
-pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
+pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<()> {
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
     let (setup, stick, signing_key, stick_key) = tokio::task::spawn_blocking({
@@ -123,8 +123,16 @@ pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
         &SystemClock,
         &signing_key,
         &stick_key,
+        rescan,
     )
     .await?;
+    if publication.reused > 0 {
+        println!(
+            "{} files were as last time and were not encrypted again \
+             (--rescan reads every file).",
+            publication.reused
+        );
+    }
     if !publication.new_version {
         println!("No changes since the last share: readers keep the same version.");
     }

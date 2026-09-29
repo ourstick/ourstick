@@ -25,7 +25,9 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 2
+## Version 3
+
+Version 3 (`0003_owned_files.sql`) added `owned_files`, below.
 
 Version 1 (`0001_initial.sql`) created the other tables. Version 2
 (`0002_record_floors.sql`) moved the seq floor of ADR 0004 out of
@@ -106,6 +108,28 @@ the stick has a folder.
 Accepting a record inserts the row, or raises it in the same statement only if
 the new `seq` is greater than the stored one. A record at or below the floor is
 refused, so a restored or replayed old record cannot roll a reader back.
+
+### `owned_files`
+
+What the owner last encrypted, per file of an owned stick, so that an unchanged
+file is not encrypted again. Replaced as a whole, in one transaction, after
+every publish.
+
+| Column      | Type    | Meaning                                                    |
+|-------------|---------|------------------------------------------------------------|
+| `stick_id`  | BLOB 32 | The owned stick (foreign key to `owned_sticks`)            |
+| `path`      | TEXT    | Path relative to the stick root, as in the manifest        |
+| `size`      | INTEGER | File size in bytes when it was last read                   |
+| `mtime_ns`  | INTEGER | Modification time, ns since the Unix epoch; 0 if unknown   |
+| `ctime_ns`  | INTEGER | Inode change time on Unix, ns; 0 elsewhere                 |
+| `blob_hash` | BLOB 32 | The blob made from the file in that state                  |
+
+Primary key `(stick_id, path)`. A file whose size, mtime and ctime match its
+row, and whose blob the cache still holds, keeps `blob_hash` without being
+read. This is a heuristic with a known limit ("Known limits" in
+`docs/protocol.md`); `share --rescan` ignores the table. The stamp is taken
+before the file is read, so a file that changes afterwards has a newer stamp
+than its row and is read again next time.
 
 ## Not yet in the schema
 

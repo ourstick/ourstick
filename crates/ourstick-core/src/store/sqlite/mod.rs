@@ -1,5 +1,6 @@
 //! [`Store`] on SQLite, with migrations from `crates/ourstick-core/migrations/`.
 
+mod files;
 mod rows;
 
 use std::path::{Path, PathBuf};
@@ -12,7 +13,7 @@ use rows::{blob32, to_u64, JoinedRow, OwnedRow, JOINED_COLUMNS, OWNED_COLUMNS};
 
 use super::{
     check_device, check_joined_stick, check_owned_stick, check_seq, check_time, path_str, Device,
-    JoinedStick, ManifestVersion, OwnedStick, SecretBackend, Store, StoreError,
+    JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -22,6 +23,7 @@ use crate::ticket::NodeId;
 const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0001_initial.sql"),
     include_str!("../../../migrations/0002_record_floors.sql"),
+    include_str!("../../../migrations/0003_owned_files.sql"),
 ];
 
 /// The schema version this code creates and understands.
@@ -251,6 +253,18 @@ impl Store for SqliteStore {
                 stored: to_u64(stored, "last_signed_seq")?,
             }),
         }
+    }
+
+    fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError> {
+        files::owned_files(&self.connection(), stick_id)
+    }
+
+    fn replace_owned_files(
+        &self,
+        stick_id: &StickId,
+        files: &[OwnedFile],
+    ) -> Result<(), StoreError> {
+        files::replace_owned_files(&mut self.connection(), stick_id, files)
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {

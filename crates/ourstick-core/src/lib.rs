@@ -29,7 +29,7 @@ pub use record::{
 pub use secrets::{check_secret_store, SecretError, SecretName, SecretStore};
 pub use stick_id::{InvalidPublicKey, StickId, StickSigningKey};
 pub use store::{
-    Device, JoinedStick, ManifestVersion, MemoryStore, OwnedStick, SecretBackend, SqliteStore,
-    Store, StoreError,
+    Device, JoinedStick, ManifestVersion, MemoryStore, OwnedFile, OwnedStick, SecretBackend,
+    SqliteStore, Store, StoreError,
 };
 pub use ticket::{AddressHint, NodeId, Ticket, TicketError};

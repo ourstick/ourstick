@@ -363,3 +363,6 @@ for_every_store!(
     values_beyond_i64_are_refused,
     non_utf8_paths_are_refused,
 );
+
+// After the macro, so the files scenarios can use it.
+mod files;

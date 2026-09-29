@@ -20,7 +20,7 @@ const USAGE: &str = "\
 ourstick — a USB stick you can send
 
 Usage:
-  ourstick share [--key-file <path>] <folder>
+  ourstick share [--key-file <path>] [--rescan] <folder>
                                            Share a folder and print its ticket
   ourstick ls <ticket>                     List a stick's files without downloading
   ourstick get <ticket> [--out <folder>] [--allow-relay]
@@ -36,12 +36,16 @@ KWallet). Where there is none (macOS for now, SSH sessions, servers), the first
 `share --key-file <path>` keeps them in a file protected by a passphrase
 instead; later runs use that file and ask for its passphrase.
 
+`share` encrypts only files whose size and modification times changed since
+the last share; --rescan reads and encrypts every file.
+
 Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 
 enum Command {
     Share {
         folder: PathBuf,
         secrets: SecretsChoice,
+        rescan: bool,
     },
     List {
         ticket: String,
@@ -67,10 +71,12 @@ fn parse(args: &[String]) -> Result<Command> {
     }
 }
 
-/// `share <folder>`, with `--key-file <path>` before or after it.
+/// `share <folder>`, with `--key-file <path>` and/or `--rescan` before or
+/// after it.
 fn parse_share(options: &[String]) -> Result<Command> {
     let mut folder = None;
     let mut key_file = None;
+    let mut rescan = false;
     let mut options = options.iter();
     while let Some(option) = options.next() {
         match option.as_str() {
@@ -78,6 +84,7 @@ fn parse_share(options: &[String]) -> Result<Command> {
                 Some(path) if key_file.is_none() => key_file = Some(PathBuf::from(path)),
                 _ => bail!("--key-file needs one path\n\n{USAGE}"),
             },
+            "--rescan" => rescan = true,
             other if other.starts_with("--") => bail!("unknown option {other}\n\n{USAGE}"),
             _ if folder.is_some() => bail!("share takes one folder\n\n{USAGE}"),
             path => folder = Some(PathBuf::from(path)),
@@ -89,6 +96,7 @@ fn parse_share(options: &[String]) -> Result<Command> {
     Ok(Command::Share {
         folder,
         secrets: key_file.map_or(SecretsChoice::Default, SecretsChoice::KeyFile),
+        rescan,
     })
 }
 
@@ -123,7 +131,11 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args)? {
-        Command::Share { folder, secrets } => share::run(&folder, secrets).await,
+        Command::Share {
+            folder,
+            secrets,
+            rescan,
+        } => share::run(&folder, secrets, rescan).await,
         Command::List { ticket } => ls::run(&ticket).await,
         Command::Get {
             ticket,
@@ -149,8 +161,12 @@ mod tests {
     fn parses_commands() {
         assert!(matches!(
             parse(&args(&["share", "photos"])),
-            Ok(Command::Share { folder, secrets: SecretsChoice::Default })
+            Ok(Command::Share { folder, secrets: SecretsChoice::Default, rescan: false })
                 if folder == std::path::Path::new("photos")
+        ));
+        assert!(matches!(
+            parse(&args(&["share", "--rescan", "photos"])),
+            Ok(Command::Share { rescan: true, .. })
         ));
         for order in [
             &["share", "--key-file", "k.oskf", "photos"],
@@ -158,7 +174,7 @@ mod tests {
         ] {
             assert!(matches!(
                 parse(&args(order)),
-                Ok(Command::Share { folder, secrets: SecretsChoice::KeyFile(path) })
+                Ok(Command::Share { folder, secrets: SecretsChoice::KeyFile(path), .. })
                     if folder == std::path::Path::new("photos")
                         && path == std::path::Path::new("k.oskf")
             ));

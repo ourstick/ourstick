@@ -125,6 +125,14 @@ pub trait Publisher: Send + Sync {
         allowed: HashSet<BlobHash>,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
+    /// If the cache holds the complete blob, keeps it exactly like an
+    /// imported one (at least until the next publish that does not include
+    /// it) and returns true. Used to publish a blob again without importing it.
+    fn keep_blob(
+        &self,
+        hash: &BlobHash,
+    ) -> impl Future<Output = Result<bool, TransportError>> + Send;
+
     /// Whether the cache currently holds the complete blob.
     fn has_blob(
         &self,

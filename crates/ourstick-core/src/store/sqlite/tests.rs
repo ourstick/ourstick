@@ -5,7 +5,7 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(SCHEMA_VERSION, 3);
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn migration_2_moves_the_floor_out_and_forgets_what_folders_held() {
             .unwrap();
     }
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
     assert_eq!(
         store.record_floor(&seen).unwrap(),
         Some(ManifestVersion {
@@ -114,7 +114,24 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO record_floors VALUES (zeroblob(32), NULL, zeroblob(32))",
         "INSERT INTO record_floors VALUES (zeroblob(32), -1, zeroblob(32))",
         "INSERT INTO record_floors VALUES (zeroblob(32), 1, zeroblob(31))",
+        // No owned stick with that id (foreign key), and bad values.
+        "INSERT INTO owned_files VALUES (randomblob(32), 'a', 1, 1, 1, zeroblob(32))",
     ];
+    connection
+        .execute(
+            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0)",
+            [],
+        )
+        .unwrap();
+    let bad_inserts = [
+        bad_inserts.as_slice(),
+        &[
+            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', -1, 1, 1, zeroblob(32))",
+            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(31))",
+            "INSERT INTO owned_files VALUES (zeroblob(32), NULL, 1, 1, 1, zeroblob(32))",
+        ],
+    ]
+    .concat();
     for sql in bad_inserts {
         assert!(connection.execute(sql, []).is_err(), "accepted: {sql}");
     }

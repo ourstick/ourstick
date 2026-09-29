@@ -117,7 +117,7 @@ impl Write for HashAndKeep<'_> {
 /// Encrypts one file, hashes the resulting blob and builds the entry. The size is
 /// the number of plaintext bytes actually encrypted, so it always matches the hash.
 /// With `blob_dir`, the blob is also kept as `blob_dir/<hex hash>.blob`.
-fn hash_file(
+pub(super) fn hash_file(
     root: &Path,
     path: &Path,
     cipher: &dyn Cipher,
@@ -197,7 +197,7 @@ fn unique_suffix() -> String {
 }
 
 /// Turns `path` into a `/`-separated string relative to `root`.
-fn relative_path(root: &Path, path: &Path) -> Result<String, ManifestError> {
+pub(super) fn relative_path(root: &Path, path: &Path) -> Result<String, ManifestError> {
     let relative = path
         .strip_prefix(root)
         .expect("walkdir only yields paths under its root");

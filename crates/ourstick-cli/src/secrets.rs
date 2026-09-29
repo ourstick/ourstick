@@ -57,9 +57,10 @@ impl Passphrases for TerminalPassphrases {
     }
 }
 
-/// This system's keyring: the Secret Service on Linux, the keychain on macOS.
+/// This system's keyring: the Secret Service on Linux, the keychain on macOS,
+/// the Credential Manager on Windows.
 pub struct SystemKeyring<'a> {
-    /// `None` where OurStick has no keyring backend (Windows, for now).
+    /// `None` where OurStick has no keyring backend.
     pub backend: Option<SecretBackend>,
     pub open: &'a dyn Fn() -> Result<Box<dyn SecretStore>>,
 }
@@ -69,6 +70,7 @@ fn backend_name(backend: &SecretBackend) -> String {
     match backend {
         SecretBackend::SecretService => "the Secret Service".to_owned(),
         SecretBackend::Keychain => "the macOS keychain".to_owned(),
+        SecretBackend::CredentialManager => "the Windows Credential Manager".to_owned(),
         SecretBackend::KeyFile(path) => path.display().to_string(),
     }
 }

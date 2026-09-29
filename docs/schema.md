@@ -25,11 +25,13 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 6
+## Version 7
 
-Version 6 (`0006_keychain_backend.sql`) lets `device.secret_backend` be
-`keychain` (macOS); the table is made again, since SQLite cannot change a
-CHECK constraint. Version 5 (`0005_drive_size.sql`) added
+Version 7 (`0007_credential_manager_backend.sql`) lets
+`device.secret_backend` be `credential-manager` (Windows); like version 6,
+it makes the table again, since SQLite cannot change a CHECK constraint.
+Version 6 (`0006_keychain_backend.sql`) did the same for `keychain`
+(macOS). Version 5 (`0005_drive_size.sql`) added
 `owned_sticks.drive_size`. Version 4
 (`0004_downloaded_files.sql`) added `downloaded_files`, and version 3
 (`0003_owned_files.sql`) added `owned_files`, both below.
@@ -52,7 +54,7 @@ replacing it would mean a new node key, which kills every ticket already shared
 |------------------|---------|----------------------------------------------------------|
 | `id`             | INTEGER | Always 1                                                 |
 | `node_id`        | BLOB 32 | iroh NodeId (public key) of this device                  |
-| `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS) or `key-file` |
+| `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS), `credential-manager` (Windows) or `key-file` |
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
 

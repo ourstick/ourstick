@@ -27,6 +27,8 @@ pub enum SecretBackend {
     SecretService,
     /// The login keychain (macOS).
     Keychain,
+    /// The user's Credential Manager (Windows).
+    CredentialManager,
     /// A key file the user chose.
     KeyFile(PathBuf),
 }

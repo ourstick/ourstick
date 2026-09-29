@@ -46,6 +46,8 @@ zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-cr
 # macOS: the login ("legacy") keychain. The "protected" store needs entitlements
 # an unsigned app does not have.
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
+# Windows: the user's Credential Manager.
+windows-native-keyring-store = "1.1"
 argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 
 # db

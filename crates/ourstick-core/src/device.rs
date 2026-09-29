@@ -96,12 +96,15 @@ pub fn open_store(data_dir: &Path) -> Result<Arc<dyn Store>, DeviceError> {
 }
 
 /// Where this system keeps secrets by default: the Secret Service on Linux,
-/// the keychain on macOS; `None` where OurStick has no keyring backend yet.
+/// the keychain on macOS, the Credential Manager on Windows; `None` where
+/// OurStick has no keyring backend yet.
 pub fn system_keyring_backend() -> Option<SecretBackend> {
     if cfg!(target_os = "linux") {
         Some(SecretBackend::SecretService)
     } else if cfg!(target_os = "macos") {
         Some(SecretBackend::Keychain)
+    } else if cfg!(windows) {
+        Some(SecretBackend::CredentialManager)
     } else {
         None
     }
@@ -113,7 +116,9 @@ pub fn open_system_keyring() -> Result<Box<dyn SecretStore>, DeviceError> {
     return Ok(Box::new(crate::secrets::KeyringStore::secret_service()?));
     #[cfg(target_os = "macos")]
     return Ok(Box::new(crate::secrets::KeyringStore::keychain()?));
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    return Ok(Box::new(crate::secrets::KeyringStore::credential_manager()?));
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     Err(DeviceError::Secret(SecretError::Unavailable {
         store: "the system keyring".to_owned(),
         reason: "OurStick has no keyring backend for this system yet".to_owned(),

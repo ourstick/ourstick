@@ -421,6 +421,7 @@ from the StickId (below), so SQLite needs no column for it. See
 |---------------------------|---------------------------------------------------------------|---------|
 | Linux desktop             | Secret Service (GNOME Keyring, KWallet) over D-Bus            | v1      |
 | macOS                     | The login keychain (the "legacy" keychain; the data-protection keychain needs entitlements an unsigned app lacks). Not usable from an SSH session: "User interaction is not allowed" | v1 |
+| Windows                   | The user's Credential Manager, generic credentials kept on this computer only (`CRED_PERSIST_LOCAL_MACHINE`, never roaming with a domain profile, which would put the node key on a second computer). Not usable from an SSH session with key login: "ERROR_NO_SUCH_LOGON_SESSION" | v1 |
 | CLI without Secret Service (macOS for now, SSH sessions, servers) | `--key-file <path>`: file encrypted with a passphrase (Argon2id + XChaCha20-Poly1305), mode 0600, chosen explicitly by the user on the device's first `share` and recorded in `device`; later runs open it and ask for the passphrase on the terminal (never from arguments or the environment). A device never switches between the two, since that would change its node key | v1 |
 | Android                   | A Keystore-held AES key (hardware-backed where available) wraps the secrets, stored in app-private storage | Later (Tauri) |
 | iOS                       | Keychain, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not synced to iCloud) | Later (Tauri) |

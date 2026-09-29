@@ -1,10 +1,12 @@
 //! Secrets in the system keyring: the freedesktop Secret Service (GNOME
-//! Keyring, KWallet) over D-Bus on Linux, the login keychain on macOS.
+//! Keyring, KWallet) over D-Bus on Linux, the login keychain on macOS, the
+//! user's Credential Manager on Windows.
 //!
 //! Uses `keyring-core` with the platform's store chosen explicitly, so there
 //! is no default or mock store to fall back to. Items are stored with service
 //! `ourstick` and the [`SecretName`] as user.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use keyring_core::{CredentialPersistence, CredentialStore, Error as KeyringError};
@@ -17,6 +19,8 @@ const SERVICE: &str = "ourstick";
 pub struct KeyringStore {
     store: Arc<CredentialStore>,
     name: &'static str,
+    /// Store-specific settings for every entry.
+    modifiers: &'static [(&'static str, &'static str)],
 }
 
 impl KeyringStore {
@@ -36,7 +40,11 @@ impl KeyringStore {
                 ),
             }
         })?;
-        Ok(Self { store, name: NAME })
+        Ok(Self {
+            store,
+            name: NAME,
+            modifiers: &[],
+        })
     }
 
     /// Opens the user's login keychain.
@@ -49,12 +57,42 @@ impl KeyringStore {
                 reason: error.to_string(),
             }
         })?;
-        Ok(Self { store, name: NAME })
+        Ok(Self {
+            store,
+            name: NAME,
+            modifiers: &[],
+        })
+    }
+
+    /// Opens the user's Credential Manager.
+    ///
+    /// Entries are kept on this computer only (`CRED_PERSIST_LOCAL_MACHINE`):
+    /// the default would let them roam with a domain profile to other
+    /// computers, which would then serve with this device's node key.
+    #[cfg(windows)]
+    pub fn credential_manager() -> Result<Self, SecretError> {
+        const NAME: &str = "the Windows Credential Manager";
+        let store = windows_native_keyring_store::Store::new().map_err(|error| {
+            SecretError::Unavailable {
+                store: NAME.to_owned(),
+                reason: error.to_string(),
+            }
+        })?;
+        Ok(Self {
+            store,
+            name: NAME,
+            modifiers: &[("persistence", "Local")],
+        })
     }
 
     fn entry(&self, name: &SecretName) -> Result<keyring_core::Entry, SecretError> {
+        let modifiers: HashMap<&str, &str> = self.modifiers.iter().copied().collect();
         self.store
-            .build(SERVICE, &name.as_key(), None)
+            .build(
+                SERVICE,
+                &name.as_key(),
+                (!modifiers.is_empty()).then_some(&modifiers),
+            )
             .map_err(|error| to_secret_error(self.name, error))
     }
 }
@@ -149,6 +187,8 @@ mod tests {
         let store = KeyringStore::secret_service().expect("Secret Service available");
         #[cfg(target_os = "macos")]
         let store = KeyringStore::keychain().expect("keychain available");
+        #[cfg(windows)]
+        let store = KeyringStore::credential_manager().expect("Credential Manager available");
         check_secret_store(&store).unwrap();
 
         let name = SecretName::HealthCheck(*b"roundtrp");

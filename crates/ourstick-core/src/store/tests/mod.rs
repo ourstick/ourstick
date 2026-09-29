@@ -77,6 +77,15 @@ fn device_with_keychain_roundtrips(store: &dyn Store) {
     assert_eq!(store.device().unwrap(), Some(device));
 }
 
+fn device_with_credential_manager_roundtrips(store: &dyn Store) {
+    let device = Device {
+        secret_backend: SecretBackend::CredentialManager,
+        ..device()
+    };
+    store.create_device(&device).unwrap();
+    assert_eq!(store.device().unwrap(), Some(device));
+}
+
 fn a_moved_stick_keeps_everything_but_its_folder(store: &dyn Store) {
     let stick_id = owner(1).stick_id();
     assert!(matches!(
@@ -379,6 +388,7 @@ for_every_store!(
     device_is_created_once,
     device_with_key_file_roundtrips,
     device_with_keychain_roundtrips,
+    device_with_credential_manager_roundtrips,
     owned_sticks_roundtrip_in_order,
     a_moved_stick_keeps_everything_but_its_folder,
     signed_records_only_move_forward,

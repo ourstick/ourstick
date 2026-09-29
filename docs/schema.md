@@ -25,9 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 7
+## Version 8
 
-Version 7 (`0007_credential_manager_backend.sql`) lets
+Version 8 (`0008_drive_letter.sql`) added `owned_sticks.drive_letter`, the
+letter Windows showed the app's stick at. Version 7
+(`0007_credential_manager_backend.sql`) lets
 `device.secret_backend` be `credential-manager` (Windows); like version 6,
 it makes the table again, since SQLite cannot change a CHECK constraint.
 Version 6 (`0006_keychain_backend.sql`) did the same for `keychain`
@@ -76,6 +78,7 @@ Sticks this device owns. One row per stick.
 | `latest_record`   | BLOB 137 | The latest signed manifest record, or NULL                 |
 | `created_at_ms`   | INTEGER  | When the stick was created                                 |
 | `drive_size`      | INTEGER  | Size in bytes of a drive (the app's stick); NULL for a plain shared folder. A drive's folder must carry `.ourstick-drive` and may not hold more than this. |
+| `drive_letter`    | TEXT     | Windows: the drive letter (`A`–`Z`) the stick was last shown at with `subst`, asked for again after a restart so that the stick stays where the user saw it. NULL elsewhere. |
 
 `last_signed_seq` and `latest_record` change together, in one statement that
 only succeeds if the new `seq` is greater than the stored one. Two processes

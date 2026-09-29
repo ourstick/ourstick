@@ -4,7 +4,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::super::{path_str, StoreError};
+use super::super::{check_drive_letter, path_str, StoreError};
 use super::rows::to_u64;
 use super::seq_i64;
 use crate::record::SignedManifestRecord;
@@ -18,6 +18,23 @@ pub(super) fn move_owned_stick(
     let updated = connection.execute(
         "UPDATE owned_sticks SET root_path = ?1 WHERE stick_id = ?2",
         params![path_str(root)?, stick_id.to_bytes()],
+    )?;
+    if updated == 1 {
+        Ok(())
+    } else {
+        Err(StoreError::StickNotFound)
+    }
+}
+
+pub(super) fn set_drive_letter(
+    connection: &Connection,
+    stick_id: &StickId,
+    letter: Option<char>,
+) -> Result<(), StoreError> {
+    check_drive_letter(letter)?;
+    let updated = connection.execute(
+        "UPDATE owned_sticks SET drive_letter = ?1 WHERE stick_id = ?2",
+        params![letter.map(String::from), stick_id.to_bytes()],
     )?;
     if updated == 1 {
         Ok(())

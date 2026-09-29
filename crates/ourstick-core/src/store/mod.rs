@@ -57,6 +57,9 @@ pub struct OwnedStick {
     /// carry the drive marker and may hold at most this much. `None` for a
     /// plain shared folder.
     pub drive_size: Option<u64>,
+    /// Windows: the drive letter the stick was last given (`A`–`Z`), asked
+    /// for again after a restart. `None` elsewhere.
+    pub drive_letter: Option<char>,
 }
 
 impl OwnedStick {
@@ -77,6 +80,7 @@ impl OwnedStick {
             latest_record: None,
             created_at_ms,
             drive_size: None,
+            drive_letter: None,
         }
     }
 }
@@ -152,6 +156,10 @@ pub trait Store: Send + Sync {
     /// Records that an owned stick's folder is now at `root` (a drive whose
     /// disk image mounted elsewhere, e.g. `/Volumes/OurStick 1`).
     fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError>;
+
+    /// Records the drive letter an owned stick was given (Windows), or
+    /// forgets it. Fails with [`StoreError::Inconsistent`] unless it is `A`–`Z`.
+    fn set_drive_letter(&self, stick_id: &StickId, letter: Option<char>) -> Result<(), StoreError>;
 
     /// Stores a record the owner just signed. Fails with
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one,
@@ -263,8 +271,19 @@ pub(crate) fn path_str(path: &Path) -> Result<&str, StoreError> {
 }
 
 /// Checks the rules every store enforces before writing an owned stick.
+/// A drive letter is one of `A`–`Z`.
+pub(crate) fn check_drive_letter(letter: Option<char>) -> Result<(), StoreError> {
+    match letter {
+        Some(letter) if !letter.is_ascii_uppercase() => {
+            Err(StoreError::Inconsistent("a drive letter must be A to Z"))
+        }
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn check_owned_stick(stick: &OwnedStick) -> Result<(), StoreError> {
     check_seq(stick.last_signed_seq)?;
+    check_drive_letter(stick.drive_letter)?;
     match stick.drive_size {
         Some(0) => return Err(StoreError::Inconsistent("a drive of size 0")),
         Some(size) if size > MAX_STORED_SEQ => {

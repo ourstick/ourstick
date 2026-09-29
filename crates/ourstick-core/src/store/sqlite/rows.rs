@@ -34,10 +34,11 @@ pub(super) struct OwnedRow {
     latest_record: Option<Vec<u8>>,
     created_at_ms: i64,
     drive_size: Option<i64>,
+    drive_letter: Option<String>,
 }
 
-pub(super) const OWNED_COLUMNS: &str =
-    "stick_id, name, root_path, cipher, last_signed_seq, latest_record, created_at_ms, drive_size";
+pub(super) const OWNED_COLUMNS: &str = "stick_id, name, root_path, cipher, last_signed_seq, \
+     latest_record, created_at_ms, drive_size, drive_letter";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -50,6 +51,7 @@ impl OwnedRow {
             latest_record: row.get(5)?,
             created_at_ms: row.get(6)?,
             drive_size: row.get(7)?,
+            drive_letter: row.get(8)?,
         })
     }
 
@@ -76,6 +78,16 @@ impl OwnedRow {
             drive_size: self
                 .drive_size
                 .map(|size| to_u64(size, "drive_size"))
+                .transpose()?,
+            drive_letter: self
+                .drive_letter
+                .map(|letter| {
+                    let mut chars = letter.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(letter), None) if letter.is_ascii_uppercase() => Ok(letter),
+                        _ => Err(StoreError::Corrupt(format!("drive_letter {letter}"))),
+                    }
+                })
                 .transpose()?,
         })
     }

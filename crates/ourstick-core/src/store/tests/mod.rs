@@ -105,6 +105,31 @@ fn a_moved_stick_keeps_everything_but_its_folder(store: &dyn Store) {
     );
 }
 
+fn a_stick_keeps_its_drive_letter(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    assert!(matches!(
+        store.set_drive_letter(&stick_id, Some('O')),
+        Err(StoreError::StickNotFound)
+    ));
+    store.add_owned_stick(&owned(1, 10)).unwrap();
+    store.set_drive_letter(&stick_id, Some('O')).unwrap();
+    assert_eq!(
+        store.owned_stick(&stick_id).unwrap().unwrap().drive_letter,
+        Some('O')
+    );
+    for bad in ['o', '1', 'Ω'] {
+        assert!(
+            matches!(
+                store.set_drive_letter(&stick_id, Some(bad)),
+                Err(StoreError::Inconsistent(_))
+            ),
+            "{bad}"
+        );
+    }
+    store.set_drive_letter(&stick_id, None).unwrap();
+    assert_eq!(store.owned_stick(&stick_id).unwrap(), Some(owned(1, 10)));
+}
+
 fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
     store.add_owned_stick(&owned(2, 20)).unwrap();
     store.add_owned_stick(&owned(1, 10)).unwrap();
@@ -391,6 +416,7 @@ for_every_store!(
     device_with_credential_manager_roundtrips,
     owned_sticks_roundtrip_in_order,
     a_moved_stick_keeps_everything_but_its_folder,
+    a_stick_keeps_its_drive_letter,
     signed_records_only_move_forward,
     signed_record_for_unknown_stick_fails,
     owned_stick_must_be_consistent,

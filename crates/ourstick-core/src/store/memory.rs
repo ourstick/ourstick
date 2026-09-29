@@ -8,9 +8,9 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{
-    check_device, check_joined_stick, check_owned_file, check_owned_stick, check_seq, check_stamp,
-    path_str, Device, DownloadedFile, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, Store,
-    StoreError,
+    check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
+    check_seq, check_stamp, path_str, Device, DownloadedFile, JoinedStick, ManifestVersion,
+    OwnedFile, OwnedStick, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -97,6 +97,17 @@ impl Store for MemoryStore {
             .get_mut(&stick_id.to_bytes())
             .ok_or(StoreError::StickNotFound)?;
         stick.root_path = root.to_path_buf();
+        Ok(())
+    }
+
+    fn set_drive_letter(&self, stick_id: &StickId, letter: Option<char>) -> Result<(), StoreError> {
+        check_drive_letter(letter)?;
+        let mut state = self.state();
+        let stick = state
+            .owned
+            .get_mut(&stick_id.to_bytes())
+            .ok_or(StoreError::StickNotFound)?;
+        stick.drive_letter = letter;
         Ok(())
     }
 

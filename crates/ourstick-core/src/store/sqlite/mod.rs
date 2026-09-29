@@ -156,7 +156,8 @@ impl Store for SqliteStore {
         check_owned_stick(stick)?;
         let inserted = self.connection().execute(
             &format!(
-                "INSERT INTO owned_sticks ({OWNED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+                "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
             ),
             params![
                 stick.stick_id.to_bytes(),
@@ -171,6 +172,7 @@ impl Store for SqliteStore {
                 time_i64(stick.created_at_ms)?,
                 // Checked by check_owned_stick: fits in i64.
                 stick.drive_size.map(|size| size as i64),
+                stick.drive_letter.map(String::from),
             ],
         );
         match inserted {
@@ -203,6 +205,10 @@ impl Store for SqliteStore {
 
     fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError> {
         owned::move_owned_stick(&self.connection(), stick_id, root)
+    }
+
+    fn set_drive_letter(&self, stick_id: &StickId, letter: Option<char>) -> Result<(), StoreError> {
+        owned::set_drive_letter(&self.connection(), stick_id, letter)
     }
 
     fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError> {

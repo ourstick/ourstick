@@ -29,6 +29,14 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     }
+    // GNOME on Wayland lets no app raise its own window without a token
+    // from a click in that app, and a click on the tray icon gives none:
+    // "Open OurStick" left the window behind. Through X11 (XWayland) it can
+    // be raised. A value the user set is kept.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

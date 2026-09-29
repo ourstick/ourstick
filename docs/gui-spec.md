@@ -124,6 +124,12 @@ so Spotlight leaves it alone.
   WebKitGTK draws a scrolling list on its own layer with other antialiasing,
   and the file names turned bold once the list scrolled. The UI is the same
   everywhere; this is only how the Linux engine draws it.
+- Linux: the app runs through X11 (XWayland, `GDK_BACKEND=x11` unless the user
+  set it). GNOME on Wayland lets no app bring its own window forward without
+  an activation token from a click in that app, and a click on the tray icon
+  gives none (Tauri's tray library does not pass one): "Open OurStick" left
+  the window behind, or GNOME showed "OurStick is ready". A native Wayland
+  window needs a tray that passes the token; revisit if Tauri's tray does.
 
 ## Theming: native look per platform
 
@@ -190,6 +196,12 @@ and mobile apps exist. The link page at ourstick.com/s/ says how to install.
   Finder lists it in Locations with an eject button is checked by eye in the
   manual round.
 - **Windows:** VHDX with `Mount-DiskImage`, or `subst`.
+- **GNOME's "OurStick is ready":** raising a window from the tray (Open
+  OurStick, Share…) brings it to the front through X11, but GNOME still adds
+  its "is ready" notification: the click was in the shell, not in the app.
+  A tray that asks the shell for an activation token (StatusNotifierItem's
+  `ProvideXdgActivationToken`, e.g. the `ksni` crate) would remove it, and
+  would also let the app run natively on Wayland.
 
 ## Out of scope (stage 1)
 

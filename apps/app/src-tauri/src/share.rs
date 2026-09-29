@@ -21,12 +21,14 @@ pub fn open(app: &AppHandle) -> Result<()> {
         crate::windows::bring_forward(&window);
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, "share", WebviewUrl::App("index.html#share".into()))
-        .title("Share OurStick")
-        .focused(crate::windows::FOCUS_NEW)
-        .inner_size(400.0, 560.0)
-        .resizable(false)
-        .build()?;
+    let window =
+        WebviewWindowBuilder::new(app, "share", WebviewUrl::App("index.html#share".into()))
+            .title("Share OurStick")
+            .focused(crate::windows::FOCUS_NEW)
+            .inner_size(400.0, 560.0)
+            .resizable(false)
+            .build()?;
+    crate::windows::bring_forward(&window);
     Ok(())
 }
 

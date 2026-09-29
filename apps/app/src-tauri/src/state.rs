@@ -49,6 +49,82 @@ impl AppState {
     }
 }
 
+/// Plugs the stick in (mounts its image, or puts it in the sidebar), records
+/// where its folder is now, and starts sharing. At start and on Mount.
+pub fn plug_in_and_share(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let store = state.store.clone();
+        let mounted = tauri::async_runtime::spawn_blocking(move || -> Result<bool> {
+            let Some(stick) = store
+                .owned_sticks()?
+                .into_iter()
+                .find(|stick| stick.drive_size.is_some())
+            else {
+                return Ok(false);
+            };
+            let root = crate::drive::mount(&stick.root_path)?;
+            if root != stick.root_path {
+                store.move_owned_stick(&stick.stick_id, &root)?;
+            }
+            Ok(true)
+        })
+        .await;
+        match mounted {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => return,
+            Ok(Err(error)) => {
+                // Sharing still serves the last version from the cache.
+                tracing::warn!(error = %format!("{error:#}"), "the stick could not be mounted");
+                let _ = app.emit(
+                    "share-problem",
+                    serving::ShareProblem::Failed {
+                        message: format!("The stick could not be mounted: {error:#}"),
+                    },
+                );
+            }
+            Err(error) => tracing::warn!(%error, "mounting did not finish"),
+        }
+        let _ = app.emit("mount-changed", ());
+        // The watcher follows the folder where it is now.
+        let old = std::mem::replace(&mut *state.sharing.lock().await, Sharing::Off);
+        if let Sharing::On(serving) = old {
+            serving.stop().await;
+        }
+        start_sharing(&app);
+    });
+}
+
+/// Tells the UI (event `mount-changed`) when the stick is ejected or mounted
+/// behind the app's back, e.g. with Finder's eject button. Checks every few
+/// seconds while the app runs.
+pub fn watch_mount(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last = None;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let state = app.state::<AppState>();
+            let Ok(Some(stick)) = state.drive_stick() else {
+                continue;
+            };
+            let root = stick.root_path.clone();
+            let mounted =
+                tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&root))
+                    .await
+                    .unwrap_or(false);
+            if last != Some(mounted) {
+                if last.is_some() {
+                    let _ = app.emit("mount-changed", ());
+                }
+                crate::tray::set_mounted(&app, mounted);
+                last = Some(mounted);
+            }
+        }
+    });
+}
+
 /// Starts sharing in the background; the UI hears `sharing-changed` when it
 /// starts and when it is running or has failed.
 pub fn start_sharing(app: &AppHandle) {

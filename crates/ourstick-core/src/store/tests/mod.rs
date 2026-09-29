@@ -77,6 +77,25 @@ fn device_with_keychain_roundtrips(store: &dyn Store) {
     assert_eq!(store.device().unwrap(), Some(device));
 }
 
+fn a_moved_stick_keeps_everything_but_its_folder(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    assert!(matches!(
+        store.move_owned_stick(&stick_id, Path::new("/Volumes/OurStick 1")),
+        Err(StoreError::StickNotFound)
+    ));
+    store.add_owned_stick(&owned(1, 10)).unwrap();
+    store
+        .move_owned_stick(&stick_id, Path::new("/Volumes/OurStick 1"))
+        .unwrap();
+    assert_eq!(
+        store.owned_stick(&stick_id).unwrap(),
+        Some(OwnedStick {
+            root_path: PathBuf::from("/Volumes/OurStick 1"),
+            ..owned(1, 10)
+        })
+    );
+}
+
 fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
     store.add_owned_stick(&owned(2, 20)).unwrap();
     store.add_owned_stick(&owned(1, 10)).unwrap();
@@ -361,6 +380,7 @@ for_every_store!(
     device_with_key_file_roundtrips,
     device_with_keychain_roundtrips,
     owned_sticks_roundtrip_in_order,
+    a_moved_stick_keeps_everything_but_its_folder,
     signed_records_only_move_forward,
     signed_record_for_unknown_stick_fails,
     owned_stick_must_be_consistent,

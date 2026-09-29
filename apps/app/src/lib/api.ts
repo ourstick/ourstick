@@ -41,6 +41,8 @@ export interface Stick {
   used: number;
   entries: Entry[];
   sharing: Sharing;
+  /** Mounted (macOS) or in the sidebar (Linux); false after Eject. */
+  mounted: boolean;
 }
 
 /** A problem with sharing (event `share-problem`). */
@@ -119,4 +121,18 @@ export function startSharingAgain(): Promise<void> {
 
 export function quit(): Promise<void> {
   return invoke("quit");
+}
+
+/** Ejects the stick; sharing goes on. */
+export function eject(): Promise<void> {
+  return invoke("eject");
+}
+
+/** Mounts the stick again. */
+export function mount(): Promise<void> {
+  return invoke("mount");
+}
+
+export function openInFileManager(): Promise<void> {
+  return invoke("open_in_file_manager");
 }

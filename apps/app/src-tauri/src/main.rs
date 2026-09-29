@@ -58,8 +58,10 @@ fn main() {
                 .map(|stick| stick.is_some())
                 .unwrap_or(false);
             if has_stick {
-                state::start_sharing(app.handle());
+                // Like plugging a USB stick back in.
+                state::plug_in_and_share(app.handle());
             }
+            state::watch_mount(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -78,6 +80,9 @@ fn main() {
             dialog::stop_sharing,
             dialog::start_sharing_again,
             dialog::quit,
+            commands::eject,
+            commands::mount,
+            commands::open_in_file_manager,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start its window")

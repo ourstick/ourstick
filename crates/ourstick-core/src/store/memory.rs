@@ -89,6 +89,17 @@ impl Store for MemoryStore {
         })))
     }
 
+    fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError> {
+        path_str(root)?;
+        let mut state = self.state();
+        let stick = state
+            .owned
+            .get_mut(&stick_id.to_bytes())
+            .ok_or(StoreError::StickNotFound)?;
+        stick.root_path = root.to_path_buf();
+        Ok(())
+    }
+
     fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError> {
         let content = record.unverified_record();
         check_seq(content.seq)?;

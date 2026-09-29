@@ -147,6 +147,10 @@ pub trait Store: Send + Sync {
     /// All owned sticks, oldest first.
     fn owned_sticks(&self) -> Result<Vec<OwnedStick>, StoreError>;
 
+    /// Records that an owned stick's folder is now at `root` (a drive whose
+    /// disk image mounted elsewhere, e.g. `/Volumes/OurStick 1`).
+    fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError>;
+
     /// Stores a record the owner just signed. Fails with
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one,
     /// checked and updated atomically.

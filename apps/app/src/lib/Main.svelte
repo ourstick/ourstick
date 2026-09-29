@@ -4,6 +4,9 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import {
     addPaths,
+    eject,
+    mount,
+    openInFileManager,
     openShare,
     startSharingAgain,
     removeEntry,
@@ -21,6 +24,17 @@
   let copying = $state(false);
   let failure = $state<string | null>(null);
   let removing = $state<string | null>(null);
+  let pillMenu = $state(false);
+
+  async function pillAction(action: () => Promise<void>) {
+    pillMenu = false;
+    try {
+      await action();
+    } catch (error) {
+      failure = String(error);
+    }
+    await refresh();
+  }
 
   async function refresh() {
     try {
@@ -60,6 +74,7 @@
     const stops = [
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
+      listen("mount-changed", refresh),
       listen<Activity>("activity", (event) => (activity = event.payload)),
       listen<ShareProblem>("share-problem", (event) => {
         problem = event.payload.kind === "cleared" ? null : event.payload;
@@ -84,8 +99,28 @@
 </script>
 
 <main class="card window">
-  <header>
+  <header class="row spread">
     <h1><span class="drive" aria-hidden="true">▭</span> {current?.name ?? "OurStick"}{current ? ` (${size(current.size)})` : ""}</h1>
+    {#if current}
+      <div class="pill-box">
+        <button class="pill" onclick={() => (pillMenu = !pillMenu)}>
+          <span class:on={current.mounted}>{current.mounted ? "●" : "○"}</span>
+          {current.mounted ? "Mounted" : "Ejected"} ▾
+        </button>
+        {#if pillMenu}
+          <div class="menu" role="menu">
+            <button role="menuitem" onclick={() => pillAction(openInFileManager)} disabled={!current.mounted}>
+              Open in file manager
+            </button>
+            {#if current.mounted}
+              <button role="menuitem" onclick={() => pillAction(eject)}>Eject (keeps sharing)</button>
+            {:else}
+              <button role="menuitem" onclick={() => pillAction(mount)}>Mount</button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </header>
 
   <section class="drop" class:dropping aria-label="Drop files or folders here">
@@ -210,6 +245,37 @@
   }
   .spread {
     justify-content: space-between;
+  }
+  .pill-box {
+    position: relative;
+  }
+  .pill {
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill .on {
+    color: #2a9d4b;
+  }
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--button-radius);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+  }
+  .menu button {
+    border: none;
+    border-radius: 0;
+    text-align: left;
+  }
+  .menu button + button {
+    border-top: 1px solid var(--border);
   }
   .bar {
     height: 8px;

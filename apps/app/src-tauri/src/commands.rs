@@ -71,7 +71,7 @@ pub async fn plug_in(
             bail!("this system has no keyring OurStick can use yet");
         };
         device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-        let root = drive::create()?;
+        let root = drive::create(size_gb * 1_000_000_000)?;
         let keys = device::create_stick(
             store.as_ref(),
             secrets.as_ref(),
@@ -83,6 +83,7 @@ pub async fn plug_in(
         Ok(())
     })
     .await?;
+    let _ = app.emit("mount-changed", ());
     start_sharing(&app);
     Ok(())
 }
@@ -115,6 +116,8 @@ pub struct StickView {
     used: u64,
     entries: Vec<EntryView>,
     sharing: SharingView,
+    /// Mounted (macOS) or in the sidebar (Linux); not after Eject.
+    mounted: bool,
 }
 
 /// The stick as the main window shows it.
@@ -126,12 +129,13 @@ pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
         .ok_or("there is no stick yet")?;
     let size = stick.drive_size.unwrap_or_default();
     let root = stick.root_path.clone();
-    let (entries, used) = blocking(move || {
-        // An ejected stick has no folder: show it empty, not as an error.
-        if !root.is_dir() {
-            return Ok((Vec::new(), 0));
+    let (entries, used, mounted) = blocking(move || {
+        let mounted = drive::is_mounted(&root);
+        // An ejected image has no folder: show it empty, not as an error.
+        if !drive::folder_is_there(&root) {
+            return Ok((Vec::new(), 0, mounted));
         }
-        Ok((top_entries(&root)?, folder_size(&root)?))
+        Ok((top_entries(&root)?, folder_size(&root)?, mounted))
     })
     .await?;
     let sharing = match &*state.sharing.lock().await {
@@ -158,6 +162,7 @@ pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
             })
             .collect(),
         sharing,
+        mounted,
     })
 }
 
@@ -190,7 +195,13 @@ pub async fn add_paths(
         .ok_or("there is no stick yet")?;
     let size = stick.drive_size.unwrap_or_default();
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    blocking(move || Ok(copy_onto(&stick.root_path, size, &sources)?)).await?;
+    blocking(move || {
+        if !drive::folder_is_there(&stick.root_path) {
+            bail!("the stick is ejected; mount it first");
+        }
+        Ok(copy_onto(&stick.root_path, size, &sources)?)
+    })
+    .await?;
     // The watcher publishes; the window can show the files at once.
     let _ = app.emit("stick-changed", ());
     Ok(())
@@ -210,4 +221,39 @@ pub async fn remove_entry(
     blocking(move || Ok(remove_from(&stick.root_path, &name)?)).await?;
     let _ = app.emit("stick-changed", ());
     Ok(())
+}
+
+/// Ejects the stick (detaches the image, or takes it out of the sidebar).
+/// Sharing goes on with the last version.
+#[tauri::command]
+pub async fn eject(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let stick = state
+        .drive_stick()
+        .map_err(shown)?
+        .ok_or("there is no stick yet")?;
+    blocking(move || drive::eject(&stick.root_path)).await?;
+    crate::tray::set_mounted(&app, false);
+    let _ = app.emit("mount-changed", ());
+    Ok(())
+}
+
+/// Mounts the stick again, and shares from where it is now.
+#[tauri::command]
+pub fn mount(app: AppHandle) {
+    crate::state::plug_in_and_share(&app);
+}
+
+#[tauri::command]
+pub async fn open_in_file_manager(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let stick = state
+        .drive_stick()
+        .map_err(shown)?
+        .ok_or("there is no stick yet")?;
+    app.opener()
+        .open_path(stick.root_path.to_string_lossy(), None::<&str>)
+        .map_err(|error| error.to_string())
 }

@@ -166,10 +166,11 @@ and mobile apps exist. The link page at ourstick.com/s/ says how to install.
   CLI does).
 - **"X GB remaining"** for the owner: needs a small addition to the protocol,
   where the reader tells the owner how much it still needs.
-- **macOS mount point:** whether Finder shows the volume in Locations when it
-  is attached elsewhere than `/Volumes` (to be tried on the MacBook). Under
-  `/Volumes` its name can change (`OurStick 1`), so the app identifies the
-  stick by its image, not by the path.
+- **macOS mount point:** the image is attached under `/Volumes` (where Finder
+  shows volumes), so its path can change (`OurStick 1`); the app finds the
+  stick by its image and records the folder's path at every mount. Whether
+  Finder lists it in Locations with an eject button is checked by eye in the
+  manual round.
 - **Windows:** VHDX with `Mount-DiskImage`, or `subst`.
 
 ## Out of scope (stage 1)

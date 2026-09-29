@@ -2,6 +2,7 @@
 
 mod files;
 mod migrations;
+mod owned;
 mod rows;
 
 use std::path::{Path, PathBuf};
@@ -198,33 +199,12 @@ impl Store for SqliteStore {
         rows.map(|row| row?.into_stick()).collect()
     }
 
+    fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError> {
+        owned::move_owned_stick(&self.connection(), stick_id, root)
+    }
+
     fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError> {
-        let content = record.unverified_record();
-        let seq = seq_i64(content.seq)?;
-        let stick_id = content.stick_id.to_bytes();
-        let connection = self.connection();
-        let updated = connection.execute(
-            "UPDATE owned_sticks SET last_signed_seq = ?1, latest_record = ?2
-             WHERE stick_id = ?3 AND last_signed_seq < ?1",
-            params![seq, record.to_bytes().to_vec(), stick_id],
-        )?;
-        if updated == 1 {
-            return Ok(());
-        }
-        let stored: Option<i64> = connection
-            .query_row(
-                "SELECT last_signed_seq FROM owned_sticks WHERE stick_id = ?1",
-                [stick_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        match stored {
-            None => Err(StoreError::StickNotFound),
-            Some(stored) => Err(StoreError::NotNewer {
-                seq: content.seq,
-                stored: to_u64(stored, "last_signed_seq")?,
-            }),
-        }
+        owned::save_signed_record(&self.connection(), record)
     }
 
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError> {

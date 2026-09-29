@@ -7,7 +7,8 @@ use ourstick_core::transport::Fetcher;
 use ourstick_core::Ticket;
 
 use crate::display::{bytes, untrusted};
-use crate::setup::{self, hex, random_key};
+use crate::setup::{self, hex};
+use ourstick_core::device::random_key;
 
 /// One line per file (size, then path), then the total. Paths come from the
 /// owner, so they are escaped.

@@ -21,7 +21,8 @@ use ourstick_core::Ticket;
 
 use crate::display::untrusted;
 use crate::progress::{clock, Progress};
-use crate::setup::{self, hex, random_key};
+use crate::setup::{self, hex};
+use ourstick_core::device::random_key;
 
 /// How long data may arrive through the relay before `get` explains why.
 const EXPLAIN_AFTER: Duration = Duration::from_secs(6);

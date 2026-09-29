@@ -7,73 +7,48 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
-use ourstick_core::secrets::SecretName;
+use ourstick_core::device::{self, StickKeys};
 use ourstick_core::share::{plan_share, publish_folder};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
 };
-use ourstick_core::{
-    cipher_for, CipherId, ManifestHint, OwnedStick, StickKey, StickSigningKey, Ticket,
-};
+use ourstick_core::{cipher_for, ManifestHint, Ticket};
 
 use crate::display::bytes;
 use crate::qr::qr_lines;
 use crate::secrets::SecretsChoice;
-use crate::setup::{self, hex, load_key, now_ms};
+use crate::setup::{self, hex};
 
 mod lines;
 
 use lines::{network_line, readers_line, watch_lines};
 
-const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
 
 /// Finds the stick already made for `folder`, or makes one with new keys.
-fn owned_stick_for(
-    setup: &setup::Setup,
-    folder: &Path,
-) -> Result<(OwnedStick, StickSigningKey, StickKey)> {
-    if let Some(stick) = setup
+fn owned_stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickKeys> {
+    let found = setup
         .store
         .owned_sticks()?
         .into_iter()
-        .find(|stick| stick.root_path == folder)
-    {
-        let signing = load_key(
-            setup.secrets.as_ref(),
-            &SecretName::StickSigningKey(stick.stick_id),
-        )?;
-        let stick_key = load_key(
-            setup.secrets.as_ref(),
-            &SecretName::StickKey(stick.stick_id),
-        )?;
-        return Ok((
-            stick,
-            StickSigningKey::from_bytes(&signing),
-            StickKey::from_bytes(stick_key),
-        ));
+        .find(|stick| stick.root_path == folder);
+    if let Some(stick) = found {
+        return Ok(device::load_stick(setup.secrets.as_ref(), stick)?);
     }
-    let signing_key = StickSigningKey::generate();
-    let stick_key = StickKey::generate();
-    let stick_id = signing_key.stick_id();
-    // Keys first: a stick in the database must always have its keys.
-    setup.secrets.put(
-        &SecretName::StickSigningKey(stick_id),
-        &signing_key.to_bytes(),
-    )?;
-    setup
-        .secrets
-        .put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
     let name = folder
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "stick".to_owned());
-    let stick = OwnedStick::new(stick_id, name, folder, CIPHER, now_ms());
-    setup.store.add_owned_stick(&stick)?;
-    Ok((stick, signing_key, stick_key))
+    Ok(device::create_stick(
+        setup.store.as_ref(),
+        setup.secrets.as_ref(),
+        folder,
+        &name,
+        None,
+    )?)
 }
 
 pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<()> {
@@ -84,7 +59,11 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         let folder = folder.clone();
         move || -> Result<_> {
             let setup = setup::open(&secrets)?;
-            let (stick, signing_key, stick_key) = owned_stick_for(&setup, &folder)?;
+            let StickKeys {
+                stick,
+                signing_key,
+                stick_key,
+            } = owned_stick_for(&setup, &folder)?;
             Ok((setup, stick, signing_key, stick_key))
         }
     })
@@ -187,6 +166,8 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
     stopped?;
     println!("Stopping…");
     publisher.shutdown().await;
+    // Only now may another sharer start.
+    drop(setup.lock);
     Ok(())
 }
 

@@ -7,6 +7,7 @@ pub mod blob;
 mod blocking;
 pub mod cipher;
 pub mod clock;
+pub mod device;
 pub mod download;
 pub mod manifest;
 pub mod record;

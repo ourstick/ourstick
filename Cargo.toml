@@ -56,6 +56,8 @@ walkdir = "2"
 tauri = "2.12"
 tauri-build = "2.7"
 tauri-plugin-single-instance = "2.5"
+tauri-plugin-clipboard-manager = "2.4"
+tauri-plugin-opener = "2.6"
 # The ticket as a QR code in the terminal; no image/svg rendering.
 qrcode = { version = "0.14", default-features = false }
 # Key-file passphrases read from the terminal without echo.

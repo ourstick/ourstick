@@ -2,6 +2,10 @@
   import { appState, type AppState } from "./lib/api";
   import FirstLaunch from "./lib/FirstLaunch.svelte";
   import Main from "./lib/Main.svelte";
+  import Share from "./lib/Share.svelte";
+
+  // The Share popup is the same UI, opened at #share.
+  const isShare = location.hash === "#share";
 
   let app = $state<AppState | null>(null);
   let failure = $state<string | null>(null);
@@ -18,7 +22,9 @@
   load();
 </script>
 
-{#if failure}
+{#if isShare}
+  <Share />
+{:else if failure}
   <main class="card"><p class="error">{failure}</p></main>
 {:else if app?.first_launch}
   <FirstLaunch onDone={load} />

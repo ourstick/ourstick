@@ -4,6 +4,7 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import {
     addPaths,
+    openShare,
     removeEntry,
     stick as loadStick,
     type Activity,
@@ -141,6 +142,10 @@
     <p class="error">{problem.message}</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
+
+  <button class="share" onclick={() => openShare().catch((error) => (failure = String(error)))}>
+    ⤴ Share
+  </button>
 </main>
 
 <style>
@@ -220,6 +225,10 @@
   }
   .muted {
     color: var(--muted);
+  }
+  .share {
+    width: 100%;
+    min-height: calc(var(--button-height) + 8px);
   }
   p {
     margin: 0;

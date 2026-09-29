@@ -18,6 +18,9 @@ tauri-build.workspace = true
 ourstick-core = { path = "../../../crates/ourstick-core" }
 tauri.workspace = true
 tauri-plugin-single-instance.workspace = true
+tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-opener.workspace = true
+qrcode.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

@@ -67,3 +67,30 @@ export function addPaths(paths: string[]): Promise<void> {
 export function removeEntry(name: string): Promise<void> {
   return invoke("remove_entry", { name });
 }
+
+export interface ShareView {
+  link: string;
+  /** The link as a QR code, an SVG made by the app. */
+  qr_svg: string;
+}
+
+export function openShare(): Promise<void> {
+  return invoke("open_share");
+}
+
+/** The link and its QR code; null while the stick is not published yet. */
+export function shareView(): Promise<ShareView | null> {
+  return invoke("share_view");
+}
+
+export function copyLink(): Promise<void> {
+  return invoke("copy_link");
+}
+
+export function copyQrImage(): Promise<void> {
+  return invoke("copy_qr_image");
+}
+
+export function sendByEmail(): Promise<void> {
+  return invoke("send_by_email");
+}

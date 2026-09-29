@@ -6,7 +6,9 @@
 
 mod commands;
 mod drive;
+mod qr;
 mod serving;
+mod share;
 mod state;
 
 use tauri::Manager;
@@ -36,6 +38,8 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(state)
         .setup(|app| {
             // A stick from an earlier run is shared again at once.
@@ -55,6 +59,11 @@ fn main() {
             commands::stick,
             commands::add_paths,
             commands::remove_entry,
+            share::open_share,
+            share::share_view,
+            share::copy_link,
+            share::copy_qr_image,
+            share::send_by_email,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start its window")

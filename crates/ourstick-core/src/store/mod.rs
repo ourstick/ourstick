@@ -69,21 +69,23 @@ impl OwnedStick {
     }
 }
 
-/// The manifest a reader currently holds: from the last accepted record.
+/// One version of a stick's manifest: the `seq` and manifest hash of a signed
+/// record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CurrentManifest {
+pub struct ManifestVersion {
     pub seq: u64,
     pub hash: [u8; 32],
 }
 
-/// A stick this device reads.
+/// A stick this device reads, and what its folder holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JoinedStick {
     pub stick_id: StickId,
+    /// The folder of the latest `get`; another folder replaces it.
     pub output_dir: PathBuf,
-    /// From the last accepted signed record; `None` before the first one.
-    /// Its `seq` is the `last_seen` of ADR 0004.
-    pub current_manifest: Option<CurrentManifest>,
+    /// The version whose files are all in `output_dir`; `None` until a
+    /// download finishes there.
+    pub completed: Option<ManifestVersion>,
     pub joined_at_ms: u64,
 }
 
@@ -93,7 +95,7 @@ impl JoinedStick {
         Self {
             stick_id,
             output_dir: output_dir.into(),
-            current_manifest: None,
+            completed: None,
             joined_at_ms,
         }
     }
@@ -127,7 +129,24 @@ pub trait Store: Send + Sync {
     /// All joined sticks, oldest first.
     fn joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError>;
 
-    /// Stores a record the reader has verified. Fails with
+    /// Points a joined stick at another folder, which holds nothing yet:
+    /// clears `completed`.
+    fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError>;
+
+    /// Records that every file of `version` is in the stick's folder. Fails
+    /// with [`StoreError::Inconsistent`] unless a record of at least that
+    /// `seq` was accepted.
+    fn complete_download(
+        &self,
+        stick_id: &StickId,
+        version: ManifestVersion,
+    ) -> Result<(), StoreError>;
+
+    /// The highest record accepted for a stick (the `last_seen` of ADR 0004),
+    /// whether or not it was joined.
+    fn record_floor(&self, stick_id: &StickId) -> Result<Option<ManifestVersion>, StoreError>;
+
+    /// Raises the floor to a record the reader has verified. Fails with
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one
     /// (or none is stored), checked and updated atomically.
     fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError>;
@@ -213,8 +232,8 @@ pub(crate) fn check_owned_stick(stick: &OwnedStick) -> Result<(), StoreError> {
 pub(crate) fn check_joined_stick(stick: &JoinedStick) -> Result<(), StoreError> {
     path_str(&stick.output_dir)?;
     check_time(stick.joined_at_ms)?;
-    if let Some(current) = &stick.current_manifest {
-        check_seq(current.seq)?;
+    if let Some(completed) = &stick.completed {
+        check_seq(completed.seq)?;
     }
     Ok(())
 }

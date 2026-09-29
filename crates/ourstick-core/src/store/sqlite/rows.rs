@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use rusqlite::Row;
 
-use super::super::{CurrentManifest, JoinedStick, OwnedStick, StoreError};
+use super::super::{JoinedStick, ManifestVersion, OwnedStick, StoreError};
 use crate::cipher::CipherId;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -78,38 +78,42 @@ impl OwnedRow {
 pub(super) struct JoinedRow {
     stick_id: Vec<u8>,
     output_dir: String,
-    highest_seq: Option<i64>,
-    current_manifest_hash: Option<Vec<u8>>,
+    completed_seq: Option<i64>,
+    completed_manifest_hash: Option<Vec<u8>>,
     joined_at_ms: i64,
 }
 
 pub(super) const JOINED_COLUMNS: &str =
-    "stick_id, output_dir, highest_seq, current_manifest_hash, joined_at_ms";
+    "stick_id, output_dir, completed_seq, completed_manifest_hash, joined_at_ms";
 
 impl JoinedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             stick_id: row.get(0)?,
             output_dir: row.get(1)?,
-            highest_seq: row.get(2)?,
-            current_manifest_hash: row.get(3)?,
+            completed_seq: row.get(2)?,
+            completed_manifest_hash: row.get(3)?,
             joined_at_ms: row.get(4)?,
         })
     }
 
     pub(super) fn into_stick(self) -> Result<JoinedStick, StoreError> {
-        let current_manifest = match (self.highest_seq, self.current_manifest_hash) {
-            (Some(seq), Some(hash)) => Some(CurrentManifest {
-                seq: to_u64(seq, "highest_seq")?,
-                hash: blob32(hash, "current_manifest_hash")?,
+        let completed = match (self.completed_seq, self.completed_manifest_hash) {
+            (Some(seq), Some(hash)) => Some(ManifestVersion {
+                seq: to_u64(seq, "completed_seq")?,
+                hash: blob32(hash, "completed_manifest_hash")?,
             }),
             (None, None) => None,
-            _ => return Err(StoreError::Corrupt("half-set current manifest".to_owned())),
+            _ => {
+                return Err(StoreError::Corrupt(
+                    "half-set completed manifest".to_owned(),
+                ))
+            }
         };
         Ok(JoinedStick {
             stick_id: stick_id_from(self.stick_id)?,
             output_dir: PathBuf::from(self.output_dir),
-            current_manifest,
+            completed,
             joined_at_ms: to_u64(self.joined_at_ms, "joined_at_ms")?,
         })
     }

@@ -406,9 +406,6 @@ Rules on every platform:
   memory until reused, so they can end up in swap or core dumps. Would add
   `zeroize` as a direct dependency (it is already in the tree through
   `ed25519-dalek` and `chacha20poly1305`).
-- `joined_sticks.output_dir` is stored when a stick is joined but not read
-  again: each `get` uses the folder it is given. Decide with the watcher
-  (step 7) whether the stored folder is the default, or is updated.
 - Mapping names that a reader cannot write (Windows device names, `:`,
   letter-case collisions) to safe ones, instead of refusing the manifest.
 - A reader will need a stable node identity later (e.g. for seeds, per-reader

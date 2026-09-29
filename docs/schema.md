@@ -25,7 +25,15 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 1 (`0001_initial.sql`)
+## Version 2
+
+Version 1 (`0001_initial.sql`) created the other tables. Version 2
+(`0002_record_floors.sql`) moved the seq floor of ADR 0004 out of
+`joined_sticks` into `record_floors`, so that `ls` can raise it without
+touching folder state, and made `joined_sticks` say only what its folder holds.
+The old `highest_seq`/`current_manifest_hash` were set before the files arrived,
+so the migration copies them to `record_floors` and starts every
+`completed_*` as NULL.
 
 ### `device`
 
@@ -66,19 +74,38 @@ old database cannot move `seq` back (ADR 0004 covers the clock term).
 
 ### `joined_sticks`
 
-Sticks this device reads. One row per stick, created from a ticket.
+Sticks this device downloads, and what their folder holds. One row per stick,
+created by the first `get`.
 
-| Column                  | Type    | Meaning                                                   |
-|-------------------------|---------|-----------------------------------------------------------|
-| `stick_id`              | BLOB 32 | StickId from the ticket. Primary key.                     |
-| `output_dir`            | TEXT    | Where files are written                                   |
-| `highest_seq`           | INTEGER | Highest accepted record `seq`; NULL before the first one  |
-| `current_manifest_hash` | BLOB 32 | Manifest hash of that record; NULL together with `highest_seq` |
-| `joined_at_ms`          | INTEGER | When the ticket was added                                 |
+| Column                    | Type    | Meaning                                                       |
+|---------------------------|---------|---------------------------------------------------------------|
+| `stick_id`                | BLOB 32 | StickId from the ticket. Primary key.                         |
+| `output_dir`              | TEXT    | The folder of the latest `get`                                |
+| `completed_seq`           | INTEGER | `seq` of the record whose files are all in `output_dir`; NULL until a `get` finishes there |
+| `completed_manifest_hash` | BLOB 32 | Manifest hash of that record; NULL together with `completed_seq` |
+| `joined_at_ms`            | INTEGER | When the stick was first downloaded                           |
 
-`highest_seq` is the `last_seen` of ADR 0004. Accepting a record updates both
-columns in one statement that only succeeds if the new `seq` is greater than
-the stored one (or the stored one is NULL).
+The latest folder wins: a `get` into another folder sets `output_dir` to it and
+clears `completed_*`, because the new folder holds nothing yet. The old folder
+is left as it is. `completed_*` is set only after every file is in place, and
+only for a record at or below the floor in `record_floors`. A `get` reports
+"no changes" only when `completed_*` names the record it just verified.
+
+### `record_floors`
+
+The highest verified record per stick: the `last_seen` of ADR 0004. Written by
+every command that verifies a signed record (`get` and `ls`), whether or not
+the stick has a folder.
+
+| Column          | Type    | Meaning                                  |
+|-----------------|---------|------------------------------------------|
+| `stick_id`      | BLOB 32 | StickId. Primary key.                    |
+| `highest_seq`   | INTEGER | Highest accepted record `seq`            |
+| `manifest_hash` | BLOB 32 | Manifest hash of that record             |
+
+Accepting a record inserts the row, or raises it in the same statement only if
+the new `seq` is greater than the stored one. A record at or below the floor is
+refused, so a restored or replayed old record cannot roll a reader back.
 
 ## Not yet in the schema
 

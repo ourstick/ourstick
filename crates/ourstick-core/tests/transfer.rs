@@ -10,7 +10,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use common::{keep_going, noise, write_file, Owner, Reader};
 use ourstick_core::download::{DownloadError, DownloadEvent};
 use ourstick_core::transport::{Fetcher, PathKind, PeerConnection, Publisher, TransportError};
-use ourstick_core::{CurrentManifest, JoinedStick, RecordError, Store};
+use ourstick_core::{JoinedStick, ManifestVersion, RecordError, Store};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn full_transfer_of_a_folder() {
@@ -58,16 +58,22 @@ async fn full_transfer_of_a_folder() {
         seconds(source.modified().unwrap())
     );
 
-    // The accepted record is stored; running again is a no-op resume, not an error.
+    // The accepted record is the floor and what the folder holds; running
+    // again is a no-op resume, not an error.
+    let version = ManifestVersion {
+        seq: publication.seq,
+        hash: publication.manifest_hash,
+    };
+    assert_eq!(
+        reader.store.record_floor(&ticket.stick_id).unwrap(),
+        Some(version)
+    );
     let joined = reader
         .store
         .joined_stick(&ticket.stick_id)
         .unwrap()
         .unwrap();
-    assert_eq!(
-        joined.current_manifest.unwrap().hash,
-        publication.manifest_hash
-    );
+    assert_eq!(joined.completed, Some(version));
     let again = reader.download(&ticket, &mut keep_going).await.unwrap();
     assert_eq!(again.received, 0);
 
@@ -157,12 +163,18 @@ async fn record_older_than_what_the_reader_has_is_rejected() {
     let ticket = owner.ticket(&publication);
 
     let reader = Reader::new();
-    let mut joined = JoinedStick::new(ticket.stick_id, reader.output.path(), 1);
-    joined.current_manifest = Some(CurrentManifest {
-        seq: 1_000,
-        hash: [7; 32],
-    });
-    reader.store.add_joined_stick(&joined).unwrap();
+    reader
+        .store
+        .add_joined_stick(&JoinedStick::new(ticket.stick_id, reader.output.path(), 1))
+        .unwrap();
+    reader
+        .store
+        .accept_record(&ourstick_core::ManifestRecord {
+            stick_id: ticket.stick_id,
+            seq: 1_000,
+            manifest_hash: [7; 32],
+        })
+        .unwrap();
 
     let result = reader.download(&ticket, &mut keep_going).await;
     assert!(
@@ -275,12 +287,11 @@ async fn reader_refuses_unsafe_names_before_writing_anything() {
             "{name}: {result:?}"
         );
         assert!(!reader.exists("ok.txt"), "{name}: wrote files anyway");
-        let joined = reader
-            .store
-            .joined_stick(&ticket.stick_id)
-            .unwrap()
-            .unwrap();
-        assert_eq!(joined.current_manifest, None, "{name}: record was accepted");
+        assert_eq!(
+            reader.store.record_floor(&ticket.stick_id).unwrap(),
+            None,
+            "{name}: record was accepted"
+        );
         owner.publisher.shutdown().await;
     }
 }

@@ -12,14 +12,17 @@ use rows::{blob32, to_u64, JoinedRow, OwnedRow, JOINED_COLUMNS, OWNED_COLUMNS};
 
 use super::{
     check_device, check_joined_stick, check_owned_stick, check_seq, check_time, path_str, Device,
-    JoinedStick, OwnedStick, SecretBackend, Store, StoreError,
+    JoinedStick, ManifestVersion, OwnedStick, SecretBackend, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
 use crate::ticket::NodeId;
 
 /// Migration `i` (0-based) brings the schema from version `i` to `i + 1`.
-const MIGRATIONS: &[&str] = &[include_str!("../../../migrations/0001_initial.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../../../migrations/0001_initial.sql"),
+    include_str!("../../../migrations/0002_record_floors.sql"),
+];
 
 /// The schema version this code creates and understands.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -252,8 +255,8 @@ impl Store for SqliteStore {
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {
         check_joined_stick(stick)?;
-        let (seq, hash) = match &stick.current_manifest {
-            Some(current) => (Some(seq_i64(current.seq)?), Some(current.hash.to_vec())),
+        let (seq, hash) = match &stick.completed {
+            Some(completed) => (Some(seq_i64(completed.seq)?), Some(completed.hash.to_vec())),
             None => (None, None),
         };
         let inserted = self.connection().execute(
@@ -294,32 +297,96 @@ impl Store for SqliteStore {
         rows.map(|row| row?.into_stick()).collect()
     }
 
-    fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError> {
-        let seq = seq_i64(record.seq)?;
-        let stick_id = record.stick_id.to_bytes();
-        let connection = self.connection();
-        let updated = connection.execute(
-            "UPDATE joined_sticks SET highest_seq = ?1, current_manifest_hash = ?2
-             WHERE stick_id = ?3 AND (highest_seq IS NULL OR highest_seq < ?1)",
-            params![seq, record.manifest_hash.to_vec(), stick_id],
+    fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
+        let updated = self.connection().execute(
+            "UPDATE joined_sticks
+             SET output_dir = ?1, completed_seq = NULL, completed_manifest_hash = NULL
+             WHERE stick_id = ?2",
+            params![path_str(output_dir)?, stick_id.to_bytes()],
         )?;
         if updated == 1 {
-            return Ok(());
+            Ok(())
+        } else {
+            Err(StoreError::StickNotFound)
         }
-        let stored: Option<Option<i64>> = connection
+    }
+
+    fn complete_download(
+        &self,
+        stick_id: &StickId,
+        version: ManifestVersion,
+    ) -> Result<(), StoreError> {
+        let seq = seq_i64(version.seq)?;
+        let stick_id = stick_id.to_bytes();
+        let mut connection = self.connection();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let floor: Option<i64> = transaction
             .query_row(
-                "SELECT highest_seq FROM joined_sticks WHERE stick_id = ?1",
+                "SELECT highest_seq FROM record_floors WHERE stick_id = ?1",
                 [stick_id],
                 |row| row.get(0),
             )
             .optional()?;
-        match stored {
-            None => Err(StoreError::StickNotFound),
-            Some(stored) => Err(StoreError::NotNewer {
-                seq: record.seq,
-                stored: to_u64(stored.unwrap_or(0), "highest_seq")?,
-            }),
+        if floor.is_none_or(|floor| floor < seq) {
+            return Err(StoreError::Inconsistent(
+                "a download completed for a record that was never accepted",
+            ));
         }
+        let updated = transaction.execute(
+            "UPDATE joined_sticks SET completed_seq = ?1, completed_manifest_hash = ?2
+             WHERE stick_id = ?3",
+            params![seq, version.hash.to_vec(), stick_id],
+        )?;
+        if updated != 1 {
+            return Err(StoreError::StickNotFound);
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn record_floor(&self, stick_id: &StickId) -> Result<Option<ManifestVersion>, StoreError> {
+        let row: Option<(i64, Vec<u8>)> = self
+            .connection()
+            .query_row(
+                "SELECT highest_seq, manifest_hash FROM record_floors WHERE stick_id = ?1",
+                [stick_id.to_bytes()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        row.map(|(seq, hash)| {
+            Ok(ManifestVersion {
+                seq: to_u64(seq, "highest_seq")?,
+                hash: blob32(hash, "manifest_hash")?,
+            })
+        })
+        .transpose()
+    }
+
+    fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError> {
+        let seq = seq_i64(record.seq)?;
+        let stick_id = record.stick_id.to_bytes();
+        let connection = self.connection();
+        // One statement: insert, or raise an existing floor only if higher.
+        let changed = connection.execute(
+            "INSERT INTO record_floors (stick_id, highest_seq, manifest_hash)
+             VALUES (?3, ?1, ?2)
+             ON CONFLICT (stick_id) DO UPDATE
+             SET highest_seq = excluded.highest_seq, manifest_hash = excluded.manifest_hash
+             WHERE record_floors.highest_seq < excluded.highest_seq",
+            params![seq, record.manifest_hash.to_vec(), stick_id],
+        )?;
+        if changed == 1 {
+            return Ok(());
+        }
+        let stored: i64 = connection.query_row(
+            "SELECT highest_seq FROM record_floors WHERE stick_id = ?1",
+            [stick_id],
+            |row| row.get(0),
+        )?;
+        Err(StoreError::NotNewer {
+            seq: record.seq,
+            stored: to_u64(stored, "highest_seq")?,
+        })
     }
 }
 

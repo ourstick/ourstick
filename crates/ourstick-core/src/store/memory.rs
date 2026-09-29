@@ -4,11 +4,12 @@
 //! [`SqliteStore`]: super::SqliteStore
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{
-    check_device, check_joined_stick, check_owned_stick, check_seq, CurrentManifest, Device,
-    JoinedStick, OwnedStick, Store, StoreError,
+    check_device, check_joined_stick, check_owned_stick, check_seq, path_str, Device, JoinedStick,
+    ManifestVersion, OwnedStick, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -18,6 +19,7 @@ struct State {
     device: Option<Device>,
     owned: BTreeMap<[u8; 32], OwnedStick>,
     joined: BTreeMap<[u8; 32], JoinedStick>,
+    floors: BTreeMap<[u8; 32], ManifestVersion>,
 }
 
 /// A [`Store`] that forgets everything when dropped.
@@ -125,25 +127,66 @@ impl Store for MemoryStore {
         })))
     }
 
-    fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError> {
-        check_seq(record.seq)?;
+    fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
+        path_str(output_dir)?;
         let mut state = self.state();
         let stick = state
             .joined
-            .get_mut(&record.stick_id.to_bytes())
+            .get_mut(&stick_id.to_bytes())
             .ok_or(StoreError::StickNotFound)?;
-        if let Some(current) = &stick.current_manifest {
-            if record.seq <= current.seq {
+        stick.output_dir = output_dir.to_path_buf();
+        stick.completed = None;
+        Ok(())
+    }
+
+    fn complete_download(
+        &self,
+        stick_id: &StickId,
+        version: ManifestVersion,
+    ) -> Result<(), StoreError> {
+        check_seq(version.seq)?;
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if state
+            .floors
+            .get(&key)
+            .is_none_or(|floor| floor.seq < version.seq)
+        {
+            return Err(StoreError::Inconsistent(
+                "a download completed for a record that was never accepted",
+            ));
+        }
+        let stick = state
+            .joined
+            .get_mut(&key)
+            .ok_or(StoreError::StickNotFound)?;
+        stick.completed = Some(version);
+        Ok(())
+    }
+
+    fn record_floor(&self, stick_id: &StickId) -> Result<Option<ManifestVersion>, StoreError> {
+        Ok(self.state().floors.get(&stick_id.to_bytes()).copied())
+    }
+
+    fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError> {
+        check_seq(record.seq)?;
+        let mut state = self.state();
+        let key = record.stick_id.to_bytes();
+        if let Some(floor) = state.floors.get(&key) {
+            if record.seq <= floor.seq {
                 return Err(StoreError::NotNewer {
                     seq: record.seq,
-                    stored: current.seq,
+                    stored: floor.seq,
                 });
             }
         }
-        stick.current_manifest = Some(CurrentManifest {
-            seq: record.seq,
-            hash: record.manifest_hash,
-        });
+        state.floors.insert(
+            key,
+            ManifestVersion {
+                seq: record.seq,
+                hash: record.manifest_hash,
+            },
+        );
         Ok(())
     }
 }

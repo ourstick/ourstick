@@ -5,7 +5,50 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 1);
+    assert_eq!(SCHEMA_VERSION, 2);
+}
+
+#[test]
+fn migration_2_moves_the_floor_out_and_forgets_what_folders_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let seen = crate::stick_id::StickSigningKey::from_bytes(&[1; 32]).stick_id();
+    let unseen = crate::stick_id::StickSigningKey::from_bytes(&[2; 32]).stick_id();
+    {
+        // A database as version 1 left it.
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks VALUES (?1, '/tmp/a', 7, ?2, 10)",
+                params![seen.to_bytes(), [3u8; 32].to_vec()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks VALUES (?1, '/tmp/b', NULL, NULL, 20)",
+                params![unseen.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(
+        store.record_floor(&seen).unwrap(),
+        Some(ManifestVersion {
+            seq: 7,
+            hash: [3; 32]
+        })
+    );
+    assert_eq!(store.record_floor(&unseen).unwrap(), None);
+    assert_eq!(
+        store.joined_sticks().unwrap(),
+        vec![
+            JoinedStick::new(seen, "/tmp/a", 10),
+            JoinedStick::new(unseen, "/tmp/b", 20),
+        ]
+    );
 }
 
 #[test]
@@ -68,6 +111,9 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 5, NULL, 0)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 'five', zeroblob(32), 0)",
+        "INSERT INTO record_floors VALUES (zeroblob(32), NULL, zeroblob(32))",
+        "INSERT INTO record_floors VALUES (zeroblob(32), -1, zeroblob(32))",
+        "INSERT INTO record_floors VALUES (zeroblob(32), 1, zeroblob(31))",
     ];
     for sql in bad_inserts {
         assert!(connection.execute(sql, []).is_err(), "accepted: {sql}");

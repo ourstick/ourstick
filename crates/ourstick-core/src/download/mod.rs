@@ -28,7 +28,7 @@ use crate::cipher::{cipher_for, Cipher, CipherError, CipherId};
 use crate::clock::Clock;
 use crate::manifest::{Manifest, ManifestError};
 use crate::record::{ManifestHint, RecordCheck, RecordError};
-use crate::store::{JoinedStick, Store, StoreError};
+use crate::store::{JoinedStick, ManifestVersion, Store, StoreError};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PathKind, PathUsage, PeerConnection, TransportError};
 
@@ -152,8 +152,9 @@ fn cancelled(error: TransportError) -> DownloadError {
 
 /// Downloads the stick named in `ticket` into `output_dir`.
 ///
-/// Records the stick as joined on first use, and the accepted record in
-/// `store`. On any error nothing half-written is left under a final name; run
+/// Records the stick as joined on first use, with `output_dir` as its folder
+/// (the latest folder wins), raises its record floor (ADR 0004), and records
+/// the version once all its files are in `output_dir`. On any error nothing half-written is left under a final name; run
 /// again to resume. The caller shuts the fetcher down afterwards (keeping its
 /// store on error, so the next run resumes).
 /// Whether file data may go through the relay follows `policy` (ADR 0006);
@@ -175,12 +176,10 @@ pub async fn download(
         let output_dir = output_dir.to_path_buf();
         let now = clock.now_ms();
         run_blocking(move || match store.joined_stick(&stick_id)? {
-            Some(joined) => Ok(joined),
-            None => {
-                let joined = JoinedStick::new(stick_id, output_dir, now);
-                store.add_joined_stick(&joined)?;
-                Ok::<_, StoreError>(joined)
-            }
+            Some(joined) if joined.output_dir == output_dir => Ok(()),
+            // Another folder holds nothing yet: it replaces the old one.
+            Some(_) => store.move_joined_stick(&stick_id, &output_dir),
+            None => store.add_joined_stick(&JoinedStick::new(stick_id, output_dir, now)),
         })
         .await?;
     }
@@ -191,13 +190,17 @@ pub async fn download(
     // Blob bytes received, over all connections (a stopped fetch counts too).
     let mut received = 0;
     loop {
-        // Read again on every attempt: an earlier attempt may have accepted
-        // the record, which makes it "unchanged" now.
-        let joined = {
+        // Read again on every attempt: an earlier attempt may have raised
+        // the floor.
+        let (joined, floor) = {
             let store = store.clone();
-            run_blocking(move || store.joined_stick(&stick_id))
-                .await?
-                .ok_or(StoreError::StickNotFound)?
+            run_blocking(move || {
+                let joined = store
+                    .joined_stick(&stick_id)?
+                    .ok_or(StoreError::StickNotFound)?;
+                Ok::<_, StoreError>((joined, store.record_floor(&stick_id)?))
+            })
+            .await?
         };
         let connection = fetcher.connect(ticket).await?;
         let result = download_over(
@@ -206,6 +209,7 @@ pub async fn download(
             store.clone(),
             ticket,
             &joined,
+            floor,
             output_dir,
             policy,
             consent,
@@ -254,6 +258,7 @@ async fn download_over(
     store: Arc<dyn Store>,
     ticket: &Ticket,
     joined: &JoinedStick,
+    floor: Option<ManifestVersion>,
     output_dir: &Path,
     policy: &RelayPolicy,
     consent: &impl RelayConsent,
@@ -275,15 +280,21 @@ async fn download_over(
     }
 
     let signed = connection.fetch_record(&ticket.stick_id).await?;
-    let current = joined.current_manifest.map(|current| ManifestHint {
-        seq: current.seq,
-        hash: current.hash,
+    let floor_hint = floor.map(|floor| ManifestHint {
+        seq: floor.seq,
+        hash: floor.hash,
     });
-    let check = signed.check(&ticket.stick_id, &ticket.manifest_hint, current.as_ref())?;
-    let (record, unchanged) = match check {
-        RecordCheck::Newer(record) => (record, false),
-        RecordCheck::Unchanged(record) => (record, true),
+    let check = signed.check(&ticket.stick_id, &ticket.manifest_hint, floor_hint.as_ref())?;
+    let (record, newer) = match check {
+        RecordCheck::Newer(record) => (record, true),
+        RecordCheck::Unchanged(record) => (record, false),
     };
+    let version = ManifestVersion {
+        seq: record.seq,
+        hash: record.manifest_hash,
+    };
+    // What this folder already holds, not what this device has seen.
+    let unchanged = joined.completed == Some(version);
 
     connection
         .fetch_blob(&record.manifest_hash, &mut |_| ControlFlow::Continue(()))
@@ -306,7 +317,7 @@ async fn download_over(
     };
     // Before anything is accepted or written: every path must be safe here.
     check_manifest_paths(&manifest)?;
-    if !unchanged {
+    if newer {
         // Accepted only once the manifest it names has been read successfully.
         let store = store.clone();
         run_blocking(move || store.accept_record(&record)).await?;
@@ -359,6 +370,11 @@ async fn download_over(
     tokio::fs::remove_dir_all(&partial)
         .await
         .map_err(io_error(&partial))?;
+    {
+        let store = store.clone();
+        let stick_id = ticket.stick_id;
+        run_blocking(move || store.complete_download(&stick_id, version)).await?;
+    }
 
     Ok(DownloadReport {
         seq: record.seq,

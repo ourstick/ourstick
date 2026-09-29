@@ -19,6 +19,16 @@ mod tray;
 use tauri::Manager;
 
 fn main() {
+    // WebKitGTK draws text in a scrolling list on its own compositing layer,
+    // with other antialiasing: the file names turn bold once the list
+    // scrolls (seen on Ubuntu). Without compositing all text looks the same;
+    // the window is simple enough not to need it. Set before any thread
+    // starts; a value the user set is kept.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)

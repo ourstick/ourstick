@@ -202,6 +202,7 @@
     font-weight: 400;
   }
   .drop {
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -215,6 +216,8 @@
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
+  /* The list takes the room in the middle and scrolls; the rest keeps its
+     place. */
   .entries {
     list-style: none;
     margin: 0;
@@ -222,10 +225,14 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 180px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
   }
   .entries li {
+    /* Keep their height: the list scrolls, its rows do not squash. */
+    flex-shrink: 0;
+    font-weight: 400;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -233,6 +240,9 @@
     padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: var(--button-radius);
+  }
+  .entries li > .muted {
+    white-space: nowrap;
   }
   .name {
     overflow: hidden;
@@ -298,9 +308,12 @@
   .muted {
     color: var(--muted);
   }
+  /* Always at the bottom of the window. */
   .share {
     width: 100%;
     min-height: calc(var(--button-height) + 8px);
+    margin-top: auto;
+    flex-shrink: 0;
   }
   p {
     margin: 0;

@@ -102,12 +102,38 @@ body {
   cursor: default;
 }
 
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* The space around the card belongs to the page: a margin on the card
+   would leak out of #app and make the page taller than the window. */
+#app {
+  padding: 16px;
+}
+
+/* Every window is one card that fills it: content at the top, actions at
+   the bottom (or all of it centred), never a half-empty window. */
 .card {
-  margin: 16px;
+  margin: 0;
   padding: 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.card.centred {
+  justify-content: center;
+}
+
+.card > .actions:last-child {
+  margin-top: auto;
 }
 
 h1 {

@@ -108,6 +108,12 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - A file is encrypted again only if it changed since the last publish, judged
   by a stamp (see "Known limits" below); otherwise its recorded blob hash is
   used. `share --rescan` reads and encrypts every file.
+- While serving, the owner watches the folder (inotify, FSEvents, …; every
+  60 s if the system cannot report changes). After a sign of change it waits
+  until the folder has been quiet for 2 s and no file's size or times change
+  over 1 s, then publishes as above. Opening and reading files are not changes.
+  A failed publish (e.g. an unreadable file) is reported and tried again at
+  the next change or after 30 s.
 
 ### Known limits
 

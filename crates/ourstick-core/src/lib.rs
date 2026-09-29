@@ -17,6 +17,7 @@ pub mod store;
 pub mod ticket;
 pub mod transport;
 pub mod untrusted;
+pub mod watcher;
 
 pub use blob::{
     blob_len, decrypt_blob, encrypt_blob, BlobHeader, BlobInfo, BLOB_FORMAT_VERSION, CHUNK_SIZE,

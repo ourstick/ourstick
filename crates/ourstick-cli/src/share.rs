@@ -3,7 +3,7 @@
 
 use std::io::IsTerminal;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
@@ -11,11 +11,15 @@ use ourstick_core::secrets::SecretName;
 use ourstick_core::share::{plan_share, publish_folder};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{describe_network, NetworkReport, Publisher};
+use ourstick_core::watcher::{
+    follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
+};
 use ourstick_core::{
     cipher_for, CipherId, ManifestHint, OwnedStick, StickKey, StickSigningKey, Ticket,
 };
 
-use crate::display::bytes;
+use crate::display::{bytes, untrusted};
+use crate::progress::clock;
 use crate::qr::qr_lines;
 use crate::secrets::SecretsChoice;
 use crate::setup::{self, hex, load_key, now_ms};
@@ -81,6 +85,7 @@ fn owned_stick_for(
 }
 
 pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<()> {
+    let started = Instant::now();
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
     let (setup, stick, signing_key, stick_key) = tokio::task::spawn_blocking({
@@ -164,15 +169,196 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
     }
     println!("Serving. Press Ctrl-C to stop.");
 
-    tokio::signal::ctrl_c().await?;
+    let owner = Owner {
+        publisher: &publisher,
+        store: setup.store.clone(),
+        clock: &SystemClock,
+        signing_key: &signing_key,
+        // The ticket holds the stick key now.
+        stick_key: &ticket.stick_key,
+    };
+    let current = publication.manifest;
+    let stopped = match NotifyEvents::start(&folder) {
+        Ok(events) => {
+            println!("Watching the folder: changes are shared as they happen.");
+            serve(&owner, &folder, events, current, started).await
+        }
+        Err(error) => {
+            println!(
+                "{error}. Checking the folder every {} s instead.",
+                RESCAN_EVERY.as_secs()
+            );
+            let events = PeriodicEvents::new(RESCAN_EVERY);
+            serve(&owner, &folder, events, current, started).await
+        }
+    };
+    stopped?;
     println!("Stopping…");
     publisher.shutdown().await;
     Ok(())
 }
 
+/// How often the folder is checked when the system cannot report changes.
+const RESCAN_EVERY: Duration = Duration::from_secs(60);
+
+/// Follows the folder until Ctrl-C, printing what changes.
+async fn serve(
+    owner: &Owner<'_, IrohPublisher>,
+    folder: &Path,
+    mut events: impl FolderEvents,
+    current: ourstick_core::Manifest,
+    started: Instant,
+) -> Result<()> {
+    let timing = WatchTiming::default();
+    let mut on_event = |event: WatchEvent<'_>| {
+        for line in watch_lines(&event, started.elapsed(), timing) {
+            println!("{line}");
+        }
+    };
+    tokio::select! {
+        () = follow_folder(owner, folder, &mut events, timing, current, &mut on_event) => {
+            anyhow::bail!("the folder watch ended unexpectedly")
+        }
+        result = tokio::signal::ctrl_c() => Ok(result?),
+    }
+}
+
+/// Lines for what the watcher did. Nothing when signs of change changed
+/// nothing (e.g. a file saved with the same content).
+fn watch_lines(event: &WatchEvent<'_>, elapsed: Duration, timing: WatchTiming) -> Vec<String> {
+    let at = clock(elapsed);
+    match event {
+        WatchEvent::Unchanged => Vec::new(),
+        WatchEvent::StillChanging => {
+            vec![format!("[{at}] A file is still being written; waiting…")]
+        }
+        WatchEvent::Failed { error } => vec![format!(
+            "[{at}] Could not share the change: {}. Trying again at the next change, \
+             or in {} s.",
+            untrusted(&error.to_string()),
+            timing.retry.as_secs()
+        )],
+        WatchEvent::Published {
+            changes,
+            publication,
+        } => {
+            let mut parts = Vec::new();
+            for (count, what) in [
+                (changes.added.len(), "added"),
+                (changes.changed.len(), "changed"),
+                (changes.removed.len(), "removed"),
+            ] {
+                if count > 0 {
+                    parts.push(format!("{count} {what}"));
+                }
+            }
+            let mut lines = vec![format!(
+                "[{at}] Folder changed: {}. Readers now get version {}.",
+                parts.join(", "),
+                publication.seq
+            )];
+            let named = changes
+                .added
+                .iter()
+                .map(|path| ("+", path))
+                .chain(changes.changed.iter().map(|path| ("~", path)))
+                .chain(changes.removed.iter().map(|path| ("-", path)));
+            let total = changes.added.len() + changes.changed.len() + changes.removed.len();
+            for (mark, path) in named.take(MAX_NAMED) {
+                lines.push(format!("        {mark} {}", untrusted(path)));
+            }
+            if total > MAX_NAMED {
+                lines.push(format!("        … and {} more", total - MAX_NAMED));
+            }
+            lines
+        }
+    }
+}
+
+/// At most this many changed paths are listed after a change.
+const MAX_NAMED: usize = 5;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn publication(seq: u64) -> ourstick_core::share::Publication {
+        let key = ourstick_core::StickSigningKey::from_bytes(&[1; 32]);
+        ourstick_core::share::Publication {
+            manifest: ourstick_core::Manifest::empty(),
+            manifest_hash: [0; 32],
+            seq,
+            record: key.sign_record(seq, [0; 32]),
+            new_version: true,
+            reused: 0,
+        }
+    }
+
+    #[test]
+    fn watch_lines_say_what_changed_briefly_and_safely() {
+        let timing = WatchTiming::default();
+        let at = Duration::from_secs(75);
+        let changes = ourstick_core::watcher::ChangeSummary {
+            added: (1..=6).map(|index| format!("new{index}.txt")).collect(),
+            changed: vec!["\u{1b}[31mred.txt".to_owned()],
+            removed: vec![],
+        };
+        let publication = publication(42);
+        let lines = watch_lines(
+            &WatchEvent::Published {
+                changes: &changes,
+                publication: &publication,
+            },
+            at,
+            timing,
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "[01:15] Folder changed: 6 added, 1 changed. Readers now get version 42.",
+                "        + new1.txt",
+                "        + new2.txt",
+                "        + new3.txt",
+                "        + new4.txt",
+                "        + new5.txt",
+                "        … and 2 more",
+            ]
+        );
+        assert!(watch_lines(&WatchEvent::Unchanged, at, timing).is_empty());
+        let failed = watch_lines(
+            &WatchEvent::Failed {
+                error: &ourstick_core::share::ShareError::NotOwned,
+            },
+            at,
+            timing,
+        );
+        assert_eq!(
+            failed,
+            vec![
+                "[01:15] Could not share the change: this device does not own that stick. \
+                 Trying again at the next change, or in 30 s."
+            ]
+        );
+    }
+
+    #[test]
+    fn changed_names_are_escaped() {
+        let changes = ourstick_core::watcher::ChangeSummary {
+            added: vec![],
+            changed: vec!["\u{1b}[31mred.txt".to_owned()],
+            removed: vec![],
+        };
+        let publication = publication(1);
+        let lines = watch_lines(
+            &WatchEvent::Published {
+                changes: &changes,
+                publication: &publication,
+            },
+            Duration::ZERO,
+            WatchTiming::default(),
+        );
+        assert_eq!(lines[1], "        ~ \\u{1b}[31mred.txt");
+    }
 
     #[test]
     fn network_line_is_never_empty() {

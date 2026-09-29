@@ -5,6 +5,7 @@
   import {
     addPaths,
     openShare,
+    startSharingAgain,
     removeEntry,
     stick as loadStick,
     type Activity,
@@ -131,7 +132,12 @@
     </p>
   {/if}
 
-  {#if current?.sharing.state === "starting"}
+  {#if current?.sharing.state === "off"}
+    <p class="row spread">
+      <span class="muted">Not sharing: nobody can download.</span>
+      <button onclick={() => startSharingAgain()}>Start sharing</button>
+    </p>
+  {:else if current?.sharing.state === "starting"}
     <p class="muted">Getting ready to share…</p>
   {:else if current?.sharing.state === "failed"}
     <p class="error">Not sharing: {current.sharing.message}</p>

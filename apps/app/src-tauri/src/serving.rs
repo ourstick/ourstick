@@ -202,6 +202,7 @@ impl Shared {
             let forward = async {
                 while activity.changed().await.is_ok() {
                     let now = *activity.borrow();
+                    crate::tray::set_active(&app, now.readers > 0);
                     let _ = app.emit(
                         "activity",
                         ActivityView {

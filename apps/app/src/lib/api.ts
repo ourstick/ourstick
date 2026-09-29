@@ -94,3 +94,29 @@ export function copyQrImage(): Promise<void> {
 export function sendByEmail(): Promise<void> {
   return invoke("send_by_email");
 }
+
+export interface ConfirmView {
+  sharing: boolean;
+  readers: number;
+}
+
+export function confirmView(): Promise<ConfirmView> {
+  return invoke("confirm_view");
+}
+
+/** Shows the Stop sharing dialog, or the Quit one. */
+export function openDialog(quit: boolean): Promise<void> {
+  return invoke("open_dialog", { quit });
+}
+
+export function stopSharing(): Promise<void> {
+  return invoke("stop_sharing");
+}
+
+export function startSharingAgain(): Promise<void> {
+  return invoke("start_sharing_again");
+}
+
+export function quit(): Promise<void> {
+  return invoke("quit");
+}

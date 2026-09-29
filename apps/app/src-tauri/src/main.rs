@@ -5,11 +5,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod dialog;
 mod drive;
 mod qr;
 mod serving;
 mod share;
 mod state;
+mod tray;
 
 use tauri::Manager;
 
@@ -32,16 +34,23 @@ fn main() {
         // A second launch shows the running app instead: two would serve with
         // one node identity (see device::ShareLock).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            tray::show_main(app);
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        // Closing the main window hides it in the tray: sharing goes on
+        // until "Stop sharing" or Quit.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
+            tray::create(app.handle())?;
             // A stick from an earlier run is shared again at once.
             let has_stick = app
                 .state::<state::AppState>()
@@ -64,6 +73,11 @@ fn main() {
             share::copy_link,
             share::copy_qr_image,
             share::send_by_email,
+            dialog::confirm_view,
+            dialog::open_dialog,
+            dialog::stop_sharing,
+            dialog::start_sharing_again,
+            dialog::quit,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start its window")

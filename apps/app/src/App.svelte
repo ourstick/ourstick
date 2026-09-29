@@ -3,9 +3,11 @@
   import FirstLaunch from "./lib/FirstLaunch.svelte";
   import Main from "./lib/Main.svelte";
   import Share from "./lib/Share.svelte";
+  import Confirm from "./lib/Confirm.svelte";
 
-  // The Share popup is the same UI, opened at #share.
-  const isShare = location.hash === "#share";
+  // The Share popup and the Stop sharing / Quit dialog are the same UI,
+  // opened at #share, #stop and #quit.
+  const page = location.hash;
 
   let app = $state<AppState | null>(null);
   let failure = $state<string | null>(null);
@@ -22,8 +24,10 @@
   load();
 </script>
 
-{#if isShare}
+{#if page === "#share"}
   <Share />
+{:else if page === "#stop" || page === "#quit"}
+  <Confirm quitting={page === "#quit"} />
 {:else if failure}
   <main class="card"><p class="error">{failure}</p></main>
 {:else if app?.first_launch}

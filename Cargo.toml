@@ -53,7 +53,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 walkdir = "2"
 # The desktop app (docs/gui-spec.md). Linux needs webkit2gtk-4.1 and friends,
 # see the README.
-tauri = "2.12"
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
 tauri-build = "2.7"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-clipboard-manager = "2.4"

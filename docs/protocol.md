@@ -128,6 +128,11 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - Right before a file is moved into place, the file there is checked again:
   it must be absent, or still as planned. Otherwise it is left and reported.
 - Files that left the stick are kept and reported, never deleted.
+- If the owner refuses a blob during a download, most likely because it
+  published a new version and stopped serving the old blobs, the reader
+  fetches the record again. With a newer version it goes on with that one
+  (files already written count as already here); with the same version the
+  refusal stands. At most 10 new versions are followed per download.
 - A version counts as complete in a folder (`joined_sticks.completed_*`) only
   if every file of it is there; a file left as changed keeps it incomplete.
 

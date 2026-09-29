@@ -28,6 +28,21 @@ pub use types::{DownloadError, DownloadEvent, DownloadReport};
 /// How many times a download reconnects (budget used up, direct path lost)
 /// before giving up.
 const MAX_RECONNECTS: u32 = 3;
+/// How many new versions a download follows before giving up; a folder that
+/// never stops changing cannot keep it going forever.
+const MAX_NEW_VERSIONS: u32 = 10;
+
+/// What carries over from one connection of a download to the next.
+#[derive(Debug, Default)]
+struct Carried {
+    /// Blob bytes received, over all connections (a stopped fetch counts too).
+    received: u64,
+    /// The version the last connection was downloading, once known.
+    seq: Option<u64>,
+    /// The owner refused data of this version (`None`: before it was known):
+    /// the next connection continues only if the owner has a newer one.
+    refused: Option<(Option<u64>, DownloadError)>,
+}
 
 use crate::blocking::run_blocking;
 use crate::clock::Clock;
@@ -90,8 +105,8 @@ pub async fn download(
     let mut relay = RelayState::default();
     let mut reconnects = 0;
     let mut total = PathUsage::default();
-    // Blob bytes received, over all connections (a stopped fetch counts too).
-    let mut received = 0;
+    let mut carried = Carried::default();
+    let mut new_versions = 0;
     loop {
         // Read again on every attempt: an earlier attempt may have raised
         // the floor.
@@ -117,7 +132,7 @@ pub async fn download(
             policy,
             consent,
             &mut relay,
-            &mut received,
+            &mut carried,
             on_event,
         )
         .await;
@@ -130,10 +145,22 @@ pub async fn download(
         let event = match result {
             Ok(report) => {
                 return Ok(DownloadReport {
-                    received,
+                    received: carried.received,
                     usage: total,
                     ..report
                 })
+            }
+            // Refused data: most likely the owner published a new version
+            // meanwhile and stopped serving this one's blobs. The next
+            // connection finds out, and continues only if so.
+            Err(
+                error @ DownloadError::Transport(
+                    TransportError::Refused | TransportError::OwnerFailed,
+                ),
+            ) if new_versions < MAX_NEW_VERSIONS && carried.refused.is_none() => {
+                new_versions += 1;
+                carried.refused = Some((carried.seq, error));
+                continue;
             }
             Err(DownloadError::RelayBudgetUsed) if reconnects < MAX_RECONNECTS => {
                 relay.budget_spent = true;
@@ -166,7 +193,7 @@ async fn download_over(
     policy: &RelayPolicy,
     consent: &impl RelayConsent,
     relay: &mut RelayState,
-    received: &mut u64,
+    carried: &mut Carried,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
     // What the user was told. The tracker below starts from this, not from
@@ -184,6 +211,18 @@ async fn download_over(
 
     let (Listing { version, manifest }, cipher) =
         fetch_listing(fetcher, connection, &store, ticket, floor).await?;
+    if let Some((refused_seq, error)) = carried.refused.take() {
+        if refused_seq.is_some_and(|refused| version.seq <= refused) {
+            // Still the same version: the refusal was real.
+            return Err(error);
+        }
+        if refused_seq.is_some()
+            && on_event(DownloadEvent::NewVersion { seq: version.seq }).is_break()
+        {
+            return Err(DownloadError::Cancelled);
+        }
+    }
+    carried.seq = Some(version.seq);
     // What this folder already holds, not what this device has seen.
     let unchanged = joined.completed == Some(version);
     if on_event(DownloadEvent::Manifest {
@@ -278,7 +317,7 @@ async fn download_over(
                     &mut receiving,
                     watch,
                     replaceable,
-                    received,
+                    &mut carried.received,
                     on_event,
                 )
                 .await?;

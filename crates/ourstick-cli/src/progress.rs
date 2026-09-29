@@ -164,6 +164,9 @@ impl Progress {
                     bytes(self.total)
                 )]
             }
+            DownloadEvent::NewVersion { seq } => vec![format!(
+                "[{at}] The owner shared a new version ({seq}) meanwhile; going on with it."
+            )],
             DownloadEvent::FileAlreadyHere { size, .. } => {
                 self.finished += size;
                 Vec::new()

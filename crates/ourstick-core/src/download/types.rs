@@ -34,6 +34,11 @@ pub enum DownloadEvent<'a> {
     /// After the budget was used up, the direct path was lost; the download
     /// reconnects and tries for a direct path again.
     DirectLost,
+    /// The owner published a new version while this one downloaded; the
+    /// download goes on with it (files already done are not fetched again).
+    NewVersion {
+        seq: u64,
+    },
     Manifest {
         seq: u64,
         files: usize,

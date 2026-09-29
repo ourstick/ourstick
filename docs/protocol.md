@@ -160,6 +160,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   the system time. Elsewhere only size and mtime count, and a tool that
   restores mtime after writing (some sync and archive tools do) is enough.
   `ourstick share --rescan` ignores the record and reads every file.
+- **A GC error in the log after sharing stops.** The owner's blob cache is an
+  iroh-blobs store with garbage collection on. Its GC task outlives the store:
+  after Stop sharing, a Mount (which starts sharing again), Ctrl-C or Quit it
+  wakes once more, finds the store closed and logs
+  `ERROR iroh_blobs::store::gc: error during gc run: Error::Io`. Nothing is
+  wrong; the next store collects as usual. In iroh-blobs 0.103 any GC error
+  also ends GC until the store is opened again, and GC cannot be run from
+  outside the crate; an upstream issue is pending (`docs/todo.md`).
 
 ## Blob format (version 1)
 

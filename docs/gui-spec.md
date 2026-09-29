@@ -160,6 +160,17 @@ Rules:
 Not in stage 1. Receivers use `ourstick get` (CLI) until the receiver window
 and mobile apps exist. The link page at ourstick.com/s/ says how to install.
 
+## Before the first public release
+
+- **Sign the macOS app with an Apple Developer ID, and notarize it.** An
+  unsigned build looks like a different program after every rebuild, so the
+  keychain asks the user to allow access to OurStick's keys again, once per
+  key (seen in the manual round: three prompts after a rebuild). A signed app
+  is recognised across updates and never asks. Better still, move the keys to
+  the data protection keychain (apple-native-keyring-store's `protected`
+  store), which needs the signed app's entitlements and never prompts.
+- Our own relays (ADR 0006).
+
 ## Open questions
 
 - **Link a folder without copying** it onto the stick (share in place, as the

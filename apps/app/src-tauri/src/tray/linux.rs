@@ -15,7 +15,7 @@ use crate::windows::Activation;
 
 /// How long a click waits for its token. The extension does not wait for
 /// our reply before sending the click, so the token comes a little after it
-/// (about 10 ms on Ubuntu 26.04).
+/// (about 10 ms on Ubuntu 24.04).
 const TOKEN_WAIT: Duration = Duration::from_millis(300);
 
 /// How long a new window from the tray waits for the main window to get the

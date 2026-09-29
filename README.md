@@ -66,9 +66,12 @@ The desktop app (`apps/app`, Tauri 2 + Svelte) is part of the workspace, so the
 commands above need its system libraries too. On Debian/Ubuntu:
 
 ```
-sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+sudo apt install libwebkit2gtk-4.1-dev librsvg2-dev \
     libxdo-dev libssl-dev build-essential file
 ```
+
+On Linux the app's tray icon is a StatusNotifierItem; GNOME shows it through
+the AppIndicator extension (on by default in Ubuntu).
 
 macOS needs only the Xcode command line tools. The UI needs Node.js 22 or 24
 (LTS):

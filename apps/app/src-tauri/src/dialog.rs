@@ -22,7 +22,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         Mode::StopSharing => "index.html#stop",
         Mode::Quit => "index.html#quit",
     };
-    WebviewWindowBuilder::new(app, "confirm", WebviewUrl::App(page.into()))
+    let window = WebviewWindowBuilder::new(app, "confirm", WebviewUrl::App(page.into()))
         .title("OurStick")
         .focused(crate::windows::FOCUS_NEW)
         .inner_size(420.0, 230.0)
@@ -30,6 +30,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         .always_on_top(true)
         .center()
         .build()?;
+    crate::windows::show_new(&window);
     Ok(())
 }
 

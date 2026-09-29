@@ -29,14 +29,6 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     }
-    // GNOME on Wayland lets no app raise its own window without a token
-    // from a click in that app, and a click on the tray icon gives none:
-    // "Open OurStick" left the window behind. Through X11 (XWayland) it can
-    // be raised. A value the user set is kept.
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("GDK_BACKEND").is_none() {
-        std::env::set_var("GDK_BACKEND", "x11");
-    }
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -53,6 +45,9 @@ fn main() {
     };
 
     let builder = tauri::Builder::default();
+    // The tray's activation tokens, for raising windows (see windows).
+    #[cfg(target_os = "linux")]
+    let builder = builder.manage(windows::Activation::default());
     // macOS: our own app menu, whose ⌘Q asks before quitting. Elsewhere the
     // windows have no menu bar.
     #[cfg(target_os = "macos")]
@@ -72,13 +67,18 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
-        // Closing the main window hides it in the tray: sharing goes on
-        // until "Stop sharing" or Quit.
+        // Closing the main window keeps the app in the tray: sharing goes
+        // on until "Stop sharing" or Quit. Linux minimizes it instead of
+        // hiding it, so that the tray can bring it back (see windows).
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if cfg!(target_os = "linux") {
+                        let _ = window.minimize();
+                    } else {
+                        let _ = window.hide();
+                    }
                 }
             }
         })

@@ -28,7 +28,7 @@ pub fn open(app: &AppHandle) -> Result<()> {
             .inner_size(400.0, 560.0)
             .resizable(false)
             .build()?;
-    crate::windows::bring_forward(&window);
+    crate::windows::show_new(&window);
     Ok(())
 }
 

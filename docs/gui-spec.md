@@ -78,7 +78,13 @@ so Spotlight leaves it alone.
 - Always present while the app runs. Green dot when someone is downloading.
 - Menu: `Open OurStick`, `Share…`, `Eject / Mount` (Linux), `Stop sharing…`
   (red), `Quit`.
-- Closing the main window minimizes to tray; it does not stop sharing.
+- Closing the main window hides it in the tray; it does not stop sharing. On
+  Linux it is minimized instead (see Known limitations).
+- Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
+  Tauri's, because it has to receive the shell's XDG activation token (see
+  Known limitations). GNOME shows it through the AppIndicator extension,
+  which Ubuntu ships; without such a host there is no tray icon, and the app
+  logs why.
 
 ### 4 · Stop sharing (also on Quit)
 
@@ -124,12 +130,22 @@ so Spotlight leaves it alone.
   WebKitGTK draws a scrolling list on its own layer with other antialiasing,
   and the file names turned bold once the list scrolled. The UI is the same
   everywhere; this is only how the Linux engine draws it.
-- Linux: the app runs through X11 (XWayland, `GDK_BACKEND=x11` unless the user
-  set it). GNOME on Wayland lets no app bring its own window forward without
-  an activation token from a click in that app, and a click on the tray icon
-  gives none (Tauri's tray library does not pass one): "Open OurStick" left
-  the window behind, or GNOME showed "OurStick is ready". A native Wayland
-  window needs a tray that passes the token; revisit if Tauri's tray does.
+- Linux (GNOME on Wayland): an app may bring its own window forward only with
+  an XDG activation token from the user's click; without one GNOME shows
+  "OurStick is ready" instead. The shell passes the token of a click on the
+  tray to the tray item (`ProvideXdgActivationToken`), which Tauri's tray and
+  released `ksni` do not take: `third_party/ksni` is `ksni` 0.3.6 with that
+  method, pending upstream (https://github.com/iovxw/ksni/pull/43). The app
+  hands the token to GTK and presents the window with it. Three consequences:
+  - Closing the main window minimizes it rather than hiding it. GTK 3 makes
+    a hidden window anew when it is shown, and a new window comes too late
+    for the token.
+  - The token raises only a window GNOME already has. So a tray item that
+    opens a new window (Share…, Stop sharing…, Quit) first brings the main
+    window forward with the token, and opens the new window once the app has
+    the focus.
+  - Started from a terminal (no launcher, so no token), the first window
+    comes with the notification. Started from the app grid, it does not.
 
 ## Theming: native look per platform
 
@@ -196,12 +212,9 @@ and mobile apps exist. The link page at ourstick.com/s/ says how to install.
   Finder lists it in Locations with an eject button is checked by eye in the
   manual round.
 - **Windows:** VHDX with `Mount-DiskImage`, or `subst`.
-- **GNOME's "OurStick is ready":** raising a window from the tray (Open
-  OurStick, Share…) brings it to the front through X11, but GNOME still adds
-  its "is ready" notification: the click was in the shell, not in the app.
-  A tray that asks the shell for an activation token (StatusNotifierItem's
-  `ProvideXdgActivationToken`, e.g. the `ksni` crate) would remove it, and
-  would also let the app run natively on Wayland.
+- **`ksni` upstream:** once a `ksni` release has
+  `Tray::provide_xdg_activation_token` (pull request #43), drop
+  `third_party/ksni` and the `[patch.crates-io]` entry.
 
 ## Out of scope (stage 1)
 

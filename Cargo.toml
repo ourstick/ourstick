@@ -55,13 +55,19 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 walkdir = "2"
 # The desktop app (docs/gui-spec.md). Linux needs webkit2gtk-4.1 and friends,
 # see the README.
-tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
+# tray-icon only where the app uses Tauri's tray (see apps/app/src-tauri).
+tauri = { version = "2.12", features = ["image-png"] }
 tauri-build = "2.7"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-clipboard-manager = "2.4"
 tauri-plugin-opener = "2.6"
 # The app keeps Linux awake while someone downloads (logind's Inhibit).
 zbus = "5"
+# Linux tray: a StatusNotifierItem of our own, which receives the XDG
+# activation token (see third_party/ksni/OURSTICK.md), and GTK 3 to raise the
+# window with it. gtk 0.18 is the one Tauri already uses.
+ksni = "0.3.6"
+gtk = "0.18"
 # The ticket as a QR code in the terminal; no image/svg rendering.
 qrcode = { version = "0.14", default-features = false }
 # Key-file passphrases read from the terminal without echo.
@@ -77,6 +83,9 @@ data-encoding = "2"
 # not semver-stable; only transport/iroh/ touches it.
 iroh = { version = "1.2.0", features = ["unstable-net-report"] }
 iroh-blobs = "0.103.0"
+
+[patch.crates-io]
+ksni = { path = "third_party/ksni" }
 
 [profile.release]
 lto = "thin"

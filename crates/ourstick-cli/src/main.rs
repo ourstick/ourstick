@@ -23,8 +23,9 @@ Usage:
   ourstick share [--key-file <path>] [--rescan] <folder>
                                            Share a folder and print its ticket
   ourstick ls <ticket>                     List a stick's files without downloading
-  ourstick get <ticket> [--out <folder>] [--allow-relay]
-                                           Download a stick (resumes if interrupted)
+  ourstick get <ticket> [--out <folder>] [--allow-relay] [--follow]
+                                           Download a stick (resumes if interrupted;
+                                           later runs fetch only what changed)
 
 `get` waits up to 5 s for a direct connection, then starts. Up to 100 MB may
 come through a relay while it keeps looking; after that it waits up to 15 s
@@ -38,6 +39,9 @@ instead; later runs use that file and ask for its passphrase.
 
 `share` encrypts only files whose size and modification times changed since
 the last share; --rescan reads and encrypts every file.
+
+`get` never overwrites a file changed in its folder, and keeps files that left
+the stick. With --follow it keeps running and downloads every new version.
 
 Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 
@@ -54,6 +58,7 @@ enum Command {
         ticket: String,
         output: Option<PathBuf>,
         allow_relay: bool,
+        follow: bool,
     },
     Help,
 }
@@ -104,6 +109,7 @@ fn parse_share(options: &[String]) -> Result<Command> {
 fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     let mut output = None;
     let mut allow_relay = false;
+    let mut follow = false;
     let mut options = options.iter();
     while let Some(option) = options.next() {
         match option.as_str() {
@@ -112,6 +118,7 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
                 _ => bail!("--out needs one folder\n\n{USAGE}"),
             },
             "--allow-relay" => allow_relay = true,
+            "--follow" => follow = true,
             other => bail!("unknown option {other}\n\n{USAGE}"),
         }
     }
@@ -119,6 +126,7 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
         ticket: ticket.to_owned(),
         output,
         allow_relay,
+        follow,
     })
 }
 
@@ -141,7 +149,8 @@ async fn main() -> Result<()> {
             ticket,
             output,
             allow_relay,
-        } => get::run(&ticket, output, allow_relay).await,
+            follow,
+        } => get::run(&ticket, output, allow_relay, follow).await,
         Command::Help => {
             println!("{USAGE}");
             Ok(())
@@ -186,7 +195,8 @@ mod tests {
         assert!(parse(&args(&["share", "--keyfile", "k", "a"])).is_err());
         assert!(matches!(
             parse(&args(&["get", "T"])),
-            Ok(Command::Get { ticket, output: None, allow_relay: false }) if ticket == "T"
+            Ok(Command::Get { ticket, output: None, allow_relay: false, follow: false })
+                if ticket == "T"
         ));
         assert!(matches!(
             parse(&args(&["get", "T", "--out", "dir"])),
@@ -206,6 +216,10 @@ mod tests {
             parse(&args(&["get", "T", "--allow-relay", "--out", "dir"])),
             Ok(Command::Get { output: Some(output), allow_relay: true, .. })
                 if output == std::path::Path::new("dir")
+        ));
+        assert!(matches!(
+            parse(&args(&["get", "T", "--follow"])),
+            Ok(Command::Get { follow: true, .. })
         ));
         assert!(parse(&args(&["get", "T", "--out"])).is_err());
         assert!(parse(&args(&["get", "T", "--out", "a", "--out", "b"])).is_err());

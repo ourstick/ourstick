@@ -9,6 +9,7 @@ use std::sync::Arc;
 mod entry;
 mod files;
 mod folder;
+mod follow;
 mod listing;
 mod path;
 mod relay;
@@ -21,6 +22,7 @@ use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::{settle, RelayState, Watch};
 
+pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use listing::{list, Listing};
 pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
 pub use types::{DownloadError, DownloadEvent, DownloadReport};

@@ -1,6 +1,8 @@
-//! `ourstick get <ticket> [--out <folder>]`: download a stick, resuming if a
-//! previous run was interrupted. Prints whether the connection is direct or
-//! through a relay, and every time that changes.
+//! `ourstick get <ticket> [--out <folder>] [--follow]`: download a stick,
+//! resuming if a previous run was interrupted, fetching only what changed
+//! since the last run. Prints whether the connection is direct or through a
+//! relay, and every time that changes. With `--follow`, keeps going: every new
+//! version the owner shares is downloaded as it comes.
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -8,13 +10,19 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
-use ourstick_core::download::{download, DownloadError, DownloadEvent, RelayPolicy};
+use ourstick_core::download::{
+    download, wait_for_newer, DownloadError, DownloadEvent, DownloadReport, FollowEvent,
+    RelayPolicy, FOLLOW_EVERY,
+};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
+use ourstick_core::Store;
 use ourstick_core::Ticket;
 
 use crate::consent::CliConsent;
+use crate::display::untrusted;
 use crate::progress::{clock, Progress};
+use crate::setup::{self, hex, random_key};
 
 /// How long data may arrive through the relay before `get` explains why.
 const EXPLAIN_AFTER: Duration = Duration::from_secs(6);
@@ -37,9 +45,13 @@ fn relay_explanation(fetcher: &IrohFetcher, ticket: &Ticket, elapsed: Duration) 
     }
     lines
 }
-use crate::setup::{self, hex, random_key};
 
-pub async fn run(ticket_text: &str, output: Option<PathBuf>, allow_relay: bool) -> Result<()> {
+pub async fn run(
+    ticket_text: &str,
+    output: Option<PathBuf>,
+    allow_relay: bool,
+    follow: bool,
+) -> Result<()> {
     let ticket: Ticket = ticket_text.parse()?;
     let stick_hex = hex(&ticket.stick_id.to_bytes());
     let output = match output {
@@ -62,53 +74,27 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, allow_relay: bool) 
     let fetcher = IrohFetcher::start(&config, &store_dir).await?;
     println!("Connecting to the owner…");
 
-    let started = Instant::now();
-    let consent = CliConsent::new(allow_relay, started);
-    let policy = RelayPolicy::default();
-    let mut progress = Progress::default();
-    let mut explained = false;
-    let mut on_event = |event: DownloadEvent<'_>| {
-        let elapsed = started.elapsed();
-        for line in progress.on_event(event, elapsed) {
-            println!("{line}");
-        }
-        // Still on the relay after a few seconds: say why, once.
-        if !explained
-            && !consent.explained()
-            && progress.path() == Some(PathKind::Relay)
-            && elapsed >= EXPLAIN_AFTER
-        {
-            explained = true;
-            for line in relay_explanation(&fetcher, &ticket, elapsed) {
-                println!("{line}");
-            }
-        }
-        ControlFlow::Continue(())
+    let getter = Getter {
+        fetcher: &fetcher,
+        store: setup.store.clone(),
+        ticket: &ticket,
+        output: &output,
+        consent: CliConsent::new(allow_relay, Instant::now()),
+        started: Instant::now(),
+        explained: std::sync::atomic::AtomicBool::new(false),
     };
-    // Ctrl-C stops the download here instead of killing the process, so the
-    // blob store is closed cleanly and keeps everything received so far.
+    // Ctrl-C stops here instead of killing the process, so the blob store is
+    // closed cleanly and keeps everything received so far.
     let outcome = tokio::select! {
-        result = download(
-            &fetcher,
-            setup.store.clone(),
-            &SystemClock,
-            &ticket,
-            &output,
-            &policy,
-            &consent,
-            &mut on_event,
-        ) => Some(result),
+        result = getter.run(follow) => Some(result),
         _ = tokio::signal::ctrl_c() => None,
     };
+    let started = getter.started;
 
     match outcome {
-        Some(Ok(report)) => {
+        Some(Ok(())) => {
             // Everything is in the output folder; the blob store is no longer needed.
             fetcher.shutdown(false).await?;
-            let output = output.display().to_string();
-            for line in Progress::summary(&report, &output, started.elapsed()) {
-                println!("{line}");
-            }
             Ok(())
         }
         Some(Err(error)) => {
@@ -135,5 +121,140 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, allow_relay: bool) 
             );
             std::process::exit(130);
         }
+    }
+}
+
+/// Everything one run of `get` downloads with.
+struct Getter<'a> {
+    fetcher: &'a IrohFetcher,
+    store: std::sync::Arc<dyn Store>,
+    ticket: &'a Ticket,
+    output: &'a std::path::Path,
+    consent: CliConsent,
+    started: Instant,
+    /// Set once the reasons for the relay have been printed.
+    explained: std::sync::atomic::AtomicBool,
+}
+
+impl Getter<'_> {
+    /// One download, or with `follow` one download and then every new version.
+    async fn run(&self, follow: bool) -> Result<(), DownloadError> {
+        let report = self.download_once().await?;
+        if !follow {
+            return Ok(());
+        }
+        println!(
+            "[{}] Following: checking for a new version every {} s. Press Ctrl-C to stop.",
+            clock(self.started.elapsed()),
+            FOLLOW_EVERY.as_secs()
+        );
+        let mut seq = report.seq;
+        loop {
+            let mut on_event = |event: FollowEvent<'_>| {
+                for line in follow_lines(&event, self.started.elapsed()) {
+                    println!("{line}");
+                }
+            };
+            let newer =
+                wait_for_newer(self.fetcher, self.ticket, seq, FOLLOW_EVERY, &mut on_event).await?;
+            println!(
+                "[{}] The owner shared a new version ({newer}).",
+                clock(self.started.elapsed())
+            );
+            match self.download_once().await {
+                Ok(report) => seq = report.seq,
+                // Asking again every few seconds would be no answer at all.
+                Err(error @ DownloadError::RelayDeclined { .. }) => return Err(error),
+                Err(error) => {
+                    println!(
+                        "[{}] Download stopped: {}. Trying again at the next check.",
+                        clock(self.started.elapsed()),
+                        untrusted(&error.to_string())
+                    );
+                    tokio::time::sleep(FOLLOW_EVERY).await;
+                }
+            }
+        }
+    }
+
+    /// One download with progress and summary.
+    async fn download_once(&self) -> Result<DownloadReport, DownloadError> {
+        let mut progress = Progress::default();
+        let mut on_event = |event: DownloadEvent<'_>| {
+            let elapsed = self.started.elapsed();
+            for line in progress.on_event(event, elapsed) {
+                println!("{line}");
+            }
+            // Still on the relay after a few seconds: say why, once.
+            if !self.explained.load(std::sync::atomic::Ordering::SeqCst)
+                && !self.consent.explained()
+                && progress.path() == Some(PathKind::Relay)
+                && elapsed >= EXPLAIN_AFTER
+            {
+                self.explained
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                for line in relay_explanation(self.fetcher, self.ticket, elapsed) {
+                    println!("{line}");
+                }
+            }
+            ControlFlow::Continue(())
+        };
+        let begun = self.started.elapsed();
+        let report = download(
+            self.fetcher,
+            self.store.clone(),
+            &SystemClock,
+            self.ticket,
+            self.output,
+            &RelayPolicy::default(),
+            &self.consent,
+            &mut on_event,
+        )
+        .await?;
+        let output = self.output.display().to_string();
+        let took = self.started.elapsed().saturating_sub(begun);
+        for line in Progress::summary(&report, &output, took) {
+            println!("{line}");
+        }
+        Ok(report)
+    }
+}
+
+/// Lines for what happens while following.
+fn follow_lines(event: &FollowEvent<'_>, elapsed: Duration) -> Vec<String> {
+    let at = clock(elapsed);
+    match event {
+        FollowEvent::Unreachable { reason } => vec![format!(
+            "[{at}] The owner cannot be reached ({}); still trying.",
+            untrusted(&reason.to_string())
+        )],
+        FollowEvent::Reachable => vec![format!("[{at}] The owner can be reached again.")],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ourstick_core::transport::TransportError;
+
+    #[test]
+    fn follow_lines_say_what_happens() {
+        let at = Duration::from_secs(61);
+        assert_eq!(
+            follow_lines(
+                &FollowEvent::Unreachable {
+                    reason: &TransportError::NoRecord
+                },
+                at
+            ),
+            vec![
+                "[01:01] The owner cannot be reached (the owner has no manifest to offer \
+                 for this stick yet); still trying."
+            ]
+        );
+        assert_eq!(
+            follow_lines(&FollowEvent::Reachable, at),
+            vec!["[01:01] The owner can be reached again."]
+        );
     }
 }

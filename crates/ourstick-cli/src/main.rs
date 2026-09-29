@@ -6,6 +6,7 @@ mod get;
 mod ls;
 mod progress;
 mod qr;
+mod secrets;
 mod setup;
 mod share;
 
@@ -13,11 +14,14 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 
+use secrets::SecretsChoice;
+
 const USAGE: &str = "\
 ourstick — a USB stick you can send
 
 Usage:
-  ourstick share <folder>                  Share a folder and print its ticket
+  ourstick share [--key-file <path>] <folder>
+                                           Share a folder and print its ticket
   ourstick ls <ticket>                     List a stick's files without downloading
   ourstick get <ticket> [--out <folder>] [--allow-relay]
                                            Download a stick (resumes if interrupted)
@@ -27,11 +31,17 @@ come through a relay while it keeps looking; after that it waits up to 15 s
 more and asks before going on through the relay. --allow-relay says yes in
 advance (for scripts).
 
+`share` keeps this device's keys in the Secret Service (GNOME Keyring,
+KWallet). Where there is none (macOS for now, SSH sessions, servers), the first
+`share --key-file <path>` keeps them in a file protected by a passphrase
+instead; later runs use that file and ask for its passphrase.
+
 Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 
 enum Command {
     Share {
         folder: PathBuf,
+        secrets: SecretsChoice,
     },
     List {
         ticket: String,
@@ -46,9 +56,7 @@ enum Command {
 
 fn parse(args: &[String]) -> Result<Command> {
     match args {
-        [command, folder] if command == "share" => Ok(Command::Share {
-            folder: folder.into(),
-        }),
+        [command, options @ ..] if command == "share" => parse_share(options),
         [command, ticket] if command == "ls" => Ok(Command::List {
             ticket: ticket.to_owned(),
         }),
@@ -57,6 +65,31 @@ fn parse(args: &[String]) -> Result<Command> {
         [flag] if flag == "-h" || flag == "--help" || flag == "help" => Ok(Command::Help),
         _ => bail!("unknown command\n\n{USAGE}"),
     }
+}
+
+/// `share <folder>`, with `--key-file <path>` before or after it.
+fn parse_share(options: &[String]) -> Result<Command> {
+    let mut folder = None;
+    let mut key_file = None;
+    let mut options = options.iter();
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "--key-file" => match options.next() {
+                Some(path) if key_file.is_none() => key_file = Some(PathBuf::from(path)),
+                _ => bail!("--key-file needs one path\n\n{USAGE}"),
+            },
+            other if other.starts_with("--") => bail!("unknown option {other}\n\n{USAGE}"),
+            _ if folder.is_some() => bail!("share takes one folder\n\n{USAGE}"),
+            path => folder = Some(PathBuf::from(path)),
+        }
+    }
+    let Some(folder) = folder else {
+        bail!("share needs a folder\n\n{USAGE}");
+    };
+    Ok(Command::Share {
+        folder,
+        secrets: key_file.map_or(SecretsChoice::Default, SecretsChoice::KeyFile),
+    })
 }
 
 /// `get <ticket>` followed by `--out <folder>` and/or `--allow-relay`, in any order.
@@ -90,7 +123,7 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args)? {
-        Command::Share { folder } => share::run(&folder).await,
+        Command::Share { folder, secrets } => share::run(&folder, secrets).await,
         Command::List { ticket } => ls::run(&ticket).await,
         Command::Get {
             ticket,
@@ -116,8 +149,25 @@ mod tests {
     fn parses_commands() {
         assert!(matches!(
             parse(&args(&["share", "photos"])),
-            Ok(Command::Share { folder }) if folder == std::path::Path::new("photos")
+            Ok(Command::Share { folder, secrets: SecretsChoice::Default })
+                if folder == std::path::Path::new("photos")
         ));
+        for order in [
+            &["share", "--key-file", "k.oskf", "photos"],
+            &["share", "photos", "--key-file", "k.oskf"],
+        ] {
+            assert!(matches!(
+                parse(&args(order)),
+                Ok(Command::Share { folder, secrets: SecretsChoice::KeyFile(path) })
+                    if folder == std::path::Path::new("photos")
+                        && path == std::path::Path::new("k.oskf")
+            ));
+        }
+        assert!(parse(&args(&["share", "a", "b"])).is_err());
+        assert!(parse(&args(&["share", "--key-file"])).is_err());
+        assert!(parse(&args(&["share", "--key-file", "k"])).is_err());
+        assert!(parse(&args(&["share", "--key-file", "k", "--key-file", "j", "a"])).is_err());
+        assert!(parse(&args(&["share", "--keyfile", "k", "a"])).is_err());
         assert!(matches!(
             parse(&args(&["get", "T"])),
             Ok(Command::Get { ticket, output: None, allow_relay: false }) if ticket == "T"

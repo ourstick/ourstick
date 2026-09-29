@@ -354,7 +354,7 @@ from the StickId (below), so SQLite needs no column for it. See
 | Platform                  | Where secrets live                                            | Status  |
 |---------------------------|---------------------------------------------------------------|---------|
 | Linux desktop             | Secret Service (GNOME Keyring, KWallet) over D-Bus            | v1      |
-| CLI without Secret Service | `--key-file <path>`: file encrypted with a passphrase (Argon2id + XChaCha20-Poly1305), mode 0600, chosen explicitly by the user | v1 |
+| CLI without Secret Service (macOS for now, SSH sessions, servers) | `--key-file <path>`: file encrypted with a passphrase (Argon2id + XChaCha20-Poly1305), mode 0600, chosen explicitly by the user on the device's first `share` and recorded in `device`; later runs open it and ask for the passphrase on the terminal (never from arguments or the environment). A device never switches between the two, since that would change its node key | v1 |
 | Android                   | A Keystore-held AES key (hardware-backed where available) wraps the secrets, stored in app-private storage | Later (Tauri) |
 | iOS                       | Keychain, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not synced to iCloud) | Later (Tauri) |
 

@@ -17,6 +17,7 @@ use ourstick_core::{
 
 use crate::display::bytes;
 use crate::qr::qr_lines;
+use crate::secrets::SecretsChoice;
 use crate::setup::{self, hex, load_key, now_ms};
 
 const CIPHER: CipherId = CipherId::XChaCha20Poly1305;
@@ -66,13 +67,13 @@ fn owned_stick_for(
     Ok((stick, signing_key, stick_key))
 }
 
-pub async fn run(folder: &Path) -> Result<()> {
+pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
     let (setup, stick, signing_key, stick_key) = tokio::task::spawn_blocking({
         let folder = folder.clone();
         move || -> Result<_> {
-            let setup = setup::open()?;
+            let setup = setup::open(&secrets)?;
             let (stick, signing_key, stick_key) = owned_stick_for(&setup, &folder)?;
             Ok((setup, stick, signing_key, stick_key))
         }

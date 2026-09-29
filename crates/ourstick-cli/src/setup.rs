@@ -5,10 +5,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use ourstick_core::secrets::{check_secret_store, SecretName, SecretStore};
+use ourstick_core::secrets::{check_secret_store, KeyFileParams, SecretName, SecretStore};
 use ourstick_core::transport::iroh::IrohConfig;
-use ourstick_core::{Device, SecretBackend, SqliteStore, Store};
+use ourstick_core::{Device, SqliteStore, Store};
 use rand::RngCore;
+
+use crate::secrets::{open_secrets, SecretsChoice, TerminalPassphrases};
 
 pub struct Setup {
     pub data_dir: PathBuf,
@@ -50,7 +52,7 @@ fn secret_store() -> Result<Box<dyn SecretStore>> {
 
 #[cfg(not(target_os = "linux"))]
 fn secret_store() -> Result<Box<dyn SecretStore>> {
-    bail!("this version of OurStick keeps keys only in the Linux Secret Service")
+    bail!("on this system OurStick can use only a key file for now")
 }
 
 pub fn random_key() -> [u8; 32] {
@@ -75,8 +77,6 @@ pub fn load_key(secrets: &dyn SecretStore, name: &SecretName) -> Result<[u8; 32]
         .map_err(|_| anyhow::anyhow!("the key {name:?} in {} is damaged", secrets.describe()))
 }
 
-/// Opens everything, creating the device and its node key on first use.
-/// Blocking: call from `spawn_blocking`.
 /// What a reader needs: the data folder and the database, no secret store.
 /// Works on every platform.
 pub struct ReaderSetup {
@@ -92,18 +92,23 @@ pub fn open_for_reading() -> Result<ReaderSetup> {
     Ok(ReaderSetup { data_dir, store })
 }
 
-pub fn open() -> Result<Setup> {
+/// Opens everything, creating the device and its node key on first use; the
+/// keys go where `choice` says, and stay there. May ask for a passphrase.
+/// Blocking: call from `spawn_blocking`.
+pub fn open(choice: &SecretsChoice) -> Result<Setup> {
     let ReaderSetup { data_dir, store } = open_for_reading()?;
-    let secrets = secret_store()?;
+    let device = store.device()?;
+    let (secrets, backend) = open_secrets(
+        device.as_ref().map(|device| &device.secret_backend),
+        choice,
+        &secret_store,
+        &TerminalPassphrases,
+        KeyFileParams::default(),
+    )?;
     check_secret_store(secrets.as_ref())?;
 
-    let node_key = match store.device()? {
-        Some(device) => {
-            if device.secret_backend != SecretBackend::SecretService {
-                bail!("this device keeps its keys in a key file, which this version of the CLI cannot open yet");
-            }
-            load_key(secrets.as_ref(), &SecretName::NodeKey)?
-        }
+    let node_key = match device {
+        Some(_) => load_key(secrets.as_ref(), &SecretName::NodeKey)?,
         None => {
             if secrets.get(&SecretName::NodeKey)?.is_some() {
                 bail!(
@@ -118,7 +123,7 @@ pub fn open() -> Result<Setup> {
             secrets.put(&SecretName::NodeKey, &key)?;
             store.create_device(&Device {
                 node_id: IrohConfig::node_id_of(&key),
-                secret_backend: SecretBackend::SecretService,
+                secret_backend: backend,
                 created_at_ms: now_ms(),
             })?;
             key

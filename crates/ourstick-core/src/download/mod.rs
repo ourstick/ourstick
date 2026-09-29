@@ -8,26 +8,28 @@ use std::sync::Arc;
 
 mod entry;
 mod files;
+mod listing;
 mod path;
 mod relay;
 
 use entry::download_file;
-use files::{check_manifest_paths, prepare_partial_dir};
+use files::prepare_partial_dir;
+use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::{settle, RelayState};
 
+pub use listing::{list, Listing};
 pub use relay::{RelayConsent, RelayPolicy, RelayQuestion};
 
 /// How many times a download reconnects (budget used up, direct path lost)
 /// before giving up.
 const MAX_RECONNECTS: u32 = 3;
 
-use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
-use crate::cipher::{cipher_for, Cipher, CipherError, CipherId};
+use crate::cipher::CipherError;
 use crate::clock::Clock;
-use crate::manifest::{Manifest, ManifestError};
-use crate::record::{ManifestHint, RecordCheck, RecordError};
+use crate::manifest::ManifestError;
+use crate::record::RecordError;
 use crate::store::{JoinedStick, ManifestVersion, Store, StoreError};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PathKind, PathUsage, PeerConnection, TransportError};
@@ -279,51 +281,12 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
 
-    let signed = connection.fetch_record(&ticket.stick_id).await?;
-    let floor_hint = floor.map(|floor| ManifestHint {
-        seq: floor.seq,
-        hash: floor.hash,
-    });
-    let check = signed.check(&ticket.stick_id, &ticket.manifest_hint, floor_hint.as_ref())?;
-    let (record, newer) = match check {
-        RecordCheck::Newer(record) => (record, true),
-        RecordCheck::Unchanged(record) => (record, false),
-    };
-    let version = ManifestVersion {
-        seq: record.seq,
-        hash: record.manifest_hash,
-    };
+    let (Listing { version, manifest }, cipher) =
+        fetch_listing(fetcher, connection, &store, ticket, floor).await?;
     // What this folder already holds, not what this device has seen.
     let unchanged = joined.completed == Some(version);
-
-    connection
-        .fetch_blob(&record.manifest_hash, &mut |_| ControlFlow::Continue(()))
-        .await
-        .map_err(cancelled)?;
-    let manifest_blob = fetcher.read_blob(&record.manifest_hash).await?;
-    let cipher = cipher_of(&manifest_blob, ticket)?;
-    let manifest = {
-        let cipher = cipher.clone();
-        run_blocking(move || -> Result<Manifest, DownloadError> {
-            let mut plaintext = Vec::new();
-            decrypt_blob(
-                cipher.as_ref(),
-                &mut manifest_blob.as_slice(),
-                &mut plaintext,
-            )?;
-            Ok(Manifest::from_bytes(&plaintext)?)
-        })
-        .await?
-    };
-    // Before anything is accepted or written: every path must be safe here.
-    check_manifest_paths(&manifest)?;
-    if newer {
-        // Accepted only once the manifest it names has been read successfully.
-        let store = store.clone();
-        run_blocking(move || store.accept_record(&record)).await?;
-    }
     if on_event(DownloadEvent::Manifest {
-        seq: record.seq,
+        seq: version.seq,
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
         unchanged,
@@ -377,20 +340,13 @@ async fn download_over(
     }
 
     Ok(DownloadReport {
-        seq: record.seq,
+        seq: version.seq,
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
         // Both are counted over all connections by `download`.
         received: 0,
         usage: PathUsage::default(),
     })
-}
-
-/// The stick's cipher, read from the manifest blob header. Every file blob must
-/// use the same one (`decrypt_blob` checks).
-fn cipher_of(manifest_blob: &[u8], ticket: &Ticket) -> Result<Arc<dyn Cipher>, DownloadError> {
-    let byte = *manifest_blob.get(1).ok_or(CipherError::Truncated)?;
-    Ok(cipher_for(CipherId::from_byte(byte)?, &ticket.stick_key))
 }
 
 #[cfg(test)]

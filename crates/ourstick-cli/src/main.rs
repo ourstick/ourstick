@@ -1,8 +1,9 @@
-//! `ourstick` CLI: share / get.
+//! `ourstick` CLI: share / ls / get.
 
 mod consent;
 mod display;
 mod get;
+mod ls;
 mod progress;
 mod setup;
 mod share;
@@ -16,6 +17,7 @@ ourstick — a USB stick you can send
 
 Usage:
   ourstick share <folder>                  Share a folder and print its ticket
+  ourstick ls <ticket>                     List a stick's files without downloading
   ourstick get <ticket> [--out <folder>] [--allow-relay]
                                            Download a stick (resumes if interrupted)
 
@@ -30,6 +32,9 @@ enum Command {
     Share {
         folder: PathBuf,
     },
+    List {
+        ticket: String,
+    },
     Get {
         ticket: String,
         output: Option<PathBuf>,
@@ -42,6 +47,9 @@ fn parse(args: &[String]) -> Result<Command> {
     match args {
         [command, folder] if command == "share" => Ok(Command::Share {
             folder: folder.into(),
+        }),
+        [command, ticket] if command == "ls" => Ok(Command::List {
+            ticket: ticket.to_owned(),
         }),
         [command, ticket, options @ ..] if command == "get" => parse_get(ticket, options),
         [] => Ok(Command::Help),
@@ -82,6 +90,7 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args)? {
         Command::Share { folder } => share::run(&folder).await,
+        Command::List { ticket } => ls::run(&ticket).await,
         Command::Get {
             ticket,
             output,
@@ -116,6 +125,12 @@ mod tests {
             parse(&args(&["get", "T", "--out", "dir"])),
             Ok(Command::Get { output: Some(output), .. }) if output == std::path::Path::new("dir")
         ));
+        assert!(matches!(
+            parse(&args(&["ls", "T"])),
+            Ok(Command::List { ticket }) if ticket == "T"
+        ));
+        assert!(parse(&args(&["ls"])).is_err());
+        assert!(parse(&args(&["ls", "T", "--out", "dir"])).is_err());
         assert!(matches!(parse(&args(&[])), Ok(Command::Help)));
         assert!(matches!(parse(&args(&["--help"])), Ok(Command::Help)));
         assert!(parse(&args(&["share"])).is_err());

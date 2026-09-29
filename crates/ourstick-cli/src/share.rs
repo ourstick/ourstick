@@ -125,6 +125,9 @@ pub async fn run(folder: &Path, secrets: SecretsChoice) -> Result<()> {
         &stick_key,
     )
     .await?;
+    if !publication.new_version {
+        println!("No changes since the last share: readers keep the same version.");
+    }
     if !publisher.online(Duration::from_secs(30)).await {
         println!("Warning: no relay reachable; the ticket only has direct addresses.");
     }

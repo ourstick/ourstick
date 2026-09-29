@@ -63,6 +63,9 @@ pub struct Publication {
     /// The `seq` of `record`, for the ticket's manifest hint.
     pub seq: u64,
     pub record: SignedManifestRecord,
+    /// False if the folder was as last published: the same record is served
+    /// again, with no new `seq`.
+    pub new_version: bool,
 }
 
 /// Why sharing failed. The messages are meant for users.
@@ -106,7 +109,9 @@ fn clear_staging(staging: &Path) -> Result<(), ShareError> {
 }
 
 /// Encrypts the stick's folder into the publisher's cache, signs a record for
-/// the new manifest with the next `seq`, stores it, and publishes it.
+/// the new manifest with the next `seq`, stores it, and publishes it. If the
+/// manifest is the one last signed, that record is published again instead:
+/// a version changes only when the folder does.
 ///
 /// The folder, cipher and last `seq` come from the owned stick in `store`.
 pub async fn publish_folder(
@@ -147,24 +152,40 @@ pub async fn publish_folder(
             })?;
     }
 
-    let seq = next_seq(owned.last_signed_seq, clock.now_ms()).ok_or(ShareError::SeqExhausted)?;
-    let record = signing_key.sign_record(seq, manifest_hash);
-    {
-        let store = store.clone();
-        let record = record.clone();
-        // Stored before it is served, so a seq is never used twice.
-        run_blocking(move || store.save_signed_record(&record)).await?;
-    }
+    let unchanged = owned
+        .latest_record
+        .filter(|record| record.unverified_record().manifest_hash == manifest_hash);
+    let new_version = unchanged.is_none();
+    let record = match unchanged {
+        Some(record) => record,
+        None => {
+            let seq =
+                next_seq(owned.last_signed_seq, clock.now_ms()).ok_or(ShareError::SeqExhausted)?;
+            let record = signing_key.sign_record(seq, manifest_hash);
+            let store = store.clone();
+            let saved = record.clone();
+            // Stored before it is served, so a seq is never used twice.
+            run_blocking(move || store.save_signed_record(&saved)).await?;
+            record
+        }
+    };
+    let seq = record.unverified_record().seq;
 
     let mut allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
     allowed.insert(manifest_hash);
     publisher.publish(record.clone(), allowed).await?;
-    tracing::info!(seq, files = manifest.entries.len(), "published stick");
+    tracing::info!(
+        seq,
+        new_version,
+        files = manifest.entries.len(),
+        "published stick"
+    );
     Ok(Publication {
         manifest,
         manifest_hash,
         seq,
         record,
+        new_version,
     })
 }
 

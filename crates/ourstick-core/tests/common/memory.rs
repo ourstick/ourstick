@@ -7,24 +7,19 @@ use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{RelayConsent, RelayQuestion};
-use ourstick_core::share::publish_folder;
 use ourstick_core::transport::{
     BlobHash, FetchStats, Fetcher, NetworkReport, PathKind, PathUsage, PeerConnection, Publisher,
     TransportError,
 };
-use ourstick_core::{
-    AddressHint, CipherId, ManifestHint, MemoryStore, NodeId, OwnedStick, SignedManifestRecord,
-    StickId, StickKey, StickSigningKey, Store, Ticket,
-};
+use ourstick_core::{AddressHint, NodeId, SignedManifestRecord, StickId, Ticket};
 
 /// What the owner serves, shared with the reader's side.
 #[derive(Default, Clone)]
 pub struct Served {
-    blobs: HashMap<BlobHash, Vec<u8>>,
-    record: Option<SignedManifestRecord>,
-    allowed: HashSet<BlobHash>,
+    pub(crate) blobs: HashMap<BlobHash, Vec<u8>>,
+    pub(crate) record: Option<SignedManifestRecord>,
+    pub(crate) allowed: HashSet<BlobHash>,
 }
 
 /// The network between reader and owner.
@@ -44,8 +39,8 @@ pub struct Link {
 }
 
 pub struct MemoryPublisher {
-    served: Arc<Mutex<Served>>,
-    staging: tempfile::TempDir,
+    pub(crate) served: Arc<Mutex<Served>>,
+    pub(crate) staging: tempfile::TempDir,
 }
 
 impl Publisher for MemoryPublisher {
@@ -297,152 +292,6 @@ impl RelayConsent for MemoryConsent {
     }
 }
 
-fn random_key() -> [u8; 32] {
-    use rand::RngCore;
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
-    key
-}
-
-/// A stick with one file of `size` bytes, published into memory.
-pub struct Published {
-    pub served: Arc<Mutex<Served>>,
-    pub ticket: Ticket,
-    pub data: Vec<u8>,
-    _folder: tempfile::TempDir,
-}
-
-pub async fn publish_one_file(size: usize) -> Published {
-    let folder = tempfile::tempdir().unwrap();
-    let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
-    std::fs::write(folder.path().join("movie.bin"), &data).unwrap();
-    let signing_key = StickSigningKey::from_bytes(&random_key());
-    let stick_key = StickKey::from_bytes(random_key());
-    let owner_store = Arc::new(MemoryStore::new());
-    owner_store
-        .add_owned_stick(&OwnedStick::new(
-            signing_key.stick_id(),
-            "test",
-            folder.path(),
-            CipherId::XChaCha20Poly1305,
-            1,
-        ))
-        .unwrap();
-    let served = Arc::new(Mutex::new(Served::default()));
-    let publisher = MemoryPublisher {
-        served: served.clone(),
-        staging: tempfile::tempdir().unwrap(),
-    };
-    let publication = publish_folder(
-        &publisher,
-        owner_store,
-        &FixedClock::new(1_000),
-        &signing_key,
-        &stick_key,
-        false,
-    )
-    .await
-    .unwrap();
-    let ticket = Ticket {
-        stick_id: signing_key.stick_id(),
-        node_id: publisher.node_id(),
-        manifest_hint: ManifestHint {
-            seq: publication.seq,
-            hash: publication.manifest_hash,
-        },
-        address_hints: Vec::new(),
-        stick_key,
-    };
-    Published {
-        served,
-        ticket,
-        data,
-        _folder: folder,
-    }
-}
-
-/// A stick published in several versions, one after the other; `served`
-/// starts at the first, and `versions[i]` is what the owner serves at
-/// version `i` (swap it in to publish that version).
-pub struct Versions {
-    pub served: Arc<Mutex<Served>>,
-    pub versions: Vec<Served>,
-    pub ticket: Ticket,
-    _folder: tempfile::TempDir,
-}
-
-impl Versions {
-    /// The owner now serves version `index`, and only its blobs.
-    pub fn publish(&self, index: usize) {
-        *self.served.lock().unwrap() = self.versions[index].clone();
-    }
-
-    /// The owner keeps its record but stops serving every blob.
-    pub fn stop_serving_blobs(&self) {
-        self.served.lock().unwrap().allowed.clear();
-    }
-}
-
-/// Publishes each list of files as the next version of one stick, at seq
-/// 1000, 2000, …
-pub async fn publish_versions(versions: &[&[(&str, &[u8])]]) -> Versions {
-    let folder = tempfile::tempdir().unwrap();
-    let signing_key = StickSigningKey::from_bytes(&random_key());
-    let stick_key = StickKey::from_bytes(random_key());
-    let owner_store = Arc::new(MemoryStore::new());
-    owner_store
-        .add_owned_stick(&OwnedStick::new(
-            signing_key.stick_id(),
-            "test",
-            folder.path(),
-            CipherId::XChaCha20Poly1305,
-            1,
-        ))
-        .unwrap();
-    let served = Arc::new(Mutex::new(Served::default()));
-    let publisher = MemoryPublisher {
-        served: served.clone(),
-        staging: tempfile::tempdir().unwrap(),
-    };
-    let mut states = Vec::new();
-    let mut first = None;
-    for (index, files) in versions.iter().enumerate() {
-        for entry in std::fs::read_dir(folder.path()).unwrap() {
-            std::fs::remove_file(entry.unwrap().path()).unwrap();
-        }
-        for (path, content) in *files {
-            std::fs::write(folder.path().join(path), content).unwrap();
-        }
-        let publication = publish_folder(
-            &publisher,
-            owner_store.clone(),
-            &FixedClock::new(1_000 * (index as u64 + 1)),
-            &signing_key,
-            &stick_key,
-            true,
-        )
-        .await
-        .unwrap();
-        first.get_or_insert(publication);
-        states.push(served.lock().unwrap().clone());
-    }
-    let first = first.unwrap();
-    let ticket = Ticket {
-        stick_id: signing_key.stick_id(),
-        node_id: publisher.node_id(),
-        manifest_hint: ManifestHint {
-            seq: first.seq,
-            hash: first.manifest_hash,
-        },
-        address_hints: Vec::new(),
-        stick_key,
-    };
-    let versions = Versions {
-        served,
-        versions: states,
-        ticket,
-        _folder: folder,
-    };
-    versions.publish(0);
-    versions
-}
+// Each test binary uses a different subset.
+#[allow(unused_imports)]
+pub use super::published::{publish_one_file, publish_versions, Published, Versions};

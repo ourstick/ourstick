@@ -4,6 +4,7 @@
 #![allow(dead_code)] // each test binary uses a different subset
 
 pub mod memory;
+pub mod published;
 
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};

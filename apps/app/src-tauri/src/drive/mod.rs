@@ -6,12 +6,15 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ourstick_core::manifest::DRIVE_MARKER;
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 const NAME: &str = "OurStick";
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn home() -> Result<PathBuf> {
+    use anyhow::Context;
     Ok(PathBuf::from(
         std::env::var_os("HOME").context("cannot find your home folder")?,
     ))

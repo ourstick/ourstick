@@ -13,7 +13,19 @@ pub enum Mode {
     Quit,
 }
 
-/// Shows the dialog for `mode` (one at a time).
+/// [`open`] from an event handler of the event loop, where a new window
+/// would never load on Windows: from a task instead.
+pub fn open_later(app: &AppHandle, mode: Mode) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = open(&app, mode) {
+            tracing::warn!(error = %format!("{error:#}"), "cannot show the dialog");
+        }
+    });
+}
+
+/// Shows the dialog for `mode` (one at a time). Not from an event handler
+/// (see [`open_later`]) or a synchronous command.
 pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
     if let Some(window) = app.get_webview_window("confirm") {
         let _ = window.close();
@@ -56,8 +68,10 @@ pub async fn confirm_view(state: State<'_, AppState>) -> Result<ConfirmView, Str
     })
 }
 
+/// Async, as `share::open_share`: a window made from a synchronous command
+/// never loads on Windows.
 #[tauri::command]
-pub fn open_dialog(app: AppHandle, quit: bool) -> Result<(), String> {
+pub async fn open_dialog(app: AppHandle, quit: bool) -> Result<(), String> {
     let mode = if quit { Mode::Quit } else { Mode::StopSharing };
     open(&app, mode).map_err(|error| format!("{error:#}"))
 }

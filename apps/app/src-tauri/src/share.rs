@@ -50,8 +50,10 @@ fn shown(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// Async: on Windows a window made from a synchronous command never loads
+/// (WebView2 waits on the thread the command holds).
 #[tauri::command]
-pub fn open_share(app: AppHandle) -> Result<(), String> {
+pub async fn open_share(app: AppHandle) -> Result<(), String> {
     open(&app).map_err(|error| format!("{error:#}"))
 }
 

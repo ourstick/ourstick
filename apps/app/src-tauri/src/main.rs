@@ -53,9 +53,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     let builder = builder.menu(menu::build).on_menu_event(|app, event| {
         if event.id.as_ref() == menu::QUIT {
-            if let Err(error) = dialog::open(app, dialog::Mode::Quit) {
-                tracing::warn!(error = %format!("{error:#}"), "cannot ask before quitting");
-            }
+            dialog::open_later(app, dialog::Mode::Quit);
         }
     });
     builder
@@ -125,9 +123,7 @@ fn main() {
                 // with ⌘Q or from the app menu too, not only from the tray.
                 if !dialog::QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_exit();
-                    if let Err(error) = dialog::open(app, dialog::Mode::Quit) {
-                        tracing::warn!(error = %format!("{error:#}"), "cannot ask before quitting");
-                    }
+                    dialog::open_later(app, dialog::Mode::Quit);
                 }
             }
             if let tauri::RunEvent::Exit = event {

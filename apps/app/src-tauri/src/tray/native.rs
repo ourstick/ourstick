@@ -109,7 +109,10 @@ pub fn create(app: &AppHandle) -> Result<()> {
                 "quit" => Action::Quit,
                 _ => return,
             };
-            act(app, action);
+            // Not in the menu handler itself: a window made there never
+            // loads on Windows (WebView2 waits on the event loop's thread).
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { act(&app, action) });
         })
         .build(app)?;
     Ok(())

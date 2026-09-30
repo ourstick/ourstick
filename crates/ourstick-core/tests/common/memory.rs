@@ -80,6 +80,14 @@ impl Publisher for MemoryPublisher {
     fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {
         tokio::sync::watch::channel(Default::default()).1
     }
+    async fn keep_only_blobs(&self, keep: HashSet<BlobHash>) -> Result<(), TransportError> {
+        let mut served = self.served.lock().unwrap();
+        let allowed = served.allowed.clone();
+        served
+            .blobs
+            .retain(|hash, _| keep.contains(hash) || allowed.contains(hash));
+        Ok(())
+    }
     async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         self.has_blob(hash).await
     }
@@ -272,11 +280,12 @@ impl PeerConnection for MemoryConnection {
                 *left -= 1;
                 return Err(TransportError::NotReady);
             }
+            // Allowed but not here yet: the owner is preparing it.
             served
                 .blobs
                 .get(hash)
                 .cloned()
-                .ok_or(TransportError::Refused)?
+                .ok_or(TransportError::NotReady)?
         };
         {
             let mut link = self.link.lock().unwrap();

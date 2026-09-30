@@ -133,24 +133,34 @@ pub trait Publisher: Send + Sync {
     fn staging_dir(&self) -> &Path;
 
     /// Imports an encrypted blob file into the cache and returns its hash. The
-    /// blob is kept at least until the next [`Publisher::publish`] that does
-    /// not include it. It is not served until a publish includes it.
+    /// blob is kept at least until a [`Publisher::keep_only_blobs`] without
+    /// it. It is not served until a publish allows it.
     fn import_blob(
         &self,
         blob_file: &Path,
     ) -> impl Future<Output = Result<BlobHash, TransportError>> + Send;
 
-    /// Starts serving `record`, and only the blobs in `allowed`. Blobs not in
-    /// `allowed` stop being served at once and are removed from the cache later.
+    /// Starts serving `record`, and only its manifest and the blobs in
+    /// `allowed`; others stop being served at once. The manifest blob must be
+    /// in the cache. An allowed blob that is not in the cache yet is answered
+    /// "not ready" (ADR 0007) until it is imported or kept.
     fn publish(
         &self,
         record: SignedManifestRecord,
         allowed: HashSet<BlobHash>,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
+    /// Lets every blob go from the cache except those in `keep` and those
+    /// served now; they are removed later. Until the first call, nothing is
+    /// removed, so a restart keeps the cache while a pass takes it back.
+    fn keep_only_blobs(
+        &self,
+        keep: HashSet<BlobHash>,
+    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
     /// If the cache holds the complete blob, keeps it exactly like an
-    /// imported one (at least until the next publish that does not include
-    /// it) and returns true. Used to publish a blob again without importing it.
+    /// imported one (at least until a `keep_only_blobs` without it) and
+    /// returns true. Used to publish a blob again without importing it.
     fn keep_blob(
         &self,
         hash: &BlobHash,

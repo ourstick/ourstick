@@ -204,7 +204,8 @@ pub async fn publish_folder(
 
     let mut allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
     allowed.insert(manifest_hash);
-    publisher.publish(record.clone(), allowed).await?;
+    publisher.publish(record.clone(), allowed.clone()).await?;
+    publisher.keep_only_blobs(allowed).await?;
     {
         let files: Vec<OwnedFile> = files
             .into_iter()

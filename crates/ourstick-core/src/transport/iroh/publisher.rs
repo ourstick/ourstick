@@ -36,16 +36,27 @@ pub struct IrohPublisher {
     staging_dir: PathBuf,
     record: Arc<RwLock<Option<SignedManifestRecord>>>,
     allowed: Arc<RwLock<HashSet<Hash>>>,
-    /// A temp tag for every blob that must stay: those of the current manifest
-    /// and those imported since. Held from import on, so there is no moment when
-    /// a wanted blob is unprotected (iroh-blobs #247).
-    protected: Mutex<HashMap<Hash, TempTag>>,
-    /// Set by the first publish. Until then every GC run is aborted, so a
-    /// restart never deletes the cache before its blobs are protected again.
-    published: Arc<AtomicBool>,
+    /// A temp tag for every blob that must stay: every blob imported or kept
+    /// since the last [`Publisher::keep_only_blobs`] that did not drop it. Held
+    /// from import on, so there is no moment when a wanted blob is unprotected
+    /// (iroh-blobs #247). Also what "ready" means: an allowed blob is served
+    /// only once it is in here.
+    protected: Protected,
+    /// Set by the first `keep_only_blobs`. Until then every GC run is
+    /// aborted, so a restart never deletes the cache before a full pass has
+    /// protected again what it still needs (ADR 0007).
+    pruned: Arc<AtomicBool>,
     activity: Activity,
     /// Recomputes `activity`; stopped at shutdown.
     reporter: tokio::task::JoinHandle<()>,
+}
+
+type Protected = Arc<Mutex<HashMap<Hash, TempTag>>>;
+
+fn lock(protected: &Protected) -> std::sync::MutexGuard<'_, HashMap<Hash, TempTag>> {
+    protected
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn storage(error: impl std::fmt::Display) -> TransportError {
@@ -54,7 +65,9 @@ fn storage(error: impl std::fmt::Display) -> TransportError {
 
 impl IrohPublisher {
     /// Opens (or creates) the cache in `cache_dir` and starts serving `stick_id`.
-    /// Nothing is served until the first [`Publisher::publish`].
+    /// Nothing is served until the first [`Publisher::publish`], and nothing
+    /// is removed from the cache until the first
+    /// [`Publisher::keep_only_blobs`].
     pub async fn start(
         config: &IrohConfig,
         stick_id: StickId,
@@ -67,12 +80,13 @@ impl IrohPublisher {
         tokio::fs::create_dir_all(&staging_dir).await?;
 
         let allowed = Arc::new(RwLock::new(HashSet::new()));
-        let published = Arc::new(AtomicBool::new(false));
+        let pruned = Arc::new(AtomicBool::new(false));
+        let protected: Protected = Arc::new(Mutex::new(HashMap::new()));
         let protect: ProtectCb = {
             let allowed = allowed.clone();
-            let published = published.clone();
+            let pruned = pruned.clone();
             Arc::new(move |live: &mut HashSet<Hash>| {
-                let outcome = if published.load(Ordering::SeqCst) {
+                let outcome = if pruned.load(Ordering::SeqCst) {
                     // Belt and braces next to the temp tags: the served set.
                     live.extend(read(&allowed).iter().copied());
                     ProtectOutcome::Continue
@@ -96,7 +110,11 @@ impl IrohPublisher {
         let reporter = tokio::spawn(activity.clone().report());
         let blobs = BlobsProtocol::new(
             &store,
-            Some(only_allowed_gets(allowed.clone(), activity.clone())),
+            Some(only_ready_gets(
+                allowed.clone(),
+                protected.clone(),
+                activity.clone(),
+            )),
         );
         let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let router = Router::builder(endpoint)
@@ -124,8 +142,8 @@ impl IrohPublisher {
             staging_dir,
             record,
             allowed,
-            protected: Mutex::new(HashMap::new()),
-            published,
+            protected,
+            pruned,
             activity,
             reporter,
         })
@@ -176,28 +194,59 @@ fn serving_event_mask() -> EventMask {
     }
 }
 
+/// What the owner answers a request for a blob: what a peer may receive, and
+/// whether it is here yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Serve,
+    /// Allowed, but not in the cache yet (ADR 0007): "try again later"
+    /// (`ERR_LIMIT`), which the reader waits on. Never answered with Serve:
+    /// the provider would then fail with `ERR_INTERNAL`, a failure.
+    NotReady,
+    Refuse,
+}
+
+impl Answer {
+    fn decide(is_blob: bool, allowed: bool, ready: bool) -> Self {
+        match (is_blob && allowed, ready) {
+            (false, _) => Self::Refuse,
+            (true, true) => Self::Serve,
+            (true, false) => Self::NotReady,
+        }
+    }
+}
+
 /// The single place that decides what a peer may receive: a plain get of a raw
-/// blob whose hash is currently allowed. Everything else is refused, including
-/// push, get-many and observe (iroh-blobs 0.103 routes all of them through the
-/// `get` mode, so they arrive here as their own messages).
+/// blob whose hash is currently allowed and which is in the cache. An allowed
+/// blob not in the cache yet is "not ready". Everything else is refused,
+/// including push, get-many and observe (iroh-blobs 0.103 routes all of them
+/// through the `get` mode, so they arrive here as their own messages).
 ///
 /// Accepted transfers are followed, to count readers and bytes sent.
-fn only_allowed_gets(allowed: Arc<RwLock<HashSet<Hash>>>, activity: Activity) -> EventSender {
+fn only_ready_gets(
+    allowed: Arc<RwLock<HashSet<Hash>>>,
+    protected: Protected,
+    activity: Activity,
+) -> EventSender {
     let (sender, mut messages) = EventSender::channel(32, serving_event_mask());
     tokio::spawn(async move {
         while let Some(message) = messages.recv().await {
             match message {
                 ProviderMessage::GetRequestReceived(message) => {
                     let request = &message.request;
-                    let permitted =
-                        request.ranges.is_blob() && read(&allowed).contains(&request.hash);
-                    if !permitted {
-                        tracing::debug!("refused a request for a blob that is not served");
-                    }
-                    let answer = if permitted {
-                        Ok(())
-                    } else {
-                        Err(AbortReason::Permission)
+                    let decided = Answer::decide(
+                        request.ranges.is_blob(),
+                        read(&allowed).contains(&request.hash),
+                        lock(&protected).contains_key(&request.hash),
+                    );
+                    let permitted = decided == Answer::Serve;
+                    let answer = match decided {
+                        Answer::Serve => Ok(()),
+                        Answer::NotReady => Err(AbortReason::RateLimited),
+                        Answer::Refuse => {
+                            tracing::debug!("refused a request for a blob that is not served");
+                            Err(AbortReason::Permission)
+                        }
                     };
                     let connection = message.inner.connection_id;
                     message.tx.send(answer).await.ok();
@@ -286,10 +335,7 @@ impl Publisher for IrohPublisher {
             .await
             .map_err(storage)?;
         let hash = tag.hash();
-        self.protected
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(hash, tag);
+        lock(&self.protected).insert(hash, tag);
         Ok(*hash.as_bytes())
     }
 
@@ -298,26 +344,27 @@ impl Publisher for IrohPublisher {
         record: SignedManifestRecord,
         allowed: HashSet<BlobHash>,
     ) -> Result<(), TransportError> {
-        let allowed: HashSet<Hash> = allowed.into_iter().map(Hash::from_bytes).collect();
-        for hash in &allowed {
-            if !matches!(
-                self.store.blobs().status(*hash).await.map_err(storage)?,
-                BlobStatus::Complete { .. }
-            ) {
-                return Err(TransportError::Storage(format!(
-                    "blob {} is not in the cache",
-                    hash.fmt_short()
-                )));
-            }
+        let manifest = Hash::from_bytes(record.unverified_record().manifest_hash);
+        // The manifest must be ready: a reader cannot wait on it.
+        if !lock(&self.protected).contains_key(&manifest) {
+            return Err(TransportError::Storage(format!(
+                "manifest blob {} is not in the cache",
+                manifest.fmt_short()
+            )));
         }
-        *write(&self.allowed) = allowed.clone();
+        let mut allowed: HashSet<Hash> = allowed.into_iter().map(Hash::from_bytes).collect();
+        allowed.insert(manifest);
+        *write(&self.allowed) = allowed;
         *write(&self.record) = Some(record);
-        // Drop protection only for blobs that left the manifest; the GC removes them.
-        self.protected
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .retain(|hash, _| allowed.contains(hash));
-        self.published.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn keep_only_blobs(&self, keep: HashSet<BlobHash>) -> Result<(), TransportError> {
+        let allowed = read(&self.allowed).clone();
+        // Blobs served now are never dropped; the GC removes the others.
+        lock(&self.protected)
+            .retain(|hash, _| keep.contains(hash.as_bytes()) || allowed.contains(hash));
+        self.pruned.store(true, Ordering::SeqCst);
         Ok(())
     }
 
@@ -331,10 +378,7 @@ impl Publisher for IrohPublisher {
         ) {
             return Ok(false);
         }
-        self.protected
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(hash, tag);
+        lock(&self.protected).insert(hash, tag);
         Ok(true)
     }
 
@@ -372,5 +416,16 @@ mod tests {
         assert_eq!(mask.get_many, RequestMode::Intercept);
         assert_eq!(mask.push, RequestMode::Disabled);
         assert_eq!(mask.observe, ObserveMode::Intercept);
+    }
+
+    #[test]
+    fn only_allowed_blobs_in_the_cache_are_served() {
+        assert_eq!(Answer::decide(true, true, true), Answer::Serve);
+        assert_eq!(Answer::decide(true, true, false), Answer::NotReady);
+        // Not allowed, or not a plain blob: refused, in the cache or not.
+        for ready in [true, false] {
+            assert_eq!(Answer::decide(true, false, ready), Answer::Refuse);
+            assert_eq!(Answer::decide(false, true, ready), Answer::Refuse);
+        }
     }
 }

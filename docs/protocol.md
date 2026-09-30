@@ -439,9 +439,12 @@ connection uses.
 An owner answers a blob request only if it is a plain get of a raw blob whose
 hash is the current manifest blob or a file blob of the current manifest. It
 refuses everything else: other hashes, hash sequences, get-many, observe, and
-push. Blobs leave the cache once they are no longer in the current manifest.
-See ADR 0005. An owner that has not prepared a blob of the current manifest
-yet answers "not ready" (`ERR_LIMIT`, ADR 0007) instead of refusing it.
+push. See ADR 0005. A blob of the current manifest that is not in the cache
+yet is answered "not ready" (`ERR_LIMIT`, ADR 0007) instead of being refused
+or failing; only the manifest blob must be in the cache before a version is
+served. Blobs leave the cache when the owner, at the end of a full pass over
+the folder, says which ones it still needs; until the first such pass after a
+start, nothing is removed, so a restart keeps the cache.
 
 ### Reader paths
 

@@ -18,7 +18,7 @@
   import { files, rate, size } from "./format";
 
   let current = $state<Stick | null>(null);
-  let activity = $state<Activity>({ readers: 0, bytes_per_second: 0 });
+  let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, relay_only: null });
   let problem = $state<ShareProblem | null>(null);
   let dropping = $state(false);
   let copying = $state(false);
@@ -165,6 +165,9 @@
     <p class="activity">
       ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {rate(activity.bytes_per_second)}
     </p>
+  {/if}
+  {#if activity.relay_only}
+    <p class="error">{activity.relay_only}</p>
   {/if}
 
   {#if current?.sharing.state === "off"}

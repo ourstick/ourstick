@@ -33,6 +33,8 @@ export interface Sharing {
   has_link: boolean;
   readers: number;
   bytes_per_second: number;
+  /** What to do when people can download only through the relay. */
+  relay_only: string | null;
 }
 
 export interface Stick {
@@ -54,6 +56,8 @@ export type ShareProblem =
 export interface Activity {
   readers: number;
   bytes_per_second: number;
+  /** What to do when people can download only through the relay. */
+  relay_only: string | null;
 }
 
 export function stick(): Promise<Stick> {

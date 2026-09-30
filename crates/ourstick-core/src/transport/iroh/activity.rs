@@ -20,6 +20,18 @@ struct Counters {
     active: HashMap<u64, usize>,
     /// Bytes sent, over all transfers.
     sent: u64,
+    /// A reader reached us directly, at least once.
+    direct: bool,
+    /// A reader stayed on the relay for a while, at least once.
+    relay_only: bool,
+}
+
+impl Counters {
+    /// Readers came only through the relay: one stayed on it for a while,
+    /// and none came directly.
+    fn only_relayed(&self) -> bool {
+        self.relay_only && !self.direct
+    }
 }
 
 /// Shared by the event handler (which counts) and the ticker (which reports).
@@ -59,6 +71,16 @@ impl Activity {
         self.counters().sent += bytes;
     }
 
+    /// A reader reached us directly.
+    pub(super) fn reached_directly(&self) {
+        self.counters().direct = true;
+    }
+
+    /// A reader was still on the relay after a while.
+    pub(super) fn reached_only_by_relay(&self) {
+        self.counters().relay_only = true;
+    }
+
     /// A transfer on `connection` ended, completed or not.
     pub(super) fn ended(&self, connection: u64) {
         let mut counters = self.counters();
@@ -77,9 +99,13 @@ impl Activity {
         loop {
             ticker.tick().await;
             let now = Instant::now();
-            let (readers, sent) = {
+            let (readers, sent, only_relayed) = {
                 let counters = self.counters();
-                (counters.active.len(), counters.sent)
+                (
+                    counters.active.len(),
+                    counters.sent,
+                    counters.only_relayed(),
+                )
             };
             samples.push_back((now, sent));
             while samples
@@ -91,6 +117,7 @@ impl Activity {
             let activity = ReaderActivity {
                 readers,
                 bytes_per_second: rate(&samples),
+                only_relayed,
             };
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;
@@ -130,6 +157,19 @@ mod tests {
         activity.ended(1);
         activity.ended(1); // an extra end does no harm
         assert!(activity.counters().active.is_empty());
+    }
+
+    #[test]
+    fn only_relayed_until_someone_comes_directly() {
+        let only_relayed = |activity: &Activity| activity.counters().only_relayed();
+        let activity = Activity::new();
+        assert!(!only_relayed(&activity), "no reader yet");
+        activity.reached_only_by_relay();
+        assert!(only_relayed(&activity));
+        activity.reached_directly();
+        assert!(!only_relayed(&activity), "one direct reader is enough");
+        activity.reached_only_by_relay();
+        assert!(!only_relayed(&activity));
     }
 
     #[test]

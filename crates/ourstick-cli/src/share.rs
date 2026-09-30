@@ -23,7 +23,7 @@ use crate::setup::{self, hex};
 
 mod lines;
 
-use lines::{network_line, readers_line, watch_lines};
+use lines::{network_line, readers_line, relay_only_line, watch_lines};
 
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
@@ -191,12 +191,17 @@ async fn serve(
     let readers = async {
         let mut activity = owner.publisher.activity();
         let mut before = 0;
+        let mut relay_only_said = false;
         while activity.changed().await.is_ok() {
             let now = *activity.borrow();
             if let Some(line) = readers_line(before, &now, started.elapsed()) {
                 println!("{line}");
             }
+            if let Some(line) = relay_only_line(relay_only_said, &now, started.elapsed()) {
+                println!("{line}");
+            }
             before = now.readers;
+            relay_only_said |= now.only_relayed;
         }
     };
     tokio::select! {

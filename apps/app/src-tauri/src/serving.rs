@@ -60,6 +60,39 @@ pub enum ShareProblem {
 pub struct ActivityView {
     pub readers: usize,
     pub bytes_per_second: u64,
+    /// What to do when readers reach this computer only through the relay
+    /// (see [`relay_only_message`]); `None` otherwise.
+    pub relay_only: Option<&'static str>,
+}
+
+impl From<ReaderActivity> for ActivityView {
+    fn from(activity: ReaderActivity) -> Self {
+        Self {
+            readers: activity.readers,
+            bytes_per_second: activity.bytes_per_second,
+            relay_only: activity.only_relayed.then(relay_only_message),
+        }
+    }
+}
+
+/// Readers reach this computer only through the relay: most likely its
+/// firewall drops what they send (on Windows, after "Cancel" on the
+/// Windows Firewall question). Says so, and how to fix it here.
+pub fn relay_only_message() -> &'static str {
+    if cfg!(windows) {
+        "People can download only through the relay, which is slower. Windows \
+         Firewall probably blocks OurStick: open Windows Security, Firewall & \
+         network protection, Allow an app through firewall, and tick OurStick \
+         for the network you are on."
+    } else if cfg!(target_os = "macos") {
+        "People can download only through the relay, which is slower. The \
+         firewall probably blocks OurStick: open System Settings, Network, \
+         Firewall, Options, and allow incoming connections for OurStick."
+    } else {
+        "People can download only through the relay, which is slower. A \
+         firewall probably drops what they send: allow incoming UDP for \
+         OurStick (e.g. in ufw or firewalld)."
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -205,13 +238,7 @@ impl Shared {
                     let now = *activity.borrow();
                     crate::tray::set_active(&app, now.readers > 0);
                     awake.set(now.readers > 0).await;
-                    let _ = app.emit(
-                        "activity",
-                        ActivityView {
-                            readers: now.readers,
-                            bytes_per_second: now.bytes_per_second,
-                        },
-                    );
+                    let _ = app.emit("activity", ActivityView::from(now));
                 }
             };
             let timing = WatchTiming::default();

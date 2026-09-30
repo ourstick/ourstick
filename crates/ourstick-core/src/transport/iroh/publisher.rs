@@ -20,6 +20,7 @@ use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobFormat, BlobsProtocol, Hash};
 
 use super::activity::Activity;
+use super::reader_paths::{WatchedBlobs, RELAY_ONLY_AFTER};
 use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
 use crate::record::SignedManifestRecord;
@@ -99,7 +100,14 @@ impl IrohPublisher {
         );
         let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let router = Router::builder(endpoint)
-            .accept(iroh_blobs::ALPN, blobs)
+            .accept(
+                iroh_blobs::ALPN,
+                WatchedBlobs {
+                    blobs,
+                    activity: activity.clone(),
+                    relay_only_after: RELAY_ONLY_AFTER,
+                },
+            )
             .accept(
                 RECORD_ALPN,
                 RecordServer {

@@ -109,6 +109,8 @@ pub struct SharingView {
     has_link: bool,
     readers: usize,
     bytes_per_second: u64,
+    /// What to do when readers come only through the relay.
+    relay_only: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,13 +178,14 @@ fn sharing_view(
     has_link: bool,
     activity: Option<ourstick_core::transport::ReaderActivity>,
 ) -> SharingView {
-    let activity = activity.unwrap_or_default();
+    let activity = crate::serving::ActivityView::from(activity.unwrap_or_default());
     SharingView {
         state,
         message,
         has_link,
         readers: activity.readers,
         bytes_per_second: activity.bytes_per_second,
+        relay_only: activity.relay_only,
     }
 }
 

@@ -4,6 +4,7 @@
 mod activity;
 mod fetcher;
 mod publisher;
+mod reader_paths;
 mod record_protocol;
 
 use std::fmt;

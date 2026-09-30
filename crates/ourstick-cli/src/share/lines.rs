@@ -43,6 +43,29 @@ pub(super) fn readers_line(
     })
 }
 
+/// A line once readers turn out to reach this computer only through the
+/// relay: most likely a firewall drops what others send it.
+pub(super) fn relay_only_line(
+    before: bool,
+    now: &ReaderActivity,
+    elapsed: Duration,
+) -> Option<String> {
+    if !now.only_relayed || before {
+        return None;
+    }
+    let fix = if cfg!(windows) {
+        "allow OurStick in Windows Security > Firewall & network protection > \
+         Allow an app through firewall"
+    } else {
+        "allow incoming UDP for ourstick in this computer's firewall"
+    };
+    Some(format!(
+        "[{}] Readers reach this computer only through the relay, which is slower \
+         and limited. A firewall probably drops what they send; {fix}.",
+        clock(elapsed)
+    ))
+}
+
 /// Lines for what the watcher did. Nothing when signs of change changed
 /// nothing (e.g. a file saved with the same content).
 pub(super) fn watch_lines(
@@ -194,6 +217,7 @@ mod tests {
         let busy = |readers| ReaderActivity {
             readers,
             bytes_per_second: 2_100_000,
+            only_relayed: false,
         };
         assert_eq!(
             readers_line(0, &busy(1), at).unwrap(),
@@ -208,6 +232,20 @@ mod tests {
             readers_line(2, &busy(0), at).unwrap(),
             "[00:05] Nobody is downloading now."
         );
+    }
+
+    #[test]
+    fn relay_only_is_said_once() {
+        let at = Duration::from_secs(65);
+        let relayed = ReaderActivity {
+            only_relayed: true,
+            ..ReaderActivity::default()
+        };
+        let line = relay_only_line(false, &relayed, at).unwrap();
+        assert!(line.starts_with("[01:05] Readers reach this computer only through the relay"));
+        assert!(line.contains("firewall"));
+        assert_eq!(relay_only_line(true, &relayed, at), None);
+        assert_eq!(relay_only_line(false, &ReaderActivity::default(), at), None);
     }
 
     #[test]

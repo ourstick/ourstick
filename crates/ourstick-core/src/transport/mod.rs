@@ -105,6 +105,11 @@ pub struct ReaderActivity {
     pub readers: usize,
     /// How fast data leaves, over the last couple of seconds.
     pub bytes_per_second: u64,
+    /// Readers reach this owner only through the relay: one stayed on it
+    /// for a while, and none has ever come directly since sharing started.
+    /// Most likely a firewall drops what others send (see
+    /// `docs/protocol.md`, "Reader paths").
+    pub only_relayed: bool,
 }
 
 /// The owner's side: holds the encrypted blobs and serves the current record.

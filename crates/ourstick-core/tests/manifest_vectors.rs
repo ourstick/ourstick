@@ -72,7 +72,12 @@ fn manifests_match_the_independent_vectors() {
         };
         let bytes = hex(&vector.bytes);
         assert_eq!(manifest.to_bytes().unwrap(), bytes, "{}", vector.name);
-        assert_eq!(Manifest::from_bytes(&bytes).unwrap(), manifest, "{}", vector.name);
+        assert_eq!(
+            Manifest::from_bytes(&bytes).unwrap(),
+            manifest,
+            "{}",
+            vector.name
+        );
     }
     let old = Manifest::from_bytes(&hex(&document.version_1.bytes)).unwrap();
     assert_eq!(old.entries, entries(&document.version_1.entries));

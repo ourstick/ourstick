@@ -155,7 +155,15 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
             owner.clock.set(9_000);
             std::fs::write(owner.folder.path().join("b.txt"), b"new").unwrap();
             send.send(()).unwrap();
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // Until the publish, which takes longer on a slow machine (a
+            // Windows VM running every test at once needed over 500 ms).
+            let published = || seen.lock().unwrap().iter().any(|event| event == "published");
+            for _ in 0..100 {
+                if published() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
         } => {}
     }
     // A retry may land while the files are being written ("still changing"),

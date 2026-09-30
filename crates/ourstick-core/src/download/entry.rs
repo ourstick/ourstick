@@ -41,7 +41,7 @@ pub(super) async fn receive_file(
     entry: &Entry,
     output_dir: &Path,
     partial: &Path,
-    receiving: &mut ReceivingPath,
+    receiving: &mut ReceivingPath<'_>,
     limiter: &mut Option<RelayLimiter>,
     received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
@@ -69,11 +69,17 @@ pub(super) async fn receive_file(
     let stats = loop {
         let mut previous = 0;
         let mut unsampled = 0;
+        let mut look_again = false;
         let mut on_progress = |received: u64| {
             let new_bytes = received.saturating_sub(previous);
             previous = received;
             *received_total += new_bytes;
             if let Some(check) = receiving.on_received(new_bytes, || connection.usage()) {
+                if check.look_again {
+                    look_again = true;
+                    on_event(DownloadEvent::LookingForDirect)?;
+                    return ControlFlow::Break(());
+                }
                 if check.changed {
                     on_event(DownloadEvent::PathChanged { path: check.kind })?;
                 }
@@ -97,8 +103,14 @@ pub(super) async fn receive_file(
                 _ => GO,
             }
         };
-        match connection.fetch_blob(&entry.hash, &mut on_progress).await {
+        let fetched = connection.fetch_blob(&entry.hash, &mut on_progress).await;
+        match fetched {
             Ok(stats) => break stats,
+            // What arrived stays; the next connection resumes it.
+            Err(TransportError::Cancelled) if look_again => {
+                receiving.looked();
+                return Err(DownloadError::LookAgain);
+            }
             Err(TransportError::NotReady) => {
                 let now = Instant::now();
                 if waiting.is_none() && on_event(DownloadEvent::SenderPreparing { path }).is_break()

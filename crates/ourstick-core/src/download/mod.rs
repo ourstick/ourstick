@@ -17,6 +17,7 @@ mod listing;
 mod not_ready;
 mod path;
 mod relay;
+mod relay_watch;
 mod types;
 
 use fetch_files::{fetch_files, FileCounts};
@@ -55,7 +56,17 @@ struct Carried {
     /// The owner refused data of this version (`None`: before it was known):
     /// the next connection continues only if the owner has a newer one.
     refused: Option<(Option<u64>, DownloadError)>,
+    /// How long the download has been on the relay, over connections.
+    watch: relay_watch::RelayWatch,
+    /// Connections lost in a row with nothing received in between.
+    lost: u32,
+    /// `received` when the last connection was lost.
+    received_at_loss: u64,
 }
+
+/// Connections lost in a row, with nothing received in between, before the
+/// download stops: an owner that answers and then drops every connection.
+const MAX_LOST_IN_A_ROW: u32 = 5;
 
 use crate::blocking::run_blocking;
 use crate::clock::Clock;
@@ -189,6 +200,26 @@ pub async fn download(
                 new_versions += 1;
                 carried.refused = Some((carried.seq, error));
             }
+            // Long on the relay: a new connection looks for a direct path,
+            // and the download goes on where it was.
+            Err(DownloadError::LookAgain) => {}
+            // The connection was lost (a network change, a timeout): a new
+            // one goes on where this one was. An owner that cannot be
+            // reached fails the connect, which says so.
+            Err(DownloadError::Transport(TransportError::Interrupted(reason)))
+                if carried.lost < MAX_LOST_IN_A_ROW
+                    || carried.received > carried.received_at_loss =>
+            {
+                if carried.received > carried.received_at_loss {
+                    carried.lost = 0;
+                }
+                carried.lost += 1;
+                carried.received_at_loss = carried.received;
+                if on_event(DownloadEvent::ConnectionLost { reason: &reason }).is_break() {
+                    return Err(DownloadError::Cancelled);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(u64::from(carried.lost))).await;
+            }
             // The owner is still preparing a file (ADR 0007): the next
             // connection fetches the record again and follows a newer
             // version. Never given up on.
@@ -286,7 +317,7 @@ async fn download_over(
         let output_dir = output_dir.to_path_buf();
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
-    let mut receiving = ReceivingPath::new(reported_path, connected_usage);
+    let mut receiving = ReceivingPath::new(reported_path, connected_usage, &mut carried.watch);
     let FileCounts {
         already_here,
         changed_here,

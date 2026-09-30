@@ -182,6 +182,15 @@ impl Progress {
                     bytes(self.total)
                 )]
             }
+            DownloadEvent::ConnectionLost { reason } => vec![format!(
+                "[{at}] The connection was lost ({}); connecting again (the download goes on \
+                 where it was).",
+                untrusted(reason)
+            )],
+            DownloadEvent::LookingForDirect => vec![format!(
+                "[{at}] Through the relay for a while: connecting again to look for a direct path \
+                 (the download goes on where it was)."
+            )],
             DownloadEvent::NewVersion { seq } => vec![format!(
                 "[{at}] The owner shared a new version ({seq}) meanwhile; going on with it."
             )],

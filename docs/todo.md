@@ -12,6 +12,13 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## Upstream
 
+- [ ] **iroh 1.2: a direct path lost and not found again.** Two peers on one
+      LAN (192.168.1.x): the direct path carried 60 MB/s, the data paused
+      about 20 s (the owner preparing a suitcase), then the connection moved
+      to the relay and stayed there; a new connection went direct at once.
+      Also after a reader changed networks. Worked around by connecting again
+      (`docs/protocol.md`, "Relay policy"); worth a report with a small
+      reproduction.
 - [ ] **iroh-blobs: GC logs `error during gc run: Error::Io` after the store
       shuts down, and stops for good after any error.** A public issue; the
       draft (with a standalone reproduction) is kept outside the repository.
@@ -72,5 +79,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **The app shows reading progress:** the watcher reports
       `WatchEvent::Reading`, which the app ignores for now; a big drop gives
       no sign until its first partial version (after 30 s).
+- [ ] **The relay diagnosis on one LAN:** `get` said "both sides have
+      IPv6, but no direct IPv6 path opened: a firewall…" for two machines on
+      the same Wi-Fi whose direct path had just worked. When a direct path
+      was seen in this download, say that it was lost, not a firewall.
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.

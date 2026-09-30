@@ -46,7 +46,7 @@ pub(super) async fn fetch_files(
     files: &[FilePlan],
     output_dir: &Path,
     partial: &Path,
-    receiving: &mut ReceivingPath,
+    receiving: &mut ReceivingPath<'_>,
     limiter: &mut Option<RelayLimiter>,
     received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),

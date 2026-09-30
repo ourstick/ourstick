@@ -29,6 +29,8 @@ pub struct Link {
     pub punch_during_first_fetch: bool,
     /// Bytes delivered so far, over any path.
     pub delivered: u64,
+    /// Once this many bytes have arrived, the connection is lost, once.
+    pub lose_connection_after: Option<u64>,
 }
 
 /// The reader's blobs (complete or partial), one map per batch as with iroh,
@@ -254,6 +256,18 @@ impl PeerConnection for MemoryConnection {
             .map_or(0, Vec::len);
         let mut received = 0u64;
         for piece in blob[already_local..].chunks(1024 * 1024) {
+            {
+                let mut link = self.link.lock().unwrap();
+                if link
+                    .lose_connection_after
+                    .is_some_and(|limit| link.delivered >= limit)
+                {
+                    link.lose_connection_after = None;
+                    return Err(TransportError::Interrupted(
+                        "read: connection lost".to_owned(),
+                    ));
+                }
+            }
             let direct = {
                 let mut link = self.link.lock().unwrap();
                 link.delivered += piece.len() as u64;

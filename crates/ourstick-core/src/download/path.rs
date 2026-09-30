@@ -7,6 +7,9 @@
 //! said "relay" and 4.6 GB of 4.6 GB arrived directly. So the reader judges the
 //! path by where received bytes come from.
 
+use std::time::Instant;
+
+use super::relay_watch::RelayWatch;
 use crate::transport::{PathKind, PathUsage};
 
 /// How much data must arrive between two checks. Checking by amount, not time,
@@ -21,21 +24,31 @@ pub(super) struct Check {
     pub(super) changed: bool,
     /// Relay bytes received on this connection so far.
     pub(super) relay_total: u64,
+    /// On the relay long enough: connect again to look for a direct path.
+    pub(super) look_again: bool,
 }
 
-pub(super) struct ReceivingPath {
+pub(super) struct ReceivingPath<'a> {
     kind: PathKind,
     last_usage: PathUsage,
     unchecked: u64,
+    /// Kept over the connections of one download.
+    watch: &'a mut RelayWatch,
 }
 
-impl ReceivingPath {
-    pub(super) fn new(initial: PathKind, usage: PathUsage) -> Self {
+impl<'a> ReceivingPath<'a> {
+    pub(super) fn new(initial: PathKind, usage: PathUsage, watch: &'a mut RelayWatch) -> Self {
         Self {
             kind: initial,
             last_usage: usage,
             unchecked: 0,
+            watch,
         }
+    }
+
+    /// A new connection is being made to look for a direct path.
+    pub(super) fn looked(&mut self) {
+        self.watch.looked();
     }
 
     /// Call with the bytes received since the last call. Every
@@ -69,10 +82,12 @@ impl ReceivingPath {
         };
         let changed = kind != self.kind;
         self.kind = kind;
+        let look_again = self.watch.on_check(kind == PathKind::Relay, Instant::now());
         Some(Check {
             kind,
             changed,
             relay_total: now.relay,
+            look_again,
         })
     }
 }
@@ -91,7 +106,8 @@ mod tests {
 
     #[test]
     fn reports_direct_when_data_arrives_directly_despite_a_relay_start() {
-        let mut path = ReceivingPath::new(PathKind::Relay, usage(0, 10_000));
+        let mut watch = RelayWatch::default();
+        let mut path = ReceivingPath::new(PathKind::Relay, usage(0, 10_000), &mut watch);
         // Not enough data yet: no check, no reading of stats.
         assert_eq!(
             path.on_received(CHECK_EVERY - 1, || panic!("checked too early")),
@@ -102,7 +118,8 @@ mod tests {
             Some(Check {
                 kind: PathKind::Direct,
                 changed: true,
-                relay_total: 12_000
+                relay_total: 12_000,
+                look_again: false,
             })
         );
         // Still direct: checked, nothing changed.
@@ -111,27 +128,31 @@ mod tests {
             Some(Check {
                 kind: PathKind::Direct,
                 changed: false,
-                relay_total: 13_000
+                relay_total: 13_000,
+                look_again: false,
             })
         );
     }
 
     #[test]
     fn reports_a_fall_back_to_the_relay() {
-        let mut path = ReceivingPath::new(PathKind::Direct, usage(0, 0));
+        let mut watch = RelayWatch::default();
+        let mut path = ReceivingPath::new(PathKind::Direct, usage(0, 0), &mut watch);
         assert_eq!(
             path.on_received(CHECK_EVERY, || usage(1_000, 4_000_000)),
             Some(Check {
                 kind: PathKind::Relay,
                 changed: true,
-                relay_total: 4_000_000
+                relay_total: 4_000_000,
+                look_again: false,
             })
         );
     }
 
     #[test]
     fn no_new_data_keeps_the_current_path() {
-        let mut path = ReceivingPath::new(PathKind::Relay, usage(7, 7));
+        let mut watch = RelayWatch::default();
+        let mut path = ReceivingPath::new(PathKind::Relay, usage(7, 7), &mut watch);
         assert_eq!(path.on_received(CHECK_EVERY, || usage(7, 7)), None);
     }
 }

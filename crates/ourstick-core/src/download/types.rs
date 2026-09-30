@@ -25,6 +25,13 @@ pub enum DownloadEvent<'a> {
     RelayLimited {
         bits_per_second: u64,
     },
+    /// The connection was lost; a new one goes on where it was.
+    ConnectionLost {
+        reason: &'a str,
+    },
+    /// The data has come through the relay for a while: a new connection
+    /// looks for a direct path, and the download goes on where it was.
+    LookingForDirect,
     /// The owner published a new version while this one downloaded; the
     /// download goes on with it (files already done are not fetched again).
     NewVersion {
@@ -131,6 +138,10 @@ pub struct DownloadReport {
 pub enum DownloadError {
     #[error("the download was cancelled; run the same command again to resume")]
     Cancelled,
+    /// A new connection is to be made, to look for a direct path. Handled
+    /// inside [`crate::download::download`]; never returned by it.
+    #[error("connecting again to look for a direct path")]
+    LookAgain,
     #[error("the owner's manifest record was rejected: {0}")]
     Record(#[from] RecordError),
     #[error("{path}: expected {expected} bytes, got {actual}")]

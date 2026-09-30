@@ -347,3 +347,32 @@ fn a_later_download_says_both_when_and_how_long() {
     assert!(Progress::summary(&report, "/out", secs(95), secs(2))[0]
         .starts_with("[01:35] Done in 00:02: 1 file in /out"));
 }
+
+#[test]
+fn looking_again_for_a_direct_path_is_told() {
+    let mut progress = Progress::default();
+    assert_eq!(
+        progress.on_event(DownloadEvent::LookingForDirect, secs(75)),
+        vec![
+            "[01:15] Through the relay for a while: connecting again to look for a direct path \
+             (the download goes on where it was)."
+        ]
+    );
+}
+
+#[test]
+fn a_lost_connection_is_told() {
+    let mut progress = Progress::default();
+    assert_eq!(
+        progress.on_event(
+            DownloadEvent::ConnectionLost {
+                reason: "read: connection lost"
+            },
+            secs(5)
+        ),
+        vec![
+            "[00:05] The connection was lost (read: connection lost); connecting again \
+             (the download goes on where it was)."
+        ]
+    );
+}

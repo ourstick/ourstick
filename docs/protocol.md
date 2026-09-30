@@ -476,6 +476,13 @@ through an HTTP(S) proxy if `HTTP_PROXY`/`HTTPS_PROXY` (or the lowercase forms)
 is set. Owners follow no policy of their own: they send over whatever path the
 connection uses.
 
+A connection can stay on the relay although a direct path exists (seen with
+iroh 1.2 after a reader changed networks, and after a pause in the data on one
+LAN). So a download whose data has come through the relay for a minute
+connects again, which looks for a direct path from scratch, and goes on where
+it was; if it is still on the relay, the next look waits twice as long, up to
+30 minutes, and a direct path resets the wait.
+
 ### What an owner serves
 
 An owner answers a blob request only if it is a plain get of a raw blob whose

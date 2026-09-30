@@ -49,5 +49,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **macOS data protection keychain** (apple-native-keyring-store's
       `protected` store), which needs the signed app's entitlements and never
       prompts.
+- [ ] **The relay-only message, seen for real:** a reader that cannot come
+      directly (e.g. both sides behind strict NATs), downloading for over
+      30 s; the app must show how to allow OurStick through the firewall
+      (`docs/protocol.md`, "Reader paths"). Blocking inbound traffic on
+      Windows was not enough: hole punching still found a direct path.
 - [ ] **A USB drive icon for the Linux bookmark,** if the file managers allow
       one (today Nautilus and Thunar show bookmarks with a folder icon).

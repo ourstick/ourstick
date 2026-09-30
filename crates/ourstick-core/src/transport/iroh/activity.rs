@@ -13,11 +13,17 @@ use crate::transport::ReaderActivity;
 const TICK: Duration = Duration::from_millis(500);
 /// The rate is taken over this long, so it does not jump with every chunk.
 const RATE_WINDOW: Duration = Duration::from_secs(2);
+/// A reader whose last transfer ended counts as downloading this much longer:
+/// between two files it decrypts the last one into place, seconds for a big
+/// one, and "nobody, someone, nobody" at every file says nothing true.
+const LINGER: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Default)]
 struct Counters {
     /// Transfers in progress, per connection.
     active: HashMap<u64, usize>,
+    /// Connections with no transfer in progress, since when (see [`LINGER`]).
+    idle_since: HashMap<u64, Instant>,
     /// Bytes sent, over all transfers.
     sent: u64,
     /// A reader reached us directly, at least once.
@@ -27,6 +33,14 @@ struct Counters {
 }
 
 impl Counters {
+    /// Readers downloading at `now`: a transfer in progress, or one that
+    /// ended less than [`LINGER`] ago. Forgets the ones idle for longer.
+    fn readers(&mut self, now: Instant) -> usize {
+        self.idle_since
+            .retain(|_, since| now.duration_since(*since) < LINGER);
+        self.active.len() + self.idle_since.len()
+    }
+
     /// Readers came only through the relay: one stayed on it for a while,
     /// and none came directly.
     fn only_relayed(&self) -> bool {
@@ -63,7 +77,9 @@ impl Activity {
 
     /// A transfer started on `connection`.
     pub(super) fn started(&self, connection: u64) {
-        *self.counters().active.entry(connection).or_default() += 1;
+        let mut counters = self.counters();
+        counters.idle_since.remove(&connection);
+        *counters.active.entry(connection).or_default() += 1;
     }
 
     /// `bytes` more were sent.
@@ -83,11 +99,24 @@ impl Activity {
 
     /// A transfer on `connection` ended, completed or not.
     pub(super) fn ended(&self, connection: u64) {
+        self.ended_at(connection, Instant::now());
+    }
+
+    /// The reader's `connection` closed: it no longer counts, not even for
+    /// [`LINGER`].
+    pub(super) fn closed(&self, connection: u64) {
+        let mut counters = self.counters();
+        counters.active.remove(&connection);
+        counters.idle_since.remove(&connection);
+    }
+
+    fn ended_at(&self, connection: u64, now: Instant) {
         let mut counters = self.counters();
         if let Some(active) = counters.active.get_mut(&connection) {
             *active = active.saturating_sub(1);
             if *active == 0 {
                 counters.active.remove(&connection);
+                counters.idle_since.insert(connection, now);
             }
         }
     }
@@ -100,9 +129,9 @@ impl Activity {
             ticker.tick().await;
             let now = Instant::now();
             let (readers, sent, only_relayed) = {
-                let counters = self.counters();
+                let mut counters = self.counters();
                 (
-                    counters.active.len(),
+                    counters.readers(now),
                     counters.sent,
                     counters.only_relayed(),
                 )
@@ -157,6 +186,36 @@ mod tests {
         activity.ended(1);
         activity.ended(1); // an extra end does no harm
         assert!(activity.counters().active.is_empty());
+    }
+
+    #[test]
+    fn a_reader_between_two_files_still_counts() {
+        let start = Instant::now();
+        let activity = Activity::new();
+        activity.started(1);
+        activity.ended_at(1, start);
+        let readers = |at: Duration| activity.counters().readers(start + at);
+        assert_eq!(readers(Duration::from_secs(5)), 1);
+        // The next file: still one reader.
+        activity.started(1);
+        assert_eq!(readers(Duration::from_secs(6)), 1);
+        activity.ended_at(1, start + Duration::from_secs(10));
+        assert_eq!(readers(LINGER), 1);
+        // Idle for longer than LINGER: gone.
+        assert_eq!(readers(LINGER + Duration::from_secs(10)), 0);
+        assert!(activity.counters().idle_since.is_empty());
+    }
+
+    #[test]
+    fn a_closed_connection_stops_counting_at_once() {
+        let start = Instant::now();
+        let activity = Activity::new();
+        activity.started(1);
+        activity.started(2);
+        activity.ended_at(1, start);
+        activity.closed(1);
+        activity.closed(2);
+        assert_eq!(activity.counters().readers(start), 0);
     }
 
     #[test]

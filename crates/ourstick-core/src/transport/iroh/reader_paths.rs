@@ -28,6 +28,8 @@ pub(super) struct WatchedBlobs {
 
 impl ProtocolHandler for WatchedBlobs {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        // The id iroh-blobs gives this connection's transfers.
+        let id = connection.stable_id() as u64;
         let watch = tokio::spawn(watch_paths(
             connection.clone(),
             self.activity.clone(),
@@ -35,6 +37,7 @@ impl ProtocolHandler for WatchedBlobs {
         ));
         let result = self.blobs.accept(connection).await;
         watch.abort();
+        self.activity.closed(id);
         result
     }
 

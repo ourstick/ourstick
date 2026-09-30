@@ -19,6 +19,9 @@ pub struct Served {
     pub(crate) blobs: HashMap<BlobHash, Vec<u8>>,
     pub(crate) record: Option<SignedManifestRecord>,
     pub(crate) allowed: HashSet<BlobHash>,
+    /// Blobs the owner is still preparing: each ask answers "not ready" and
+    /// counts down (ADR 0007).
+    pub(crate) not_ready: HashMap<BlobHash, u32>,
 }
 
 /// The network between reader and owner.
@@ -261,9 +264,13 @@ impl PeerConnection for MemoryConnection {
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let blob = {
-            let served = self.served.lock().unwrap();
+            let mut served = self.served.lock().unwrap();
             if !served.allowed.contains(hash) {
                 return Err(TransportError::Refused);
+            }
+            if let Some(left @ 1..) = served.not_ready.get_mut(hash) {
+                *left -= 1;
+                return Err(TransportError::NotReady);
             }
             served
                 .blobs

@@ -14,6 +14,7 @@ mod files;
 mod folder;
 mod follow;
 mod listing;
+mod not_ready;
 mod path;
 mod relay;
 mod types;
@@ -156,6 +157,12 @@ pub async fn download(
             ) if new_versions < MAX_NEW_VERSIONS && carried.refused.is_none() => {
                 new_versions += 1;
                 carried.refused = Some((carried.seq, error));
+            }
+            // The owner is still preparing a file (ADR 0007): the next
+            // connection fetches the record again and follows a newer
+            // version. Never given up on.
+            Err(DownloadError::Transport(TransportError::NotReady)) => {
+                tokio::time::sleep(not_ready::FIRST_PAUSE).await;
             }
             Err(error) => return Err(error),
         }

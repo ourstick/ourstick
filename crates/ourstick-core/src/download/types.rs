@@ -66,6 +66,17 @@ pub enum DownloadEvent<'a> {
     NoLongerInStick {
         count: usize,
     },
+    /// Another file of this download has the same content: copied from it,
+    /// not fetched again.
+    FileCopiedHere {
+        path: &'a str,
+        size: u64,
+    },
+    /// The owner is still preparing this file (ADR 0007); the download waits
+    /// and asks again. Once per file.
+    SenderPreparing {
+        path: &'a str,
+    },
 }
 
 /// What a finished download did.

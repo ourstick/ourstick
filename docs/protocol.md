@@ -171,6 +171,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   fetches the record again. With a newer version it goes on with that one
   (files already written count as already here); with the same version the
   refusal stands. At most 10 new versions are followed per download.
+- If the owner answers a blob request with "not ready" (iroh-blobs'
+  `ERR_LIMIT`, ADR 0007: it is still preparing that blob), it is not a
+  failure. The reader says once per file that the sender is preparing it,
+  and asks again after a pause that starts at 250 ms and doubles up to a
+  minute. After 5 minutes of waiting on one file it reconnects and fetches
+  the record again, following a newer version if there is one (this does not
+  count against the 10). It never gives up on "not ready" alone; the user
+  can stop it.
 - A version counts as complete in a folder (`joined_sticks.completed_*`) only
   if every file of it is there; a file left as changed keeps it incomplete.
 
@@ -432,7 +440,8 @@ An owner answers a blob request only if it is a plain get of a raw blob whose
 hash is the current manifest blob or a file blob of the current manifest. It
 refuses everything else: other hashes, hash sequences, get-many, observe, and
 push. Blobs leave the cache once they are no longer in the current manifest.
-See ADR 0005.
+See ADR 0005. An owner that has not prepared a blob of the current manifest
+yet answers "not ready" (`ERR_LIMIT`, ADR 0007) instead of refusing it.
 
 ### Reader paths
 

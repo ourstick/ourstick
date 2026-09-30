@@ -1,5 +1,6 @@
 //! Downloading one file of the manifest: check its path, fetch its blob
-//! (watching which path the data arrives on), decrypt it into place. A file
+//! (watching which path the data arrives on, and waiting while the owner
+//! prepares it), decrypt it into place. A file
 //! whose blob this download already turned into another file is copied from
 //! that file instead.
 
@@ -9,13 +10,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::files::{copy_into_place, decrypt_into_place, target_path};
+use super::not_ready::Waiting;
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
 use crate::blocking::run_blocking;
 use crate::cipher::Cipher;
 use crate::manifest::{Entry, FileStamp};
-use crate::transport::{Fetcher, PathKind, PeerConnection, GO};
+use crate::transport::{Fetcher, PathKind, PeerConnection, TransportError, GO};
 
 /// How often, in received bytes, the relay limit looks at the relay count.
 const LIMIT_SAMPLE: u64 = 256 * 1024;
@@ -53,10 +55,11 @@ pub(super) async fn download_file(
         return Err(DownloadError::Cancelled);
     }
 
-    let mut previous = 0;
-    let mut unsampled = 0;
-    let stats = connection
-        .fetch_blob(&entry.hash, &mut |received| {
+    let mut waiting: Option<Waiting> = None;
+    let stats = loop {
+        let mut previous = 0;
+        let mut unsampled = 0;
+        let mut on_progress = |received: u64| {
             let new_bytes = received.saturating_sub(previous);
             previous = received;
             *received_total += new_bytes;
@@ -83,9 +86,24 @@ pub(super) async fn download_file(
                 }
                 _ => GO,
             }
-        })
-        .await
-        .map_err(cancelled)?;
+        };
+        match connection.fetch_blob(&entry.hash, &mut on_progress).await {
+            Ok(stats) => break stats,
+            Err(TransportError::NotReady) => {
+                let now = Instant::now();
+                if waiting.is_none() && on_event(DownloadEvent::SenderPreparing { path }).is_break()
+                {
+                    return Err(DownloadError::Cancelled);
+                }
+                let pause = waiting
+                    .get_or_insert_with(|| Waiting::new(now))
+                    .next_pause(now)
+                    .ok_or(DownloadError::Transport(TransportError::NotReady))?;
+                tokio::time::sleep(pause).await;
+            }
+            Err(error) => return Err(cancelled(error)),
+        }
+    };
 
     let name = data_encoding::HEXLOWER.encode(&entry.hash);
     let ciphertext = partial.join(format!("{name}.blob"));
@@ -147,15 +165,6 @@ pub(super) async fn copy_file(
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<Option<Option<FileStamp>>, DownloadError> {
     let path = entry.path.as_str();
-    if on_event(DownloadEvent::FileStarted {
-        path,
-        size: entry.size,
-        already_local: entry.size,
-    })
-    .is_break()
-    {
-        return Err(DownloadError::Cancelled);
-    }
     let name = data_encoding::HEXLOWER.encode(&entry.hash);
     let plaintext = partial.join(format!("{name}.copy"));
     if let Err(error) = tokio::fs::remove_file(&plaintext).await {
@@ -181,10 +190,9 @@ pub(super) async fn copy_file(
     };
     let event = match copied {
         None => return Ok(None),
-        Some(Some(_)) => DownloadEvent::FileDone {
+        Some(Some(_)) => DownloadEvent::FileCopiedHere {
             path,
-            already_local: entry.size,
-            received: 0,
+            size: entry.size,
         },
         Some(None) => DownloadEvent::FileChangedHere {
             path,

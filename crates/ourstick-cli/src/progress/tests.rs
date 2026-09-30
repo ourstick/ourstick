@@ -257,6 +257,21 @@ fn files_not_downloaded_are_accounted_for() {
     );
     assert_eq!(progress.so_far(), 200);
     assert_eq!(
+        progress.on_event(DownloadEvent::SenderPreparing { path: "c\u{1b}" }, secs(1)),
+        vec!["[00:01]   c\\u{1b}: the sender is still preparing it; waiting."]
+    );
+    assert_eq!(
+        progress.on_event(
+            DownloadEvent::FileCopiedHere {
+                path: "c\u{1b}",
+                size: 100
+            },
+            secs(1)
+        ),
+        vec!["[00:01]   c\\u{1b} (same as a file already downloaded; copied)"]
+    );
+    assert_eq!(progress.so_far(), 300);
+    assert_eq!(
         progress.on_event(DownloadEvent::NoLongerInStick { count: 1 }, secs(2)),
         vec!["[00:02] 1 file no longer in the stick; kept in this folder."]
     );

@@ -82,6 +82,8 @@ pub enum TransportError {
     UnknownStick,
     #[error("the owner refused to send this data")]
     Refused,
+    #[error("the owner is still preparing this data; asking again shortly")]
+    NotReady,
     #[error("received data does not match its hash; the owner's copy is damaged")]
     Corrupt,
     #[error("the owner could not read its own copy of the data (it may be damaged); ask the owner to share again")]

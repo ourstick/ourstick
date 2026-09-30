@@ -39,10 +39,7 @@ async fn batches_leave_once_their_files_are_in_place_and_twins_are_copied() {
         output.path(),
         &RelayPolicy::default(),
         &mut |event| {
-            if let DownloadEvent::FileDone {
-                path, received: 0, ..
-            } = event
-            {
+            if let DownloadEvent::FileCopiedHere { path, .. } = event {
                 copied.push(path.to_owned());
             }
             ControlFlow::Continue(())
@@ -68,4 +65,63 @@ async fn batches_leave_once_their_files_are_in_place_and_twins_are_copied() {
     // Only the manifest's store is left; every file batch was dropped.
     assert_eq!(fetcher.batch_names(), vec!["manifest"]);
     assert!(!fetcher.local.lock().unwrap().dropped.is_empty());
+}
+
+/// ADR 0007: a blob the owner is still preparing is "not ready", not a
+/// failure. The reader says so once per file, waits and asks again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_not_ready_yet_is_waited_for() {
+    let first = noise(64 * 1024, 3);
+    let second = noise(32 * 1024, 4);
+    let stick = publish_files(&[("first.bin", &first), ("second.bin", &second)]).await;
+    {
+        let mut served = stick.served.lock().unwrap();
+        let manifest = stick.ticket.manifest_hint.hash;
+        let files: Vec<_> = served
+            .blobs
+            .keys()
+            .filter(|hash| **hash != manifest)
+            .copied()
+            .collect();
+        assert_eq!(files.len(), 2);
+        for hash in files {
+            served.not_ready.insert(hash, 2);
+        }
+    }
+    let fetcher = MemoryFetcher::new(stick.served.clone(), Link::default());
+    let output = tempfile::tempdir().unwrap();
+    let mut preparing = Vec::new();
+    download(
+        &fetcher,
+        Arc::new(MemoryStore::new()),
+        &FixedClock::new(2_000),
+        &stick.ticket,
+        output.path(),
+        &RelayPolicy::default(),
+        &mut |event| {
+            if let DownloadEvent::SenderPreparing { path } = event {
+                preparing.push(path.to_owned());
+            }
+            ControlFlow::Continue(())
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(preparing, vec!["first.bin", "second.bin"]);
+    assert_eq!(
+        std::fs::read(output.path().join("first.bin")).unwrap(),
+        first
+    );
+    assert_eq!(
+        std::fs::read(output.path().join("second.bin")).unwrap(),
+        second
+    );
+    assert!(stick
+        .served
+        .lock()
+        .unwrap()
+        .not_ready
+        .values()
+        .all(|left| *left == 0));
 }

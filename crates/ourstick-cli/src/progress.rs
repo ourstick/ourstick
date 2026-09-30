@@ -188,6 +188,17 @@ impl Progress {
                     untrusted(path)
                 )]
             }
+            DownloadEvent::FileCopiedHere { path, size } => {
+                self.finished += size;
+                vec![format!(
+                    "[{at}]   {} (same as a file already downloaded; copied)",
+                    untrusted(path)
+                )]
+            }
+            DownloadEvent::SenderPreparing { path } => vec![format!(
+                "[{at}]   {}: the sender is still preparing it; waiting.",
+                untrusted(path)
+            )],
             DownloadEvent::NoLongerInStick { count: files } => vec![format!(
                 "[{at}] {} no longer in the stick; kept in this folder.",
                 count(files)

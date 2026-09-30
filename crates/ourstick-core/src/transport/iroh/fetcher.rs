@@ -13,7 +13,7 @@ use iroh::{Endpoint, EndpointAddr};
 use iroh_blobs::api::remote::GetProgressItem;
 use iroh_blobs::get::fsm::DecodeError;
 use iroh_blobs::get::GetError;
-use iroh_blobs::protocol::{ERR_INTERNAL, ERR_PERMISSION};
+use iroh_blobs::protocol::{ERR_INTERNAL, ERR_LIMIT, ERR_PERMISSION};
 use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::watch;
 
@@ -229,6 +229,10 @@ fn get_error(error: GetError) -> TransportError {
         TransportError::Corrupt
     } else if error.iroh_error_code() == Some(ERR_PERMISSION) {
         TransportError::Refused
+    } else if error.iroh_error_code() == Some(ERR_LIMIT) {
+        // "OK to try again later" (iroh-blobs): the owner is preparing the
+        // blob (ADR 0007).
+        TransportError::NotReady
     } else if error.iroh_error_code() == Some(ERR_INTERNAL) {
         // The provider checks its data against its outboard while sending and
         // stops with this code when its copy is damaged.

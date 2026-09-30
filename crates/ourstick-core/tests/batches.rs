@@ -125,3 +125,47 @@ async fn a_file_not_ready_yet_is_waited_for() {
         .values()
         .all(|left| *left == 0));
 }
+
+/// A file is placed while the next one is received: the next one starts
+/// (and arrives) before the one before it is reported in place.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_next_file_is_received_while_one_is_placed() {
+    let first = noise(200_000, 5);
+    let second = noise(100_000, 6);
+    let stick = publish_files(&[("a.bin", &first), ("b.bin", &second)]).await;
+    let fetcher = MemoryFetcher::new(stick.served.clone(), Link::default());
+    let output = tempfile::tempdir().unwrap();
+    let mut events = Vec::new();
+    download(
+        &fetcher,
+        Arc::new(MemoryStore::new()),
+        &FixedClock::new(2_000),
+        &stick.ticket,
+        output.path(),
+        &RelayPolicy::default(),
+        &mut |event| {
+            match event {
+                DownloadEvent::FileStarted { path, .. } => events.push(format!("start {path}")),
+                DownloadEvent::FileReceived { path, .. } => events.push(format!("here {path}")),
+                DownloadEvent::FileDone { path, .. } => events.push(format!("placed {path}")),
+                _ => {}
+            }
+            ControlFlow::Continue(())
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![
+            "start a.bin",
+            "here a.bin",
+            "start b.bin",
+            "here b.bin",
+            "placed a.bin",
+            "placed b.bin"
+        ]
+    );
+    assert_eq!(std::fs::read(output.path().join("a.bin")).unwrap(), first);
+    assert_eq!(std::fs::read(output.path().join("b.bin")).unwrap(), second);
+}

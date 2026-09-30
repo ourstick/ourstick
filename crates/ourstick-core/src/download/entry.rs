@@ -1,11 +1,13 @@
-//! Downloading one file of the manifest: check its path, fetch its blob
-//! (watching which path the data arrives on, and waiting while the owner
-//! prepares it), decrypt it into place. A file
-//! whose blob this download already turned into another file is copied from
-//! that file instead.
+//! Downloading one file of the manifest in two halves: receiving it (check
+//! its path, fetch its blob while watching which path the data arrives on
+//! and waiting while the owner prepares it, take the blob out of the store),
+//! then placing it (decrypt it into place, on the blocking pool). The caller
+//! receives the next file while this one is placed. A file whose blob this
+//! download already turned into another file is copied from that file
+//! instead.
 
 use std::ops::ControlFlow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -22,20 +24,28 @@ use crate::transport::{Fetcher, PathKind, PeerConnection, TransportError, GO};
 /// How often, in received bytes, the relay limit looks at the relay count.
 const LIMIT_SAMPLE: u64 = 256 * 1024;
 
+/// A file whose blob is here, out of the store, not placed yet.
+#[derive(Debug)]
+pub(super) struct Received {
+    ciphertext: PathBuf,
+    plaintext: PathBuf,
+    already_local: u64,
+    received: u64,
+}
+
+/// Fetches the blob of `entry` and takes it out of the store into `partial`.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn download_file(
+pub(super) async fn receive_file(
     fetcher: &impl Fetcher,
     connection: &impl PeerConnection,
-    cipher: &Arc<dyn Cipher>,
     entry: &Entry,
     output_dir: &Path,
     partial: &Path,
     receiving: &mut ReceivingPath,
     limiter: &mut Option<RelayLimiter>,
-    replaceable: Option<FileStamp>,
     received_total: &mut u64,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<Option<FileStamp>, DownloadError> {
+) -> Result<Received, DownloadError> {
     let path = entry.path.as_str();
     // Early check, so a bad path fails before the transfer; checked again
     // right before the file is moved into place.
@@ -116,34 +126,94 @@ pub(super) async fn download_file(
         }
     }
     fetcher.export_blob(&entry.hash, &ciphertext).await?;
-    let written = {
+    if on_event(DownloadEvent::FileReceived {
+        path,
+        size: entry.size,
+        already_local: stats.already_local,
+        received: stats.received,
+    })
+    .is_break()
+    {
+        return Err(DownloadError::Cancelled);
+    }
+    Ok(Received {
+        ciphertext,
+        plaintext,
+        already_local: stats.already_local,
+        received: stats.received,
+    })
+}
+
+/// A file being decrypted into place on the blocking pool.
+pub(super) struct Placing {
+    entry: Entry,
+    already_local: u64,
+    received: u64,
+    task: tokio::task::JoinHandle<Result<Option<FileStamp>, DownloadError>>,
+}
+
+impl Placing {
+    /// The blob this placement reads (its file in `partial` is named after it).
+    pub(super) fn hash(&self) -> &[u8; 32] {
+        &self.entry.hash
+    }
+
+    pub(super) fn entry(&self) -> &Entry {
+        &self.entry
+    }
+}
+
+/// Starts decrypting `received` into place; see [`finish_placing`].
+pub(super) fn start_placing(
+    cipher: &Arc<dyn Cipher>,
+    entry: &Entry,
+    received: Received,
+    output_dir: &Path,
+    replaceable: Option<FileStamp>,
+) -> Placing {
+    let task = {
         let cipher = cipher.clone();
         let entry = entry.clone();
         let output_dir = output_dir.to_path_buf();
-        run_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             decrypt_into_place(
                 cipher.as_ref(),
                 &entry,
-                &ciphertext,
-                &plaintext,
+                &received.ciphertext,
+                &received.plaintext,
                 &output_dir,
                 replaceable,
             )
         })
-        .await?
     };
+    Placing {
+        entry: entry.clone(),
+        already_local: received.already_local,
+        received: received.received,
+        task,
+    }
+}
 
+/// Waits for `placing` and says how it went: the file's stamp once in place,
+/// `None` if the file changed in the folder while it downloaded (left as it
+/// is).
+pub(super) async fn finish_placing(
+    placing: Placing,
+    on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
+) -> Result<Option<FileStamp>, DownloadError> {
+    let written = match placing.task.await {
+        Ok(written) => written?,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => panic!("placing a file was cancelled: {error}"),
+    };
+    let path = placing.entry.path.as_str();
     let event = match written {
         Some(_) => DownloadEvent::FileDone {
             path,
-            already_local: stats.already_local,
-            received: stats.received,
+            already_local: placing.already_local,
+            received: placing.received,
         },
-        // Changed in the folder while it downloaded.
-        None => DownloadEvent::FileChangedHere {
-            path,
-            size: entry.size,
-        },
+        None => DownloadEvent::ReceivedButChangedHere { path },
     };
     if on_event(event).is_break() {
         return Err(DownloadError::Cancelled);
@@ -154,7 +224,7 @@ pub(super) async fn download_file(
 /// Places `entry` by copying `source`, a file this download already wrote from
 /// the same blob (identical files share a blob, ADR 0003). Returns `None` if
 /// `source` changed since, so the caller fetches the blob instead; otherwise
-/// what [`download_file`] returns.
+/// what [`finish_placing`] returns.
 pub(super) async fn copy_file(
     entry: &Entry,
     source: &Path,

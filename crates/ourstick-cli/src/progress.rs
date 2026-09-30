@@ -190,16 +190,24 @@ impl Progress {
                 Vec::new()
             }
             DownloadEvent::FileChangedHere { path, size } => {
-                // Also when it changed while downloading: what came counts.
                 self.finished += size;
-                self.finished_network += self.current_received;
-                self.current_size = 0;
-                self.current_local = 0;
-                self.current_received = 0;
                 vec![format!(
                     "[{at}]   {}: changed in this folder, left as it is",
                     untrusted(path)
                 )]
+            }
+            // Counted when it was received.
+            DownloadEvent::ReceivedButChangedHere { path } => vec![format!(
+                "[{at}]   {}: changed in this folder while it downloaded, left as it is",
+                untrusted(path)
+            )],
+            DownloadEvent::FileReceived { size, received, .. } => {
+                self.finished += size;
+                self.finished_network += received;
+                self.current_size = 0;
+                self.current_local = 0;
+                self.current_received = 0;
+                Vec::new()
             }
             DownloadEvent::FileCopiedHere { path, size } => {
                 self.finished += size;
@@ -216,15 +224,13 @@ impl Progress {
                 "[{at}] {} no longer in the stick; kept in this folder.",
                 count(files)
             )],
+            // Counted when it was received; it may come after the next
+            // file started.
             DownloadEvent::FileDone {
                 path,
                 already_local,
                 received,
             } => {
-                self.finished += self.current_size;
-                self.finished_network += received;
-                self.current_local = 0;
-                self.current_received = 0;
                 let resumed = if already_local > 0 {
                     format!(", resumed after {}", bytes(already_local))
                 } else {

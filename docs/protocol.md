@@ -38,7 +38,9 @@ _Draft. Updated whenever the wire format or the ticket format changes._
    finds the same batches and resumes the partial blob of the one it stopped
    in; batches of another version are deleted. An entry whose blob this
    download already turned into a file is copied from that file, not fetched
-   again (identical files share a blob, ADR 0003).
+   again (identical files share a blob, ADR 0003). A file is decrypted into
+   place while the next one is fetched; at most one waits to be placed, so
+   the reader needs one more file's blob in space.
 
 ## Manifest wire format (version 2)
 

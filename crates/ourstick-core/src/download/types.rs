@@ -61,10 +61,25 @@ pub enum DownloadEvent<'a> {
         path: &'a str,
         received: u64,
     },
+    /// Every byte of this file's blob is here; it is being placed (decrypted
+    /// into the folder) while the next file is received.
+    FileReceived {
+        path: &'a str,
+        size: u64,
+        already_local: u64,
+        received: u64,
+    },
+    /// The file is in place (after its `FileReceived`, maybe after the next
+    /// file's `FileStarted`).
     FileDone {
         path: &'a str,
         already_local: u64,
         received: u64,
+    },
+    /// A received file that was not placed: the folder's file at its path
+    /// changed while it downloaded, and is left as it is.
+    ReceivedButChangedHere {
+        path: &'a str,
     },
     /// The folder already holds this file with this content: not fetched.
     FileAlreadyHere {

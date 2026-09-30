@@ -157,8 +157,9 @@ fn resumed_file_counts_what_is_here_but_speed_only_the_network() {
         secs(0),
     );
     progress.on_event(
-        DownloadEvent::FileDone {
+        DownloadEvent::FileReceived {
             path: "extra.mkv",
+            size: 200_000_000,
             already_local: 200_000_000,
             received: 0,
         },
@@ -172,6 +173,19 @@ fn resumed_file_counts_what_is_here_but_speed_only_the_network() {
             already_local: 1_200_000_000,
         },
         secs(1),
+    );
+    // The small one is placed while the big one downloads: counted once.
+    let done = progress.on_event(
+        DownloadEvent::FileDone {
+            path: "extra.mkv",
+            already_local: 200_000_000,
+            received: 0,
+        },
+        secs(1),
+    );
+    assert_eq!(
+        done,
+        vec!["[00:01]   extra.mkv (0 B received, resumed after 200.0 MB)"]
     );
     let line = progress.on_event(
         DownloadEvent::Progress {
@@ -197,6 +211,13 @@ fn file_lines_are_escaped_and_show_resume() {
     assert_eq!(
         done,
         vec!["[01:05]   \\u{1b}[2Jmovie.mkv (3.0 MB received, resumed after 2.0 MB)"]
+    );
+    assert_eq!(
+        progress.on_event(
+            DownloadEvent::ReceivedButChangedHere { path: "a\u{7}" },
+            secs(66)
+        ),
+        vec!["[01:06]   a\\u{7}: changed in this folder while it downloaded, left as it is"]
     );
 }
 

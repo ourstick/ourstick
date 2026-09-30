@@ -40,7 +40,9 @@ async fn download_while(
         &RelayPolicy::default(),
         &mut |event| {
             match event {
-                DownloadEvent::FileDone { .. } => {
+                // The first file's bytes are here (it is placed while the
+                // next one is fetched).
+                DownloadEvent::FileReceived { .. } => {
                     done += 1;
                     if done == 1 {
                         then();

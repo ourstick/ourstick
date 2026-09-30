@@ -139,7 +139,7 @@ impl Store for MemoryStore {
             .unwrap_or_default())
     }
 
-    fn replace_owned_files(
+    fn record_owned_files(
         &self,
         stick_id: &StickId,
         files: &[OwnedFile],
@@ -152,11 +152,27 @@ impl Store for MemoryStore {
         if !state.owned.contains_key(&key) {
             return Err(StoreError::StickNotFound);
         }
-        let files = files
-            .iter()
-            .map(|file| (file.path.clone(), file.clone()))
-            .collect();
-        state.owned_files.insert(key, files);
+        let recorded = state.owned_files.entry(key).or_default();
+        for file in files {
+            recorded.insert(file.path.clone(), file.clone());
+        }
+        Ok(())
+    }
+
+    fn keep_only_owned_files(
+        &self,
+        stick_id: &StickId,
+        paths: &[String],
+    ) -> Result<(), StoreError> {
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if !state.owned.contains_key(&key) {
+            return Err(StoreError::StickNotFound);
+        }
+        let keep: std::collections::HashSet<&String> = paths.iter().collect();
+        if let Some(recorded) = state.owned_files.get_mut(&key) {
+            recorded.retain(|path, _| keep.contains(path));
+        }
         Ok(())
     }
 

@@ -5,7 +5,7 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 8);
+    assert_eq!(SCHEMA_VERSION, 9);
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO record_floors VALUES (zeroblob(32), -1, zeroblob(32))",
         "INSERT INTO record_floors VALUES (zeroblob(32), 1, zeroblob(31))",
         // No owned stick with that id (foreign key), and bad values.
-        "INSERT INTO owned_files VALUES (randomblob(32), 'a', 1, 1, 1, zeroblob(32))",
+        "INSERT INTO owned_files VALUES (randomblob(32), 'a', 1, 1, 1, zeroblob(32), NULL)",
     ];
     connection
         .execute(
@@ -187,15 +187,28 @@ fn schema_rejects_bad_rows_even_without_the_code() {
     let bad_inserts = [
         bad_inserts.as_slice(),
         &[
-            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', -1, 1, 1, zeroblob(32))",
-            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(31))",
-            "INSERT INTO owned_files VALUES (zeroblob(32), NULL, 1, 1, 1, zeroblob(32))",
+            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', -1, 1, 1, zeroblob(32), NULL)",
+            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(31), NULL)",
+            "INSERT INTO owned_files VALUES (zeroblob(32), NULL, 1, 1, 1, zeroblob(32), NULL)",
+            "INSERT INTO owned_files VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(32), zeroblob(31))",
             "INSERT INTO downloaded_files VALUES (randomblob(32), 'a', 1, 1, 1, zeroblob(32))",
         ],
     ]
     .concat();
     for sql in bad_inserts {
         assert!(connection.execute(sql, []).is_err(), "accepted: {sql}");
+    }
+    // The good row the bad ones differ from.
+    for plaintext_hash in ["NULL", "zeroblob(32)"] {
+        connection
+            .execute(
+                &format!(
+                    "INSERT OR REPLACE INTO owned_files
+                     VALUES (zeroblob(32), 'a', 1, 1, 1, zeroblob(32), {plaintext_hash})"
+                ),
+                [],
+            )
+            .unwrap();
     }
 }
 

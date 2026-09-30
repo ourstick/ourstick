@@ -25,8 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 8
+## Version 9
 
+Version 9 (`0009_owned_plaintext_hash.sql`) added
+`owned_files.plaintext_hash` (ADR 0007), NULL in rows written before.
 Version 8 (`0008_drive_letter.sql`) added `owned_sticks.drive_letter`, the
 letter Windows showed the app's stick at. Version 7
 (`0007_credential_manager_backend.sql`) lets
@@ -123,8 +125,9 @@ refused, so a restored or replayed old record cannot roll a reader back.
 ### `owned_files`
 
 What the owner last encrypted, per file of an owned stick, so that an unchanged
-file is not encrypted again. Replaced as a whole, in one transaction, after
-every publish.
+file is not encrypted again. Written in parts as a pass goes (each part in one
+transaction), so a pass stopped halfway keeps what it did; rows of files that
+left the folder are removed at the end of a full pass.
 
 | Column      | Type    | Meaning                                                    |
 |-------------|---------|------------------------------------------------------------|
@@ -134,6 +137,7 @@ every publish.
 | `mtime_ns`  | INTEGER | Modification time, ns since the Unix epoch; 0 if unknown   |
 | `ctime_ns`  | INTEGER | Inode change time on Unix, ns; 0 elsewhere                 |
 | `blob_hash` | BLOB 32 | The blob made from the file in that state                  |
+| `plaintext_hash` | BLOB 32 or NULL | BLAKE3 of the file in that state (the nonce prefix, ADR 0003); a hint for progress only, never used to make a blob. NULL in rows from before version 9 |
 
 Primary key `(stick_id, path)`. A file whose size, mtime and ctime match its
 row, and whose blob the cache still holds, keeps `blob_hash` without being

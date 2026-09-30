@@ -219,12 +219,20 @@ impl Store for SqliteStore {
         files::owned_files(&self.connection(), stick_id)
     }
 
-    fn replace_owned_files(
+    fn record_owned_files(
         &self,
         stick_id: &StickId,
         files: &[OwnedFile],
     ) -> Result<(), StoreError> {
-        files::replace_owned_files(&mut self.connection(), stick_id, files)
+        files::record_owned_files(&mut self.connection(), stick_id, files)
+    }
+
+    fn keep_only_owned_files(
+        &self,
+        stick_id: &StickId,
+        paths: &[String],
+    ) -> Result<(), StoreError> {
+        files::keep_only_owned_files(&mut self.connection(), stick_id, paths)
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {

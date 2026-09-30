@@ -80,7 +80,7 @@ async fn rescan_reads_every_file_whatever_was_recorded() {
     recorded[1].blob_hash = a;
     owner
         .store
-        .replace_owned_files(&stick_id, &recorded)
+        .record_owned_files(&stick_id, &recorded)
         .unwrap();
     owner.clock.set(10_000);
     let trusted = owner.publish().await;

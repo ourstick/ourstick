@@ -13,7 +13,7 @@ pub(super) fn owned_files(
     stick_id: &StickId,
 ) -> Result<Vec<OwnedFile>, StoreError> {
     let mut statement = connection.prepare(
-        "SELECT path, size, mtime_ns, ctime_ns, blob_hash FROM owned_files
+        "SELECT path, size, mtime_ns, ctime_ns, blob_hash, plaintext_hash FROM owned_files
          WHERE stick_id = ?1 ORDER BY path",
     )?;
     let rows = statement.query_map([stick_id.to_bytes()], |row| {
@@ -23,10 +23,11 @@ pub(super) fn owned_files(
             row.get::<_, i64>(2)?,
             row.get::<_, i64>(3)?,
             row.get::<_, Vec<u8>>(4)?,
+            row.get::<_, Option<Vec<u8>>>(5)?,
         ))
     })?;
     rows.map(|row| {
-        let (path, size, mtime_ns, ctime_ns, hash) = row?;
+        let (path, size, mtime_ns, ctime_ns, hash, plaintext_hash) = row?;
         Ok(OwnedFile {
             path,
             stamp: FileStamp {
@@ -35,12 +36,27 @@ pub(super) fn owned_files(
                 ctime_ns: to_u64(ctime_ns, "ctime_ns")?,
             },
             blob_hash: blob32(hash, "blob_hash")?,
+            plaintext_hash: plaintext_hash
+                .map(|hash| blob32(hash, "plaintext_hash"))
+                .transpose()?,
         })
     })
     .collect()
 }
 
-pub(super) fn replace_owned_files(
+/// Fails with `StickNotFound` unless `stick_id` is an owned stick.
+fn check_owned(connection: &Connection, stick_id: &[u8; 32]) -> Result<(), StoreError> {
+    let owned: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM owned_sticks WHERE stick_id = ?1",
+            [stick_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    owned.map(|_| ()).ok_or(StoreError::StickNotFound)
+}
+
+pub(super) fn record_owned_files(
     connection: &mut Connection,
     stick_id: &StickId,
     files: &[OwnedFile],
@@ -50,21 +66,15 @@ pub(super) fn replace_owned_files(
     }
     let stick_id = stick_id.to_bytes();
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let owned: Option<i64> = transaction
-        .query_row(
-            "SELECT 1 FROM owned_sticks WHERE stick_id = ?1",
-            [stick_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if owned.is_none() {
-        return Err(StoreError::StickNotFound);
-    }
-    transaction.execute("DELETE FROM owned_files WHERE stick_id = ?1", [stick_id])?;
+    check_owned(&transaction, &stick_id)?;
     {
         let mut insert = transaction.prepare(
-            "INSERT INTO owned_files (stick_id, path, size, mtime_ns, ctime_ns, blob_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO owned_files
+                 (stick_id, path, size, mtime_ns, ctime_ns, blob_hash, plaintext_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT (stick_id, path) DO UPDATE SET size = excluded.size,
+                 mtime_ns = excluded.mtime_ns, ctime_ns = excluded.ctime_ns,
+                 blob_hash = excluded.blob_hash, plaintext_hash = excluded.plaintext_hash",
         )?;
         for file in files {
             // Checked above: every value fits in i64.
@@ -75,7 +85,32 @@ pub(super) fn replace_owned_files(
                 file.stamp.mtime_ns as i64,
                 file.stamp.ctime_ns as i64,
                 file.blob_hash.to_vec(),
+                file.plaintext_hash.map(|hash| hash.to_vec()),
             ])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+pub(super) fn keep_only_owned_files(
+    connection: &mut Connection,
+    stick_id: &StickId,
+    paths: &[String],
+) -> Result<(), StoreError> {
+    let stick_id = stick_id.to_bytes();
+    let keep: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    check_owned(&transaction, &stick_id)?;
+    let recorded: Vec<String> = transaction
+        .prepare("SELECT path FROM owned_files WHERE stick_id = ?1")?
+        .query_map([stick_id], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    {
+        let mut delete =
+            transaction.prepare("DELETE FROM owned_files WHERE stick_id = ?1 AND path = ?2")?;
+        for path in recorded.iter().filter(|path| !keep.contains(path.as_str())) {
+            delete.execute(params![stick_id, path])?;
         }
     }
     transaction.commit()?;

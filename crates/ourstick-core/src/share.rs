@@ -212,10 +212,16 @@ pub async fn publish_folder(
                 path,
                 stamp,
                 blob_hash,
+                plaintext_hash: None,
             })
             .collect();
         let store = store.clone();
-        run_blocking(move || store.replace_owned_files(&stick_id, &files)).await?;
+        run_blocking(move || {
+            let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
+            store.record_owned_files(&stick_id, &files)?;
+            store.keep_only_owned_files(&stick_id, &paths)
+        })
+        .await?;
     }
     tracing::info!(
         seq,

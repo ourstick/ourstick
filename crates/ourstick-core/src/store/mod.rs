@@ -125,6 +125,9 @@ pub struct OwnedFile {
     pub path: String,
     pub stamp: FileStamp,
     pub blob_hash: [u8; 32],
+    /// BLAKE3 of the file's plaintext then (the nonce prefix, ADR 0003); a
+    /// hint only. `None` for files recorded before ADR 0007.
+    pub plaintext_hash: Option<[u8; 32]>,
 }
 
 /// A file `get` wrote into a joined stick's folder: the blob it came from,
@@ -169,12 +172,16 @@ pub trait Store: Send + Sync {
     /// The files recorded at the last publish of an owned stick, by path.
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError>;
 
-    /// Replaces the recorded files of an owned stick, all at once.
-    fn replace_owned_files(
-        &self,
-        stick_id: &StickId,
-        files: &[OwnedFile],
-    ) -> Result<(), StoreError>;
+    /// Records files of an owned stick, replacing the rows of the same paths.
+    /// All or nothing: a batch of the catalogue (ADR 0007) is kept as a whole
+    /// or not at all.
+    fn record_owned_files(&self, stick_id: &StickId, files: &[OwnedFile])
+        -> Result<(), StoreError>;
+
+    /// Forgets the recorded files of an owned stick whose path is not in
+    /// `paths` (files that left the folder), at the end of a full pass.
+    fn keep_only_owned_files(&self, stick_id: &StickId, paths: &[String])
+        -> Result<(), StoreError>;
 
     /// Records a new joined stick. Fails if it exists.
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError>;

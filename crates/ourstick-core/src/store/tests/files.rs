@@ -12,33 +12,45 @@ fn file(path: &str, size: u64, hash: u8) -> OwnedFile {
             ctime_ns: 1_700_000_000_987_654_321,
         },
         blob_hash: [hash; 32],
+        plaintext_hash: Some([hash ^ 0xff; 32]),
     }
 }
 
-fn owned_files_are_replaced_as_a_whole(store: &dyn Store) {
+fn owned_files_are_recorded_in_parts_and_pruned_at_the_end(store: &dyn Store) {
     let stick_id = owner(1).stick_id();
     store.add_owned_stick(&owned(1, 10)).unwrap();
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![]);
 
     store
-        .replace_owned_files(&stick_id, &[file("b", 2, 2), file("a/x", 1, 1)])
+        .record_owned_files(&stick_id, &[file("b", 2, 2), file("a/x", 1, 1)])
         .unwrap();
+    let mut old = file("c", 4, 4);
+    old.plaintext_hash = None;
+    store.record_owned_files(&stick_id, &[old.clone()]).unwrap();
     assert_eq!(
         store.owned_files(&stick_id).unwrap(),
-        vec![file("a/x", 1, 1), file("b", 2, 2)]
+        vec![file("a/x", 1, 1), file("b", 2, 2), old]
     );
-    // A file that left the folder leaves the record too.
+    // A later part replaces the row of the same path.
     store
-        .replace_owned_files(&stick_id, &[file("b", 3, 3)])
+        .record_owned_files(&stick_id, &[file("b", 3, 3)])
+        .unwrap();
+    // A file that left the folder leaves the record at the end of the pass.
+    store
+        .keep_only_owned_files(&stick_id, &["b".to_owned(), "gone".to_owned()])
         .unwrap();
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![file("b", 3, 3)]);
-    store.replace_owned_files(&stick_id, &[]).unwrap();
+    store.keep_only_owned_files(&stick_id, &[]).unwrap();
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![]);
 }
 
 fn owned_files_need_an_owned_stick(store: &dyn Store) {
     assert!(matches!(
-        store.replace_owned_files(&owner(1).stick_id(), &[file("a", 1, 1)]),
+        store.record_owned_files(&owner(1).stick_id(), &[file("a", 1, 1)]),
+        Err(StoreError::StickNotFound)
+    ));
+    assert!(matches!(
+        store.keep_only_owned_files(&owner(1).stick_id(), &[]),
         Err(StoreError::StickNotFound)
     ));
 }
@@ -47,10 +59,13 @@ fn owned_files_are_per_stick(store: &dyn Store) {
     store.add_owned_stick(&owned(1, 10)).unwrap();
     store.add_owned_stick(&owned(2, 20)).unwrap();
     store
-        .replace_owned_files(&owner(1).stick_id(), &[file("a", 1, 1)])
+        .record_owned_files(&owner(1).stick_id(), &[file("a", 1, 1)])
         .unwrap();
     store
-        .replace_owned_files(&owner(2).stick_id(), &[file("a", 2, 2)])
+        .record_owned_files(&owner(2).stick_id(), &[file("a", 2, 2)])
+        .unwrap();
+    store
+        .keep_only_owned_files(&owner(2).stick_id(), &[])
         .unwrap();
     assert_eq!(
         store.owned_files(&owner(1).stick_id()).unwrap(),
@@ -62,15 +77,15 @@ fn owned_file_values_beyond_i64_are_refused(store: &dyn Store) {
     let stick_id = owner(1).stick_id();
     store.add_owned_stick(&owned(1, 10)).unwrap();
     store
-        .replace_owned_files(&stick_id, &[file("a", 1, 1)])
+        .record_owned_files(&stick_id, &[file("a", 1, 1)])
         .unwrap();
     let mut huge = file("b", 1, 1);
     huge.stamp.mtime_ns = u64::MAX;
     assert!(matches!(
-        store.replace_owned_files(&stick_id, &[file("c", 1, 1), huge]),
+        store.record_owned_files(&stick_id, &[file("c", 1, 1), huge]),
         Err(StoreError::ValueOutOfRange("mtime", _))
     ));
-    // Nothing was replaced.
+    // Nothing of that part was recorded.
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![file("a", 1, 1)]);
 }
 
@@ -124,7 +139,7 @@ fn moving_the_folder_forgets_the_downloaded_files(store: &dyn Store) {
 for_every_store!(
     downloaded_files_are_recorded_one_by_one,
     moving_the_folder_forgets_the_downloaded_files,
-    owned_files_are_replaced_as_a_whole,
+    owned_files_are_recorded_in_parts_and_pruned_at_the_end,
     owned_files_need_an_owned_stick,
     owned_files_are_per_stick,
     owned_file_values_beyond_i64_are_refused,

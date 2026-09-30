@@ -34,8 +34,10 @@ KWallet). Where there is none (macOS for now, SSH sessions, servers), the first
 `share --key-file <path>` keeps them in a file protected by a passphrase
 instead; later runs use that file and ask for its passphrase.
 
-`share` encrypts only files whose size and modification times changed since
-the last share; --rescan reads and encrypts every file.
+`share` prints the ticket as soon as the first version is out: on a first
+share, readers can start while the folder is still being read. It reads only
+files whose size and modification times changed since the last share;
+--rescan reads every file.
 
 `get` never overwrites a file changed in its folder, and keeps files that left
 the stick. With --follow it keeps running and downloads every new version.

@@ -56,3 +56,20 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       Windows was not enough: hole punching still found a direct path.
 - [ ] **A USB drive icon for the Linux bookmark,** if the file managers allow
       one (today Nautilus and Thunar show bookmarks with a folder icon).
+
+## ADR 0007, after step 3
+
+- [ ] **A big folder, by hand:** `share` of the rescued folder (913 GB,
+      146,297 files) from the G drive, with a reader on the laptop: the
+      link at once, partial versions every 3 minutes, a restart halfway.
+- [ ] **Partial versions after a complete one:** today only a stick with no
+      complete version gets them, so a big drop into the app's stick (which
+      starts empty and complete) is published only when read in full. A
+      partial version that keeps the previous complete version's entries for
+      the paths not yet read would lift this.
+- [ ] **Reads per file until step 4:** the catalogue and the fill each run
+      `encrypt_blob`, which reads a file twice, so a new file is read four
+      times (the page cache spares small files). Suitcases (step 4) drop the
+      fill.
+- [ ] **Parallel catalogue:** one file at a time today; measure two on an
+      SSD and on the HDD before changing it.

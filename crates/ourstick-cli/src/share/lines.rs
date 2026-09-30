@@ -19,6 +19,30 @@ pub(super) fn network_line(report: Option<&NetworkReport>) -> String {
     }
 }
 
+/// How often `share` says how far reading the folder has come.
+const CATALOGUE_EVERY: Duration = Duration::from_secs(10);
+
+/// A line about reading the folder, every [`CATALOGUE_EVERY`] at most, and
+/// once it is done; `last` is when the previous one was printed.
+pub(super) fn catalogue_line(
+    last: &mut Option<Duration>,
+    done: usize,
+    total: usize,
+    elapsed: Duration,
+) -> Option<String> {
+    let finished = done == total;
+    if !finished && last.is_some_and(|last| elapsed < last + CATALOGUE_EVERY) {
+        return None;
+    }
+    *last = Some(elapsed);
+    let at = clock(elapsed);
+    Some(if finished {
+        format!("[{at}] Read all {total} files.")
+    } else {
+        format!("[{at}] Read {done} of {total} files.")
+    })
+}
+
 /// A line when the number of readers changes: who downloads now, and how
 /// fast. Nothing while it stays the same.
 pub(super) fn readers_line(
@@ -246,6 +270,26 @@ mod tests {
         assert!(line.contains("firewall"));
         assert_eq!(relay_only_line(true, &relayed, at), None);
         assert_eq!(relay_only_line(false, &ReaderActivity::default(), at), None);
+    }
+
+    #[test]
+    fn reading_the_folder_is_told_now_and_then() {
+        let mut last = None;
+        let at = Duration::from_secs;
+        assert_eq!(
+            catalogue_line(&mut last, 256, 1000, at(1)).as_deref(),
+            Some("[00:01] Read 256 of 1000 files.")
+        );
+        assert_eq!(catalogue_line(&mut last, 512, 1000, at(5)), None);
+        assert_eq!(
+            catalogue_line(&mut last, 768, 1000, at(11)).as_deref(),
+            Some("[00:11] Read 768 of 1000 files.")
+        );
+        // The end is always told.
+        assert_eq!(
+            catalogue_line(&mut last, 1000, 1000, at(12)).as_deref(),
+            Some("[00:12] Read all 1000 files.")
+        );
     }
 
     #[test]

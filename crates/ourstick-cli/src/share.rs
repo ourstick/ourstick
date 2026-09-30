@@ -1,5 +1,6 @@
-//! `ourstick share <folder>`: encrypt the folder into the cache, print a
-//! ticket, and serve until Ctrl-C.
+//! `ourstick share <folder>`: catalogue the folder and encrypt it into the
+//! cache, print a ticket (on a first share, as soon as the first version is
+//! out), and serve until Ctrl-C.
 
 use std::io::IsTerminal;
 use std::path::Path;
@@ -8,7 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
-use ourstick_core::share::{plan_share, publish_folder};
+use ourstick_core::share::{
+    plan_share, run_pass, PassEvent, PassOptions, Publication, PARTIAL_TIMING,
+};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
@@ -23,7 +26,7 @@ use crate::setup::{self, hex};
 
 mod lines;
 
-use lines::{network_line, readers_line, relay_only_line, watch_lines};
+use lines::{catalogue_line, network_line, readers_line, relay_only_line, watch_lines};
 
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
@@ -92,19 +95,71 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
 
     let config = IrohConfig::new(setup.node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
-    println!("Encrypting…");
-    let publication = publish_folder(
-        &publisher,
-        setup.store.clone(),
-        &SystemClock,
-        &signing_key,
-        &stick_key,
+    // Before the first version, so the ticket carries the relay's address.
+    if !publisher.online(Duration::from_secs(30)).await {
+        println!("Warning: no relay reachable; the ticket only has direct addresses.");
+    }
+    let report = publisher.wait_network_report(NETWORK_REPORT_WAIT).await;
+    println!("{}", network_line(report.as_ref()));
+
+    let owner = Owner {
+        publisher: &publisher,
+        store: setup.store.clone(),
+        clock: &SystemClock,
+        signing_key: &signing_key,
+        stick_key: &stick_key,
+    };
+    println!("Reading the folder…");
+    let print_ticket = |publication: &Publication| -> Result<()> {
+        let ticket = Ticket {
+            stick_id: stick.stick_id,
+            node_id: publisher.node_id(),
+            manifest_hint: ManifestHint {
+                seq: publication.seq,
+                hash: publication.manifest_hash,
+            },
+            address_hints: publisher.address_hints(),
+            stick_key: stick_key.clone(),
+        };
+        // Printed for the user only; never logged. The QR code only on a
+        // terminal, where a phone can scan it; not into files or pipes.
+        let link = ticket.to_link()?;
+        println!("\nTicket (anyone with it can read this stick):\n\n{link}\n");
+        if std::io::stdout().is_terminal() {
+            for line in qr_lines(&link)? {
+                println!("{line}");
+            }
+            println!();
+        }
+        Ok(())
+    };
+    let mut ticket_printed = Ok(false);
+    let mut last_line = None;
+    let options = PassOptions {
         rescan,
-    )
+        partial: Some(PARTIAL_TIMING),
+    };
+    let outcome = run_pass(&owner, options, &mut |event| match event {
+        PassEvent::Published(publication) => {
+            if matches!(ticket_printed, Ok(false)) {
+                ticket_printed = print_ticket(publication).map(|()| true);
+                println!("Readers can start now; the rest follows as the folder is read.");
+            }
+        }
+        PassEvent::Progress { done, total } => {
+            if let Some(line) = catalogue_line(&mut last_line, done, total, started.elapsed()) {
+                println!("{line}");
+            }
+        }
+    })
     .await?;
+    let publication = outcome.publication;
+    if !ticket_printed? {
+        print_ticket(&publication)?;
+    }
     if publication.reused > 0 {
         println!(
-            "{} files were as last time and were not encrypted again \
+            "{} files were as last time and were not read again \
              (--rescan reads every file).",
             publication.reused
         );
@@ -112,42 +167,14 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
     if !publication.new_version {
         println!("No changes since the last share: readers keep the same version.");
     }
-    if !publisher.online(Duration::from_secs(30)).await {
-        println!("Warning: no relay reachable; the ticket only has direct addresses.");
-    }
-    let report = publisher.wait_network_report(NETWORK_REPORT_WAIT).await;
-    println!("{}", network_line(report.as_ref()));
-
-    let ticket = Ticket {
-        stick_id: stick.stick_id,
-        node_id: publisher.node_id(),
-        manifest_hint: ManifestHint {
-            seq: publication.seq,
-            hash: publication.manifest_hash,
-        },
-        address_hints: publisher.address_hints(),
-        stick_key,
-    };
-    // Printed for the user only; never logged. The QR code only on a
-    // terminal, where a phone can scan it; not into files or pipes.
-    let link = ticket.to_link()?;
-    println!("\nTicket (anyone with it can read this stick):\n\n{link}\n");
-    if std::io::stdout().is_terminal() {
-        for line in qr_lines(&link)? {
-            println!("{line}");
-        }
-        println!();
+    if outcome.skipped > 0 {
+        println!(
+            "{} files changed while they were read; they follow shortly.",
+            outcome.skipped
+        );
     }
     println!("Serving. Press Ctrl-C to stop.");
 
-    let owner = Owner {
-        publisher: &publisher,
-        store: setup.store.clone(),
-        clock: &SystemClock,
-        signing_key: &signing_key,
-        // The ticket holds the stick key now.
-        stick_key: &ticket.stick_key,
-    };
     let current = publication.manifest;
     let stopped = match NotifyEvents::start(&folder) {
         Ok(events) => {

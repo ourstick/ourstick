@@ -148,13 +148,42 @@ pub async fn follow_folder(
     root: &Path,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
+    current: Manifest,
+    on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
+) {
+    follow(owner, root, events, timing, current, false, on_event).await;
+}
+
+/// Like [`follow_folder`], with a pass at once: after a start that served
+/// the last version without reading the folder
+/// ([`crate::share::serve_latest`]).
+pub async fn follow_folder_reading_first(
+    owner: &Owner<'_, impl Publisher>,
+    root: &Path,
+    events: &mut impl FolderEvents,
+    timing: WatchTiming,
+    current: Manifest,
+    on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
+) {
+    follow(owner, root, events, timing, current, true, on_event).await;
+}
+
+async fn follow(
+    owner: &Owner<'_, impl Publisher>,
+    root: &Path,
+    events: &mut impl FolderEvents,
+    timing: WatchTiming,
     mut current: Manifest,
+    pass_first: bool,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
     let mut retry = false;
     let mut ejected = false;
+    let mut pass_now = pass_first;
     loop {
-        if !next_change(events, retry.then_some(timing.retry)).await {
+        if !std::mem::take(&mut pass_now)
+            && !next_change(events, retry.then_some(timing.retry)).await
+        {
             return;
         }
         // Let a burst of changes (a copy, an unzip) finish first.

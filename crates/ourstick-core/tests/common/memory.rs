@@ -95,6 +95,9 @@ impl Publisher for MemoryPublisher {
     async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         self.has_blob(hash).await
     }
+    async fn read_blob(&self, hash: &BlobHash) -> Result<Option<Vec<u8>>, TransportError> {
+        Ok(self.served.lock().unwrap().blobs.get(hash).cloned())
+    }
     async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         Ok(self.served.lock().unwrap().blobs.contains_key(hash))
     }

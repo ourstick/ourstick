@@ -166,6 +166,12 @@ pub trait Publisher: Send + Sync {
         hash: &BlobHash,
     ) -> impl Future<Output = Result<bool, TransportError>> + Send;
 
+    /// The complete blob from the cache, or `None` if it does not hold it.
+    fn read_blob(
+        &self,
+        hash: &BlobHash,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, TransportError>> + Send;
+
     /// Whether the cache currently holds the complete blob.
     fn has_blob(
         &self,

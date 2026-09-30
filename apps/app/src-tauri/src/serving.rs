@@ -10,11 +10,12 @@ use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, ShareLock, StickKeys};
 use ourstick_core::secrets::check_secret_store;
-use ourstick_core::share::{latest_hint, publish_folder};
+use ourstick_core::share::{latest_hint, publish_folder, serve_latest};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
-    follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
+    follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Owner, PeriodicEvents,
+    WatchEvent, WatchTiming,
 };
 use ourstick_core::{Manifest, ManifestHint, Store, Ticket};
 use serde::Serialize;
@@ -126,15 +127,32 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
     let config = IrohConfig::new(node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
-    let first = publish_folder(
-        &publisher,
-        store.clone(),
-        &SystemClock,
-        &keys.signing_key,
-        &keys.stick_key,
-        false,
-    )
+    // The last version at once, if the cache still holds it; the folder is
+    // then read again in the background (`Shared::run`). Otherwise (a new
+    // stick, a cache that is gone) a first pass now, for the link.
+    let latest = serve_latest(&Owner {
+        publisher: &publisher,
+        store: store.clone(),
+        clock: &SystemClock,
+        signing_key: &keys.signing_key,
+        stick_key: &keys.stick_key,
+    })
     .await;
+    let read_again = matches!(latest, Ok(Some(_)));
+    let first = match latest {
+        Ok(Some(publication)) => Ok(publication),
+        Ok(None) | Err(_) => {
+            publish_folder(
+                &publisher,
+                store.clone(),
+                &SystemClock,
+                &keys.signing_key,
+                &keys.stick_key,
+                false,
+            )
+            .await
+        }
+    };
     let (current, hint) = match &first {
         Ok(publication) => (
             publication.manifest.clone(),
@@ -180,6 +198,7 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
         store,
         root: root.clone(),
         current,
+        read_again,
         lock,
     };
     let done = match NotifyEvents::start(&root) {
@@ -206,6 +225,8 @@ struct Shared {
     store: Arc<dyn Store>,
     root: PathBuf,
     current: Manifest,
+    /// The folder was not read at start: a pass comes first.
+    read_again: bool,
     lock: ShareLock,
 }
 
@@ -220,6 +241,7 @@ impl Shared {
             store,
             root,
             current,
+            read_again,
             lock,
         } = self;
         {
@@ -242,8 +264,23 @@ impl Shared {
                 }
             };
             let timing = WatchTiming::default();
+            let follow = async {
+                if read_again {
+                    follow_folder_reading_first(
+                        &owner,
+                        &root,
+                        &mut events,
+                        timing,
+                        current,
+                        &mut on_event,
+                    )
+                    .await
+                } else {
+                    follow_folder(&owner, &root, &mut events, timing, current, &mut on_event).await
+                }
+            };
             tokio::select! {
-                () = follow_folder(&owner, &root, &mut events, timing, current, &mut on_event) => {}
+                () = follow => {}
                 () = forward => {}
                 _ = stopped => {}
             }

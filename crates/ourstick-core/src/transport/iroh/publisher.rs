@@ -382,6 +382,19 @@ impl Publisher for IrohPublisher {
         Ok(true)
     }
 
+    async fn read_blob(&self, hash: &BlobHash) -> Result<Option<Vec<u8>>, TransportError> {
+        if !self.has_blob(hash).await? {
+            return Ok(None);
+        }
+        let bytes = self
+            .store
+            .blobs()
+            .get_bytes(Hash::from_bytes(*hash))
+            .await
+            .map_err(storage)?;
+        Ok(Some(bytes.to_vec()))
+    }
+
     async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         let status = self
             .store

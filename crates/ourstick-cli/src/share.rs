@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
 use ourstick_core::share::{
-    plan_share, run_pass, PassEvent, PassOptions, Publication, PARTIAL_TIMING,
+    plan_share, run_pass, serve_latest, PassEvent, PassOptions, Publication, PARTIAL_TIMING,
 };
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
@@ -133,69 +133,107 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         }
         Ok(())
     };
-    let mut ticket_printed = Ok(false);
-    let mut last_line = None;
-    let options = PassOptions {
-        rescan,
-        partial: Some(PARTIAL_TIMING),
-    };
-    let outcome = run_pass(&owner, options, &mut |event| match event {
-        PassEvent::Published(publication) => {
-            if matches!(ticket_printed, Ok(false)) {
-                ticket_printed = print_ticket(publication).map(|()| true);
-                println!("Readers can start now; the rest follows as the folder is read.");
+    // Everything that borrows the publisher ends before it shuts down.
+    let stopped: Result<()> = async {
+        // After a restart: the last version at once, while the folder is read.
+        let mut ticket_printed = match serve_latest(&owner).await? {
+            Some(latest) => {
+                print_ticket(&latest)?;
+                println!("Serving the last version while the folder is read again.");
+                Ok(true)
             }
-        }
-        PassEvent::Progress { done, total } => {
-            if let Some(line) = catalogue_line(&mut last_line, done, total, started.elapsed()) {
-                println!("{line}");
+            None => Ok(false),
+        };
+        let mut last_line = None;
+        let options = PassOptions {
+            rescan,
+            partial: Some(PARTIAL_TIMING),
+        };
+        // Who downloads is told from now on, also while the folder is read:
+        // readers start with the first version.
+        let readers = report_readers(&publisher, started);
+        tokio::pin!(readers);
+        let mut on_pass = |event: PassEvent<'_>| match event {
+            PassEvent::Published(publication) => {
+                if matches!(ticket_printed, Ok(false)) {
+                    ticket_printed = print_ticket(publication).map(|()| true);
+                    println!("Readers can start now; the rest follows as the folder is read.");
+                }
             }
+            PassEvent::Progress { done, total } => {
+                if let Some(line) = catalogue_line(&mut last_line, done, total, started.elapsed()) {
+                    println!("{line}");
+                }
+            }
+        };
+        let outcome = tokio::select! {
+            outcome = run_pass(&owner, options, &mut on_pass) => outcome?,
+            () = &mut readers => anyhow::bail!("the reader activity ended unexpectedly"),
+        };
+        let publication = outcome.publication;
+        if !ticket_printed? {
+            print_ticket(&publication)?;
         }
-    })
-    .await?;
-    let publication = outcome.publication;
-    if !ticket_printed? {
-        print_ticket(&publication)?;
-    }
-    if publication.reused > 0 {
-        println!(
-            "{} files were as last time and were not read again \
-             (--rescan reads every file).",
-            publication.reused
-        );
-    }
-    if !publication.new_version {
-        println!("No changes since the last share: readers keep the same version.");
-    }
-    if outcome.skipped > 0 {
-        println!(
-            "{} files changed while they were read; they follow shortly.",
-            outcome.skipped
-        );
-    }
-    println!("Serving. Press Ctrl-C to stop.");
-
-    let current = publication.manifest;
-    let stopped = match NotifyEvents::start(&folder) {
-        Ok(events) => {
-            println!("Watching the folder: changes are shared as they happen.");
-            serve(&owner, &folder, events, current, started).await
-        }
-        Err(error) => {
+        if publication.reused > 0 {
             println!(
-                "{error}. Checking the folder every {} s instead.",
-                RESCAN_EVERY.as_secs()
+                "{} files were as last time and were not read again \
+                 (--rescan reads every file).",
+                publication.reused
             );
-            let events = PeriodicEvents::new(RESCAN_EVERY);
-            serve(&owner, &folder, events, current, started).await
         }
-    };
+        if !publication.new_version {
+            println!("No changes since the last share: readers keep the same version.");
+        }
+        if outcome.skipped > 0 {
+            println!(
+                "{} files changed while they were read; they follow shortly.",
+                outcome.skipped
+            );
+        }
+        println!("Serving. Press Ctrl-C to stop.");
+
+        let current = publication.manifest;
+        match NotifyEvents::start(&folder) {
+            Ok(events) => {
+                println!("Watching the folder: changes are shared as they happen.");
+                serve(&owner, &folder, events, current, readers, started).await
+            }
+            Err(error) => {
+                println!(
+                    "{error}. Checking the folder every {} s instead.",
+                    RESCAN_EVERY.as_secs()
+                );
+                let events = PeriodicEvents::new(RESCAN_EVERY);
+                serve(&owner, &folder, events, current, readers, started).await
+            }
+        }
+    }
+    .await;
     stopped?;
     println!("Stopping…");
     publisher.shutdown().await;
     // Only now may another sharer start.
     drop(setup.lock);
     Ok(())
+}
+
+/// Prints who downloads, and whether they only come through the relay, as
+/// it changes. Ends only if the publisher stops reporting.
+async fn report_readers(publisher: &IrohPublisher, started: Instant) {
+    let mut activity = publisher.activity();
+    let mut before = 0;
+    let mut relay_only_said = false;
+    while activity.changed().await.is_ok() {
+        let now = *activity.borrow();
+        if let Some(line) = readers_line(before, &now, started.elapsed()) {
+            println!("{line}");
+        }
+        if let Some(line) = relay_only_line(relay_only_said, &now, started.elapsed()) {
+            println!("{line}");
+        }
+        before = now.readers;
+        relay_only_said |= now.only_relayed;
+    }
 }
 
 /// How often the folder is checked when the system cannot report changes.
@@ -207,6 +245,7 @@ async fn serve(
     folder: &Path,
     mut events: impl FolderEvents,
     current: ourstick_core::Manifest,
+    readers: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
     started: Instant,
 ) -> Result<()> {
     let timing = WatchTiming::default();
@@ -230,22 +269,6 @@ async fn serve(
         }
         for line in watch_lines(&event, started.elapsed(), timing) {
             println!("{line}");
-        }
-    };
-    let readers = async {
-        let mut activity = owner.publisher.activity();
-        let mut before = 0;
-        let mut relay_only_said = false;
-        while activity.changed().await.is_ok() {
-            let now = *activity.borrow();
-            if let Some(line) = readers_line(before, &now, started.elapsed()) {
-                println!("{line}");
-            }
-            if let Some(line) = relay_only_line(relay_only_said, &now, started.elapsed()) {
-                println!("{line}");
-            }
-            before = now.readers;
-            relay_only_said |= now.only_relayed;
         }
     };
     tokio::select! {

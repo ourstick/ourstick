@@ -166,6 +166,11 @@ carries only the key). Every file blob of that stick must use the same cipher.
   leave is gone at once). A partial version that would list what the last
   one listed is not published, so a pass over an unchanged folder signs
   nothing new.
+- After a start, the owner serves its latest signed version again at once,
+  from the manifest its cache still holds (its blobs the cache holds are
+  served, the others are "not ready"), and then reads the folder in a pass.
+  Only a stick never published, or one whose cache lost that manifest, waits
+  for the pass.
 - While serving, the owner watches the folder (inotify, FSEvents, …; every
   60 s if the system cannot report changes). After a sign of change it waits
   until the folder has been quiet for 2 s and no file's size or times change

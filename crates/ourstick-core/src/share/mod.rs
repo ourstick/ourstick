@@ -16,10 +16,12 @@ use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
 mod fill;
+mod latest;
 mod partial;
 mod pass;
 mod version;
 
+pub use latest::serve_latest;
 pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PARTIAL_TIMING};
 
 /// What the owner of a stick publishes with.

@@ -10,7 +10,8 @@ use common::{keep_going, Owner, Reader};
 use ourstick_core::share::PartialTiming;
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
-    follow_folder, FolderEvents, NotifyEvents, Owner as Publishing, WatchEvent, WatchTiming,
+    follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Owner as Publishing,
+    WatchEvent, WatchTiming,
 };
 use tokio::sync::mpsc;
 
@@ -249,5 +250,43 @@ async fn a_long_pass_publishes_a_partial_version_first() {
             r#"published 2001 +[] ~[] -[]"#,
         ]
     );
+    owner.publisher.shutdown().await;
+}
+
+/// After a start that only served the last version, the folder is read at
+/// once, without waiting for a sign of change.
+#[tokio::test(flavor = "multi_thread")]
+async fn reading_first_publishes_what_changed_while_stopped() {
+    let owner = Owner::new(&[("a.txt", b"one")]).await;
+    let current = owner.publish().await.manifest;
+    owner.clock.set(5_000);
+    std::fs::write(owner.folder.path().join("b.txt"), b"two").unwrap();
+    let publishing = Publishing {
+        publisher: &owner.publisher,
+        store: owner.store.clone(),
+        clock: &owner.clock,
+        signing_key: &owner.signing_key,
+        stick_key: &owner.stick_key,
+    };
+    let (_send, receive) = mpsc::unbounded_channel();
+    let mut events = Manual(receive);
+    let mut seen = Vec::new();
+    let mut on_event = |event: WatchEvent<'_>| {
+        if !matches!(event, WatchEvent::Reading { .. }) {
+            seen.push(describe(event));
+        }
+    };
+    tokio::select! {
+        () = follow_folder_reading_first(
+            &publishing,
+            owner.folder.path(),
+            &mut events,
+            FAST,
+            current,
+            &mut on_event,
+        ) => {}
+        () = pause(1_500) => {}
+    }
+    assert_eq!(seen, vec![r#"published 5000 +["b.txt"] ~[] -[]"#]);
     owner.publisher.shutdown().await;
 }

@@ -1,6 +1,8 @@
 # ADR 0005: Encrypted blob cache on disk, iroh-blobs behind `Transport`
 
-**Status:** accepted — 2026-09-28
+**Status:** accepted — 2026-09-28; partly superseded by ADR 0007 (2026-09-30):
+the owner's full cache and the reader's single store give way to suitcases
+and reader batches. What is served, and the push refusal, still hold.
 
 ## Context
 The owner serves each file as an encrypted blob (ADR 0003). The ciphertext must

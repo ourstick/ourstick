@@ -1,6 +1,6 @@
 # ADR 0009: Many sticks per device, each with its own node and name
 
-**Status:** proposed — 2026-09-30. Replaces section 4 of ADR 0007's first draft
+**Status:** accepted — 2026-09-30. Replaces section 4 of ADR 0007's first draft
 ("one node for many sticks"). Goes with the mockups of 2026-09-30 ("Many
 sticks", in the design canvas "OurStick large shares"). Changes lines of
 `CLAUDE.md` listed under Consequences, to be updated when this is accepted.

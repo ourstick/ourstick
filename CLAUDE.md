@@ -41,7 +41,9 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 7. **Async με tokio.** Καμία blocking I/O σε async context· χρησιμοποίησε `spawn_blocking`.
 8. **Logging με `tracing`**, όχι `println!` εκτός από το CLI output.
 9. **Κλειδιά (NodeId, StickId) δεν ξαναδημιουργούνται ποτέ αφού μοιραστεί ticket.**
-   Αν χαθούν ή αλλάξουν, κάθε ticket που έχει μοιραστεί πεθαίνει.
+   Αν χαθούν ή αλλάξουν, κάθε ticket που έχει μοιραστεί πεθαίνει. Τα κλειδιά είναι ανά stick
+   (κάθε νέο stick έχει και δικό του node key, ADR 0009) και σβήνονται μόνο όταν ο χρήστης
+   αφαιρεί το stick τους ή του δίνει νέο link.
 
 ## Έννοιες (domain model)
 
@@ -78,12 +80,16 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - `ourstick share <folder>` → τυπώνει ticket και QR στο τερματικό, μένει ανοιχτό και σερβίρει.
 - `ourstick get <ticket> [--out dir]` → κατεβάζει manifest, δείχνει λίστα, κατεβάζει όλα με resume.
 - `ourstick ls <ticket>` → δείχνει μόνο τη λίστα αρχείων.
-- Ένα stick, ένας owner, N readers, read-only.
+- Πολλά sticks ανά συσκευή, το καθένα με δικό του όνομα, link και node key (ADR 0009).
+  Κάθε stick: ένας owner, N readers, read-only.
+- Stick χωρίς σταθερό μέγεθος (ADR 0008) και μεγάλοι φάκελοι με κυλιόμενη cache (ADR 0007):
+  ο αποστολέας δεν κρατά δεύτερο πλήρες αντίγραφο, ο παραλήπτης δεν χρειάζεται διπλό χώρο.
 - Το stick ενημερώνεται όταν αλλάζει ο φάκελος (watcher) — ο reader βλέπει νέο manifest.
 - Δημόσια relays του iroh. Καμία δική μας υποδομή.
 - Desktop GUI (στάδιο 1), όπως στο `docs/gui-spec.md`: Tauri 2 + Svelte στο `apps/app`,
   ο δικός του φάκελος stick ως δίσκος (disk image στο macOS, bookmark στο Linux,
-  γράμμα δίσκου με `subst` στα Windows), tray, share popup. Linux, macOS και Windows.
+  γράμμα δίσκου με `subst` στα Windows), tray, share popup, και πρόγραμμα παραλήπτη
+  (λίστα sticks που έλαβε, επιλογή φακέλων, πρόοδος). Linux, macOS και Windows.
   Τα Windows αναπτύσσονται σε VM, όπως στο `docs/windows-dev.md`. Το app είναι λεπτό περίβλημα όπως το CLI: καλεί μόνο `ourstick-core`,
   και το core δεν ξέρει τίποτα για UI (κανόνας 1).
 
@@ -98,7 +104,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Δικά μας relays.
 - Web receiver (λήψη από browser χωρίς app).
 - Ανάκληση πρόσβασης εκτός από «άλλαξε κλειδί».
-- GUI για τον παραλήπτη και mobile apps.
+- Mobile apps.
 
 ## Σειρά υλοποίησης
 
@@ -113,6 +119,8 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 6. `cli`: share / ls / get.
 7. `watcher.rs`.
 8. Desktop GUI (Tauri), με τη σειρά commits του σχεδίου για το βήμα 8.
+9. Μεγάλοι φάκελοι, stick χωρίς μέγεθος, πολλά sticks και πρόγραμμα παραλήπτη, με τη
+   σειρά του ADR 0007 («Order of work»).
 
 Ένα βήμα τη φορά. Κάθε βήμα τελειώνει με `cargo test` πράσινο και `cargo clippy` καθαρό.
 

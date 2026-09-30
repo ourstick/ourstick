@@ -1,6 +1,6 @@
 # ADR 0008: A stick without a fixed size, and folders shared as they are
 
-**Status:** proposed — 2026-09-30. Changes the stick model of
+**Status:** accepted — 2026-09-30. Changes the stick model of
 `docs/gui-spec.md` ("The stick is a folder"). Builds on ADR 0007 and comes
 after it.
 

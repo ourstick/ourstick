@@ -1,6 +1,6 @@
 # ADR 0007: Rolling blob cache ("suitcases")
 
-**Status:** proposed — 2026-09-30. Supersedes the "Cache on disk" part of
+**Status:** accepted — 2026-09-30. Supersedes the "Cache on disk" part of
 ADR 0005 for the owner, and its single reader store; ADR 0005's rules on what
 is served and its push refusal stay. The stick model that goes with it (no
 fixed size, linked folders) is ADR 0008. Reviewed by two other models before

@@ -62,11 +62,13 @@ The VM has no access to the git remote. Send the code as a bundle:
 ```
 git bundle create /tmp/ourstick.bundle main
 scp -P 2222 /tmp/ourstick.bundle Quickemu@localhost:
-ssh -p 2222 Quickemu@localhost 'cd ourstick; git pull ..\ourstick.bundle main'
+ssh -p 2222 Quickemu@localhost 'cd src\ourstick; git pull ..\..\ourstick.bundle main'
 ```
 
-(The first time: `git clone -b main ourstick.bundle ourstick`, after
-`git config --global core.autocrlf false`.) Then `cargo test --workspace`,
+(The first time: `git clone -b main ourstick.bundle src\ourstick`, after
+`git config --global core.autocrlf false`.) Not in `%USERPROFILE%\ourstick`:
+Windows ignores letter case, so that is the stick's own folder
+(`%USERPROFILE%\OurStick`), and the app would rightly refuse to take it. Then `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` and
 `cargo fmt --check` as anywhere.
 
@@ -83,6 +85,12 @@ npm.cmd run tauri build
 unsigned (SmartScreen warns of an unknown publisher), under
 `target\release\bundle\`: `msi\OurStick_<version>_x64_en-US.msi` and
 `nsis\OurStick_<version>_x64-setup.exe` (per user, no admin rights).
+
+The NSIS installer puts the app in `%LOCALAPPDATA%\OurStick`, the folder that
+also holds OurStick's data (database, blob cache). Its uninstaller removes
+the files it installed and then the folder only if it is empty, so the data
+stays, and with it every shared link; its "Delete the application data"
+box removes `%LOCALAPPDATA%\com.ourstick.app`, which OurStick does not use.
 
 ### What needs the desktop session
 

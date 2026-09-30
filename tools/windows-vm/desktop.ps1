@@ -6,7 +6,7 @@
 param([Parameter(Mandatory)] [string] $Command)
 $log = "$env:USERPROFILE\desktop.log"
 Remove-Item -ErrorAction SilentlyContinue $log
-$run = "cmd /c cd /d $env:USERPROFILE\ourstick && $Command > $log 2>&1"
+$run = "cmd /c cd /d $env:USERPROFILE\src\ourstick && $Command > $log 2>&1"
 schtasks /create /tn OurStickDesktop /tr $run /sc once /st 23:59 /it /ru $env:USERNAME /f | Out-Null
 schtasks /run /tn OurStickDesktop | Out-Null
 do {

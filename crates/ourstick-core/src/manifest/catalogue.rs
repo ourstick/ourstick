@@ -11,9 +11,9 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use super::build::{hash_file_telling_plaintext, regular_files, relative_path};
-use super::reuse::mtime_seconds;
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
 use crate::store::OwnedFile;
@@ -188,6 +188,15 @@ impl Catalogue {
             Err(error) => Err(error),
         }
     }
+}
+
+/// The manifest's mtime: whole seconds, as `hash_file` records it.
+fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]

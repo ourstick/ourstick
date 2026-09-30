@@ -2,14 +2,14 @@
 //! It is the first thing a reader downloads.
 //!
 //! - [`build`]: creating a manifest from a folder on disk.
-//! - [`reuse`]: the same, encrypting only files that changed since last time.
+//! - [`catalogue`]: the owner's pass over a folder, in parts, reading only
+//!   files that changed since last time (ADR 0007).
 //! - [`encoding`]: the wire format (see `docs/protocol.md`).
 
 pub(crate) mod build;
 pub mod catalogue;
 mod encoding;
 pub mod ignore;
-pub mod reuse;
 mod stamp;
 
 use std::io;
@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 
 pub use catalogue::{Catalogue, Catalogued, CataloguedFile};
 pub use encoding::{validate_name, MANIFEST_FORMAT_VERSION};
-pub use reuse::{Encrypted, KnownFiles};
 pub use stamp::FileStamp;
 
 /// The file in a drive stick's folder that says which stick it is (its

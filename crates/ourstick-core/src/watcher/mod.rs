@@ -1,25 +1,22 @@
 //! Keeping a stick in step with its folder: wait for a sign of change, let
-//! the folder go quiet, make sure no file is still being written, then publish
-//! (which encrypts only what changed and signs a new version only if the
+//! the folder go quiet, make sure no file is still being written, then run a
+//! pass (which reads only what changed and signs a new version only if the
 //! manifest did change).
 
 mod events;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 pub use events::{FolderEvents, NotifyEvents, PeriodicEvents, WatchError};
 
+pub use crate::share::Owner;
+
 use crate::blocking::run_blocking;
-use crate::cipher::StickKey;
-use crate::clock::Clock;
 use crate::manifest::build::regular_files;
 use crate::manifest::{FileStamp, Manifest};
-use crate::share::{publish_folder, Publication, ShareError};
-use crate::stick_id::StickSigningKey;
-use crate::store::Store;
+use crate::share::{run_pass, PassOptions, Publication, ShareError};
 use crate::transport::Publisher;
 
 /// How long to wait at each stage.
@@ -101,15 +98,6 @@ pub enum WatchEvent<'a> {
     Ejected,
 }
 
-/// What the owner publishes with.
-pub struct Owner<'a, P> {
-    pub publisher: &'a P,
-    pub store: Arc<dyn Store>,
-    pub clock: &'a dyn Clock,
-    pub signing_key: &'a StickSigningKey,
-    pub stick_key: &'a StickKey,
-}
-
 /// Every file's stamp under `root`, or `None` if the folder cannot be read
 /// right now (e.g. a file vanished during the walk).
 fn stamps(root: &Path) -> Option<BTreeMap<PathBuf, FileStamp>> {
@@ -167,19 +155,17 @@ pub async fn follow_folder(
             retry = true;
             continue;
         }
-        let published = publish_folder(
-            owner.publisher,
-            owner.store.clone(),
-            owner.clock,
-            owner.signing_key,
-            owner.stick_key,
-            false,
-        )
-        .await;
+        let passed = run_pass(owner, PassOptions::default(), &mut |_| {}).await;
         retry = false;
-        if published.is_ok() {
-            ejected = false;
-        }
+        let published = match passed {
+            Ok(outcome) => {
+                ejected = false;
+                // A file changed or went while it was read: another pass soon.
+                retry = outcome.skipped > 0;
+                Ok(outcome.publication)
+            }
+            Err(error) => Err(error),
+        };
         match published {
             Err(ShareError::DriveMissing { .. }) => {
                 if !ejected {

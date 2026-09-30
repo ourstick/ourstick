@@ -72,9 +72,13 @@ impl Publisher for MemoryPublisher {
         record: SignedManifestRecord,
         allowed: HashSet<BlobHash>,
     ) -> Result<(), TransportError> {
+        // The manifest is always served with its record, as with iroh. Its
+        // hash is at bytes 41..73 of the record (docs/protocol.md).
+        let manifest: BlobHash = record.to_bytes()[41..73].try_into().unwrap();
         let mut served = self.served.lock().unwrap();
         served.record = Some(record);
         served.allowed = allowed;
+        served.allowed.insert(manifest);
         Ok(())
     }
     fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {

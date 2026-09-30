@@ -17,8 +17,10 @@ _Draft. Updated whenever the wire format or the ticket format changes._
 
 ## Flow
 
-1. Owner encrypts every file and the manifest into blobs in its cache
-   (ADR 0005), signs a record for the manifest, and serves both over iroh.
+1. Owner catalogues its folder and encrypts every file and the manifest into
+   blobs in its cache (ADR 0005, ADR 0007), signs a record for the manifest,
+   and serves both over iroh; on a first share, partial versions come out
+   while the catalogue grows.
 2. Owner produces a ticket (link / QR).
 3. Reader decodes the ticket and connects to the owner's NodeId (address hints
    first; iroh address lookup and relays otherwise).
@@ -143,15 +145,30 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - A version changes only when the folder does: if the new manifest hash equals
   the one in the last signed record, that record is served again and no new
   `seq` is signed.
-- A file is encrypted again only if it changed since the last publish, judged
-  by a stamp (see "Known limits" below); otherwise its recorded blob hash is
-  used. `share --rescan` reads and encrypts every file.
+- The owner works in **passes** (ADR 0007). A pass takes the **catalogue**
+  first, in parts, in manifest order: every file's blob hash, from a full
+  encryption whose bytes are thrown away. A file whose stamp is as recorded
+  (see "Known limits" below) keeps its recorded hash without being read;
+  `share --rescan` reads every file. Behind the catalogue the pass **fills the
+  cache**: each file is encrypted again in full, and its blob enters the cache
+  only if its hash is the catalogue's (a blob the cache still holds is kept
+  as it is). A file gone or changed since it was catalogued is left out of
+  the version, and another pass follows soon. Each part is recorded
+  (`owned_files`) once its blobs are in the cache, so a pass stopped halfway
+  goes on from there.
+- While a stick has **no complete version** yet (its first share, also after
+  a restart in the middle of it), the pass publishes **partial** versions:
+  an empty one at once if the stick was never published (so it has a link),
+  then the files catalogued so far after 30 seconds and every 3 minutes, each
+  a new `seq`. The complete version comes at the end. Once a complete version
+  exists, a pass publishes only at its end: a partial one would take files
+  away from readers of the complete one.
 - While serving, the owner watches the folder (inotify, FSEvents, …; every
   60 s if the system cannot report changes). After a sign of change it waits
   until the folder has been quiet for 2 s and no file's size or times change
-  over 1 s, then publishes as above. Opening and reading files are not changes.
-  A failed publish (e.g. an unreadable file) is reported and tried again at
-  the next change or after 30 s.
+  over 1 s, then runs a pass as above. Opening and reading files are not
+  changes. A failed pass (e.g. an unreadable file), or one that left files
+  out, is reported and tried again at the next change or after 30 s.
 
 ### Reader-side rules for the output folder
 
@@ -191,9 +208,9 @@ carries only the key). Every file blob of that stick must use the same cipher.
 ### Known limits
 
 - **Unchanged-file detection is a heuristic.** The owner records, per file,
-  the size, mtime and (on Unix) ctime in nanoseconds at the last publish
+  the size, mtime and (on Unix) ctime in nanoseconds when it last read it
   (`owned_files`, `docs/schema.md`), and does not read a file whose stamp is
-  unchanged. A change that keeps all three is not seen, and readers keep
+  unchanged in the catalogue. A change that keeps all three is not seen, and readers keep
   getting the old content for that file. On Unix, ctime changes on every write
   and cannot be set back by ordinary tools, so this needs a file system with
   coarse or missing timestamps, a clock set backwards, or a deliberate change of

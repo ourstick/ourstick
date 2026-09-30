@@ -28,7 +28,47 @@ fn icon(active: bool) -> Result<(Image<'static>, bool)> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: a dark glyph on a light taskbar, a light one on a dark taskbar
+/// (Windows 11's default). The theme is read once, at start.
+#[cfg(windows)]
+fn icon(active: bool) -> Result<(Image<'static>, bool)> {
+    static LIGHT_TASKBAR: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let light = *LIGHT_TASKBAR.get_or_init(light_taskbar);
+    let bytes: &[u8] = match (light, active) {
+        (true, false) => include_bytes!("../../icons/tray-template.png"),
+        (true, true) => include_bytes!("../../icons/tray-grey-active.png"),
+        (false, false) => include_bytes!("../../icons/tray-light.png"),
+        (false, true) => include_bytes!("../../icons/tray-light-active.png"),
+    };
+    Ok((Image::from_bytes(bytes)?, false))
+}
+
+/// Whether the taskbar is light (`SystemUsesLightTheme` = 1); dark if the
+/// setting cannot be read.
+#[cfg(windows)]
+fn light_taskbar() -> bool {
+    std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "/v",
+            "SystemUsesLightTheme",
+        ])
+        .output()
+        .is_ok_and(|output| uses_light_theme(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// Reads `reg query`'s answer: `SystemUsesLightTheme    REG_DWORD    0x1`.
+#[cfg(any(windows, test))]
+fn uses_light_theme(answer: &str) -> bool {
+    answer
+        .lines()
+        .find(|line| line.trim_start().starts_with("SystemUsesLightTheme"))
+        .and_then(|line| line.split_whitespace().last())
+        .is_some_and(|value| value == "0x1")
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn icon(active: bool) -> Result<(Image<'static>, bool)> {
     Ok(if active {
         (
@@ -101,5 +141,20 @@ struct SharingItem(MenuItem<tauri::Wry>);
 pub fn set_sharing(app: &AppHandle, sharing: bool) {
     if let Some(item) = app.try_state::<SharingItem>() {
         let _ = item.0.set_text(sharing_label(sharing));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_taskbar_theme_is_read_from_reg_query() {
+        let light = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\r\n    SystemUsesLightTheme    REG_DWORD    0x1\r\n";
+        assert!(uses_light_theme(light));
+        assert!(!uses_light_theme(&light.replace("0x1", "0x0")));
+        assert!(!uses_light_theme(
+            "ERROR: The system was unable to find the specified registry key"
+        ));
     }
 }

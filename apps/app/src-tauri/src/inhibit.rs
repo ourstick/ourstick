@@ -1,5 +1,7 @@
 //! Keeping the computer awake while someone downloads from the stick
 //! (docs/gui-spec.md, "Sleep"): a sleeping owner stops sharing mid-download.
+//! Linux asks logind, macOS runs `caffeinate`, Windows asks the kernel
+//! (`SetThreadExecutionState`, the app's only `unsafe`).
 
 use anyhow::Result;
 
@@ -9,6 +11,9 @@ pub struct SleepGuard {
     _lock: zbus::zvariant::OwnedFd,
     #[cfg(target_os = "macos")]
     caffeinate: std::process::Child,
+    /// Windows: dropping it ends the thread that holds the request.
+    #[cfg(windows)]
+    _release: std::sync::mpsc::Sender<()>,
 }
 
 impl SleepGuard {
@@ -43,7 +48,38 @@ impl SleepGuard {
         Ok(Self { caffeinate })
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    /// Windows: `SetThreadExecutionState` holds for the thread that calls it,
+    /// so a thread of its own asks, waits until the guard is dropped, then
+    /// takes the request back.
+    #[cfg(windows)]
+    pub async fn acquire() -> Result<Self> {
+        use windows_sys::Win32::System::Power::{
+            SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
+        };
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let (started, result) = tokio::sync::oneshot::channel::<bool>();
+        std::thread::Builder::new()
+            .name("keep-awake".to_owned())
+            .spawn(move || {
+                // SAFETY: SetThreadExecutionState takes plain flags and only
+                // records a request for the calling thread; it reads or
+                // writes no memory of ours.
+                let previous =
+                    unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+                let _ = started.send(previous != 0);
+                // Until the guard is dropped: its sender goes away.
+                let _ = released.recv();
+                // SAFETY: as above; ES_CONTINUOUS alone clears this thread's
+                // request.
+                unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+            })?;
+        if !result.await.unwrap_or(false) {
+            anyhow::bail!("Windows did not accept the request to stay awake");
+        }
+        Ok(Self { _release: release })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     pub async fn acquire() -> Result<Self> {
         anyhow::bail!("keeping the system awake is not done on this system yet")
     }

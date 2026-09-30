@@ -168,6 +168,17 @@ pub trait Publisher: Send + Sync {
     fn shutdown(self) -> impl Future<Output = ()> + Send;
 }
 
+/// The batch a fetcher starts with, and the one the manifest is fetched into.
+pub const MANIFEST_BATCH: &str = "manifest";
+
+/// Whether `name` may name a batch: ASCII letters, digits and `-`, never empty.
+pub fn is_batch_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
 /// The reader's side: a local blob store and connections to owners.
 pub trait Fetcher: Send + Sync {
     type Connection: PeerConnection;
@@ -204,8 +215,25 @@ pub trait Fetcher: Send + Sync {
         hash: &BlobHash,
     ) -> impl Future<Output = Result<u64, TransportError>> + Send;
 
+    /// Blobs are kept in batches, each its own store (ADR 0007): from now on
+    /// blobs are fetched into, and read from, the batch `name` (made if new;
+    /// an earlier run's partial blobs in it are resumed). `name` is made of
+    /// ASCII letters, digits and `-`.
+    fn use_batch(&self, name: &str) -> impl Future<Output = Result<(), TransportError>> + Send;
+
+    /// Deletes the batch `name` and its blobs, freeing their space. If it was
+    /// in use, [`MANIFEST_BATCH`] is used from then on.
+    fn drop_batch(&self, name: &str) -> impl Future<Output = Result<(), TransportError>> + Send;
+
+    /// Deletes every batch not named in `keep` (and not [`MANIFEST_BATCH`]),
+    /// e.g. those of an older version of the stick.
+    fn keep_only_batches(
+        &self,
+        keep: &[String],
+    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
     /// Closes the local store cleanly, keeping partial blobs for a later resume
-    /// (`keep = true`) or deleting the whole store (`keep = false`).
+    /// (`keep = true`) or deleting every batch (`keep = false`).
     fn shutdown(self, keep: bool) -> impl Future<Output = Result<(), TransportError>> + Send;
 }
 

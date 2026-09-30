@@ -27,9 +27,22 @@ pub struct Published {
 }
 
 pub async fn publish_one_file(size: usize) -> Published {
-    let folder = tempfile::tempdir().unwrap();
     let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
-    std::fs::write(folder.path().join("movie.bin"), &data).unwrap();
+    let mut published = publish_files(&[("movie.bin", &data)]).await;
+    published.data = data;
+    published
+}
+
+/// A stick with these files (path, contents), published into memory.
+/// `data` is left empty.
+pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
+    let folder = tempfile::tempdir().unwrap();
+    for (path, contents) in files {
+        let path = folder.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+    let data = Vec::new();
     let signing_key = StickSigningKey::from_bytes(&random_key());
     let stick_key = StickKey::from_bytes(random_key());
     let owner_store = Arc::new(MemoryStore::new());

@@ -2,6 +2,7 @@
 //! and iroh-blobs. This is the only place in the workspace that uses them.
 
 mod activity;
+mod batches;
 mod fetcher;
 mod publisher;
 mod reader_paths;

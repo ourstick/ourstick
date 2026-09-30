@@ -8,8 +8,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ourstick_core::transport::{
-    BlobHash, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage, PeerConnection,
-    Publisher, TransportError,
+    is_batch_name, BlobHash, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage,
+    PeerConnection, Publisher, TransportError, MANIFEST_BATCH,
 };
 use ourstick_core::{AddressHint, NodeId, SignedManifestRecord, StickId, Ticket};
 
@@ -86,12 +86,32 @@ impl Publisher for MemoryPublisher {
     async fn shutdown(self) {}
 }
 
-/// The reader's blobs (complete or partial) and what arrived over which path,
-/// over all connections.
-#[derive(Default)]
+/// The reader's blobs (complete or partial), one map per batch as with iroh,
+/// and what arrived over which path, over all connections.
 pub struct Local {
-    blobs: HashMap<BlobHash, Vec<u8>>,
+    batches: HashMap<String, HashMap<BlobHash, Vec<u8>>>,
+    current: String,
     pub usage: PathUsage,
+    /// Every batch dropped, in order.
+    pub dropped: Vec<String>,
+}
+
+impl Default for Local {
+    fn default() -> Self {
+        Self {
+            batches: HashMap::new(),
+            current: MANIFEST_BATCH.to_owned(),
+            usage: PathUsage::default(),
+            dropped: Vec::new(),
+        }
+    }
+}
+
+impl Local {
+    /// The blobs of the batch in use.
+    fn blobs(&mut self) -> &mut HashMap<BlobHash, Vec<u8>> {
+        self.batches.entry(self.current.clone()).or_default()
+    }
 }
 
 pub struct MemoryFetcher {
@@ -105,7 +125,25 @@ impl MemoryFetcher {
     /// Blob bytes stored locally, complete or partial.
     pub fn local_bytes_total(&self) -> u64 {
         let local = self.local.lock().unwrap();
-        local.blobs.values().map(|bytes| bytes.len() as u64).sum()
+        local
+            .batches
+            .values()
+            .flat_map(|blobs| blobs.values())
+            .map(|bytes| bytes.len() as u64)
+            .sum()
+    }
+
+    /// The batches that hold blobs now.
+    pub fn batch_names(&self) -> Vec<String> {
+        let local = self.local.lock().unwrap();
+        let mut names: Vec<_> = local
+            .batches
+            .iter()
+            .filter(|(_, blobs)| !blobs.is_empty())
+            .map(|(name, _)| name.clone())
+            .collect();
+        names.sort();
+        names
     }
 
     pub fn new(served: Arc<Mutex<Served>>, link: Link) -> Self {
@@ -152,7 +190,7 @@ impl Fetcher for MemoryFetcher {
         self.local
             .lock()
             .unwrap()
-            .blobs
+            .blobs()
             .get(hash)
             .cloned()
             .ok_or_else(|| TransportError::Storage("not local".into()))
@@ -162,8 +200,33 @@ impl Fetcher for MemoryFetcher {
         Ok(())
     }
     async fn local_bytes(&self, hash: &BlobHash) -> Result<u64, TransportError> {
-        let local = self.local.lock().unwrap();
-        Ok(local.blobs.get(hash).map_or(0, |bytes| bytes.len() as u64))
+        let mut local = self.local.lock().unwrap();
+        Ok(local
+            .blobs()
+            .get(hash)
+            .map_or(0, |bytes| bytes.len() as u64))
+    }
+    async fn use_batch(&self, name: &str) -> Result<(), TransportError> {
+        assert!(is_batch_name(name), "{name:?}");
+        self.local.lock().unwrap().current = name.to_owned();
+        Ok(())
+    }
+    async fn drop_batch(&self, name: &str) -> Result<(), TransportError> {
+        let mut local = self.local.lock().unwrap();
+        local.batches.remove(name);
+        local.dropped.push(name.to_owned());
+        if local.current == name {
+            local.current = MANIFEST_BATCH.to_owned();
+        }
+        Ok(())
+    }
+    async fn keep_only_batches(&self, keep: &[String]) -> Result<(), TransportError> {
+        let mut local = self.local.lock().unwrap();
+        let current = local.current.clone();
+        local
+            .batches
+            .retain(|name, _| name == MANIFEST_BATCH || *name == current || keep.contains(name));
+        Ok(())
     }
     async fn shutdown(self, _keep: bool) -> Result<(), TransportError> {
         Ok(())
@@ -220,7 +283,7 @@ impl PeerConnection for MemoryConnection {
             .local
             .lock()
             .unwrap()
-            .blobs
+            .blobs()
             .get(hash)
             .map_or(0, Vec::len);
         let mut received = 0u64;
@@ -254,7 +317,7 @@ impl PeerConnection for MemoryConnection {
                     }
                 }
                 local
-                    .blobs
+                    .blobs()
                     .entry(*hash)
                     .or_default()
                     .extend_from_slice(piece);
@@ -276,4 +339,6 @@ impl PeerConnection for MemoryConnection {
 
 // Each test binary uses a different subset.
 #[allow(unused_imports)]
-pub use super::published::{publish_one_file, publish_versions, Published, Versions};
+pub use super::published::{
+    publish_files, publish_one_file, publish_versions, Published, Versions,
+};

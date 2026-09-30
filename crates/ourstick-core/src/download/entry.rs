@@ -1,12 +1,14 @@
 //! Downloading one file of the manifest: check its path, fetch its blob
-//! (watching which path the data arrives on), decrypt it into place.
+//! (watching which path the data arrives on), decrypt it into place. A file
+//! whose blob this download already turned into another file is copied from
+//! that file instead.
 
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::files::{decrypt_into_place, target_path};
+use super::files::{copy_into_place, decrypt_into_place, target_path};
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
@@ -129,4 +131,68 @@ pub(super) async fn download_file(
         return Err(DownloadError::Cancelled);
     }
     Ok(written)
+}
+
+/// Places `entry` by copying `source`, a file this download already wrote from
+/// the same blob (identical files share a blob, ADR 0003). Returns `None` if
+/// `source` changed since, so the caller fetches the blob instead; otherwise
+/// what [`download_file`] returns.
+pub(super) async fn copy_file(
+    entry: &Entry,
+    source: &Path,
+    source_stamp: FileStamp,
+    output_dir: &Path,
+    partial: &Path,
+    replaceable: Option<FileStamp>,
+    on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
+) -> Result<Option<Option<FileStamp>>, DownloadError> {
+    let path = entry.path.as_str();
+    if on_event(DownloadEvent::FileStarted {
+        path,
+        size: entry.size,
+        already_local: entry.size,
+    })
+    .is_break()
+    {
+        return Err(DownloadError::Cancelled);
+    }
+    let name = data_encoding::HEXLOWER.encode(&entry.hash);
+    let plaintext = partial.join(format!("{name}.copy"));
+    if let Err(error) = tokio::fs::remove_file(&plaintext).await {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(io_error(&plaintext)(error));
+        }
+    }
+    let copied = {
+        let entry = entry.clone();
+        let source = source.to_path_buf();
+        let output_dir = output_dir.to_path_buf();
+        run_blocking(move || {
+            copy_into_place(
+                &entry,
+                &source,
+                source_stamp,
+                &plaintext,
+                &output_dir,
+                replaceable,
+            )
+        })
+        .await?
+    };
+    let event = match copied {
+        None => return Ok(None),
+        Some(Some(_)) => DownloadEvent::FileDone {
+            path,
+            already_local: entry.size,
+            received: 0,
+        },
+        Some(None) => DownloadEvent::FileChangedHere {
+            path,
+            size: entry.size,
+        },
+    };
+    if on_event(event).is_break() {
+        return Err(DownloadError::Cancelled);
+    }
+    Ok(copied)
 }

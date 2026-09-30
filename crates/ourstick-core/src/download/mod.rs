@@ -1,12 +1,15 @@
 //! The reader's side: fetch and check the latest record, fetch and decrypt the
-//! manifest, then fetch, decrypt and write every file. Interrupted downloads
-//! resume, because the fetcher keeps partial blobs.
+//! manifest, then fetch, decrypt and write every file, batch by batch.
+//! Interrupted downloads resume, because the fetcher keeps partial blobs of
+//! the batch in progress.
 
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
 
+mod batches;
 mod entry;
+mod fetch_files;
 mod files;
 mod folder;
 mod follow;
@@ -15,9 +18,9 @@ mod path;
 mod relay;
 mod types;
 
-use entry::download_file;
+use fetch_files::{fetch_files, FileCounts};
 use files::prepare_partial_dir;
-use folder::{plan_folder, FilePlan};
+use folder::plan_folder;
 use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::RelayLimiter;
@@ -245,56 +248,25 @@ async fn download_over(
         run_blocking(move || prepare_partial_dir(&output_dir)).await?
     };
     let mut receiving = ReceivingPath::new(reported_path, connected_usage);
-    let (mut already_here, mut changed_here) = (0, 0);
-    for (entry, file) in manifest.entries.iter().zip(&plan.files) {
-        let event = match *file {
-            FilePlan::AlreadyHere => {
-                already_here += 1;
-                DownloadEvent::FileAlreadyHere {
-                    path: &entry.path,
-                    size: entry.size,
-                }
-            }
-            FilePlan::ChangedHere => {
-                changed_here += 1;
-                DownloadEvent::FileChangedHere {
-                    path: &entry.path,
-                    size: entry.size,
-                }
-            }
-            FilePlan::Download { replaceable } => {
-                let written = download_file(
-                    fetcher,
-                    connection,
-                    &cipher,
-                    entry,
-                    output_dir,
-                    &partial,
-                    &mut receiving,
-                    &mut limiter,
-                    replaceable,
-                    &mut carried.received,
-                    on_event,
-                )
-                .await?;
-                match written {
-                    Some(stamp) => {
-                        let file = DownloadedFile {
-                            path: entry.path.clone(),
-                            stamp,
-                            blob_hash: entry.hash,
-                        };
-                        record_downloaded(&store, ticket, file).await?;
-                    }
-                    None => changed_here += 1,
-                }
-                continue;
-            }
-        };
-        if on_event(event).is_break() {
-            return Err(DownloadError::Cancelled);
-        }
-    }
+    let FileCounts {
+        already_here,
+        changed_here,
+    } = fetch_files(
+        fetcher,
+        connection,
+        &store,
+        ticket,
+        &cipher,
+        &manifest,
+        &plan.files,
+        output_dir,
+        &partial,
+        &mut receiving,
+        &mut limiter,
+        &mut carried.received,
+        on_event,
+    )
+    .await?;
     tokio::fs::remove_dir_all(&partial)
         .await
         .map_err(io_error(&partial))?;

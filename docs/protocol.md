@@ -28,6 +28,15 @@ _Draft. Updated whenever the wire format or the ticket format changes._
    validates it.
 6. Reader fetches each file blob by hash (iroh-blobs, verified BLAKE3 streaming,
    resumable), decrypts it to a temporary file, and renames it into place.
+   It does so in **batches** (ADR 0007): runs of manifest entries, cut from
+   the whole manifest at 1 GiB or 512 files, each fetched into a blob store
+   of its own that is deleted once every entry of the batch is in place, so
+   the reader needs about the size of the files plus one batch. The manifest
+   has a store of its own too (`manifest`). A second run of the same version
+   finds the same batches and resumes the partial blob of the one it stopped
+   in; batches of another version are deleted. An entry whose blob this
+   download already turned into a file is copied from that file, not fetched
+   again (identical files share a blob, ADR 0003).
 
 ## Manifest wire format (version 1)
 

@@ -109,6 +109,10 @@ async fn interrupted_download_resumes_where_it_stopped() {
     );
 
     let fetcher = reader.fetcher().await;
+    // Its blob is in the first batch's store (named by place and first blob,
+    // `download::batches`); a new fetcher starts on the manifest's.
+    let first_batch = format!("b0-{}", data_encoding::HEXLOWER.encode(&hash[..8]));
+    fetcher.use_batch(&first_batch).await.unwrap();
     let partial = fetcher.local_bytes(&hash).await.unwrap();
     fetcher.shutdown(true).await.unwrap();
     let blob_len = ourstick_core::blob_len(

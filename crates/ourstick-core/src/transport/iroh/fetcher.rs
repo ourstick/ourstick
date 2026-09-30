@@ -1,9 +1,10 @@
-//! The reader's side on iroh: a per-stick iroh-blobs `FsStore` (kept across runs
-//! so downloads resume) and connections to the owner.
+//! The reader's side on iroh: per-stick iroh-blobs stores, one per batch of
+//! files (kept across runs so downloads resume; `batches`), and connections
+//! to the owner.
 
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
@@ -13,10 +14,10 @@ use iroh_blobs::api::remote::GetProgressItem;
 use iroh_blobs::get::fsm::DecodeError;
 use iroh_blobs::get::GetError;
 use iroh_blobs::protocol::{ERR_INTERNAL, ERR_PERMISSION};
-use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::watch;
 
+use super::batches::Batches;
 use super::record_protocol::{request_record, RECORD_ALPN};
 use super::{absolute, bind, is_relay, network_report, owner_addr, IrohConfig};
 use crate::record::SignedManifestRecord;
@@ -47,11 +48,11 @@ fn route_of(addr: &iroh::TransportAddr) -> Route {
     }
 }
 
-/// A reader's local blob store for one stick, and the endpoint to reach owners.
+/// A reader's local blob stores for one stick, and the endpoint to reach
+/// owners.
 pub struct IrohFetcher {
     endpoint: Endpoint,
-    store: FsStore,
-    store_dir: PathBuf,
+    batches: Batches,
     relay_description: String,
 }
 
@@ -64,17 +65,14 @@ fn raw(hash: &BlobHash) -> HashAndFormat {
 }
 
 impl IrohFetcher {
-    /// Opens (or creates) the store in `store_dir`. Partial blobs from an
+    /// Opens (or creates) the stores in `store_dir`. Partial blobs from an
     /// earlier, interrupted run are still there and will be resumed.
     pub async fn start(config: &IrohConfig, store_dir: &Path) -> Result<Self, TransportError> {
-        let store_dir = absolute(store_dir)?;
-        tokio::fs::create_dir_all(&store_dir).await?;
-        let store = FsStore::load(&store_dir).await.map_err(storage)?;
+        let batches = Batches::open(absolute(store_dir)?).await?;
         let endpoint = bind(config, Vec::new()).await?;
         Ok(Self {
             endpoint,
-            store,
-            store_dir,
+            batches,
             relay_description: config.relay_description(),
         })
     }
@@ -103,7 +101,7 @@ impl Fetcher for IrohFetcher {
         let watcher = tokio::spawn(watch_path(blobs.clone(), path_sender, usage.clone()));
         Ok(IrohConnection {
             endpoint: self.endpoint.clone(),
-            store: self.store.clone(),
+            batches: self.batches.clone(),
             addr,
             blobs,
             path_receiver,
@@ -114,7 +112,9 @@ impl Fetcher for IrohFetcher {
 
     async fn read_blob(&self, hash: &BlobHash) -> Result<Vec<u8>, TransportError> {
         let bytes = self
-            .store
+            .batches
+            .store()
+            .await
             .blobs()
             .get_bytes(Hash::from_bytes(*hash))
             .await
@@ -123,7 +123,9 @@ impl Fetcher for IrohFetcher {
     }
 
     async fn export_blob(&self, hash: &BlobHash, target: &Path) -> Result<(), TransportError> {
-        self.store
+        self.batches
+            .store()
+            .await
             .blobs()
             .export(Hash::from_bytes(*hash), absolute(target)?)
             .await
@@ -133,7 +135,9 @@ impl Fetcher for IrohFetcher {
 
     async fn local_bytes(&self, hash: &BlobHash) -> Result<u64, TransportError> {
         let local = self
-            .store
+            .batches
+            .store()
+            .await
             .remote()
             .local(raw(hash))
             .await
@@ -141,13 +145,21 @@ impl Fetcher for IrohFetcher {
         Ok(local.local_bytes())
     }
 
+    async fn use_batch(&self, name: &str) -> Result<(), TransportError> {
+        self.batches.use_batch(name).await
+    }
+
+    async fn drop_batch(&self, name: &str) -> Result<(), TransportError> {
+        self.batches.drop_batch(name).await
+    }
+
+    async fn keep_only_batches(&self, keep: &[String]) -> Result<(), TransportError> {
+        self.batches.keep_only(keep).await
+    }
+
     async fn shutdown(self, keep: bool) -> Result<(), TransportError> {
         self.endpoint.close().await;
-        self.store.shutdown().await.map_err(storage)?;
-        if !keep {
-            tokio::fs::remove_dir_all(&self.store_dir).await?;
-        }
-        Ok(())
+        self.batches.shutdown(keep).await
     }
 }
 
@@ -194,7 +206,7 @@ async fn watch_path(connection: Connection, sender: watch::Sender<PathKind>, usa
 /// A connection from a reader to the owner of a stick.
 pub struct IrohConnection {
     endpoint: Endpoint,
-    store: FsStore,
+    batches: Batches,
     addr: EndpointAddr,
     blobs: Connection,
     path_receiver: watch::Receiver<PathKind>,
@@ -284,7 +296,9 @@ impl PeerConnection for IrohConnection {
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let local = self
-            .store
+            .batches
+            .store()
+            .await
             .remote()
             .local(raw(hash))
             .await
@@ -296,11 +310,9 @@ impl PeerConnection for IrohConnection {
                 received: 0,
             });
         }
-        let mut progress = std::pin::pin!(self
-            .store
-            .remote()
-            .fetch(self.blobs.clone(), raw(hash))
-            .stream());
+        let store = self.batches.store().await;
+        let mut progress =
+            std::pin::pin!(store.remote().fetch(self.blobs.clone(), raw(hash)).stream());
         while let Some(item) = progress.next().await {
             match item {
                 GetProgressItem::Progress(received) => match on_progress(received) {

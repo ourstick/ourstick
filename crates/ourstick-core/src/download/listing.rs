@@ -13,7 +13,7 @@ use crate::manifest::Manifest;
 use crate::record::{ManifestHint, RecordCheck};
 use crate::store::{ManifestVersion, Store};
 use crate::ticket::Ticket;
-use crate::transport::{Fetcher, PeerConnection, GO};
+use crate::transport::{Fetcher, PeerConnection, GO, MANIFEST_BATCH};
 
 /// A stick's current manifest, verified.
 #[derive(Debug, Clone)]
@@ -33,6 +33,7 @@ pub(super) async fn fetch_listing(
     ticket: &Ticket,
     floor: Option<ManifestVersion>,
 ) -> Result<(Listing, Arc<dyn Cipher>), DownloadError> {
+    fetcher.use_batch(MANIFEST_BATCH).await?;
     let signed = connection.fetch_record(&ticket.stick_id).await?;
     let floor_hint = floor.map(|floor| ManifestHint {
         seq: floor.seq,

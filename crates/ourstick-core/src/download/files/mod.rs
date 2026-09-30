@@ -191,6 +191,57 @@ pub(super) fn decrypt_into_place(
     output.sync_all().map_err(io_error(plaintext))?;
     drop(output);
 
+    let placed = place(entry, plaintext, output_dir, replaceable)?;
+    std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
+    Ok(placed)
+}
+
+/// For a file whose blob another entry of this download already brought:
+/// copies `source` (written by this download, with the stamp `source_stamp`)
+/// into `plaintext` and places it as `entry`. Returns `None` if the source
+/// changed meanwhile, so the caller fetches the blob instead; otherwise what
+/// [`place`] returns.
+pub(super) fn copy_into_place(
+    entry: &Entry,
+    source: &Path,
+    source_stamp: FileStamp,
+    plaintext: &Path,
+    output_dir: &Path,
+    replaceable: Option<FileStamp>,
+) -> Result<Option<Option<FileStamp>>, DownloadError> {
+    let unchanged =
+        || std::fs::metadata(source).is_ok_and(|now| FileStamp::of(&now) == source_stamp);
+    if !unchanged() {
+        return Ok(None);
+    }
+    let copied = std::fs::copy(source, plaintext).map_err(io_error(plaintext))?;
+    if copied != entry.size || !unchanged() {
+        std::fs::remove_file(plaintext).map_err(io_error(plaintext))?;
+        return Ok(None);
+    }
+    let output = File::options()
+        .write(true)
+        .open(plaintext)
+        .map_err(io_error(plaintext))?;
+    output
+        .set_modified(UNIX_EPOCH + Duration::from_secs(entry.mtime))
+        .map_err(io_error(plaintext))?;
+    output.sync_all().map_err(io_error(plaintext))?;
+    drop(output);
+    Ok(Some(place(entry, plaintext, output_dir, replaceable)?))
+}
+
+/// Renames the finished `plaintext` to the entry's place under `output_dir`,
+/// checking for symbolic links again right before. The file there is replaced
+/// only if it is still as planned (absent, or with the stamp `replaceable`);
+/// otherwise it was changed meanwhile, is left alone, and `plaintext` is
+/// removed. Returns the stamp of the written file, or `None` if it was left.
+fn place(
+    entry: &Entry,
+    plaintext: &Path,
+    output_dir: &Path,
+    replaceable: Option<FileStamp>,
+) -> Result<Option<FileStamp>, DownloadError> {
     let target = check_no_symlinks(output_dir, &entry.path)?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(io_error(parent))?;
@@ -200,11 +251,9 @@ pub(super) fn decrypt_into_place(
     let target = check_no_symlinks(output_dir, &entry.path)?;
     if !may_replace(&target, replaceable) {
         std::fs::remove_file(plaintext).map_err(io_error(plaintext))?;
-        std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
         return Ok(None);
     }
     std::fs::rename(plaintext, &target).map_err(io_error(&target))?;
-    std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
     let written = std::fs::metadata(&target).map_err(io_error(&target))?;
     Ok(Some(FileStamp::of(&written)))
 }

@@ -210,7 +210,24 @@ async fn serve(
     started: Instant,
 ) -> Result<()> {
     let timing = WatchTiming::default();
+    // Reading the folder is told only for a pass that takes a while.
+    let mut last_reading = None;
+    let mut done_before = usize::MAX;
     let mut on_event = |event: WatchEvent<'_>| {
+        if let WatchEvent::Reading { done, total } = event {
+            if done <= done_before {
+                // A new pass: its first line comes after a while, if at all.
+                last_reading = Some(started.elapsed());
+            }
+            done_before = done;
+            if done < total {
+                if let Some(line) =
+                    catalogue_line(&mut last_reading, done, total, started.elapsed())
+                {
+                    println!("{line}");
+                }
+            }
+        }
         for line in watch_lines(&event, started.elapsed(), timing) {
             println!("{line}");
         }

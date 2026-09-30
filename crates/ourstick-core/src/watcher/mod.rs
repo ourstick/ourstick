@@ -16,7 +16,9 @@ pub use crate::share::Owner;
 use crate::blocking::run_blocking;
 use crate::manifest::build::regular_files;
 use crate::manifest::{FileStamp, Manifest};
-use crate::share::{run_pass, PassOptions, Publication, ShareError};
+use crate::share::{
+    run_pass, PartialTiming, PassEvent, PassOptions, Publication, ShareError, PARTIAL_TIMING,
+};
 use crate::transport::Publisher;
 
 /// How long to wait at each stage.
@@ -29,6 +31,9 @@ pub struct WatchTiming {
     /// After a failed publish or a folder still being written, try again
     /// after this long even without a new sign of change.
     pub retry: Duration,
+    /// When a long pass publishes partial versions (ADR 0007); `None`: only
+    /// at its end.
+    pub partial: Option<PartialTiming>,
 }
 
 impl Default for WatchTiming {
@@ -37,6 +42,7 @@ impl Default for WatchTiming {
             quiet: Duration::from_secs(2),
             settle: Duration::from_secs(1),
             retry: Duration::from_secs(30),
+            partial: Some(PARTIAL_TIMING),
         }
     }
 }
@@ -84,7 +90,10 @@ impl ChangeSummary {
 pub enum WatchEvent<'a> {
     /// A file is still being written; publishing waits.
     StillChanging,
-    /// A new version was published.
+    /// `done` of `total` files are read, during a pass.
+    Reading { done: usize, total: usize },
+    /// A new version was published (a partial one while a pass reads the
+    /// folder, `publication.manifest.partial`).
     Published {
         changes: &'a ChangeSummary,
         publication: &'a Publication,
@@ -155,7 +164,22 @@ pub async fn follow_folder(
             retry = true;
             continue;
         }
-        let passed = run_pass(owner, PassOptions::default(), &mut |_| {}).await;
+        let options = PassOptions {
+            rescan: false,
+            partial: timing.partial,
+        };
+        let passed = run_pass(owner, options, &mut |event| match event {
+            PassEvent::Progress { done, total } => on_event(WatchEvent::Reading { done, total }),
+            PassEvent::Published(publication) => {
+                let changes = ChangeSummary::between(&current, &publication.manifest);
+                on_event(WatchEvent::Published {
+                    changes: &changes,
+                    publication,
+                });
+                current = publication.manifest.clone();
+            }
+        })
+        .await;
         retry = false;
         let published = match passed {
             Ok(outcome) => {

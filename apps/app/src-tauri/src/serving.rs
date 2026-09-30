@@ -260,7 +260,7 @@ fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
             let _ = app.emit("stick-changed", ());
             ShareProblem::Cleared
         }
-        WatchEvent::StillChanging => return,
+        WatchEvent::StillChanging | WatchEvent::Reading { .. } => return,
         WatchEvent::Failed { error } => ShareProblem::Failed {
             message: error.to_string(),
         },

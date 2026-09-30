@@ -99,7 +99,8 @@ pub(super) fn watch_lines(
 ) -> Vec<String> {
     let at = clock(elapsed);
     match event {
-        WatchEvent::Unchanged => Vec::new(),
+        // Told by `catalogue_line`, now and then.
+        WatchEvent::Unchanged | WatchEvent::Reading { .. } => Vec::new(),
         WatchEvent::Ejected => vec![format!(
             "[{at}] The stick's drive is not there (ejected?); readers keep getting \
              the last version until it is back."
@@ -127,8 +128,13 @@ pub(super) fn watch_lines(
                     parts.push(format!("{count} {what}"));
                 }
             }
+            let still = if publication.manifest.partial {
+                " (still reading the folder)"
+            } else {
+                ""
+            };
             let mut lines = vec![format!(
-                "[{at}] Folder changed: {}. Readers now get version {}.",
+                "[{at}] Folder changed: {}. Readers now get version {}{still}.",
                 parts.join(", "),
                 publication.seq
             )];

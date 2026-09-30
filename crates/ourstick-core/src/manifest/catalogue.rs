@@ -103,6 +103,13 @@ impl Catalogue {
         self.next == self.files.len()
     }
 
+    /// The path of the last file done (catalogued or skipped).
+    pub fn last_done(&self) -> Option<&str> {
+        self.next
+            .checked_sub(1)
+            .map(|index| self.files[index].0.as_str())
+    }
+
     /// Every path the walk found, in manifest order.
     pub fn paths(&self) -> Vec<String> {
         self.files.iter().map(|(path, _)| path.clone()).collect()

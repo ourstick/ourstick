@@ -1,12 +1,14 @@
 //! A pass over a stick's folder (ADR 0007): the catalogue in parts, the cache
-//! filled behind it, and a version published at the end. While a stick has
-//! no complete version yet, partial versions are published as the catalogue
-//! grows, so readers start before it ends.
+//! filled behind it, and a version published at the end. Partial versions
+//! are published as the catalogue grows, so readers start before it ends;
+//! each keeps the files not read yet as the last pass left them
+//! ([`super::partial`]), and one that changes nothing is not published.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use super::fill::Fill;
+use super::partial::Previous;
 use super::version::{Signed, Versions};
 use super::{check_drive, clear_staging, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
@@ -41,8 +43,7 @@ pub const PARTIAL_TIMING: PartialTiming = PartialTiming {
 pub struct PassOptions {
     /// Read every file, whatever was recorded.
     pub rescan: bool,
-    /// Publish partial versions, as timed, while the stick has no complete
-    /// version. `None`: only at the end.
+    /// Publish partial versions, as timed. `None`: only at the end.
     pub partial: Option<PartialTiming>,
 }
 
@@ -93,16 +94,20 @@ pub async fn run_pass(
         let staging = owner.publisher.staging_dir().to_path_buf();
         run_blocking(move || clear_staging(&staging)).await?;
     }
-    let known: Vec<OwnedFile> = if options.rescan {
-        Vec::new()
-    } else {
+    let recorded: Vec<OwnedFile> = {
         let store = owner.store.clone();
         run_blocking(move || store.owned_files(&stick_id)).await?
+    };
+    let known = if options.rescan {
+        Vec::new()
+    } else {
+        recorded.clone()
     };
     let mut catalogue = {
         let root = root.clone();
         run_blocking(move || Catalogue::start(&root, known)).await?
     };
+    let mut previous = Previous::new(recorded, &catalogue.paths());
 
     let versions = Versions {
         publisher: owner.publisher,
@@ -115,11 +120,7 @@ pub async fn run_pass(
         last_signed_seq: owned.last_signed_seq,
         latest_record: owned.latest_record.clone(),
     };
-    // Partial versions only while there is no complete one: afterwards they
-    // would take files away from readers of the complete one.
-    let timing = options
-        .partial
-        .filter(|_| owned.latest_record.is_none() || owned.latest_partial);
+    let timing = options.partial;
     let started = Instant::now();
     let mut next_partial = timing.map(|timing| started + timing.first_after);
     if timing.is_some() && owned.latest_record.is_none() {
@@ -181,10 +182,14 @@ pub async fn run_pass(
         });
         if let (Some(timing), Some(due)) = (timing, next_partial) {
             if Instant::now() >= due && !catalogue.is_finished() {
-                let publication = versions
-                    .publish(&mut signed, partial_manifest(entries.clone()), reused)
-                    .await?;
-                on_event(PassEvent::Published(&publication));
+                let merged = previous.merged(&entries, catalogue.last_done());
+                if previous.changes(&merged) {
+                    let publication = versions
+                        .publish(&mut signed, partial_manifest(merged.clone()), reused)
+                        .await?;
+                    on_event(PassEvent::Published(&publication));
+                    previous.published(merged);
+                }
                 next_partial = Some(Instant::now() + timing.every);
             }
         }

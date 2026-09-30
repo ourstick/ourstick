@@ -87,7 +87,8 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
     assert_eq!(report.files, 600);
     assert_eq!(reader.read("f0599.txt"), b"file 599");
 
-    // Once a complete version exists, a pass publishes no partial ones.
+    // A file added after every file the pass reads before its end: no
+    // partial version would change anything, so none is published.
     common::write_file(owner.folder.path(), "new.txt", b"new");
     owner.clock.set(publication.seq + 1_000);
     let mut more = 0;
@@ -99,6 +100,43 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
     assert_eq!(more, 0);
     assert_eq!(outcome.publication.manifest.entries.len(), 601);
     assert_eq!(outcome.publication.reused, 600);
+    owner.publisher.shutdown().await;
+}
+
+/// After a complete version, a partial one keeps the files not read yet as
+/// they were: readers see new files early and none leaving.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_later_pass_publishes_partial_versions_that_keep_the_rest() {
+    let files = many_files();
+    let owner = owner_of(&files).await;
+    let first = run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
+        .await
+        .unwrap()
+        .publication;
+    // Sorts before every other file, so the first part holds it.
+    common::write_file(owner.folder.path(), "a-new.txt", b"new");
+    std::fs::remove_file(owner.folder.path().join("f0599.txt")).unwrap();
+    owner.clock.set(first.seq + 1_000);
+
+    let mut published = Vec::new();
+    let outcome = run_pass(&publishing(&owner), AT_ONCE, &mut |event| {
+        if let PassEvent::Published(publication) = event {
+            published.push(publication.manifest.clone());
+        }
+    })
+    .await
+    .unwrap();
+    // One partial version, after the first part; the second part changes
+    // nothing more, so it brings none.
+    assert_eq!(published.len(), 1);
+    let partial = &published[0];
+    assert!(partial.partial);
+    let mut expected: Vec<_> = first.manifest.entries[..599].to_vec();
+    expected.insert(0, outcome.publication.manifest.entries[0].clone());
+    assert_eq!(partial.entries, expected);
+    assert_eq!(partial.entries[0].path, "a-new.txt");
+    assert_eq!(outcome.publication.manifest.entries, expected);
+    assert!(!outcome.publication.manifest.partial);
     owner.publisher.shutdown().await;
 }
 
@@ -137,8 +175,10 @@ async fn a_restarted_first_share_goes_on_from_what_it_recorded() {
     })
     .await
     .unwrap();
-    // No empty version this time: the stick has a link already.
-    assert_eq!(published, vec![256, 512]);
+    // No empty version this time: the stick has a link already. The first
+    // part only reads again what was recorded, so the next partial version
+    // comes after the second.
+    assert_eq!(published, vec![512]);
     assert_eq!(outcome.publication.reused, 256);
     assert_eq!(outcome.publication.manifest, first.manifest);
     assert!(outcome.publication.seq > first.seq + 1);

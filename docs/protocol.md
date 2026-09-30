@@ -156,13 +156,16 @@ carries only the key). Every file blob of that stick must use the same cipher.
   the version, and another pass follows soon. Each part is recorded
   (`owned_files`) once its blobs are in the cache, so a pass stopped halfway
   goes on from there.
-- While a stick has **no complete version** yet (its first share, also after
-  a restart in the middle of it), the pass publishes **partial** versions:
-  an empty one at once if the stick was never published (so it has a link),
-  then the files catalogued so far after 30 seconds and every 3 minutes, each
-  a new `seq`. The complete version comes at the end. Once a complete version
-  exists, a pass publishes only at its end: a partial one would take files
-  away from readers of the complete one.
+- A long pass publishes **partial** versions: an empty one at once if the
+  stick was never published (so it has a link), then after 30 seconds and
+  every 3 minutes, each a new `seq`; the complete version comes at the end. A
+  partial version lists the files read so far and, after them in manifest
+  order, the files the last pass recorded that are still in the folder and
+  not read yet, as they were then: a reader sees new files early, and no file
+  leaves the stick only because the pass has not reached it (one that did
+  leave is gone at once). A partial version that would list what the last
+  one listed is not published, so a pass over an unchanged folder signs
+  nothing new.
 - While serving, the owner watches the folder (inotify, FSEvents, …; every
   60 s if the system cannot report changes). After a sign of change it waits
   until the folder has been quiet for 2 s and no file's size or times change

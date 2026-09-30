@@ -127,6 +127,8 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
         record.lock().unwrap().push(match event {
             WatchEvent::Ejected => "ejected".to_owned(),
             WatchEvent::Published { .. } => "published".to_owned(),
+            // Every pass reports its progress.
+            WatchEvent::Reading { .. } => return,
             other => format!("{other:?}"),
         })
     };
@@ -141,6 +143,7 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
         quiet: Duration::from_millis(50),
         settle: Duration::from_millis(20),
         retry: Duration::from_millis(100),
+        partial: None,
     };
     let marker = owner.folder.path().join(DRIVE_MARKER);
     let mut events = Manual(receive);

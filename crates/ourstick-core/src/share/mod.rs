@@ -16,6 +16,7 @@ use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
 mod fill;
+mod partial;
 mod pass;
 mod version;
 

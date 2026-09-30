@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{keep_going, Owner, Reader};
+use ourstick_core::share::PartialTiming;
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner as Publishing, WatchEvent, WatchTiming,
@@ -17,6 +18,7 @@ const FAST: WatchTiming = WatchTiming {
     quiet: Duration::from_millis(100),
     settle: Duration::from_millis(50),
     retry: Duration::from_millis(300),
+    partial: None,
 };
 
 /// Signs of change sent by the test.
@@ -37,12 +39,21 @@ fn describe(event: WatchEvent<'_>) -> String {
         WatchEvent::Unchanged => "unchanged".to_owned(),
         WatchEvent::Failed { .. } => "failed".to_owned(),
         WatchEvent::Ejected => "ejected".to_owned(),
+        WatchEvent::Reading { done, total } => format!("reading {done}/{total}"),
         WatchEvent::Published {
             changes,
             publication,
         } => format!(
-            "published {} +{:?} ~{:?} -{:?}",
-            publication.seq, changes.added, changes.changed, changes.removed
+            "published {}{} +{:?} ~{:?} -{:?}",
+            publication.seq,
+            if publication.manifest.partial {
+                " partial"
+            } else {
+                ""
+            },
+            changes.added,
+            changes.changed,
+            changes.removed
         ),
     }
 }
@@ -51,6 +62,16 @@ fn describe(event: WatchEvent<'_>) -> String {
 async fn watch_while(
     owner: &Owner,
     events: &mut impl FolderEvents,
+    drive: impl std::future::Future<Output = ()>,
+) -> Vec<String> {
+    watch_with(owner, events, FAST, drive).await
+}
+
+/// [`watch_while`] with other timing.
+async fn watch_with(
+    owner: &Owner,
+    events: &mut impl FolderEvents,
+    timing: WatchTiming,
     drive: impl std::future::Future<Output = ()>,
 ) -> Vec<String> {
     let current = owner.publish().await.manifest;
@@ -63,9 +84,14 @@ async fn watch_while(
     };
     let seen: Seen = Arc::default();
     let record = seen.clone();
-    let mut on_event = move |event: WatchEvent<'_>| record.lock().unwrap().push(describe(event));
+    // Progress is left out: every pass reports it.
+    let mut on_event = move |event: WatchEvent<'_>| {
+        if !matches!(event, WatchEvent::Reading { .. }) {
+            record.lock().unwrap().push(describe(event));
+        }
+    };
     tokio::select! {
-        () = follow_folder(&publishing, owner.folder.path(), events, FAST, current, &mut on_event) => {}
+        () = follow_folder(&publishing, owner.folder.path(), events, timing, current, &mut on_event) => {}
         () = drive => {}
     }
     let seen = seen.lock().unwrap().clone();
@@ -181,6 +207,47 @@ async fn the_operating_system_drives_it_end_to_end() {
     assert!(
         seen[1..].iter().all(|event| event == "unchanged"),
         "{seen:?}"
+    );
+    owner.publisher.shutdown().await;
+}
+
+/// ADR 0007: a pass over a big folder shows a new file early, in a partial
+/// version that keeps every other file, then the complete version.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_pass_publishes_a_partial_version_first() {
+    let files: Vec<(String, Vec<u8>)> = (0..600)
+        .map(|i| (format!("f{i:04}.txt"), format!("file {i}").into_bytes()))
+        .collect();
+    let files: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(path, data)| (path.as_str(), data.as_slice()))
+        .collect();
+    let owner = Owner::new(&files).await;
+    owner.clock.set(1_000);
+    let (send, receive) = mpsc::unbounded_channel();
+    let folder = owner.folder.path().to_path_buf();
+    let timing = WatchTiming {
+        partial: Some(PartialTiming {
+            first_after: Duration::ZERO,
+            every: Duration::ZERO,
+        }),
+        ..FAST
+    };
+
+    let seen = watch_with(&owner, &mut Manual(receive), timing, async {
+        owner.clock.set(2_000);
+        std::fs::write(folder.join("a-new.txt"), b"new").unwrap();
+        send.send(()).unwrap();
+        pause(3_000).await;
+    })
+    .await;
+
+    assert_eq!(
+        seen,
+        vec![
+            r#"published 2000 partial +["a-new.txt"] ~[] -[]"#,
+            r#"published 2001 +[] ~[] -[]"#,
+        ]
     );
     owner.publisher.shutdown().await;
 }

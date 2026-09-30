@@ -32,9 +32,11 @@ fn parts_follow_manifest_order_and_hash_like_a_full_encryption() {
 
     let mut catalogue = Catalogue::start(dir.path(), Vec::new()).unwrap();
     assert_eq!(catalogue.len(), 3);
+    assert_eq!(catalogue.last_done(), None);
     assert_eq!(catalogue.paths(), vec!["a-c", "a/b", "z"]);
     let mut all = files(&catalogue.next_part(&cipher(), 2, u64::MAX).unwrap());
     assert_eq!(catalogue.done(), 2);
+    assert_eq!(catalogue.last_done(), Some("a/b"));
     assert!(!catalogue.is_finished());
     all.extend(files(&catalogue.next_part(&cipher(), 2, u64::MAX).unwrap()));
     assert!(catalogue.is_finished());

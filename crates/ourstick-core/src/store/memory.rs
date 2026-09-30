@@ -111,7 +111,11 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError> {
+    fn save_signed_record(
+        &self,
+        record: &SignedManifestRecord,
+        partial: bool,
+    ) -> Result<(), StoreError> {
         let content = record.unverified_record();
         check_seq(content.seq)?;
         let mut state = self.state();
@@ -127,6 +131,7 @@ impl Store for MemoryStore {
         }
         stick.last_signed_seq = content.seq;
         stick.latest_record = Some(record.clone());
+        stick.latest_partial = partial;
         Ok(())
     }
 

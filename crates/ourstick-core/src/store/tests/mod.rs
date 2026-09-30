@@ -151,15 +151,16 @@ fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
 fn signed_records_only_move_forward(store: &dyn Store) {
     store.add_owned_stick(&owned(1, 10)).unwrap();
     let first = owner(1).sign_record(100, [1; 32]);
-    store.save_signed_record(&first).unwrap();
+    store.save_signed_record(&first, false).unwrap();
 
     let stored = store.owned_stick(&owner(1).stick_id()).unwrap().unwrap();
     assert_eq!(stored.last_signed_seq, 100);
     assert_eq!(stored.latest_record, Some(first.clone()));
+    assert!(!stored.latest_partial);
 
     for seq in [100, 99, 0] {
         assert!(matches!(
-            store.save_signed_record(&owner(1).sign_record(seq, [2; 32])),
+            store.save_signed_record(&owner(1).sign_record(seq, [2; 32]), false),
             Err(StoreError::NotNewer { stored: 100, .. })
         ));
     }
@@ -167,21 +168,21 @@ fn signed_records_only_move_forward(store: &dyn Store) {
     assert_eq!(unchanged.latest_record, Some(first));
 
     store
-        .save_signed_record(&owner(1).sign_record(101, [3; 32]))
+        .save_signed_record(&owner(1).sign_record(101, [3; 32]), true)
         .unwrap();
-    assert_eq!(
-        store
-            .owned_stick(&owner(1).stick_id())
-            .unwrap()
-            .unwrap()
-            .last_signed_seq,
-        101
-    );
+    let partial = store.owned_stick(&owner(1).stick_id()).unwrap().unwrap();
+    assert_eq!(partial.last_signed_seq, 101);
+    assert!(partial.latest_partial);
+    store
+        .save_signed_record(&owner(1).sign_record(102, [4; 32]), false)
+        .unwrap();
+    let complete = store.owned_stick(&owner(1).stick_id()).unwrap().unwrap();
+    assert!(!complete.latest_partial);
 }
 
 fn signed_record_for_unknown_stick_fails(store: &dyn Store) {
     assert!(matches!(
-        store.save_signed_record(&owner(1).sign_record(1, [1; 32])),
+        store.save_signed_record(&owner(1).sign_record(1, [1; 32]), false),
         Err(StoreError::StickNotFound)
     ));
 }
@@ -346,7 +347,7 @@ fn values_beyond_i64_are_refused(store: &dyn Store) {
     let too_big = MAX_STORED_SEQ + 1;
     store.add_owned_stick(&owned(1, 10)).unwrap();
     assert!(matches!(
-        store.save_signed_record(&owner(1).sign_record(too_big, [1; 32])),
+        store.save_signed_record(&owner(1).sign_record(too_big, [1; 32]), false),
         Err(StoreError::SeqOutOfRange(_))
     ));
     assert!(matches!(
@@ -359,7 +360,7 @@ fn values_beyond_i64_are_refused(store: &dyn Store) {
     ));
     // The largest storable seq still works.
     store
-        .save_signed_record(&owner(1).sign_record(MAX_STORED_SEQ, [1; 32]))
+        .save_signed_record(&owner(1).sign_record(MAX_STORED_SEQ, [1; 32]), false)
         .unwrap();
 }
 

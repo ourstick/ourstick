@@ -5,7 +5,7 @@ use crate::cipher::CipherId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 9);
+    assert_eq!(SCHEMA_VERSION, 10);
 }
 
 #[test]
@@ -165,11 +165,12 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO device VALUES (1, zeroblob(32), 'keychain', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'credential-manager', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'key-file', NULL, 0)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, NULL)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, NULL)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 0, NULL)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'o')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'OO')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, NULL, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, NULL, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 0, NULL, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'o', 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'OO', 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 2)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 5, NULL, 0)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 'five', zeroblob(32), 0)",
         "INSERT INTO record_floors VALUES (zeroblob(32), NULL, zeroblob(32))",
@@ -180,7 +181,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
     ];
     connection
         .execute(
-            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL)",
+            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 0)",
             [],
         )
         .unwrap();
@@ -230,10 +231,10 @@ fn two_connections_cannot_both_record_the_same_seq() {
         .unwrap();
 
     first
-        .save_signed_record(&owner.sign_record(10, [1; 32]))
+        .save_signed_record(&owner.sign_record(10, [1; 32]), false)
         .unwrap();
     assert!(matches!(
-        second.save_signed_record(&owner.sign_record(10, [2; 32])),
+        second.save_signed_record(&owner.sign_record(10, [2; 32]), false),
         Err(StoreError::NotNewer {
             seq: 10,
             stored: 10

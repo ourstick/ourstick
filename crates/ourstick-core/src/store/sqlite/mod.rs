@@ -157,7 +157,7 @@ impl Store for SqliteStore {
         let inserted = self.connection().execute(
             &format!(
                 "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
             ),
             params![
                 stick.stick_id.to_bytes(),
@@ -173,6 +173,7 @@ impl Store for SqliteStore {
                 // Checked by check_owned_stick: fits in i64.
                 stick.drive_size.map(|size| size as i64),
                 stick.drive_letter.map(String::from),
+                stick.latest_partial,
             ],
         );
         match inserted {
@@ -211,8 +212,12 @@ impl Store for SqliteStore {
         owned::set_drive_letter(&self.connection(), stick_id, letter)
     }
 
-    fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError> {
-        owned::save_signed_record(&self.connection(), record)
+    fn save_signed_record(
+        &self,
+        record: &SignedManifestRecord,
+        partial: bool,
+    ) -> Result<(), StoreError> {
+        owned::save_signed_record(&self.connection(), record, partial)
     }
 
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError> {

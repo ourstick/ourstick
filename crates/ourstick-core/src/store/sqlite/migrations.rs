@@ -16,6 +16,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0007_credential_manager_backend.sql"),
     include_str!("../../../migrations/0008_drive_letter.sql"),
     include_str!("../../../migrations/0009_owned_plaintext_hash.sql"),
+    include_str!("../../../migrations/0010_latest_partial.sql"),
 ];
 
 /// The schema version this code creates and understands.

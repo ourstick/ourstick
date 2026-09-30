@@ -25,9 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 9
+## Version 10
 
-Version 9 (`0009_owned_plaintext_hash.sql`) added
+Version 10 (`0010_latest_partial.sql`) added `owned_sticks.latest_partial`
+(ADR 0007). Version 9 (`0009_owned_plaintext_hash.sql`) added
 `owned_files.plaintext_hash` (ADR 0007), NULL in rows written before.
 Version 8 (`0008_drive_letter.sql`) added `owned_sticks.drive_letter`, the
 letter Windows showed the app's stick at. Version 7
@@ -81,8 +82,9 @@ Sticks this device owns. One row per stick.
 | `created_at_ms`   | INTEGER  | When the stick was created                                 |
 | `drive_size`      | INTEGER  | Size in bytes of a drive (the app's stick); NULL for a plain shared folder. A drive's folder must carry `.ourstick-drive` and may not hold more than this. |
 | `drive_letter`    | TEXT     | Windows: the drive letter (`A`–`Z`) the stick was last shown at with `subst`, asked for again after a restart so that the stick stays where the user saw it. NULL elsewhere. |
+| `latest_partial`  | INTEGER  | 1 if `latest_record` is of a partial manifest (the owner was still reading its folder, ADR 0007), so a restarted owner goes on publishing partial versions until a complete one; else 0 |
 
-`last_signed_seq` and `latest_record` change together, in one statement that
+`last_signed_seq`, `latest_record` and `latest_partial` change together, in one statement that
 only succeeds if the new `seq` is greater than the stored one. Two processes
 therefore cannot sign with the same `seq` and both record it, and a restored
 old database cannot move `seq` back (ADR 0004 covers the clock term).

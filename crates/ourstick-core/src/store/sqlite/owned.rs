@@ -46,14 +46,15 @@ pub(super) fn set_drive_letter(
 pub(super) fn save_signed_record(
     connection: &Connection,
     record: &SignedManifestRecord,
+    partial: bool,
 ) -> Result<(), StoreError> {
     let content = record.unverified_record();
     let seq = seq_i64(content.seq)?;
     let stick_id = content.stick_id.to_bytes();
     let updated = connection.execute(
-        "UPDATE owned_sticks SET last_signed_seq = ?1, latest_record = ?2
+        "UPDATE owned_sticks SET last_signed_seq = ?1, latest_record = ?2, latest_partial = ?4
              WHERE stick_id = ?3 AND last_signed_seq < ?1",
-        params![seq, record.to_bytes().to_vec(), stick_id],
+        params![seq, record.to_bytes().to_vec(), stick_id, partial],
     )?;
     if updated == 1 {
         return Ok(());

@@ -196,7 +196,7 @@ pub async fn publish_folder(
             let store = store.clone();
             let saved = record.clone();
             // Stored before it is served, so a seq is never used twice.
-            run_blocking(move || store.save_signed_record(&saved)).await?;
+            run_blocking(move || store.save_signed_record(&saved, false)).await?;
             record
         }
     };

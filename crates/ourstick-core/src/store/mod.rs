@@ -52,6 +52,9 @@ pub struct OwnedStick {
     pub last_signed_seq: u64,
     /// The latest signed record, if any. Its `seq` equals `last_signed_seq`.
     pub latest_record: Option<SignedManifestRecord>,
+    /// Whether `latest_record` is of a partial manifest (ADR 0007): no
+    /// complete version was published since.
+    pub latest_partial: bool,
     pub created_at_ms: u64,
     /// `Some(size in bytes)` for a drive (the app's stick): its folder must
     /// carry the drive marker and may hold at most this much. `None` for a
@@ -78,6 +81,7 @@ impl OwnedStick {
             cipher,
             last_signed_seq: 0,
             latest_record: None,
+            latest_partial: false,
             created_at_ms,
             drive_size: None,
             drive_letter: None,
@@ -167,7 +171,13 @@ pub trait Store: Send + Sync {
     /// Stores a record the owner just signed. Fails with
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one,
     /// checked and updated atomically.
-    fn save_signed_record(&self, record: &SignedManifestRecord) -> Result<(), StoreError>;
+    /// Saves `record` as the latest of its stick; `partial` says whether its
+    /// manifest is partial. Fails unless its `seq` is above every one saved.
+    fn save_signed_record(
+        &self,
+        record: &SignedManifestRecord,
+        partial: bool,
+    ) -> Result<(), StoreError>;
 
     /// The files recorded at the last publish of an owned stick, by path.
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError>;

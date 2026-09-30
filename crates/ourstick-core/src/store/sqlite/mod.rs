@@ -15,12 +15,14 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use migrations::MIGRATIONS;
 pub use migrations::SCHEMA_VERSION;
 use migrations::{migrate, user_version};
-use rows::{blob32, to_u64, JoinedRow, OwnedRow, JOINED_COLUMNS, OWNED_COLUMNS};
+use rows::{
+    blob32, is_constraint_violation, seq_i64, time_i64, to_u64, JoinedRow, OwnedRow,
+    JOINED_COLUMNS, OWNED_COLUMNS,
+};
 
 use super::{
-    check_device, check_joined_stick, check_owned_stick, check_seq, check_time, path_str, Device,
-    DownloadedFile, JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store,
-    StoreError,
+    check_device, check_joined_stick, check_owned_stick, path_str, Device, DownloadedFile,
+    JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -73,24 +75,6 @@ impl SqliteStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
-}
-
-fn seq_i64(seq: u64) -> Result<i64, StoreError> {
-    check_seq(seq)?;
-    Ok(seq as i64)
-}
-
-fn time_i64(ms: u64) -> Result<i64, StoreError> {
-    check_time(ms)?;
-    Ok(ms as i64)
-}
-
-fn is_constraint_violation(error: &rusqlite::Error) -> bool {
-    matches!(
-        error,
-        rusqlite::Error::SqliteFailure(failure, _)
-            if failure.code == rusqlite::ErrorCode::ConstraintViolation
-    )
 }
 
 impl Store for SqliteStore {

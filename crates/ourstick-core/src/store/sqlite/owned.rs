@@ -5,8 +5,8 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::super::{check_drive_letter, path_str, StoreError};
+use super::rows::seq_i64;
 use super::rows::to_u64;
-use super::seq_i64;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 

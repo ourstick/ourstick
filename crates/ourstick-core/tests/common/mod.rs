@@ -5,6 +5,7 @@
 
 pub mod growing;
 pub mod memory;
+pub mod owner_in_memory;
 pub mod published;
 
 use std::ops::ControlFlow;

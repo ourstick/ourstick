@@ -4,10 +4,28 @@ use std::path::PathBuf;
 
 use rusqlite::Row;
 
-use super::super::{JoinedStick, ManifestVersion, OwnedStick, StoreError};
+use super::super::{check_seq, check_time, JoinedStick, ManifestVersion, OwnedStick, StoreError};
 use crate::cipher::CipherId;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
+
+pub(super) fn seq_i64(seq: u64) -> Result<i64, StoreError> {
+    check_seq(seq)?;
+    Ok(seq as i64)
+}
+
+pub(super) fn time_i64(ms: u64) -> Result<i64, StoreError> {
+    check_time(ms)?;
+    Ok(ms as i64)
+}
+
+pub(super) fn is_constraint_violation(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.code == rusqlite::ErrorCode::ConstraintViolation
+    )
+}
 
 pub(super) fn to_u64(value: i64, column: &str) -> Result<u64, StoreError> {
     u64::try_from(value).map_err(|_| StoreError::Corrupt(format!("negative {column}")))

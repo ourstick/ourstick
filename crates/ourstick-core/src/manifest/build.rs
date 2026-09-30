@@ -40,36 +40,6 @@ impl Manifest {
             ..Self::default()
         })
     }
-
-    /// Like [`Manifest::from_dir`], but also keeps every blob: each one is
-    /// written to `blob_dir/<hex hash>.blob` and the paths are returned.
-    ///
-    /// A blob is first written under a temporary name and renamed only after
-    /// `encrypt_blob` confirmed the file did not change while it was read
-    /// (ADR 0003), so a file in `blob_dir` named after a hash always holds
-    /// exactly that blob. On error, the temporary file is removed.
-    pub fn from_dir_keeping_blobs(
-        root: impl AsRef<Path>,
-        cipher: &dyn Cipher,
-        blob_dir: &Path,
-    ) -> Result<(Self, Vec<PathBuf>), ManifestError> {
-        let root = root.as_ref();
-        let mut entries = Vec::new();
-        let mut blobs = Vec::new();
-        for path in regular_files(root)? {
-            let (entry, blob) = hash_file(root, &path, cipher, Some(blob_dir))?;
-            entries.push(entry);
-            blobs.extend(blob);
-        }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok((
-            Self {
-                entries,
-                ..Self::default()
-            },
-            blobs,
-        ))
-    }
 }
 
 /// All regular files under `root`, in walk order. Symlinks are not followed and
@@ -292,38 +262,6 @@ mod tests {
             assert_ne!(entry.hash, *blake3::hash(&contents).as_bytes());
             assert_eq!(manifest.total_size(), contents.len() as u64);
         }
-    }
-
-    #[test]
-    fn keeping_blobs_writes_each_blob_under_its_hash() {
-        let dir = tempfile::tempdir().unwrap();
-        let blobs = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("sub")).unwrap();
-        fs::write(dir.path().join("a.txt"), b"alpha").unwrap();
-        fs::write(dir.path().join("sub/b.bin"), vec![3u8; 70_000]).unwrap();
-
-        let (manifest, kept) =
-            Manifest::from_dir_keeping_blobs(dir.path(), &chacha(), blobs.path()).unwrap();
-        assert_eq!(manifest, Manifest::from_dir(dir.path(), &chacha()).unwrap());
-        assert_eq!(kept.len(), 2);
-        for entry in &manifest.entries {
-            let name = format!("{}.blob", data_encoding::HEXLOWER.encode(&entry.hash));
-            let bytes = fs::read(blobs.path().join(name)).unwrap();
-            assert_eq!(*blake3::hash(&bytes).as_bytes(), entry.hash);
-        }
-        // No temporary files left behind.
-        assert_eq!(fs::read_dir(blobs.path()).unwrap().count(), 2);
-    }
-
-    #[test]
-    fn keeping_blobs_fails_cleanly_when_blob_dir_is_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("a.txt"), b"alpha").unwrap();
-        let missing = dir.path().join("no-such-dir");
-        assert!(matches!(
-            Manifest::from_dir_keeping_blobs(dir.path(), &chacha(), &missing),
-            Err(ManifestError::Io { .. })
-        ));
     }
 
     #[test]

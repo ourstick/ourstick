@@ -2,33 +2,18 @@
 //! cannot produce: a reader that sends over the relay while data arrives
 //! directly, a network with no direct path, a direct path lost mid-transfer.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ourstick_core::transport::{
     is_batch_name, BlobHash, Demand, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage,
-    PeerConnection, Publisher, SuitcaseId, TransportError, MANIFEST_BATCH,
+    PeerConnection, TransportError, MANIFEST_BATCH,
 };
-use ourstick_core::{AddressHint, NodeId, SignedManifestRecord, StickId, Ticket};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use ourstick_core::{SignedManifestRecord, StickId, Ticket};
 
-/// What the owner serves, shared with the reader's side.
-#[derive(Default, Clone)]
-pub struct Served {
-    pub(crate) blobs: HashMap<BlobHash, Vec<u8>>,
-    pub(crate) record: Option<SignedManifestRecord>,
-    pub(crate) allowed: HashSet<BlobHash>,
-    /// Blobs the owner is still preparing: each ask answers "not ready" and
-    /// counts down (ADR 0007).
-    pub(crate) not_ready: HashMap<BlobHash, u32>,
-    /// The blobs each open suitcase holds ready (they are in `blobs` too).
-    pub(crate) suitcases: HashMap<SuitcaseId, HashSet<BlobHash>>,
-    pub(crate) next_suitcase: SuitcaseId,
-    /// Where what readers ask for goes, once the owner's policy took it.
-    pub(crate) demand: Option<UnboundedSender<Demand>>,
-}
+pub use super::owner_in_memory::{MemoryPublisher, Served};
 
 /// The network between reader and owner.
 #[derive(Debug, Default)]
@@ -44,98 +29,6 @@ pub struct Link {
     pub punch_during_first_fetch: bool,
     /// Bytes delivered so far, over any path.
     pub delivered: u64,
-}
-
-/// Cheap to clone: clones share what is served and the cache folder.
-#[derive(Clone)]
-pub struct MemoryPublisher {
-    pub(crate) served: Arc<Mutex<Served>>,
-    pub(crate) staging: Arc<tempfile::TempDir>,
-}
-
-impl Publisher for MemoryPublisher {
-    fn node_id(&self) -> NodeId {
-        NodeId([7; 32])
-    }
-    fn address_hints(&self) -> Vec<AddressHint> {
-        Vec::new()
-    }
-    fn network_report(&self) -> Option<NetworkReport> {
-        None
-    }
-    fn cache_dir(&self) -> &Path {
-        self.staging.path()
-    }
-    async fn publish(
-        &self,
-        record: SignedManifestRecord,
-        manifest_blob: Vec<u8>,
-        allowed: HashSet<BlobHash>,
-    ) -> Result<(), TransportError> {
-        let manifest = *blake3::hash(&manifest_blob).as_bytes();
-        let mut served = self.served.lock().unwrap();
-        served.blobs.insert(manifest, manifest_blob);
-        served.record = Some(record);
-        served.allowed = allowed;
-        served.allowed.insert(manifest);
-        Ok(())
-    }
-    fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {
-        tokio::sync::watch::channel(Default::default()).1
-    }
-    async fn open_suitcase(&self) -> Result<(SuitcaseId, PathBuf), TransportError> {
-        let id = {
-            let mut served = self.served.lock().unwrap();
-            served.next_suitcase += 1;
-            let id = served.next_suitcase;
-            served.suitcases.insert(id, HashSet::new());
-            id
-        };
-        let dir = self.staging.path().join("suitcases").join(id.to_string());
-        std::fs::create_dir_all(&dir)?;
-        Ok((id, dir))
-    }
-    async fn add_to_suitcase(
-        &self,
-        suitcase: SuitcaseId,
-        blob_file: &Path,
-        expected: &BlobHash,
-    ) -> Result<bool, TransportError> {
-        let bytes = std::fs::read(blob_file)?;
-        let hash = *blake3::hash(&bytes).as_bytes();
-        let mut served = self.served.lock().unwrap();
-        let Some(ready) = served.suitcases.get_mut(&suitcase) else {
-            return Err(TransportError::Storage(format!("no suitcase {suitcase}")));
-        };
-        if hash != *expected {
-            return Ok(false);
-        }
-        ready.insert(hash);
-        served.blobs.insert(hash, bytes);
-        Ok(true)
-    }
-    async fn evict(&self, suitcase: SuitcaseId) -> Result<(), TransportError> {
-        let mut served = self.served.lock().unwrap();
-        let Some(gone) = served.suitcases.remove(&suitcase) else {
-            return Ok(());
-        };
-        for hash in gone {
-            if !served.suitcases.values().any(|ready| ready.contains(&hash)) {
-                served.blobs.remove(&hash);
-            }
-        }
-        Ok(())
-    }
-    fn take_demand(&self) -> Option<UnboundedReceiver<Demand>> {
-        let mut served = self.served.lock().unwrap();
-        if served.demand.is_some() {
-            return None;
-        }
-        let (sender, receiver) = unbounded_channel();
-        served.demand = Some(sender);
-        Some(receiver)
-    }
-    async fn shutdown(self) {}
 }
 
 /// The reader's blobs (complete or partial), one map per batch as with iroh,

@@ -67,10 +67,15 @@ pub fn plug_in_and_share(app: &AppHandle) {
             else {
                 return Ok(None);
             };
-            let root = crate::drive::mount(&stick.root_path)?;
+            let root = crate::drive::mount(&stick.root_path, stick.drive_letter)?;
             let moved = root != stick.root_path;
             if moved {
                 store.move_owned_stick(&stick.stick_id, &root)?;
+            }
+            // Windows: keep the letter it got, to ask for it after a restart.
+            let letter = crate::drive::letter_of(&root);
+            if letter.is_some() && letter != stick.drive_letter {
+                store.set_drive_letter(&stick.stick_id, letter)?;
             }
             Ok(Some(moved || cfg!(target_os = "macos")))
         })

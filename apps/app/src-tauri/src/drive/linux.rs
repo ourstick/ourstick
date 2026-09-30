@@ -156,11 +156,11 @@ pub mod platform {
             .arg("metadata::custom-icon-name")
             .arg("drive-removable-media-usb")
             .status();
-        mount(&root)
+        mount(&root, None)
     }
 
     /// Puts the stick in the sidebar; the folder itself is always there.
-    pub fn mount(root: &Path) -> Result<PathBuf> {
+    pub fn mount(root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
         let uri = file_uri(root);
         edit(&gtk_bookmarks()?, |content| {
             Some(with_gtk_bookmark(content, &uri))

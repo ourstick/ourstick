@@ -111,7 +111,7 @@ pub mod platform {
 
     /// Attaches the image; returns where it is mounted (it may differ from
     /// last time, e.g. `/Volumes/OurStick 1`).
-    pub fn mount(_root: &Path) -> Result<PathBuf> {
+    pub fn mount(_root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
         attach(&image()?)
     }
 

@@ -80,6 +80,10 @@ pub async fn plug_in(
             Some(size_gb * 1_000_000_000),
         )?;
         mark_drive(&root, &keys.stick.stick_id).context("cannot mark the stick's folder")?;
+        // Windows: the letter it got, to ask for it again after a restart.
+        if let Some(letter) = drive::letter_of(&root) {
+            store.set_drive_letter(&keys.stick.stick_id, Some(letter))?;
+        }
         Ok(())
     })
     .await?;
@@ -253,7 +257,8 @@ pub async fn open_in_file_manager(
         .drive_stick()
         .map_err(shown)?
         .ok_or("there is no stick yet")?;
+    let shown = blocking(move || Ok(drive::shown_at(&stick.root_path))).await?;
     app.opener()
-        .open_path(stick.root_path.to_string_lossy(), None::<&str>)
+        .open_path(shown.to_string_lossy(), None::<&str>)
         .map_err(|error| error.to_string())
 }

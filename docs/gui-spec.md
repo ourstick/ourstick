@@ -27,11 +27,15 @@ that folder. The app shows the folder as a drive, per platform:
   sidebar (GTK bookmarks for Nautilus, `user-places.xbel` for Dolphin) with a
   USB drive icon where the file manager allows one. No loop device (it needs
   root). The watcher enforces the size limit.
-- **Windows:** not in stage 1 (later: a VHDX with `Mount-DiskImage`, or `subst`
-  as a simple alternative).
+- **Windows:** the folder `%USERPROFILE%\OurStick`, shown as a drive letter
+  with `subst` (no admin rights): the letter it had before (kept in the
+  database), else `O:`, else `Z:` down to `D:`. A `subst` letter lasts until
+  logoff, so the app gives it again at every start. The watcher enforces the
+  size limit, as on Linux.
 - **Mobile:** not in stage 1.
 
-**Eject** detaches the image (macOS) or removes the bookmark (Linux). Sharing
+**Eject** detaches the image (macOS), removes the bookmark (Linux) or takes
+the drive letter away (Windows). Sharing
 goes on with the last published version; changes are picked up again after
 Mount. An ejected stick is never published as empty.
 
@@ -117,6 +121,12 @@ so Spotlight leaves it alone.
 
 ## Known limitations (stage 1)
 
+- Windows: on first start Windows Firewall asks whether OurStick may use the
+  network. "Allow" lets readers reach it directly. "Cancel" leaves them only
+  the relay, slower and limited; the app notices (no reader ever comes
+  directly, `docs/protocol.md`, "Reader paths") and says how to allow it in
+  Windows Security. The same message appears on Linux and macOS if their
+  firewall drops what readers send.
 - The stick size cannot be changed after first launch.
 - The encrypted cache is a second copy of the stick: a 10 GB stick can take up
   to about 20 GB of disk.
@@ -199,6 +209,8 @@ and mobile apps exist. The link page at ourstick.com/s/ says how to install.
   the data protection keychain (apple-native-keyring-store's `protected`
   store), which needs the signed app's entitlements and never prompts.
 - Our own relays (ADR 0006).
+- **Sign the Windows installers** (MSI and NSIS). Unsigned, SmartScreen warns
+  of an unknown publisher on download and on first start.
 
 ## Open questions
 
@@ -211,13 +223,17 @@ and mobile apps exist. The link page at ourstick.com/s/ says how to install.
   stick by its image and records the folder's path at every mount. Whether
   Finder lists it in Locations with an eject button is checked by eye in the
   manual round.
-- **Windows:** VHDX with `Mount-DiskImage`, or `subst`.
+- **Windows drive name:** the `subst` letter shows under the system drive's
+  label ("Windows (O:)"); neither the per-user nor the machine-wide
+  `DriveIcons` label applies to a `subst` drive on Windows 11 24H2 (tried).
+  A named entry in Explorer's navigation pane, or a VHDX, would carry the
+  name "OurStick".
 - **`ksni` upstream:** once a `ksni` release has
   `Tray::provide_xdg_activation_token` (pull request #43), drop
   `third_party/ksni` and the `[patch.crates-io]` entry.
 
 ## Out of scope (stage 1)
 
-Windows (build and drive), FUSE or any virtual filesystem, right-click "Send
+FUSE or any virtual filesystem, right-click "Send
 to" in file managers, multiple sticks, permissions, expiry, revoke, settings
 page, auto-start at login, updates, the receiver window.

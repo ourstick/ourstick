@@ -139,6 +139,17 @@ pub(crate) fn hash_file(
     cipher: &dyn Cipher,
     blob_dir: Option<&Path>,
 ) -> Result<(Entry, Option<PathBuf>), ManifestError> {
+    hash_file_telling_plaintext(root, path, cipher, blob_dir).map(|(entry, kept, _)| (entry, kept))
+}
+
+/// [`hash_file`], also returning the plaintext hash (the nonce prefix's
+/// source, ADR 0003).
+pub(crate) fn hash_file_telling_plaintext(
+    root: &Path,
+    path: &Path,
+    cipher: &dyn Cipher,
+    blob_dir: Option<&Path>,
+) -> Result<(Entry, Option<PathBuf>, [u8; 32]), ManifestError> {
     let file = File::open(path).map_err(|e| ManifestError::io(path, e))?;
     let metadata = file.metadata().map_err(|e| ManifestError::io(path, e))?;
 
@@ -201,7 +212,7 @@ pub(crate) fn hash_file(
         mtime,
         hash,
     };
-    Ok((entry, kept))
+    Ok((entry, kept, info.plaintext_hash))
 }
 
 /// A random suffix for temporary file names.

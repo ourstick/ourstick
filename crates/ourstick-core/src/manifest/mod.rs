@@ -6,6 +6,7 @@
 //! - [`encoding`]: the wire format (see `docs/protocol.md`).
 
 pub(crate) mod build;
+pub mod catalogue;
 mod encoding;
 pub mod ignore;
 pub mod reuse;
@@ -16,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use catalogue::{Catalogue, Catalogued, CataloguedFile};
 pub use encoding::{validate_name, MANIFEST_FORMAT_VERSION};
 pub use reuse::{Encrypted, KnownFiles};
 pub use stamp::FileStamp;

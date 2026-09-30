@@ -81,7 +81,7 @@ impl Manifest {
 }
 
 /// The manifest's mtime: whole seconds, as `hash_file` records it.
-fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
+pub(super) fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
     metadata
         .modified()
         .ok()

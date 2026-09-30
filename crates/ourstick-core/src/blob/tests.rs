@@ -105,7 +105,8 @@ fn chacha_blob_length_and_info() {
             info,
             BlobInfo {
                 plaintext_len: size as u64,
-                blob_len: expected as u64
+                blob_len: expected as u64,
+                plaintext_hash: *blake3::hash(&pattern(size)).as_bytes(),
             }
         );
     }

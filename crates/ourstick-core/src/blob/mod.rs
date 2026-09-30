@@ -96,6 +96,8 @@ impl BlobHeader {
 pub struct BlobInfo {
     pub plaintext_len: u64,
     pub blob_len: u64,
+    /// BLAKE3 of the plaintext, from which the nonce prefix was derived.
+    pub plaintext_hash: [u8; 32],
 }
 
 /// The exact length of the blob that [`encrypt_blob`] writes for a plaintext of
@@ -147,12 +149,14 @@ pub fn encrypt_blob<R: Read + Seek>(
         index = index.checked_add(1).ok_or(CipherError::TooManyChunks)?;
     }
 
-    if second_pass.finalize() != first_pass.finalize() {
+    let plaintext_hash = first_pass.finalize();
+    if second_pass.finalize() != plaintext_hash {
         return Err(CipherError::PlaintextChanged);
     }
     Ok(BlobInfo {
         plaintext_len: second_pass.count(),
         blob_len,
+        plaintext_hash: *plaintext_hash.as_bytes(),
     })
 }
 

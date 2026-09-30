@@ -11,7 +11,7 @@ pub mod iroh;
 use std::collections::HashSet;
 use std::future::Future;
 use std::ops::ControlFlow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -114,6 +114,24 @@ pub struct ReaderActivity {
     pub only_relayed: bool,
 }
 
+/// A suitcase (ADR 0007): a store of blobs that come and go together. Ids
+/// are never reused while the publisher runs.
+pub type SuitcaseId = u64;
+
+/// What readers ask for, as the owner's policy needs it (ADR 0007).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Demand {
+    /// `connection` asked for `hash`, an allowed blob; `served` says whether
+    /// a store held it ready.
+    Asked {
+        connection: u64,
+        hash: BlobHash,
+        served: bool,
+    },
+    /// `connection` closed.
+    Closed { connection: u64 },
+}
+
 /// The owner's side: holds the encrypted blobs and serves the current record.
 pub trait Publisher: Send + Sync {
     /// This device's node id, for tickets.
@@ -177,6 +195,32 @@ pub trait Publisher: Send + Sync {
         &self,
         hash: &BlobHash,
     ) -> impl Future<Output = Result<bool, TransportError>> + Send;
+
+    /// Opens a new, empty suitcase, and the folder its blob files go in.
+    fn open_suitcase(
+        &self,
+    ) -> impl Future<Output = Result<(SuitcaseId, PathBuf), TransportError>> + Send;
+
+    /// Adds the blob in `blob_file`, a file in the suitcase's folder that
+    /// stays there until the suitcase goes, and makes it ready to serve if
+    /// and only if its hash is `expected` (ADR 0007: a blob is served only
+    /// if its hash is the manifest's). Returns whether it is.
+    fn add_to_suitcase(
+        &self,
+        suitcase: SuitcaseId,
+        blob_file: &Path,
+        expected: &BlobHash,
+    ) -> impl Future<Output = Result<bool, TransportError>> + Send;
+
+    /// Stops serving from `suitcase`, waits until no transfer from it is in
+    /// progress, then closes it and removes its folder.
+    fn evict(
+        &self,
+        suitcase: SuitcaseId,
+    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
+    /// What readers ask for, from now on. Only the first call gets it.
+    fn take_demand(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>;
 
     /// What readers are doing, updated about twice a second while it
     /// changes.

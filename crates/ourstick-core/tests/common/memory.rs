@@ -4,14 +4,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use ourstick_core::transport::{
-    is_batch_name, BlobHash, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage,
-    PeerConnection, Publisher, TransportError, MANIFEST_BATCH,
+    is_batch_name, BlobHash, Demand, FetchStats, Fetcher, NetworkReport, Pace, PathKind, PathUsage,
+    PeerConnection, Publisher, SuitcaseId, TransportError, MANIFEST_BATCH,
 };
 use ourstick_core::{AddressHint, NodeId, SignedManifestRecord, StickId, Ticket};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 /// What the owner serves, shared with the reader's side.
 #[derive(Default, Clone)]
@@ -22,6 +23,11 @@ pub struct Served {
     /// Blobs the owner is still preparing: each ask answers "not ready" and
     /// counts down (ADR 0007).
     pub(crate) not_ready: HashMap<BlobHash, u32>,
+    /// The blobs each open suitcase holds ready (they are in `blobs` too).
+    pub(crate) suitcases: HashMap<SuitcaseId, HashSet<BlobHash>>,
+    pub(crate) next_suitcase: SuitcaseId,
+    /// Where what readers ask for goes, once the owner's policy took it.
+    pub(crate) demand: Option<UnboundedSender<Demand>>,
 }
 
 /// The network between reader and owner.
@@ -101,6 +107,58 @@ impl Publisher for MemoryPublisher {
     async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
         Ok(self.served.lock().unwrap().blobs.contains_key(hash))
     }
+    async fn open_suitcase(&self) -> Result<(SuitcaseId, PathBuf), TransportError> {
+        let id = {
+            let mut served = self.served.lock().unwrap();
+            served.next_suitcase += 1;
+            let id = served.next_suitcase;
+            served.suitcases.insert(id, HashSet::new());
+            id
+        };
+        let dir = self.staging.path().join("suitcases").join(id.to_string());
+        std::fs::create_dir_all(&dir)?;
+        Ok((id, dir))
+    }
+    async fn add_to_suitcase(
+        &self,
+        suitcase: SuitcaseId,
+        blob_file: &Path,
+        expected: &BlobHash,
+    ) -> Result<bool, TransportError> {
+        let bytes = std::fs::read(blob_file)?;
+        let hash = *blake3::hash(&bytes).as_bytes();
+        let mut served = self.served.lock().unwrap();
+        let Some(ready) = served.suitcases.get_mut(&suitcase) else {
+            return Err(TransportError::Storage(format!("no suitcase {suitcase}")));
+        };
+        if hash != *expected {
+            return Ok(false);
+        }
+        ready.insert(hash);
+        served.blobs.insert(hash, bytes);
+        Ok(true)
+    }
+    async fn evict(&self, suitcase: SuitcaseId) -> Result<(), TransportError> {
+        let mut served = self.served.lock().unwrap();
+        let Some(gone) = served.suitcases.remove(&suitcase) else {
+            return Ok(());
+        };
+        for hash in gone {
+            if !served.suitcases.values().any(|ready| ready.contains(&hash)) {
+                served.blobs.remove(&hash);
+            }
+        }
+        Ok(())
+    }
+    fn take_demand(&self) -> Option<UnboundedReceiver<Demand>> {
+        let mut served = self.served.lock().unwrap();
+        if served.demand.is_some() {
+            return None;
+        }
+        let (sender, receiver) = unbounded_channel();
+        served.demand = Some(sender);
+        Some(receiver)
+    }
     async fn shutdown(self) {}
 }
 
@@ -175,6 +233,8 @@ impl MemoryFetcher {
 }
 
 pub struct MemoryConnection {
+    /// Its id, as the owner sees it.
+    id: u64,
     served: Arc<Mutex<Served>>,
     local: Arc<Mutex<Local>>,
     link: Arc<Mutex<Link>>,
@@ -194,9 +254,14 @@ impl Fetcher for MemoryFetcher {
         "the test relay".to_owned()
     }
     async fn connect(&self, _ticket: &Ticket) -> Result<MemoryConnection, TransportError> {
-        *self.connects.lock().unwrap() += 1;
+        let id = {
+            let mut connects = self.connects.lock().unwrap();
+            *connects += 1;
+            u64::from(*connects)
+        };
         // The reader starts out sending over the relay, as with iroh.
         Ok(MemoryConnection {
+            id,
             served: self.served.clone(),
             local: self.local.clone(),
             link: self.link.clone(),
@@ -283,16 +348,25 @@ impl PeerConnection for MemoryConnection {
             if !served.allowed.contains(hash) {
                 return Err(TransportError::Refused);
             }
-            if let Some(left @ 1..) = served.not_ready.get_mut(hash) {
-                *left -= 1;
-                return Err(TransportError::NotReady);
-            }
+            let preparing = match served.not_ready.get_mut(hash) {
+                Some(left @ 1..) => {
+                    *left -= 1;
+                    true
+                }
+                _ => false,
+            };
             // Allowed but not here yet: the owner is preparing it.
-            served
-                .blobs
-                .get(hash)
-                .cloned()
-                .ok_or(TransportError::NotReady)?
+            let blob = served.blobs.get(hash).cloned().filter(|_| !preparing);
+            if let Some(demand) = &served.demand {
+                demand
+                    .send(Demand::Asked {
+                        connection: self.id,
+                        hash: *hash,
+                        served: blob.is_some(),
+                    })
+                    .ok();
+            }
+            blob.ok_or(TransportError::NotReady)?
         };
         {
             let mut link = self.link.lock().unwrap();
@@ -357,7 +431,15 @@ impl PeerConnection for MemoryConnection {
             received,
         })
     }
-    async fn close(self) {}
+    async fn close(self) {
+        if let Some(demand) = &self.served.lock().unwrap().demand {
+            demand
+                .send(Demand::Closed {
+                    connection: self.id,
+                })
+                .ok();
+        }
+    }
 }
 
 // Each test binary uses a different subset.

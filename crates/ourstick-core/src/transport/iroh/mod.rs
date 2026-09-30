@@ -4,9 +4,12 @@
 mod activity;
 mod batches;
 mod fetcher;
+mod handler;
 mod publisher;
 mod reader_paths;
 mod record_protocol;
+mod serving;
+mod suitcases;
 
 use std::fmt;
 use std::net::SocketAddr;

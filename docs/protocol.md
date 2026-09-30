@@ -415,8 +415,8 @@ reader stays on the relay for 30 seconds and no reader has ever reached the
 owner directly since sharing started, the owner reports that readers come
 only through the relay (`ReaderActivity::only_relayed`). Direct paths need
 the owner to receive what readers send, so this most likely means a
-firewall drops it: on Windows, "Cancel" on the Windows Firewall question
-does exactly that. The CLI prints a line once, and the app shows a message
+firewall drops it (on Windows, "Cancel" on the Windows Firewall question
+can; with hole punching it often does not, since the owner sends first). The CLI prints a line once, and the app shows a message
 that stays, both saying how to allow OurStick through the firewall of that
 system. A single direct reader clears it. It is a hint, not a proof: two
 networks that cannot reach each other directly (both behind strict NATs)

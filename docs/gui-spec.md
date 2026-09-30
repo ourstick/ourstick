@@ -121,12 +121,15 @@ so Spotlight leaves it alone.
 
 ## Known limitations (stage 1)
 
-- Windows: on first start Windows Firewall asks whether OurStick may use the
-  network. "Allow" lets readers reach it directly. "Cancel" leaves them only
-  the relay, slower and limited; the app notices (no reader ever comes
-  directly, `docs/protocol.md`, "Reader paths") and says how to allow it in
-  Windows Security. The same message appears on Linux and macOS if their
-  firewall drops what readers send.
+- Windows: Windows Firewall may ask whether OurStick may use the network (on
+  a "Public" network it did not ask; it blocked quietly). Blocking does not
+  always stop direct paths: in the Windows VM, with inbound block rules like
+  those "Cancel" makes, a reader on another machine still came directly
+  (over IPv6), since hole punching starts from inside. When readers do come
+  only through the relay, the app notices (`docs/protocol.md`, "Reader
+  paths") and says how to allow OurStick in Windows Security; the same
+  message appears on Linux and macOS. That message has not yet been seen
+  with a real reader: it needs one that cannot come directly.
 - The stick size cannot be changed after first launch.
 - The encrypted cache is a second copy of the stick: a 10 GB stick can take up
   to about 20 GB of disk.

@@ -19,7 +19,10 @@ fn entry(path: &str, content: &[u8]) -> Entry {
 }
 
 fn manifest(entries: Vec<Entry>) -> Manifest {
-    Manifest { entries }
+    Manifest {
+        entries,
+        ..Manifest::default()
+    }
 }
 
 /// Writes `content` at `path` in `dir` and returns the row `get` would record.

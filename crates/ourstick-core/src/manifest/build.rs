@@ -35,7 +35,10 @@ impl Manifest {
             entries.push(hash_file(root, &path, cipher, None)?.0);
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            ..Self::default()
+        })
     }
 
     /// Like [`Manifest::from_dir`], but also keeps every blob: each one is
@@ -59,7 +62,13 @@ impl Manifest {
             blobs.extend(blob);
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok((Self { entries }, blobs))
+        Ok((
+            Self {
+                entries,
+                ..Self::default()
+            },
+            blobs,
+        ))
     }
 }
 

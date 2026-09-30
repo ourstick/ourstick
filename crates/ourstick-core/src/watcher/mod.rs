@@ -222,6 +222,7 @@ mod tests {
                     hash: [*hash; 32],
                 })
                 .collect(),
+            ..Manifest::default()
         }
     }
 

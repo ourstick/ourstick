@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use encoding::MANIFEST_FORMAT_VERSION;
+pub use encoding::{validate_name, MANIFEST_FORMAT_VERSION};
 pub use reuse::{Encrypted, KnownFiles};
 pub use stamp::FileStamp;
 
@@ -28,11 +28,22 @@ pub const DRIVE_MARKER: &str = ".ourstick-drive";
 /// Index of all files in a stick.
 ///
 /// A valid manifest has its entries strictly sorted by path (so no duplicates),
-/// and every path follows the rules in [`Entry::path`].
+/// every path follows the rules in [`Entry::path`], and the name follows
+/// [`MAX_NAME_CHARS`] and the character rules of `docs/protocol.md`. The field
+/// order is the wire order (format 2).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
+    /// More files follow in a later version: the owner is still reading its
+    /// folder (ADR 0007). A reader keeps waiting for a complete version.
+    pub partial: bool,
+    /// The stick's name as its owner chose it (ADR 0009); empty if it has
+    /// none. Text from a peer: escape it before showing it.
+    pub name: String,
     pub entries: Vec<Entry>,
 }
+
+/// The longest a stick's name may be, in Unicode scalar values.
+pub const MAX_NAME_CHARS: usize = 60;
 
 /// One file inside a stick.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +85,8 @@ pub enum ManifestError {
     InvalidPath(String),
     #[error("manifest entries are not strictly sorted by path at {0:?}")]
     NotSorted(String),
+    #[error("invalid stick name in manifest: {0:?}")]
+    InvalidName(String),
     #[error("unsupported manifest format version {0}")]
     UnsupportedVersion(u8),
     #[error("manifest has {0} trailing bytes")]

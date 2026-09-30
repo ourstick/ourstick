@@ -38,16 +38,30 @@ _Draft. Updated whenever the wire format or the ticket format changes._
    download already turned into a file is copied from that file, not fetched
    again (identical files share a blob, ADR 0003).
 
-## Manifest wire format (version 1)
+## Manifest wire format (version 2)
 
 ```
 manifest_bytes = format_version:u8 || postcard(Manifest)
 ```
 
-`format_version` is `1`. A reader rejects any other value. Postcard is not
-self-describing, so any change to the fields below needs a new version.
+`format_version` is `2`. A reader also reads `1` (below) and rejects any other
+value. Postcard is not self-describing, so any change to the fields below needs
+a new version. An owner writes version 2, which readers older than it cannot
+read: they say the version is unsupported instead of reporting a stick as
+complete when it is not. Test vectors: `docs/test-vectors/manifest-v2.json`,
+from an independent generator.
 
-`Manifest` is a postcard sequence of `Entry` (varint length, then the entries).
+`Manifest`, fields in this order:
+
+| Field     | Postcard type    | Meaning                                                    |
+|-----------|------------------|------------------------------------------------------------|
+| `partial` | bool (one byte)  | More files follow in a later version: the owner is still reading its folder (ADR 0007). A reader waits for a complete version. |
+| `name`    | string           | The stick's name as its owner chose it (ADR 0009); empty if none. |
+| `entries` | sequence of `Entry` | Varint count, then the entries.                         |
+
+Version 1 is the entries alone (varint count, then the entries), read as
+complete and nameless.
+
 Each `Entry`, fields in this order:
 
 | Field   | Postcard type     | Meaning                                                   |
@@ -62,6 +76,9 @@ Each `Entry`, fields in this order:
 A reader rejects the whole manifest if any rule fails. A writer never produces one that fails.
 
 - Nothing follows the encoded `Manifest` (no trailing bytes).
+- `name` has at most 60 Unicode scalar values, none a control, format, line or
+  paragraph separator character (Unicode categories Cc, Cf, Zl, Zp). It is
+  text from a peer: escaped before any terminal or window shows it.
 - Entries are strictly sorted by `path`, compared as bytes, which rules out
   duplicates and makes the encoding canonical.
 - Every `path` is non-empty, contains no `\` and no NUL, and splitting it on `/`

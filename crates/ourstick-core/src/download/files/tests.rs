@@ -13,7 +13,10 @@ fn manifest(paths: &[&str]) -> Manifest {
         })
         .collect();
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Manifest { entries }
+    Manifest {
+        entries,
+        ..Manifest::default()
+    }
 }
 
 fn refused(paths: &[&str]) -> DownloadError {

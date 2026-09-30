@@ -1,12 +1,22 @@
 //! Wire format of a manifest: one format-version byte, then the postcard encoding.
+//! Version 2 (written) starts with the `partial` mark and the stick's name;
+//! version 1 (still read) has only the entries.
 //!
 //! Decoding treats its input as untrusted: it never panics, and it rejects any
 //! manifest a reader could not safely write to disk. See `docs/protocol.md`.
 
-use super::{Manifest, ManifestError};
+use serde::Deserialize;
+
+use super::{Entry, Manifest, ManifestError, MAX_NAME_CHARS};
 
 /// Version of the manifest wire format written by [`Manifest::to_bytes`].
-pub const MANIFEST_FORMAT_VERSION: u8 = 1;
+pub const MANIFEST_FORMAT_VERSION: u8 = 2;
+
+/// Version 1: the entries alone.
+#[derive(Deserialize)]
+struct ManifestV1 {
+    entries: Vec<Entry>,
+}
 
 impl Manifest {
     /// Encodes the manifest into its wire format.
@@ -23,10 +33,18 @@ impl Manifest {
     /// Decodes a manifest from its wire format and validates it.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ManifestError> {
         let (&version, body) = bytes.split_first().ok_or(ManifestError::EmptyInput)?;
-        if version != MANIFEST_FORMAT_VERSION {
-            return Err(ManifestError::UnsupportedVersion(version));
-        }
-        let (manifest, rest): (Self, _) = postcard::take_from_bytes(body)?;
+        let (manifest, rest) = match version {
+            2 => postcard::take_from_bytes::<Self>(body)?,
+            1 => {
+                let (old, rest) = postcard::take_from_bytes::<ManifestV1>(body)?;
+                let manifest = Self {
+                    entries: old.entries,
+                    ..Self::default()
+                };
+                (manifest, rest)
+            }
+            other => return Err(ManifestError::UnsupportedVersion(other)),
+        };
         if !rest.is_empty() {
             return Err(ManifestError::TrailingBytes(rest.len()));
         }
@@ -34,8 +52,10 @@ impl Manifest {
         Ok(manifest)
     }
 
-    /// Checks that every path is safe and that entries are strictly sorted by path.
+    /// Checks the name, that every path is safe, and that entries are strictly
+    /// sorted by path.
     fn validate(&self) -> Result<(), ManifestError> {
+        validate_name(&self.name)?;
         for entry in &self.entries {
             validate_path(&entry.path)?;
         }
@@ -44,6 +64,34 @@ impl Manifest {
                 return Err(ManifestError::NotSorted(pair[1].path.clone()));
             }
         }
+        Ok(())
+    }
+}
+
+/// Whether `c` is a format character (Unicode category Cf), or a line or
+/// paragraph separator (Zl, Zp): invisible, or able to reorder or break text
+/// shown to a user.
+fn is_format_or_separator(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}'
+        | '\u{0890}'..='\u{0891}' | '\u{08E2}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+        | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}'
+        | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}' | '\u{110BD}' | '\u{110CD}'
+        | '\u{13430}'..='\u{1343F}' | '\u{1BCA0}'..='\u{1BCA3}'
+        | '\u{1D173}'..='\u{1D17A}' | '\u{E0001}' | '\u{E0020}'..='\u{E007F}')
+}
+
+/// Checks a stick's name as it travels: at most [`MAX_NAME_CHARS`] scalar
+/// values, none a control, format or separator character (Cc, Cf, Zl, Zp).
+pub fn validate_name(name: &str) -> Result<(), ManifestError> {
+    let too_long = name.chars().count() > MAX_NAME_CHARS;
+    if too_long
+        || name
+            .chars()
+            .any(|c| c.is_control() || is_format_or_separator(c))
+    {
+        Err(ManifestError::InvalidName(name.to_owned()))
+    } else {
         Ok(())
     }
 }
@@ -81,6 +129,7 @@ mod tests {
     fn manifest(paths: &[&str]) -> Manifest {
         Manifest {
             entries: paths.iter().map(|p| entry(p)).collect(),
+            ..Manifest::default()
         }
     }
 
@@ -113,13 +162,16 @@ mod tests {
     #[test]
     fn roundtrip_of_empty_manifest() {
         let bytes = Manifest::empty().to_bytes().unwrap();
-        assert_eq!(bytes, [MANIFEST_FORMAT_VERSION, 0]);
+        // partial = false, name = "", no entries.
+        assert_eq!(bytes, [MANIFEST_FORMAT_VERSION, 0, 0, 0]);
         assert_eq!(Manifest::from_bytes(&bytes).unwrap(), Manifest::empty());
     }
 
     #[test]
     fn encoding_has_exact_field_order() {
         let manifest = Manifest {
+            partial: true,
+            name: "Ab".to_owned(),
             entries: vec![Entry {
                 path: "a".to_owned(),
                 size: 1,
@@ -129,6 +181,10 @@ mod tests {
         };
         let mut expected = vec![
             MANIFEST_FORMAT_VERSION,
+            1,    // partial
+            2,    // name length
+            b'A', // name
+            b'b',
             1,    // entry count
             1,    // path length
             b'a', // path
@@ -278,6 +334,53 @@ mod tests {
             let index = rng.gen_range(1..bytes.len());
             bytes[index] = rng.gen();
             let _ = Manifest::from_bytes(&bytes);
+        }
+    }
+
+    #[test]
+    fn version_1_is_still_read_as_complete_and_nameless() {
+        let old = manifest(&["a.txt", "b.txt"]);
+        let mut bytes = vec![1];
+        bytes.extend(postcard::to_allocvec(&old.entries).unwrap());
+        let read = Manifest::from_bytes(&bytes).unwrap();
+        assert_eq!(read.entries, old.entries);
+        assert!(!read.partial);
+        assert_eq!(read.name, "");
+    }
+
+    #[test]
+    fn names_follow_the_wire_rule() {
+        for good in [
+            "",
+            "For Maria",
+            "Φωτογραφίες 2024",
+            "😀 photos",
+            &"x".repeat(60),
+        ] {
+            assert!(validate_name(good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            "tab\there",
+            "line\nbreak",
+            "\u{202E}evil",
+            "zero\u{200B}width",
+            "\u{2028}",
+            "\u{FEFF}",
+            &"x".repeat(61),
+        ] {
+            assert!(
+                matches!(validate_name(bad), Err(ManifestError::InvalidName(_))),
+                "{bad:?}"
+            );
+            let named = Manifest {
+                name: bad.to_owned(),
+                ..Manifest::default()
+            };
+            assert!(named.to_bytes().is_err(), "an owner never sends {bad:?}");
+            assert!(
+                Manifest::from_bytes(&encode_unchecked(&named)).is_err(),
+                "a reader refuses {bad:?}"
+            );
         }
     }
 }

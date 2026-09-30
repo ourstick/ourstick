@@ -83,6 +83,7 @@ mod tests {
                         hash: [0; 32],
                     })
                     .collect(),
+                ..Manifest::default()
             },
         }
     }

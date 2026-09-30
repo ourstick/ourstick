@@ -69,7 +69,10 @@ impl Manifest {
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(Encrypted {
-            manifest: Self { entries },
+            manifest: Self {
+                entries,
+                ..Self::default()
+            },
             new_blobs,
             files,
             reused,

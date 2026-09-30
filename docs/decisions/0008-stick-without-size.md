@@ -42,13 +42,17 @@ are:
   as large as its disk, so it never limits first. It does not shrink when files
   are deleted until `hdiutil compact` runs while detached (a known limit today),
   so "left" can lag after deletions.
-- **Windows:** the disk of `%USERPROFILE%\OurStick`, measured by that path, not
-  the `subst` letter.
-- **Linux:** the disk of `~/OurStick`, which may differ from the data folder's.
+- **Windows:** the disk of the stick's folder (`%USERPROFILE%\OurStick\<name>`,
+  ADR 0009), measured by that path, not the `subst` letter.
+- **Linux:** the disk of the stick's folder (`~/OurStick/<name>`), which may
+  differ from the data folder's.
 
 The app shows one line, "2.1 GB used · 128 GB left", like a real stick; free
-space is not shown on its own. The watcher no longer enforces a size, so
-`StickFull` from the watcher, `check_drive`'s size part and `drive_size` go.
+space is not shown on its own. Several sticks whose files are on one disk share
+that disk's "left" (the reserve is counted once per disk): copying onto one
+leaves less for the others. The watcher no longer enforces a size, so
+`StickFull` from the watcher, `check_drive`'s size part and `drive_size` go
+(the app finds its sticks by ADR 0009's `kind` instead).
 
 ### 2. What does not fit is refused, and can be shared as it is
 
@@ -98,8 +102,8 @@ CLI gets the fit check only.
 
 ## Consequences
 
-- Migrations: `owned_sticks.drive_size` goes; a table of linked paths per stick
-  comes. `docs/schema.md` and `docs/protocol.md` (the manifest walk over several
+- Migrations: `owned_sticks.drive_size` goes, after ADR 0009's `kind` has
+  replaced it; a table of linked paths per stick comes. `docs/schema.md` and `docs/protocol.md` (the manifest walk over several
   roots) follow.
 - `docs/gui-spec.md` and `docs/gui-mockup.html` change: the first launch without
   a size menu, the title without a size, the capacity line, the "does not fit"

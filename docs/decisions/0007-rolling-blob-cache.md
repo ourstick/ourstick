@@ -1,4 +1,4 @@
-# ADR 0007: Rolling blob cache ("suitcases") and one node for many sticks
+# ADR 0007: Rolling blob cache ("suitcases")
 
 **Status:** proposed — 2026-09-30. Supersedes the "Cache on disk" part of
 ADR 0005 for the owner, and its single reader store; ADR 0005's rules on what
@@ -60,8 +60,9 @@ A big catalogue takes hours (913 GB on that disk: about 4 h, two reads per
 file), so it is **published as it grows**: every few minutes the publisher signs
 a new version (a real `seq`) with the files catalogued so far, marked
 **partial**; the last one is marked complete. The mark is a field of the
-manifest, which is why the manifest format version goes up: a reader too old
-to know it refuses the new manifest with a clear message instead of reporting
+manifest, which is why the manifest format version goes up, once, to 2, with
+the stick's name too (ADR 0009; empty until that ships): a reader too old to
+know them refuses the new manifest with a clear message instead of reporting
 half a stick as done.
 
 There is **one publisher task per stick**: the catalogue, watcher events and
@@ -94,15 +95,17 @@ wrong bytes sit unserved in that suitcase's folder until it goes.
   evict, a suitcase is first marked **evicting** (new requests for it get
   `RateLimited`), then closed and its folder removed once nothing in it is in
   flight. Removing a folder is the only way blobs leave; no GC is involved.
-- **Budget.** One working budget for the device, shared by all sticks: 10 % of
+- **Budget.** One working budget per program, shared by its sticks: 10 % of
   the free space on the cache's disk, at least 2 GB, at most 40 GB, reserved
   whole (ADR 0008 counts it that way). Suitcases are prepared first come, first
   served, per stick in turn, and each reader has at most one suitcase prepared
   ahead, so neither a jumping reader nor a busy stick holds the whole budget.
   When it is full, the next suitcase waits and its readers get `RateLimited`.
   With less than 2 GB free, big sharing does not start, and the app says why.
-- **Restart.** At start the cache folder is removed before any store is opened;
-  suitcases are prepared again as they are asked for. No temp tags are
+- **Restart.** When a stick starts sharing, after its lock is taken (ADR 0009),
+  its own cache folder (`cache/<hex stick id>/`) is removed before any of its
+  stores is opened; suitcases are prepared again as they are asked for.
+  Another program's sticks, and their folders, are never touched. No temp tags are
   re-adopted (upstream #247), and nothing depends on GC.
 - **Where.** The cache lives on the disk the user chooses (default: the data
   folder).
@@ -128,33 +131,26 @@ stop. A **partial** manifest does not end a download: the reader waits for
 newer versions until one is complete (versions of a growing catalogue are not
 counted against `MAX_NEW_VERSIONS`, which stays for refusals).
 
-### 4. One node for many sticks (preparation)
+### 4. Several sticks
 
-A device has one node key, and two endpoints cannot share it. Today each
-`IrohPublisher` binds its own endpoint. Instead, one endpoint serves every stick
-the device shares:
-
-- The record protocol already names the stick in each request.
-- The allow-list is the union of the shared sticks' current manifests. What
-  lets a peer fetch a blob is knowing its hash, as today; a stick's hashes come
-  from its manifest, which only its key opens. Blob requests carry no stick,
-  so per-stick activity and the relay-only hint map the hash to its stick.
-- One node ID for all sticks tells a peer that two sticks come from the same
-  device, as a phone number would; it is stated in `docs/protocol.md`.
-
-This prepares several sticks per device (each its own ticket; v1 still ships
-one stick, per `CLAUDE.md`). Their user interface comes later.
+ADR 0009: each stick has its own node key and endpoint, so the suitcase stores
+and the handler of section 2 are per stick. The budget is one per program and
+shared by its sticks (first come, first served, per stick in turn), and so is
+the cache folder, one subfolder per stick.
 
 ## Order of work
 
 1. Reader batches and the per-batch store removal (useful on their own: the
    reader stops needing twice the space).
-2. `NotReady` in the fetcher and the partial mark in the manifest (format
-   version up).
+2. `NotReady` in the fetcher, and manifest format 2 (the partial mark and the
+   stick's name field).
 3. Owner: the catalogue as its own pass, published as it grows.
 4. Owner: suitcase stores, our blobs handler, in-flight tracking, budget.
-5. One node for many sticks.
+5. ADR 0009's store part: `kind`, `node_id`, the node key per new stick, the
+   locks.
 6. ADR 0008 (stick without size, linked folders).
+7. The rest of ADR 0009: moving the first stick, several sticks in the app,
+   the tray, the receiver list.
 
 Each step ends with `cargo test` green, and `docs/protocol.md`, `docs/schema.md`
 (the plaintext hash in `owned_files`) and the CLI's cache estimate updated.
@@ -164,7 +160,8 @@ Each step ends with `cargo test` green, and `docs/protocol.md`, `docs/schema.md`
 A two-peer transfer through several suitcases; `NotReady` then served; eviction
 while a transfer is in flight; a file changed between catalogue and suitcase; a
 catalogue followed through more than 10 partial versions; restart with a
-non-empty cache folder; identical files across batches; the budget with the
+non-empty cache folder; two programs sharing different sticks, each
+restarting without touching the other's cache; identical files across batches; the budget with the
 cache on the stick's disk and on another; two readers at different places
 sharing a small budget.
 
@@ -182,7 +179,7 @@ sharing a small budget.
   handler, the fetcher's error mapping, the reader's store handling, and the
   CLI's cache estimate before `share`.
 - **Wire change:** `ERR_LIMIT` means "not ready yet, retry", and the manifest
-  format version goes up for the partial mark.
+  format version goes up to 2 for the partial mark and the name.
 
 ## Alternatives considered
 
@@ -192,6 +189,8 @@ sharing a small budget.
 - **Delete blobs one by one.** Not public in iroh-blobs 0.103.
 - **`ImportMode::TryReference` on a temporary file.** The store keeps pointing
   at the file; removing it corrupts the blob.
+- **One endpoint for every stick.** Replaced by a node per stick (ADR 0009):
+  one node ID for all sticks tells a reader of two that they share an owner.
 - **Encrypt on the fly with our own provider** (outboards only, about 0.4 %).
   Smallest on disk, but replaces iroh-blobs' verified streaming and needs the
   check per chunk. Kept for later if the budget proves too large.

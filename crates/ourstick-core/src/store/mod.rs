@@ -188,6 +188,10 @@ pub trait Store: Send + Sync {
     fn record_owned_files(&self, stick_id: &StickId, files: &[OwnedFile])
         -> Result<(), StoreError>;
 
+    /// Forgets the recorded files of an owned stick at these paths, so the
+    /// next pass reads them again (their record no longer matched them).
+    fn forget_owned_files(&self, stick_id: &StickId, paths: &[String]) -> Result<(), StoreError>;
+
     /// Forgets the recorded files of an owned stick whose path is not in
     /// `paths` (files that left the folder), at the end of a full pass.
     fn keep_only_owned_files(&self, stick_id: &StickId, paths: &[String])

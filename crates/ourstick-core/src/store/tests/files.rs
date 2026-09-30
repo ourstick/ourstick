@@ -40,6 +40,13 @@ fn owned_files_are_recorded_in_parts_and_pruned_at_the_end(store: &dyn Store) {
         .keep_only_owned_files(&stick_id, &["b".to_owned(), "gone".to_owned()])
         .unwrap();
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![file("b", 3, 3)]);
+    store
+        .record_owned_files(&stick_id, &[file("c", 5, 5)])
+        .unwrap();
+    store
+        .forget_owned_files(&stick_id, &["b".to_owned(), "never".to_owned()])
+        .unwrap();
+    assert_eq!(store.owned_files(&stick_id).unwrap(), vec![file("c", 5, 5)]);
     store.keep_only_owned_files(&stick_id, &[]).unwrap();
     assert_eq!(store.owned_files(&stick_id).unwrap(), vec![]);
 }
@@ -51,6 +58,10 @@ fn owned_files_need_an_owned_stick(store: &dyn Store) {
     ));
     assert!(matches!(
         store.keep_only_owned_files(&owner(1).stick_id(), &[]),
+        Err(StoreError::StickNotFound)
+    ));
+    assert!(matches!(
+        store.forget_owned_files(&owner(1).stick_id(), &[]),
         Err(StoreError::StickNotFound)
     ));
 }

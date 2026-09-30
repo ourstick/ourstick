@@ -1,12 +1,12 @@
-//! Publishing one version of a stick: its manifest into the cache, a signed
+//! Publishing one version of a stick: its manifest (kept as the latest), a signed
 //! record with the next `seq` (or the latest one again, for the same
 //! manifest), and the blobs readers may ask for.
 
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::Arc;
 
+use super::latest::save_latest_manifest;
 use super::{Publication, ShareError};
 use crate::blob::encrypt_blob;
 use crate::blocking::run_blocking;
@@ -35,7 +35,7 @@ pub(super) struct Versions<'a, P> {
 }
 
 impl<P: Publisher> Versions<'_, P> {
-    /// Publishes `manifest`. Its blobs need not be in the cache yet: until
+    /// Publishes `manifest`. Its blobs need not be in a suitcase: until
     /// they are, readers are told "not ready".
     pub(super) async fn publish(
         &self,
@@ -43,22 +43,23 @@ impl<P: Publisher> Versions<'_, P> {
         manifest: Manifest,
         reused: usize,
     ) -> Result<Publication, ShareError> {
-        let staging = self.publisher.staging_dir().to_path_buf();
-        let (manifest_file, manifest_hash) = {
+        let (manifest_blob, manifest_hash) = {
             let cipher = self.cipher.clone();
             let bytes = manifest.to_bytes()?;
-            run_blocking(move || write_manifest_blob(cipher.as_ref(), &bytes, &staging)).await?
+            run_blocking(move || -> Result<_, ShareError> {
+                let mut blob = Vec::new();
+                encrypt_blob(cipher.as_ref(), &mut Cursor::new(bytes), &mut blob)?;
+                let hash = *blake3::hash(&blob).as_bytes();
+                Ok((blob, hash))
+            })
+            .await?
         };
-        let imported = self.publisher.import_blob(&manifest_file).await?;
-        if imported != manifest_hash {
-            return Err(ShareError::CacheMismatch(manifest_file));
+        // For a restart (`serve_latest`) and the suitcases' keeper.
+        {
+            let cache_dir = self.publisher.cache_dir().to_path_buf();
+            let blob = manifest_blob.clone();
+            run_blocking(move || save_latest_manifest(&cache_dir, &blob)).await?;
         }
-        tokio::fs::remove_file(&manifest_file)
-            .await
-            .map_err(|source| ShareError::Io {
-                path: manifest_file.clone(),
-                source,
-            })?;
 
         // The same manifest (same bytes, so also the same partial mark): the
         // same record, no new seq.
@@ -84,7 +85,9 @@ impl<P: Publisher> Versions<'_, P> {
             }
         };
         let allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
-        self.publisher.publish(record.clone(), allowed).await?;
+        self.publisher
+            .publish(record.clone(), manifest_blob, allowed)
+            .await?;
         let seq = record.unverified_record().seq;
         tracing::info!(
             seq,
@@ -103,21 +106,4 @@ impl<P: Publisher> Versions<'_, P> {
             reused,
         })
     }
-}
-
-/// Encrypts the manifest into `staging/<hex hash>.blob`. Blocking.
-fn write_manifest_blob(
-    cipher: &dyn Cipher,
-    bytes: &[u8],
-    staging: &Path,
-) -> Result<(std::path::PathBuf, BlobHash), ShareError> {
-    let mut blob = Vec::new();
-    encrypt_blob(cipher, &mut Cursor::new(bytes), &mut blob)?;
-    let hash = *blake3::hash(&blob).as_bytes();
-    let file = staging.join(format!("{}.blob", data_encoding::HEXLOWER.encode(&hash)));
-    std::fs::write(&file, &blob).map_err(|source| ShareError::Io {
-        path: file.clone(),
-        source,
-    })?;
-    Ok((file, hash))
 }

@@ -66,7 +66,6 @@ async fn another_ready_store_serves_while_one_leaves() {
     serving.set_ready(8, hash(1));
     assert!(serving.remove_store(7).await.is_some());
     assert!(matches!(serving.decide(hash(1), true), Decision::Serve(_)));
-    serving.retain_ready(8, |_| false);
-    assert!(!serving.is_ready(8, &hash(1)));
-    assert!(matches!(serving.decide(hash(1), true), Decision::NotReady));
+    assert!(serving.is_ready(8, &hash(1)));
+    assert!(!serving.is_ready(7, &hash(1)));
 }

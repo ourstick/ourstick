@@ -139,7 +139,7 @@ left the folder are removed at the end of a full pass.
 | `mtime_ns`  | INTEGER | Modification time, ns since the Unix epoch; 0 if unknown   |
 | `ctime_ns`  | INTEGER | Inode change time on Unix, ns; 0 elsewhere                 |
 | `blob_hash` | BLOB 32 | The blob made from the file in that state                  |
-| `plaintext_hash` | BLOB 32 or NULL | BLAKE3 of the file in that state (the nonce prefix, ADR 0003); a hint for progress only, never used to make a blob. NULL in rows from before version 9 |
+| `plaintext_hash` | BLOB 32 or NULL | BLAKE3 of the file in that state (the nonce prefix, ADR 0003). Preparing a suitcase (ADR 0007) takes the nonce prefix from it, for the blob in `blob_hash` only, and reads the file once to check it; a blob made so is served only if its hash is `blob_hash`. NULL in rows from before version 9 (the file is then read twice) |
 
 Primary key `(stick_id, path)`. A file whose size, mtime and ctime match its
 row, and whose blob the cache still holds, keeps `blob_hash` without being

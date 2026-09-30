@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
 use ourstick_core::share::{
-    plan_share, run_pass, serve_latest, PassEvent, PassOptions, Publication, PARTIAL_TIMING,
+    keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
+    Publication, PARTIAL_TIMING,
 };
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
@@ -87,14 +88,27 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         plan.files,
         bytes(plan.plaintext_bytes)
     );
-    println!(
-        "The encrypted cache will use about {} in {}",
-        bytes(plan.cache_bytes),
-        cache_dir.display()
-    );
 
     let config = IrohConfig::new(setup.node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
+    // ADR 0007: files are encrypted into suitcases as readers ask for them,
+    // within a budget, instead of a full encrypted copy.
+    let budget = {
+        let cache_dir = cache_dir.clone();
+        tokio::task::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??
+    };
+    println!(
+        "Encrypted copies of what readers ask for take up to {} in {}.",
+        bytes(budget.total()),
+        cache_dir.display()
+    );
+    let keeper = tokio::spawn(keep_suitcases(
+        publisher.clone(),
+        setup.store.clone(),
+        stick.stick_id,
+        stick_key.clone(),
+        budget,
+    ));
     // Before the first version, so the ticket carries the relay's address.
     if !publisher.online(Duration::from_secs(30)).await {
         println!("Warning: no relay reachable; the ticket only has direct addresses.");
@@ -212,6 +226,11 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
     stopped?;
     println!("Stopping…");
     publisher.shutdown().await;
+    match keeper.await {
+        Ok(Err(error)) => println!("The suitcases' keeper stopped: {error}"),
+        Err(error) => println!("The suitcases' keeper stopped: {error}"),
+        Ok(Ok(())) => {}
+    }
     // Only now may another sharer start.
     drop(setup.lock);
     Ok(())

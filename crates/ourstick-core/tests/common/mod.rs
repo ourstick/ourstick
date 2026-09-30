@@ -10,13 +10,12 @@ pub mod published;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{
     download, DownloadError, DownloadEvent, DownloadReport, RelayPolicy,
 };
-use ourstick_core::share::{publish_folder, Publication};
+use ourstick_core::share::{keep_suitcases, publish_folder, Budget, Publication};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::{
@@ -65,6 +64,24 @@ impl Owner {
         Self::with(network, files, None).await
     }
 
+    /// Like [`Owner::new`], with no suitcases' keeper: nothing is served
+    /// but the manifest, unless the test puts it in a suitcase itself.
+    pub async fn bare(files: &[(&str, &[u8])]) -> Self {
+        Self::build(Network::LocalOnly, files, None).await
+    }
+
+    /// Keeps the suitcases of `publisher` (a restarted owner's) for this
+    /// owner's stick, in the background.
+    pub fn keep(&self, publisher: &IrohPublisher) {
+        tokio::spawn(keep_suitcases(
+            publisher.clone(),
+            self.store.clone(),
+            self.signing_key.stick_id(),
+            self.stick_key.clone(),
+            Budget::new(1 << 33),
+        ));
+    }
+
     /// A drive of `size` bytes (the app's stick), marked as such.
     pub async fn drive(size: u64, files: &[(&str, &[u8])]) -> Self {
         let owner = Self::with(Network::LocalOnly, files, Some(size)).await;
@@ -74,6 +91,12 @@ impl Owner {
     }
 
     async fn with(network: Network, files: &[(&str, &[u8])], drive_size: Option<u64>) -> Self {
+        let owner = Self::build(network, files, drive_size).await;
+        owner.keep(&owner.publisher);
+        owner
+    }
+
+    async fn build(network: Network, files: &[(&str, &[u8])], drive_size: Option<u64>) -> Self {
         let folder = tempfile::tempdir().unwrap();
         for (path, contents) in files {
             write_file(folder.path(), path, contents);
@@ -93,8 +116,7 @@ impl Owner {
             })
             .unwrap();
         let cache = tempfile::tempdir().unwrap();
-        let config =
-            IrohConfig::new(random_key(), network).with_gc_interval(Duration::from_millis(100));
+        let config = IrohConfig::new(random_key(), network);
         let publisher = IrohPublisher::start(&config, signing_key.stick_id(), cache.path())
             .await
             .unwrap();
@@ -127,6 +149,27 @@ impl Owner {
         .unwrap()
     }
 
+    /// Serves `publication` again, with the blob `extra` allowed too (in no
+    /// suitcase: "not ready" until a test puts it in one).
+    pub async fn allow_also(&self, publication: &Publication, extra: [u8; 32]) {
+        let mut allowed: std::collections::HashSet<_> = publication
+            .manifest
+            .entries
+            .iter()
+            .map(|entry| entry.hash)
+            .collect();
+        allowed.insert(extra);
+        let manifest_blob = ourstick_core::share::load_latest_manifest(
+            self.publisher.cache_dir(),
+            &publication.manifest_hash,
+        )
+        .unwrap();
+        self.publisher
+            .publish(publication.record.clone(), manifest_blob, allowed)
+            .await
+            .unwrap();
+    }
+
     pub fn ticket(&self, publication: &Publication) -> Ticket {
         Ticket {
             stick_id: self.signing_key.stick_id(),
@@ -140,12 +183,17 @@ impl Owner {
         }
     }
 
-    /// Path of a blob's data file in the owner's cache (blobs over 16 KiB).
-    pub fn cached_data_file(&self, hash: &[u8; 32]) -> PathBuf {
-        self.cache
-            .path()
-            .join("blobs/data")
-            .join(format!("{}.data", data_encoding::HEXLOWER.encode(hash)))
+    /// The blob files of every open suitcase of the owner.
+    pub fn suitcase_blob_files(&self) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let suitcases = self.cache.path().join("suitcases");
+        for suitcase in std::fs::read_dir(suitcases).unwrap() {
+            let files = suitcase.unwrap().path().join("files");
+            for file in std::fs::read_dir(files).unwrap() {
+                found.push(file.unwrap().path());
+            }
+        }
+        found
     }
 }
 
@@ -218,4 +266,22 @@ impl Reader {
 
 pub fn keep_going(_: DownloadEvent<'_>) -> ControlFlow<()> {
     ControlFlow::Continue(())
+}
+
+/// Fetches `hash` over `connection`, asking again while the owner's keeper
+/// puts it in a suitcase ("not ready").
+pub async fn fetch_when_ready(
+    connection: &impl ourstick_core::transport::PeerConnection,
+    hash: &[u8; 32],
+    on_progress: &mut (dyn FnMut(u64) -> ourstick_core::transport::Pace + Send),
+) -> Result<ourstick_core::transport::FetchStats, ourstick_core::transport::TransportError> {
+    for _ in 0..300 {
+        match connection.fetch_blob(hash, on_progress).await {
+            Err(ourstick_core::transport::TransportError::NotReady) => {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            other => return other,
+        }
+    }
+    connection.fetch_blob(hash, on_progress).await
 }

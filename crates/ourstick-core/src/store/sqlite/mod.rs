@@ -232,6 +232,10 @@ impl Store for SqliteStore {
         files::record_owned_files(&mut self.connection(), stick_id, files)
     }
 
+    fn forget_owned_files(&self, stick_id: &StickId, paths: &[String]) -> Result<(), StoreError> {
+        files::forget_owned_files(&mut self.connection(), stick_id, paths)
+    }
+
     fn keep_only_owned_files(
         &self,
         stick_id: &StickId,

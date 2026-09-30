@@ -44,6 +44,11 @@ is unchanged.
   (different keys) nothing is revealed. Changing the key changes every blob.
 - **Two passes per file.** The plaintext is hashed before it is encrypted. A
   later cache in the Store keyed by `(path, size, mtime)` can skip the first pass.
+  *(ADR 0007, 2026-09-30: the owner's suitcases do so. They take the prefix
+  from the plaintext hash the catalogue recorded for that very blob and read
+  the file once, checking the hash as they go; if the file changed, what was
+  written is deleted at once and never served, because a blob is served only
+  if its hash is the manifest's. `encrypt_blob_hashed_before`.)*
 - **Changing files.** If a file changes between the two passes, its prefix no
   longer belongs to the bytes being encrypted. `encrypt_blob` hashes the input
   again during encryption and fails with `PlaintextChanged`. Ciphertext must

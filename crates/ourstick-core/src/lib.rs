@@ -22,7 +22,8 @@ pub mod untrusted;
 pub mod watcher;
 
 pub use blob::{
-    blob_len, decrypt_blob, encrypt_blob, BlobHeader, BlobInfo, BLOB_FORMAT_VERSION, CHUNK_SIZE,
+    blob_len, decrypt_blob, encrypt_blob, encrypt_blob_hashed_before, BlobHeader, BlobInfo,
+    BLOB_FORMAT_VERSION, CHUNK_SIZE,
 };
 pub use cipher::{cipher_for, ChaChaCipher, Cipher, CipherError, CipherId, NoCipher, StickKey};
 pub use manifest::{Entry, Manifest, ManifestError, MANIFEST_FORMAT_VERSION};

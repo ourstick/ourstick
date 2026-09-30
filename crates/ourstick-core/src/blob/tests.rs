@@ -287,3 +287,37 @@ fn blob_len_matches_what_encrypt_writes() {
         }
     }
 }
+
+#[test]
+fn one_read_with_the_hash_from_before_gives_the_same_blob() {
+    for size in SIZES {
+        let plaintext = pattern(size);
+        let mut twice = Vec::new();
+        let info = encrypt_blob(&chacha(), &mut Cursor::new(&plaintext), &mut twice).unwrap();
+        let mut once = Vec::new();
+        let same = encrypt_blob_hashed_before(
+            &chacha(),
+            &mut plaintext.as_slice(),
+            &mut once,
+            &info.plaintext_hash,
+        )
+        .unwrap();
+        assert_eq!(once, twice, "size {size}");
+        assert_eq!(same, info);
+    }
+}
+
+#[test]
+fn one_read_fails_if_the_plaintext_is_not_what_was_hashed() {
+    let hashed = pattern(100_000);
+    let mut changed = hashed.clone();
+    changed[500] ^= 1;
+    let mut out = Vec::new();
+    let result = encrypt_blob_hashed_before(
+        &chacha(),
+        &mut changed.as_slice(),
+        &mut out,
+        blake3::hash(&hashed).as_bytes(),
+    );
+    assert!(matches!(result, Err(CipherError::PlaintextChanged)));
+}

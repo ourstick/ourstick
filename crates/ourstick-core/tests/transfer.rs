@@ -7,7 +7,7 @@ mod common;
 use ourstick_core::transport::GO;
 
 use std::ops::ControlFlow;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use common::{keep_going, noise, write_file, Owner, Reader};
 use ourstick_core::download::{DownloadError, DownloadEvent};
@@ -133,20 +133,26 @@ async fn interrupted_download_resumes_where_it_stopped() {
     owner.publisher.shutdown().await;
 }
 
-/// A damaged blob in the owner's cache never reaches the reader: iroh-blobs
-/// checks every chunk against its outboard while sending and stops. The reader
-/// gets an error that says so, and writes nothing.
+/// A blob damaged in the owner's suitcase never reaches the reader:
+/// iroh-blobs checks every chunk against its outboard while sending and
+/// stops. The reader gets an error that says so, and writes nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn damaged_blob_is_rejected_and_nothing_is_written() {
     let owner = Owner::new(&[("big.bin", &noise(300_000, 3))]).await;
     let publication = owner.publish().await;
     let ticket = owner.ticket(&publication);
+    // A first reader: the blob is now in a suitcase.
+    Reader::new()
+        .download(&ticket, &mut keep_going)
+        .await
+        .unwrap();
 
-    // Flip one byte of the encrypted blob in the owner's cache.
-    let data_file = owner.cached_data_file(&publication.manifest.entries[0].hash);
-    let mut bytes = std::fs::read(&data_file).unwrap();
+    // Flip one byte of the encrypted blob in the owner's suitcase.
+    let blob_files = owner.suitcase_blob_files();
+    assert_eq!(blob_files.len(), 1, "{blob_files:?}");
+    let mut bytes = std::fs::read(&blob_files[0]).unwrap();
     bytes[150_000] ^= 0x01;
-    std::fs::write(&data_file, bytes).unwrap();
+    std::fs::write(&blob_files[0], bytes).unwrap();
 
     let reader = Reader::new();
     let result = reader.download(&ticket, &mut keep_going).await;
@@ -229,6 +235,13 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
         .find(|entry| entry.path == "removed.bin")
         .unwrap()
         .hash;
+    // A first reader: its blobs are now in a suitcase.
+    let early = Reader::new();
+    early
+        .download(&owner.ticket(&first), &mut keep_going)
+        .await
+        .unwrap();
+    assert_eq!(early.read("removed.bin"), removed);
 
     std::fs::remove_file(owner.folder.path().join("removed.bin")).unwrap();
     write_file(owner.folder.path(), "new.txt", b"new");
@@ -239,31 +252,13 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
     let connection = fetcher.connect(&ticket).await.unwrap();
+    // Still in a suitcase, but no longer in the stick: refused.
     for hash in [removed_hash, [9; 32]] {
         let result = connection.fetch_blob(&hash, &mut |_| GO).await;
         assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");
     }
     connection.close().await;
     fetcher.shutdown(false).await.unwrap();
-
-    // The removed blob leaves the cache at the next GC run; kept ones stay.
-    let mut gone = false;
-    for _ in 0..50 {
-        if !owner.publisher.has_blob(&removed_hash).await.unwrap() {
-            gone = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    assert!(gone, "removed blob is still in the cache");
-    for entry in &second.manifest.entries {
-        assert!(owner.publisher.has_blob(&entry.hash).await.unwrap());
-    }
-    assert!(owner
-        .publisher
-        .has_blob(&second.manifest_hash)
-        .await
-        .unwrap());
 
     let report = reader.download(&ticket, &mut keep_going).await.unwrap();
     assert_eq!(report.files, 2);

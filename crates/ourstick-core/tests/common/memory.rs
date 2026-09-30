@@ -46,9 +46,11 @@ pub struct Link {
     pub delivered: u64,
 }
 
+/// Cheap to clone: clones share what is served and the cache folder.
+#[derive(Clone)]
 pub struct MemoryPublisher {
     pub(crate) served: Arc<Mutex<Served>>,
-    pub(crate) staging: tempfile::TempDir,
+    pub(crate) staging: Arc<tempfile::TempDir>,
 }
 
 impl Publisher for MemoryPublisher {
@@ -64,24 +66,15 @@ impl Publisher for MemoryPublisher {
     fn cache_dir(&self) -> &Path {
         self.staging.path()
     }
-    fn staging_dir(&self) -> &Path {
-        self.staging.path()
-    }
-    async fn import_blob(&self, blob_file: &Path) -> Result<BlobHash, TransportError> {
-        let bytes = std::fs::read(blob_file)?;
-        let hash = *blake3::hash(&bytes).as_bytes();
-        self.served.lock().unwrap().blobs.insert(hash, bytes);
-        Ok(hash)
-    }
     async fn publish(
         &self,
         record: SignedManifestRecord,
+        manifest_blob: Vec<u8>,
         allowed: HashSet<BlobHash>,
     ) -> Result<(), TransportError> {
-        // The manifest is always served with its record, as with iroh. Its
-        // hash is at bytes 41..73 of the record (docs/protocol.md).
-        let manifest: BlobHash = record.to_bytes()[41..73].try_into().unwrap();
+        let manifest = *blake3::hash(&manifest_blob).as_bytes();
         let mut served = self.served.lock().unwrap();
+        served.blobs.insert(manifest, manifest_blob);
         served.record = Some(record);
         served.allowed = allowed;
         served.allowed.insert(manifest);
@@ -89,23 +82,6 @@ impl Publisher for MemoryPublisher {
     }
     fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {
         tokio::sync::watch::channel(Default::default()).1
-    }
-    async fn keep_only_blobs(&self, keep: HashSet<BlobHash>) -> Result<(), TransportError> {
-        let mut served = self.served.lock().unwrap();
-        let allowed = served.allowed.clone();
-        served
-            .blobs
-            .retain(|hash, _| keep.contains(hash) || allowed.contains(hash));
-        Ok(())
-    }
-    async fn keep_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
-        self.has_blob(hash).await
-    }
-    async fn read_blob(&self, hash: &BlobHash) -> Result<Option<Vec<u8>>, TransportError> {
-        Ok(self.served.lock().unwrap().blobs.get(hash).cloned())
-    }
-    async fn has_blob(&self, hash: &BlobHash) -> Result<bool, TransportError> {
-        Ok(self.served.lock().unwrap().blobs.contains_key(hash))
     }
     async fn open_suitcase(&self) -> Result<(SuitcaseId, PathBuf), TransportError> {
         let id = {

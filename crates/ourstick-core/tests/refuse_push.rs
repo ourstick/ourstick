@@ -4,13 +4,13 @@
 
 mod common;
 
-use common::{noise, Owner};
+use common::{noise, Owner, Reader};
 use iroh::endpoint::presets;
 use iroh::Endpoint;
 use iroh_blobs::protocol::{ChunkRangesSeq, GetManyRequest, PushRequest};
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::Hash;
-use ourstick_core::transport::Publisher;
+use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, TransportError, GO};
 use std::net::SocketAddr;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -42,13 +42,18 @@ async fn owner_refuses_pushed_blobs() {
         .execute_push(connection, PushRequest::new(hash, ChunkRangesSeq::root()))
         .await;
 
-    // What matters: the owner's cache.
+    // What matters: nothing was sent, and no one can get the blob from the
+    // owner.
     if let Ok(stats) = &pushed {
         assert_eq!(stats.payload_bytes_written, 0, "no payload may be sent");
     }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let stored = owner.publisher.has_blob(hash.as_bytes()).await.unwrap();
-    assert!(!stored, "the pushed blob must not be in the owner's cache");
+    let reader = Reader::new();
+    let fetcher = reader.fetcher().await;
+    let asking = fetcher.connect(&ticket).await.unwrap();
+    let result = asking.fetch_blob(hash.as_bytes(), &mut |_| GO).await;
+    assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");
+    asking.close().await;
+    fetcher.shutdown(false).await.unwrap();
 
     attacker.close().await;
     owner.publisher.shutdown().await;

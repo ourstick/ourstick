@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 tokio.workspace = true
 futures.workspace = true
+fs4.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true

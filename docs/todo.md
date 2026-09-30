@@ -15,8 +15,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **iroh-blobs: GC logs `error during gc run: Error::Io` after the store
       shuts down, and stops for good after any error.** A public issue; the
       draft (with a standalone reproduction) is kept outside the repository.
-      In OurStick the line appears once after each Stop sharing, Mount,
-      Ctrl-C or Quit and is harmless (`docs/protocol.md`, "Known limits").
+      OurStick no longer runs iroh-blobs' GC (ADR 0007: suitcases leave by
+      removing their folder), so it is no longer affected; the report still
+      helps others.
 - [ ] **ksni: `ProvideXdgActivationToken`,**
       https://github.com/iovxw/ksni/pull/43 (opened 2026-09-29). Answer the
       review if there is one. Once a ksni release has the method, drop
@@ -61,13 +62,15 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 - [ ] **A big folder, by hand:** `share` of the rescued folder (913 GB,
       146,297 files) from the G drive, with a reader on the laptop: the
-      link at once, partial versions every 3 minutes, a restart halfway.
+      link at once, partial versions every 3 minutes, a restart halfway,
+      suitcases within the budget (`~/.local/share/ourstick/cache/<stick>/`
+      never much above it), two readers at different places.
+- [ ] **Remove the ADR 0005 caches** (`cache/<stick>/blobs/` and `staging/`)
+      once suitcases are proven by hand: nothing reads them any more, and on
+      this PC one holds ~100 GB less than before only because the test cache
+      was deleted by hand.
 - [ ] **The app shows reading progress:** the watcher reports
       `WatchEvent::Reading`, which the app ignores for now; a big drop gives
       no sign until its first partial version (after 30 s).
-- [ ] **Reads per file until step 4:** the catalogue and the fill each run
-      `encrypt_blob`, which reads a file twice, so a new file is read four
-      times (the page cache spares small files). Suitcases (step 4) drop the
-      fill.
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.

@@ -6,7 +6,7 @@ mod common;
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
-use common::{noise, Owner, Reader};
+use common::{fetch_when_ready, noise, Owner, Reader};
 use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, ReaderActivity};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -24,12 +24,11 @@ async fn a_download_shows_as_one_reader_with_a_rate_then_none() {
     let download = async {
         let connection = fetcher.connect(&ticket).await.unwrap();
         // Slowly, so the owner has time to see it.
-        connection
-            .fetch_blob(&hash, &mut |_| {
-                ControlFlow::Continue(Duration::from_millis(5))
-            })
-            .await
-            .unwrap();
+        fetch_when_ready(&connection, &hash, &mut |_| {
+            ControlFlow::Continue(Duration::from_millis(5))
+        })
+        .await
+        .unwrap();
         connection.close().await;
     };
     let watch = async {

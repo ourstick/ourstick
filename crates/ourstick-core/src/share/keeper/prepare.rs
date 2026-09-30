@@ -1,0 +1,187 @@
+//! Preparing one suitcase (ADR 0007): each file is encrypted again into the
+//! suitcase's folder, reading it once when the catalogue's plaintext hash
+//! belongs to this very version of the file, and its blob is served only if
+//! its hash is the manifest's. A file that changed since the catalogue is
+//! left out, and what was written for it is deleted at once.
+
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, ErrorKind, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::blob::{encrypt_blob, encrypt_blob_hashed_before};
+use crate::blocking::run_blocking;
+use crate::cipher::{Cipher, CipherError};
+use crate::manifest::Entry;
+use crate::share::ShareError;
+use crate::transport::{BlobHash, Publisher, SuitcaseId};
+
+/// One file to put in a suitcase.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FileJob {
+    pub(super) entry: Entry,
+    pub(super) on_disk: PathBuf,
+    /// The catalogue's plaintext hash of this version of the file (same
+    /// blob hash), if it has one.
+    pub(super) plaintext_hash: Option<[u8; 32]>,
+}
+
+/// A prepared suitcase.
+#[derive(Debug)]
+pub(super) struct Prepared {
+    pub(super) id: SuitcaseId,
+    /// The blobs it serves.
+    pub(super) ready: HashSet<BlobHash>,
+    /// Files that changed since the catalogue (left out), by path.
+    pub(super) changed: Vec<String>,
+}
+
+/// Opens a suitcase and puts the blobs of `files` in it, each ready as soon
+/// as it is in.
+pub(super) async fn prepare(
+    publisher: &impl Publisher,
+    cipher: &Arc<dyn Cipher>,
+    files: Vec<FileJob>,
+) -> Result<Prepared, ShareError> {
+    let (id, folder) = publisher.open_suitcase().await?;
+    let mut prepared = Prepared {
+        id,
+        ready: HashSet::new(),
+        changed: Vec::new(),
+    };
+    for (number, file) in files.into_iter().enumerate() {
+        let hash = file.entry.hash;
+        let path = file.entry.path.clone();
+        if prepared.ready.contains(&hash) {
+            continue;
+        }
+        let blob_file = folder.join(format!("{number}.blob"));
+        let written = {
+            let cipher = cipher.clone();
+            let blob_file = blob_file.clone();
+            run_blocking(move || write_blob(cipher.as_ref(), &file, &blob_file)).await?
+        };
+        if !written {
+            prepared.changed.push(path);
+            continue;
+        }
+        if publisher.add_to_suitcase(id, &blob_file, &hash).await? {
+            prepared.ready.insert(hash);
+        } else {
+            prepared.changed.push(path);
+        }
+    }
+    Ok(prepared)
+}
+
+/// Encrypts `file` into `blob_file`. False if the file is gone or changed
+/// since the catalogue: then nothing is left in `blob_file`. Blocking.
+fn write_blob(
+    cipher: &dyn Cipher,
+    file: &FileJob,
+    blob_file: &std::path::Path,
+) -> Result<bool, ShareError> {
+    let io = |path: &std::path::Path| {
+        let path = path.to_path_buf();
+        move |source| ShareError::Io { path, source }
+    };
+    let plaintext = match File::open(&file.on_disk) {
+        Ok(plaintext) => plaintext,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io(&file.on_disk)(error)),
+    };
+    let mut plaintext = BufReader::new(plaintext);
+    let mut out = BufWriter::new(File::create_new(blob_file).map_err(io(blob_file))?);
+    let encrypted = match &file.plaintext_hash {
+        Some(hash) => encrypt_blob_hashed_before(cipher, &mut plaintext, &mut out, hash),
+        None => encrypt_blob(cipher, &mut plaintext, &mut out),
+    }
+    .and_then(|info| {
+        out.flush()?;
+        Ok(info)
+    });
+    match encrypted {
+        Ok(info) if info.plaintext_len == file.entry.size => Ok(true),
+        Ok(_) | Err(CipherError::PlaintextChanged) => {
+            // Its nonce may belong to other bytes (ADR 0003): gone at once.
+            drop(out);
+            std::fs::remove_file(blob_file).map_err(io(blob_file))?;
+            Ok(false)
+        }
+        Err(CipherError::Io(source)) => {
+            drop(out);
+            let _ = std::fs::remove_file(blob_file);
+            Err(io(&file.on_disk)(source))
+        }
+        Err(error) => {
+            drop(out);
+            let _ = std::fs::remove_file(blob_file);
+            Err(error.into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cipher::{ChaChaCipher, StickKey};
+
+    fn cipher() -> ChaChaCipher {
+        ChaChaCipher::new(&StickKey::from_bytes([4; 32]))
+    }
+
+    fn job(dir: &std::path::Path, contents: &[u8], hashed: Option<&[u8]>) -> FileJob {
+        let on_disk = dir.join("file");
+        std::fs::write(&on_disk, contents).unwrap();
+        let mut blob = Vec::new();
+        let hashed = hashed.unwrap_or(contents);
+        encrypt_blob(&cipher(), &mut std::io::Cursor::new(hashed), &mut blob).unwrap();
+        FileJob {
+            entry: Entry {
+                path: "file".to_owned(),
+                size: hashed.len() as u64,
+                mtime: 0,
+                hash: *blake3::hash(&blob).as_bytes(),
+            },
+            on_disk,
+            plaintext_hash: Some(*blake3::hash(hashed).as_bytes()),
+        }
+    }
+
+    #[test]
+    fn a_blob_is_written_with_one_read_and_matches_the_catalogue() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = job(dir.path(), b"the contents", None);
+        let blob_file = dir.path().join("blob");
+        assert!(write_blob(&cipher(), &file, &blob_file).unwrap());
+        let blob = std::fs::read(&blob_file).unwrap();
+        assert_eq!(*blake3::hash(&blob).as_bytes(), file.entry.hash);
+    }
+
+    #[test]
+    fn a_file_changed_since_the_catalogue_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        // Same size, other bytes: the nonce would belong to the old ones.
+        let file = job(dir.path(), b"the CONTENTS", Some(b"the contents"));
+        let blob_file = dir.path().join("blob");
+        assert!(!write_blob(&cipher(), &file, &blob_file).unwrap());
+        assert!(!blob_file.exists());
+
+        let mut gone = job(dir.path(), b"x", None);
+        gone.on_disk = dir.path().join("missing");
+        assert!(!write_blob(&cipher(), &gone, &blob_file).unwrap());
+        assert!(!blob_file.exists());
+    }
+
+    #[test]
+    fn without_a_plaintext_hash_the_file_is_read_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = job(dir.path(), b"the contents", None);
+        file.plaintext_hash = None;
+        let blob_file = dir.path().join("blob");
+        assert!(write_blob(&cipher(), &file, &blob_file).unwrap());
+        let blob = std::fs::read(&blob_file).unwrap();
+        assert_eq!(*blake3::hash(&blob).as_bytes(), file.entry.hash);
+    }
+}

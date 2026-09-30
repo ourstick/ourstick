@@ -1,21 +1,20 @@
-//! A pass over a stick's folder (ADR 0007): the catalogue in parts, the cache
-//! filled behind it, and a version published at the end. Partial versions
+//! A pass over a stick's folder (ADR 0007): the catalogue in parts, and a
+//! version published at the end; the files' blobs go into suitcases only
+//! when readers ask for them ([`super::keeper`]). Partial versions
 //! are published as the catalogue grows, so readers start before it ends;
 //! each keeps the files not read yet as the last pass left them
 //! ([`super::partial`]), and one that changes nothing is not published.
 
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use super::fill::Fill;
 use super::partial::Previous;
 use super::version::{Signed, Versions};
-use super::{check_drive, clear_staging, drive_present, Owner, Publication, ShareError};
+use super::{check_drive, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
 use crate::manifest::{Catalogue, Catalogued, Entry, Manifest};
 use crate::store::OwnedFile;
-use crate::transport::{BlobHash, Publisher};
+use crate::transport::Publisher;
 
 /// A part of the catalogue closes at this many files…
 const PART_FILES: usize = 256;
@@ -90,10 +89,6 @@ pub async fn run_pass(
             return Err(ShareError::StickFull { size, used });
         }
     }
-    {
-        let staging = owner.publisher.staging_dir().to_path_buf();
-        run_blocking(move || clear_staging(&staging)).await?;
-    }
     let recorded: Vec<OwnedFile> = {
         let store = owner.store.clone();
         run_blocking(move || store.owned_files(&stick_id)).await?
@@ -130,12 +125,6 @@ pub async fn run_pass(
         on_event(PassEvent::Published(&publication));
     }
 
-    let mut fill = Fill {
-        publisher: owner.publisher,
-        cipher: cipher.clone(),
-        root: root.clone(),
-        ready: HashSet::new(),
-    };
     let mut entries: Vec<Entry> = Vec::new();
     let mut skipped = 0;
     let mut reused = 0;
@@ -164,10 +153,6 @@ pub async fn run_pass(
                     continue;
                 }
             };
-            if !fill.ensure(&file).await? {
-                skipped += 1;
-                continue;
-            }
             reused += usize::from(!file.read);
             recorded.push(file.owned_file());
             entries.push(file.entry);
@@ -203,19 +188,11 @@ pub async fn run_pass(
     };
     let publication = versions.publish(&mut signed, manifest, reused).await?;
     // Only now, with the complete version out: what the pass did not keep
-    // leaves the record and the cache.
+    // leaves the record.
     {
         let store = owner.store.clone();
         run_blocking(move || store.keep_only_owned_files(&stick_id, &paths)).await?;
     }
-    let mut keep: HashSet<BlobHash> = publication
-        .manifest
-        .entries
-        .iter()
-        .map(|entry| entry.hash)
-        .collect();
-    keep.insert(publication.manifest_hash);
-    owner.publisher.keep_only_blobs(keep).await?;
     Ok(PassOutcome {
         publication,
         skipped,

@@ -1,13 +1,14 @@
 //! Sticks published into the in-memory transport, for tests.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ourstick_core::clock::FixedClock;
 use ourstick_core::share::publish_folder;
 use ourstick_core::transport::Publisher;
 use ourstick_core::{
-    CipherId, Manifest, ManifestHint, MemoryStore, OwnedStick, StickKey, StickSigningKey, Store,
-    Ticket,
+    cipher_for, encrypt_blob, CipherId, Manifest, ManifestHint, MemoryStore, OwnedStick, StickKey,
+    StickSigningKey, Store, Ticket,
 };
 
 use super::memory::{MemoryPublisher, Served};
@@ -17,6 +18,33 @@ fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
     key
+}
+
+/// Puts every file's blob in the owner's store, ready: these tests are about
+/// the reader, and the owner's suitcases have tests of their own.
+pub fn make_ready(
+    served: &Mutex<Served>,
+    folder: &Path,
+    stick_key: &StickKey,
+    manifest: &Manifest,
+) {
+    let cipher = cipher_for(CipherId::XChaCha20Poly1305, stick_key);
+    let mut served = served.lock().unwrap();
+    for entry in &manifest.entries {
+        let on_disk = entry
+            .path
+            .split('/')
+            .fold(folder.to_path_buf(), |path, part| path.join(part));
+        let mut blob = Vec::new();
+        encrypt_blob(
+            cipher.as_ref(),
+            &mut std::io::Cursor::new(std::fs::read(on_disk).unwrap()),
+            &mut blob,
+        )
+        .unwrap();
+        assert_eq!(*blake3::hash(&blob).as_bytes(), entry.hash);
+        served.blobs.insert(entry.hash, blob);
+    }
 }
 
 /// A stick with one file of `size` bytes, published into memory.
@@ -61,7 +89,7 @@ pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
     let served = Arc::new(Mutex::new(Served::default()));
     let publisher = MemoryPublisher {
         served: served.clone(),
-        staging: tempfile::tempdir().unwrap(),
+        staging: Arc::new(tempfile::tempdir().unwrap()),
     };
     let publication = publish_folder(
         &publisher,
@@ -73,6 +101,7 @@ pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
     )
     .await
     .unwrap();
+    make_ready(&served, folder.path(), &stick_key, &publication.manifest);
     let ticket = Ticket {
         stick_id: signing_key.stick_id(),
         node_id: publisher.node_id(),
@@ -139,7 +168,7 @@ pub async fn publish_versions(versions: &[&[(&str, &[u8])]]) -> Versions {
     let served = Arc::new(Mutex::new(Served::default()));
     let publisher = MemoryPublisher {
         served: served.clone(),
-        staging: tempfile::tempdir().unwrap(),
+        staging: Arc::new(tempfile::tempdir().unwrap()),
     };
     let mut states = Vec::new();
     let mut first = None;
@@ -160,6 +189,7 @@ pub async fn publish_versions(versions: &[&[(&str, &[u8])]]) -> Versions {
         )
         .await
         .unwrap();
+        make_ready(&served, folder.path(), &stick_key, &publication.manifest);
         first.get_or_insert(publication);
         states.push(served.lock().unwrap().clone());
     }

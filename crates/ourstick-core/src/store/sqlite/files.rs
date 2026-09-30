@@ -93,6 +93,25 @@ pub(super) fn record_owned_files(
     Ok(())
 }
 
+pub(super) fn forget_owned_files(
+    connection: &mut Connection,
+    stick_id: &StickId,
+    paths: &[String],
+) -> Result<(), StoreError> {
+    let stick_id = stick_id.to_bytes();
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    check_owned(&transaction, &stick_id)?;
+    {
+        let mut delete =
+            transaction.prepare("DELETE FROM owned_files WHERE stick_id = ?1 AND path = ?2")?;
+        for path in paths {
+            delete.execute(params![stick_id, path])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 pub(super) fn keep_only_owned_files(
     connection: &mut Connection,
     stick_id: &StickId,

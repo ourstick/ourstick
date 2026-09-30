@@ -17,10 +17,10 @@ _Draft. Updated whenever the wire format or the ticket format changes._
 
 ## Flow
 
-1. Owner catalogues its folder and encrypts every file and the manifest into
-   blobs in its cache (ADR 0005, ADR 0007), signs a record for the manifest,
-   and serves both over iroh; on a first share, partial versions come out
-   while the catalogue grows.
+1. Owner catalogues its folder (every file's blob hash), signs a record for
+   the manifest, and serves both over iroh; partial versions come out while
+   the catalogue grows. A file's blob is made when a reader asks for it, in a
+   **suitcase** (ADR 0007).
 2. Owner produces a ticket (link / QR).
 3. Reader decodes the ticket and connects to the owner's NodeId (address hints
    first; iroh address lookup and relays otherwise).
@@ -151,13 +151,28 @@ carries only the key). Every file blob of that stick must use the same cipher.
   first, in parts, in manifest order: every file's blob hash, from a full
   encryption whose bytes are thrown away. A file whose stamp is as recorded
   (see "Known limits" below) keeps its recorded hash without being read;
-  `share --rescan` reads every file. Behind the catalogue the pass **fills the
-  cache**: each file is encrypted again in full, and its blob enters the cache
-  only if its hash is the catalogue's (a blob the cache still holds is kept
-  as it is). A file gone or changed since it was catalogued is left out of
-  the version, and another pass follows soon. Each part is recorded
-  (`owned_files`) once its blobs are in the cache, so a pass stopped halfway
-  goes on from there.
+  `share --rescan` reads every file. A file gone or changing while read is
+  left out of the version, and another pass follows soon. Each part is
+  recorded (`owned_files`, with the plaintext hash), so a pass stopped
+  halfway goes on from there.
+- Blobs are served from **suitcases** (ADR 0007): runs of manifest entries,
+  each an iroh-blobs store in its own folder under the stick's cache folder,
+  up to 1 GB (a sixth of the budget if that is less; a bigger file is a
+  suitcase of its own). A suitcase is prepared when a reader asks for a blob
+  no suitcase holds (the reader is told "not ready" meanwhile), and the next
+  one is prepared while a reader is on one. Preparing encrypts each file
+  again, reading it once: the nonce prefix comes from the plaintext hash the
+  catalogue recorded for this very blob, and the read checks it; a file that
+  changed since is left out and what was written for it deleted at once,
+  and its record is forgotten so the next pass reads it again (without that
+  hash, the file is read twice as in ADR 0003). A blob is served only if its
+  hash is the manifest's. All suitcases together take at most the
+  **budget**: 10 % of the free space on the cache's disk when sharing starts,
+  2 to 40 GB; with less than 2 GB free, sharing does not start. To make room,
+  the suitcase used longest ago leaves, never the one a reader is on nor the
+  next one (a reader that asked nothing for 30 s holds none); it leaves once
+  no transfer from it is in progress, by removing its folder. With no room,
+  readers wait. A start removes every suitcase of the run before.
 - A long pass publishes **partial** versions: an empty one at once if the
   stick was never published (so it has a link), then after 30 seconds and
   every 3 minutes, each a new `seq`; the complete version comes at the end. A
@@ -169,10 +184,9 @@ carries only the key). Every file blob of that stick must use the same cipher.
   one listed is not published, so a pass over an unchanged folder signs
   nothing new.
 - After a start, the owner serves its latest signed version again at once,
-  from the manifest its cache still holds (its blobs the cache holds are
-  served, the others are "not ready"), and then reads the folder in a pass.
-  Only a stick never published, or one whose cache lost that manifest, waits
-  for the pass.
+  from the manifest kept in its cache folder (`latest-manifest.blob`, written
+  at every publish), and then reads the folder in a pass. Only a stick never
+  published, or one whose kept manifest is gone, waits for the pass.
 - While serving, the owner watches the folder (inotify, FSEvents, …; every
   60 s if the system cannot report changes). After a sign of change it waits
   until the folder has been quiet for 2 s and no file's size or times change
@@ -220,21 +234,16 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - **Unchanged-file detection is a heuristic.** The owner records, per file,
   the size, mtime and (on Unix) ctime in nanoseconds when it last read it
   (`owned_files`, `docs/schema.md`), and does not read a file whose stamp is
-  unchanged in the catalogue. A change that keeps all three is not seen, and readers keep
-  getting the old content for that file. On Unix, ctime changes on every write
+  unchanged in the catalogue. A change that keeps all three is not seen by
+  the catalogue: the version keeps the old blob hash. When a reader asks for
+  that file, preparing its suitcase finds that the file no longer gives that
+  blob, so it is not served (the reader waits), and its record is forgotten:
+  the next pass reads it and publishes the new content. On Unix, ctime changes on every write
   and cannot be set back by ordinary tools, so this needs a file system with
   coarse or missing timestamps, a clock set backwards, or a deliberate change of
   the system time. Elsewhere only size and mtime count, and a tool that
   restores mtime after writing (some sync and archive tools do) is enough.
   `ourstick share --rescan` ignores the record and reads every file.
-- **A GC error in the log after sharing stops.** The owner's blob cache is an
-  iroh-blobs store with garbage collection on. Its GC task outlives the store:
-  after Stop sharing, a Mount (which starts sharing again), Ctrl-C or Quit it
-  wakes once more, finds the store closed and logs
-  `ERROR iroh_blobs::store::gc: error during gc run: Error::Io`. Nothing is
-  wrong; the next store collects as usual. In iroh-blobs 0.103 any GC error
-  also ends GC until the store is opened again, and GC cannot be run from
-  outside the crate; an upstream issue is pending (`docs/todo.md`).
 
 ## Blob format (version 1)
 
@@ -472,12 +481,11 @@ connection uses.
 An owner answers a blob request only if it is a plain get of a raw blob whose
 hash is the current manifest blob or a file blob of the current manifest. It
 refuses everything else: other hashes, hash sequences, get-many, observe, and
-push. See ADR 0005. A blob of the current manifest that is not in the cache
-yet is answered "not ready" (`ERR_LIMIT`, ADR 0007) instead of being refused
-or failing; only the manifest blob must be in the cache before a version is
-served. Blobs leave the cache when the owner, at the end of a full pass over
-the folder, says which ones it still needs; until the first such pass after a
-start, nothing is removed, so a restart keeps the cache.
+push. See ADR 0005. A file blob of the current manifest that no suitcase
+holds ready is answered "not ready" (`ERR_LIMIT`, ADR 0007) instead of being
+refused or failing. The owner reads each request itself and decides, under
+one lock, what it gets; a transfer that starts holds its suitcase, which
+leaves only once no transfer holds it.
 
 ### Reader paths
 

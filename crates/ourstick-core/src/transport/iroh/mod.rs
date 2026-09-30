@@ -14,7 +14,6 @@ mod suitcases;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayUrl, SecretKey, TransportAddr};
@@ -41,7 +40,6 @@ pub enum Network {
 pub struct IrohConfig {
     secret_key: [u8; 32],
     network: Network,
-    gc_interval: Duration,
     relays: Relays,
 }
 
@@ -63,7 +61,6 @@ impl IrohConfig {
         Self {
             secret_key,
             network,
-            gc_interval: Duration::from_secs(60),
             relays: Relays::default(),
         }
     }
@@ -85,12 +82,6 @@ impl IrohConfig {
         }
     }
 
-    /// How often the owner's cache removes blobs that are no longer served.
-    pub fn with_gc_interval(mut self, interval: Duration) -> Self {
-        self.gc_interval = interval;
-        self
-    }
-
     /// The node id that belongs to a secret key.
     pub fn node_id_of(secret_key: &[u8; 32]) -> NodeId {
         NodeId(*SecretKey::from_bytes(secret_key).public().as_bytes())
@@ -103,7 +94,6 @@ impl fmt::Debug for IrohConfig {
             .debug_struct("IrohConfig")
             .field("node_id", &Self::node_id_of(&self.secret_key))
             .field("network", &self.network)
-            .field("gc_interval", &self.gc_interval)
             .field("relays", &self.relays)
             .finish_non_exhaustive()
     }

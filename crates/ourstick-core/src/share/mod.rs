@@ -15,13 +15,14 @@ use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
-mod fill;
+mod keeper;
 mod latest;
 mod partial;
 mod pass;
 mod version;
 
-pub use latest::serve_latest;
+pub use keeper::{keep_suitcases, Budget, IN_USE, MAX_BUDGET, MIN_BUDGET};
+pub use latest::{load_latest_manifest, serve_latest};
 pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PARTIAL_TIMING};
 
 /// What the owner of a stick publishes with.
@@ -44,7 +45,7 @@ pub struct SharePlan {
 
 /// Size of the bao outboard iroh-blobs keeps for a blob: 64 bytes per pair of
 /// 16 KiB chunk groups.
-fn outboard_len(blob_len: u64) -> u64 {
+pub(crate) fn outboard_len(blob_len: u64) -> u64 {
     blob_len.div_ceil(16 * 1024).saturating_sub(1) * 64
 }
 
@@ -99,6 +100,13 @@ pub enum ShareError {
     DriveMissing { path: PathBuf },
     #[error("the stick is full: it holds {used} bytes, more than its {size}")]
     StickFull { size: u64, used: u64 },
+    #[error(
+        "not enough free space to share big folders: {free} bytes free on the cache's disk, \
+         at least 2 GB needed"
+    )]
+    NoRoom { free: u64 },
+    #[error("the stick's suitcases already have a keeper")]
+    KeeperRunning,
     #[error(transparent)]
     Manifest(#[from] ManifestError),
     #[error(transparent)]
@@ -113,21 +121,6 @@ pub enum ShareError {
         #[source]
         source: std::io::Error,
     },
-}
-
-/// Removes leftovers of an earlier, interrupted run from the staging directory.
-fn clear_staging(staging: &Path) -> Result<(), ShareError> {
-    let io = |source| ShareError::Io {
-        path: staging.to_path_buf(),
-        source,
-    };
-    for entry in std::fs::read_dir(staging).map_err(io)? {
-        let path = entry.map_err(io)?.path();
-        if path.is_file() {
-            std::fs::remove_file(&path).map_err(|source| ShareError::Io { path, source })?;
-        }
-    }
-    Ok(())
 }
 
 /// Runs a pass over the stick's folder and publishes its complete version

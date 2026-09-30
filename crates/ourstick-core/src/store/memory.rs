@@ -164,6 +164,20 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn forget_owned_files(&self, stick_id: &StickId, paths: &[String]) -> Result<(), StoreError> {
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if !state.owned.contains_key(&key) {
+            return Err(StoreError::StickNotFound);
+        }
+        if let Some(recorded) = state.owned_files.get_mut(&key) {
+            for path in paths {
+                recorded.remove(path);
+            }
+        }
+        Ok(())
+    }
+
     fn keep_only_owned_files(
         &self,
         stick_id: &StickId,

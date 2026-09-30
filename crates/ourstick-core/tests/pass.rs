@@ -1,6 +1,6 @@
-//! ADR 0007, the owner's pass: the catalogue in parts with the cache filled
-//! behind it, partial versions while a stick has no complete one, and a
-//! restart that goes on from what was recorded.
+//! ADR 0007, the owner's pass: the catalogue in parts, partial versions as
+//! it grows, a restart that goes on from what was recorded, and a record that
+//! no longer matches its file.
 
 mod common;
 
@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use common::{keep_going, Owner, Reader};
 use ourstick_core::share::{run_pass, PartialTiming, PassEvent, PassOptions};
-use ourstick_core::transport::Publisher;
+use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, TransportError, GO};
 use ourstick_core::watcher::Owner as Publishing;
 use ourstick_core::Store;
 
@@ -185,12 +185,13 @@ async fn a_restarted_first_share_goes_on_from_what_it_recorded() {
     owner.publisher.shutdown().await;
 }
 
-/// The invariant of ADR 0007: a blob enters the cache only if its hash is the
-/// catalogue's. A record that no longer matches its file (here a hash no
-/// file gives, with the stamp unchanged) leaves the file out of the version,
-/// and the next pass reads it again.
+/// The invariant of ADR 0007: a blob is served only if its hash is the
+/// manifest's. A record that no longer matches its file (here a hash no file
+/// gives, with the stamp unchanged: the known limit) makes the pass list that
+/// hash; the suitcase then gets another blob, which is never served, and the
+/// record is forgotten, so the next pass reads the file and gets it right.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_file_whose_blob_is_not_the_catalogued_one_is_left_for_the_next_pass() {
+async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
     let owner = Owner::new(&[("a.txt", b"one"), ("b.txt", b"two")]).await;
     let first = owner.publish().await;
     let stick_id = owner.signing_key.stick_id();
@@ -202,25 +203,47 @@ async fn a_file_whose_blob_is_not_the_catalogued_one_is_left_for_the_next_pass()
         .unwrap();
 
     owner.clock.set(first.seq + 1_000);
-    let outcome = run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
-        .await
-        .unwrap();
-    assert_eq!(outcome.skipped, 1);
-    let paths: Vec<_> = outcome
-        .publication
-        .manifest
-        .entries
-        .iter()
-        .map(|entry| entry.path.as_str())
-        .collect();
-    assert_eq!(paths, vec!["b.txt"]);
-    assert!(!owner.publisher.has_blob(&[7; 32]).await.unwrap());
+    let trusted = owner.publish().await;
+    assert_eq!(trusted.manifest.entries[0].hash, [7; 32]);
+    let reader = Reader::new();
+    let fetcher = reader.fetcher().await;
+    let connection = fetcher.connect(&owner.ticket(&trusted)).await.unwrap();
+    // Asked for: the keeper prepares it and finds another blob.
+    let mut forgotten = false;
+    for _ in 0..50 {
+        let result = connection.fetch_blob(&[7; 32], &mut |_| GO).await;
+        assert!(
+            matches!(result, Err(TransportError::NotReady)),
+            "{result:?}"
+        );
+        if owner
+            .store
+            .owned_files(&stick_id)
+            .unwrap()
+            .iter()
+            .all(|file| file.path != "a.txt")
+        {
+            forgotten = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        forgotten,
+        "the record that no longer matches is still there"
+    );
+    connection.close().await;
+    fetcher.shutdown(false).await.unwrap();
 
     owner.clock.set(first.seq + 2_000);
     let again = run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
         .await
         .unwrap();
-    assert_eq!(again.skipped, 0);
     assert_eq!(again.publication.manifest, first.manifest);
+    let report = Reader::new()
+        .download(&owner.ticket(&again.publication), &mut keep_going)
+        .await
+        .unwrap();
+    assert_eq!(report.files, 2);
     owner.publisher.shutdown().await;
 }

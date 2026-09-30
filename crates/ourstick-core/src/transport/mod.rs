@@ -132,7 +132,8 @@ pub enum Demand {
     Closed { connection: u64 },
 }
 
-/// The owner's side: holds the encrypted blobs and serves the current record.
+/// The owner's side: serves the current record, its manifest, and the
+/// blobs its suitcases hold (ADR 0007).
 pub trait Publisher: Send + Sync {
     /// This device's node id, for tickets.
     fn node_id(&self) -> NodeId;
@@ -143,58 +144,19 @@ pub trait Publisher: Send + Sync {
     /// What this node found out about its network, once measured.
     fn network_report(&self) -> Option<NetworkReport>;
 
-    /// Where the encrypted blob cache lives on disk.
+    /// The stick's cache folder: its suitcases, and the latest manifest.
     fn cache_dir(&self) -> &Path;
 
-    /// A directory on the same file system as the cache, for blobs that are
-    /// being prepared.
-    fn staging_dir(&self) -> &Path;
-
-    /// Imports an encrypted blob file into the cache and returns its hash. The
-    /// blob is kept at least until a [`Publisher::keep_only_blobs`] without
-    /// it. It is not served until a publish allows it.
-    fn import_blob(
-        &self,
-        blob_file: &Path,
-    ) -> impl Future<Output = Result<BlobHash, TransportError>> + Send;
-
-    /// Starts serving `record`, and only its manifest and the blobs in
-    /// `allowed`; others stop being served at once. The manifest blob must be
-    /// in the cache. An allowed blob that is not in the cache yet is answered
-    /// "not ready" (ADR 0007) until it is imported or kept.
+    /// Starts serving `record`, with `manifest_blob` (the blob it names,
+    /// served from memory) and the blobs in `allowed`; others stop being
+    /// served at once. An allowed blob that no suitcase holds ready is
+    /// answered "not ready" (ADR 0007).
     fn publish(
         &self,
         record: SignedManifestRecord,
+        manifest_blob: Vec<u8>,
         allowed: HashSet<BlobHash>,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
-
-    /// Lets every blob go from the cache except those in `keep` and those
-    /// served now; they are removed later. Until the first call, nothing is
-    /// removed, so a restart keeps the cache while a pass takes it back.
-    fn keep_only_blobs(
-        &self,
-        keep: HashSet<BlobHash>,
-    ) -> impl Future<Output = Result<(), TransportError>> + Send;
-
-    /// If the cache holds the complete blob, keeps it exactly like an
-    /// imported one (at least until a `keep_only_blobs` without it) and
-    /// returns true. Used to publish a blob again without importing it.
-    fn keep_blob(
-        &self,
-        hash: &BlobHash,
-    ) -> impl Future<Output = Result<bool, TransportError>> + Send;
-
-    /// The complete blob from the cache, or `None` if it does not hold it.
-    fn read_blob(
-        &self,
-        hash: &BlobHash,
-    ) -> impl Future<Output = Result<Option<Vec<u8>>, TransportError>> + Send;
-
-    /// Whether the cache currently holds the complete blob.
-    fn has_blob(
-        &self,
-        hash: &BlobHash,
-    ) -> impl Future<Output = Result<bool, TransportError>> + Send;
 
     /// Opens a new, empty suitcase, and the folder its blob files go in.
     fn open_suitcase(

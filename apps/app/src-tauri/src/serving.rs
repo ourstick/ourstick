@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, ShareLock, StickKeys};
 use ourstick_core::secrets::check_secret_store;
-use ourstick_core::share::{latest_hint, publish_folder, serve_latest};
+use ourstick_core::share::{keep_suitcases, latest_hint, publish_folder, serve_latest, Budget};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
@@ -127,6 +127,27 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
     let config = IrohConfig::new(node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
+    // ADR 0007: files are encrypted into suitcases as readers ask for them,
+    // within a budget. With too little free space, sharing does not start
+    // and the error says why.
+    let budget = {
+        let cache_dir = cache_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??
+    };
+    tauri::async_runtime::spawn({
+        let keeper = keep_suitcases(
+            publisher.clone(),
+            store.clone(),
+            stick_id,
+            keys.stick_key.clone(),
+            budget,
+        );
+        async move {
+            if let Err(error) = keeper.await {
+                tracing::warn!(%error, "the suitcases' keeper stopped");
+            }
+        }
+    });
     // The last version at once, if the cache still holds it; the folder is
     // then read again in the background (`Shared::run`). Otherwise (a new
     // stick, a cache that is gone) a first pass now, for the link.

@@ -1,34 +1,24 @@
 //! ADR 0007, the owner's suitcases on iroh: a blob is served from a suitcase
 //! only if its hash is the expected one; a suitcase leaves only once no
-//! transfer from it is in progress; what readers ask for reaches the owner.
+//! transfer from it is in progress; what readers ask for reaches the owner;
+//! readers get everything through a small budget.
 
 mod common;
 
-use std::collections::HashSet;
 use std::ops::ControlFlow;
 use std::time::Duration;
 
-use common::{noise, Owner, Reader};
+use common::{keep_going, noise, Owner, Reader};
+use ourstick_core::share::{keep_suitcases, Budget};
 use ourstick_core::transport::{Demand, Fetcher, PeerConnection, Publisher, TransportError, GO};
 
 /// An owner whose current version also allows `data`'s blob, not in any
 /// store yet; returns the blob's hash.
 async fn owner_allowing(data: &[u8]) -> (Owner, ourstick_core::Ticket, [u8; 32]) {
-    let owner = Owner::new(&[("a.txt", b"hello")]).await;
+    let owner = Owner::bare(&[("a.txt", b"hello")]).await;
     let publication = owner.publish().await;
     let hash = *blake3::hash(data).as_bytes();
-    let mut allowed: HashSet<_> = publication
-        .manifest
-        .entries
-        .iter()
-        .map(|e| e.hash)
-        .collect();
-    allowed.insert(hash);
-    owner
-        .publisher
-        .publish(publication.record.clone(), allowed)
-        .await
-        .unwrap();
+    owner.allow_also(&publication, hash).await;
     let ticket = owner.ticket(&publication);
     (owner, ticket, hash)
 }
@@ -147,5 +137,50 @@ async fn a_suitcase_leaves_only_once_its_transfer_ended() {
 
     connection.close().await;
     fetcher.shutdown(false).await.unwrap();
+    owner.publisher.shutdown().await;
+}
+
+/// ADR 0007: two readers download a stick of 12 suitcases at once through a
+/// budget that holds 6: suitcases are prepared as asked for, the ones no
+/// reader is on leave, and both get every file.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_readers_get_everything_through_a_small_budget() {
+    let contents: Vec<Vec<u8>> = (0..12u8).map(|i| noise(200_000, i)).collect();
+    let names: Vec<String> = (0..12).map(|i| format!("f{i:02}.bin")).collect();
+    let files: Vec<(&str, &[u8])> = names
+        .iter()
+        .zip(&contents)
+        .map(|(name, data)| (name.as_str(), data.as_slice()))
+        .collect();
+    let owner = Owner::bare(&files).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    // Room for six of these blobs: a suitcase each, a sixth of the budget.
+    let one = 200_000 + 60_000;
+    tokio::spawn(keep_suitcases(
+        owner.publisher.clone(),
+        owner.store.clone(),
+        owner.signing_key.stick_id(),
+        owner.stick_key.clone(),
+        Budget::new(one * 6),
+    ));
+
+    let first = Reader::new();
+    let second = Reader::new();
+    let (mut one_events, mut two_events) = (keep_going, keep_going);
+    let (one_report, two_report) = tokio::join!(
+        first.download(&ticket, &mut one_events),
+        second.download(&ticket, &mut two_events)
+    );
+    assert_eq!(one_report.unwrap().files, 12);
+    assert_eq!(two_report.unwrap().files, 12);
+    for (name, data) in names.iter().zip(&contents) {
+        assert_eq!(&first.read(name), data);
+        assert_eq!(&second.read(name), data);
+    }
+    let open = std::fs::read_dir(owner.cache.path().join("suitcases"))
+        .unwrap()
+        .count();
+    assert!(open <= 7, "{open} suitcases open");
     owner.publisher.shutdown().await;
 }

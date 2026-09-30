@@ -124,11 +124,41 @@ pub fn encrypt_blob<R: Read + Seek>(
     let mut first_pass = blake3::Hasher::new();
     first_pass.update_reader(&mut *plaintext)?;
     plaintext.seek(SeekFrom::Start(start))?;
+    encrypt_with(cipher, plaintext, out, first_pass.finalize())
+}
 
-    let header = BlobHeader::new(
-        cipher.id(),
-        cipher.derive_nonce_prefix(&first_pass.finalize()),
-    );
+/// Like [`encrypt_blob`], reading `plaintext` once: the nonce prefix comes
+/// from `plaintext_hash`, the hash an earlier read gave (the owner's
+/// catalogue, ADR 0007), and the read here only checks it. If the plaintext
+/// is no longer what was hashed, this fails with
+/// [`CipherError::PlaintextChanged`] after writing a blob whose nonce belongs
+/// to other bytes: the caller must then delete everything written to `out`
+/// at once, and must never let any of it leave the machine. Blobs made here
+/// are served only if their hash is the manifest's (ADR 0007), which such a
+/// blob never has.
+pub fn encrypt_blob_hashed_before(
+    cipher: &dyn Cipher,
+    plaintext: &mut impl Read,
+    out: &mut impl Write,
+    plaintext_hash: &[u8; 32],
+) -> Result<BlobInfo, CipherError> {
+    encrypt_with(
+        cipher,
+        plaintext,
+        out,
+        blake3::Hash::from_bytes(*plaintext_hash),
+    )
+}
+
+/// Encrypts with the nonce prefix of `plaintext_hash`, and checks that the
+/// bytes read hash to it.
+fn encrypt_with(
+    cipher: &dyn Cipher,
+    plaintext: &mut impl Read,
+    out: &mut impl Write,
+    plaintext_hash: blake3::Hash,
+) -> Result<BlobInfo, CipherError> {
+    let header = BlobHeader::new(cipher.id(), cipher.derive_nonce_prefix(&plaintext_hash));
     let header_bytes = header.to_bytes();
     out.write_all(&header_bytes)?;
     let mut blob_len = header_bytes.len() as u64;
@@ -149,7 +179,6 @@ pub fn encrypt_blob<R: Read + Seek>(
         index = index.checked_add(1).ok_or(CipherError::TooManyChunks)?;
     }
 
-    let plaintext_hash = first_pass.finalize();
     if second_pass.finalize() != plaintext_hash {
         return Err(CipherError::PlaintextChanged);
     }

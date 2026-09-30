@@ -6,6 +6,40 @@ is served and its push refusal stay. The stick model that goes with it (no
 fixed size, linked folders) is ADR 0008. Reviewed by two other models before
 this version; checked against iroh-blobs 0.103's source.
 
+## Notes from the implementation (step 4, 2026-09-30)
+
+The plan for step 4 was reviewed again by two other models against the code
+and iroh-blobs 0.103; these points changed on the way:
+
+- **One decision point, in our handler.** The handler reads each request
+  itself and decides under one lock whether it is served, not ready or
+  refused, and registers the transfer with a guard on the suitcase it comes
+  from. iroh-blobs' event hook decides nothing any more (it only counts bytes
+  sent): with the store picked before the hook ran, a suitcase that changed
+  in between would have answered `ERR_INTERNAL`, a failure.
+- **Preparing reads each file once** (not "always `encrypt_blob` in full"):
+  the nonce prefix comes from the catalogue's plaintext hash of that very
+  blob, and the read checks it; a changed file's output is deleted at once
+  and its record forgotten, so the next pass reads it again. ADR 0003 has the
+  note. Without a recorded plaintext hash the file is read twice. So the
+  owner reads a byte three times (two in the catalogue, one per suitcase), as
+  the costs below say.
+- **Blobs enter a suitcase by reference** (`ImportMode::TryReference`) to a
+  file inside the suitcase's own folder, so it is written once; the file goes
+  with the folder. (The alternative below rejected `TryReference` on a
+  temporary file, which is removed while the store still points at it.)
+- **Manifests are served from memory**, one small store per version, and the
+  latest one is kept as `latest-manifest.blob` in the stick's cache folder
+  for a restart; no store that is never emptied.
+- **What readers hold:** a suitcase is never evicted while a reader is on it
+  or on the one before it (read-ahead), and a reader that asked nothing for
+  30 s holds none. A time-based rule (anything used in the last 30 s) would
+  have stalled a fast reader on a small budget. A suitcase is at most 1 GB or
+  a sixth of the budget.
+- **The keeper** (the policy) runs as a task per stick and learns from the
+  transport which blobs readers ask for (`Demand`); a file bigger than the
+  budget gets a suitcase alone once all others can go.
+
 ## Context
 
 A real case: a rescued disk to send to a relative, 913 GB in 146,297 files and

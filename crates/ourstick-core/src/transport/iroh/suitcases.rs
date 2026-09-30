@@ -28,7 +28,7 @@ fn storage(error: impl std::fmt::Display) -> TransportError {
 pub(super) struct Suitcases {
     root: PathBuf,
     serving: Serving,
-    /// The next id; ids below it were used. 0 is the ADR 0005 cache.
+    /// The next id; ids below it were used.
     next: AtomicU64,
     open: Mutex<HashMap<SuitcaseId, (FsStore, PathBuf)>>,
 }
@@ -58,8 +58,13 @@ impl Suitcases {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// An id for a store that serves, never used before.
+    pub(super) fn next_id(&self) -> SuitcaseId {
+        self.next.fetch_add(1, Ordering::SeqCst)
+    }
+
     pub(super) async fn open(&self) -> Result<(SuitcaseId, PathBuf), TransportError> {
-        let id = self.next.fetch_add(1, Ordering::SeqCst);
+        let id = self.next_id();
         let dir = self.root.join(id.to_string());
         let files = dir.join("files");
         tokio::fs::create_dir_all(&files).await?;

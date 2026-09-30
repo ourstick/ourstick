@@ -110,13 +110,6 @@ impl Serving {
         }
     }
 
-    /// Keeps as ready in store `id` only what `keep` says.
-    pub(super) fn retain_ready(&self, id: StoreId, keep: impl Fn(&Hash) -> bool) {
-        if let Some(held) = self.state().stores.get_mut(&id) {
-            held.ready.retain(|hash| keep(hash));
-        }
-    }
-
     /// Whether store `id` holds `hash` ready.
     #[cfg(test)]
     pub(super) fn is_ready(&self, id: StoreId, hash: &Hash) -> bool {

@@ -82,8 +82,9 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Το stick ενημερώνεται όταν αλλάζει ο φάκελος (watcher) — ο reader βλέπει νέο manifest.
 - Δημόσια relays του iroh. Καμία δική μας υποδομή.
 - Desktop GUI (στάδιο 1), όπως στο `docs/gui-spec.md`: Tauri 2 + Svelte στο `apps/app`,
-  ο δικός του φάκελος stick ως δίσκος (disk image στο macOS, bookmark στο Linux), tray,
-  share popup. Το app είναι λεπτό περίβλημα όπως το CLI: καλεί μόνο `ourstick-core`,
+  ο δικός του φάκελος stick ως δίσκος (disk image στο macOS, bookmark στο Linux,
+  γράμμα δίσκου με `subst` στα Windows), tray, share popup. Linux, macOS και Windows.
+  Τα Windows αναπτύσσονται σε VM, όπως στο `docs/windows-dev.md`. Το app είναι λεπτό περίβλημα όπως το CLI: καλεί μόνο `ourstick-core`,
   και το core δεν ξέρει τίποτα για UI (κανόνας 1).
 
 ## Τι ΔΕΝ κάνει η v1
@@ -97,7 +98,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Δικά μας relays.
 - Web receiver (λήψη από browser χωρίς app).
 - Ανάκληση πρόσβασης εκτός από «άλλαξε κλειδί».
-- GUI για τον παραλήπτη και mobile apps. Windows build (έρχεται μετά το στάδιο 1).
+- GUI για τον παραλήπτη και mobile apps.
 
 ## Σειρά υλοποίησης
 

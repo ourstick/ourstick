@@ -29,6 +29,9 @@ pub fn listing_lines(listing: &Listing) -> Vec<String> {
         "{files}, {}.",
         bytes(listing.manifest.total_size())
     ));
+    if listing.manifest.partial {
+        lines.push("The sender is still reading its folder; more files will be listed.".to_owned());
+    }
     lines
 }
 
@@ -103,6 +106,20 @@ mod tests {
             vec!["1 B  x", "1 file, 1 B."]
         );
         assert_eq!(listing_lines(&listing(&[])), vec!["0 files, 0 B."]);
+    }
+
+    #[test]
+    fn a_partial_listing_says_more_is_coming() {
+        let mut partial = listing(&[("x", 1)]);
+        partial.manifest.partial = true;
+        assert_eq!(
+            listing_lines(&partial),
+            vec![
+                "1 B  x",
+                "1 file, 1 B.",
+                "The sender is still reading its folder; more files will be listed."
+            ]
+        );
     }
 
     #[test]

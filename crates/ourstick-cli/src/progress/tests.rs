@@ -36,6 +36,7 @@ fn every_line_has_the_time_and_progress_is_throttled() {
             files: 1,
             bytes: 1_000_000_000,
             unchanged: false,
+            partial: false,
         },
         secs(1),
     );
@@ -92,6 +93,7 @@ fn the_relay_limit_is_said_once_and_stays_in_view_until_direct() {
             files: 1,
             bytes: 100_000_000,
             unchanged: false,
+            partial: false,
         },
         secs(0),
     );
@@ -141,6 +143,7 @@ fn resumed_file_counts_what_is_here_but_speed_only_the_network() {
             files: 2,
             bytes: 6_000_000_000,
             unchanged: true,
+            partial: false,
         },
         secs(0),
     );
@@ -233,6 +236,7 @@ fn files_not_downloaded_are_accounted_for() {
             files: 3,
             bytes: 300,
             unchanged: false,
+            partial: false,
         },
         secs(0),
     );
@@ -271,6 +275,23 @@ fn files_not_downloaded_are_accounted_for() {
         vec!["[00:01]   c\\u{1b} (same as a file already downloaded; copied)"]
     );
     assert_eq!(progress.so_far(), 300);
+    assert_eq!(
+        progress.on_event(DownloadEvent::WaitingForMore { seq: 1 }, secs(2)),
+        vec!["[00:02] Everything listed so far is here; waiting for the sender to list more."]
+    );
+    assert_eq!(
+        progress.on_event(
+            DownloadEvent::Manifest {
+                seq: 2,
+                files: 4,
+                bytes: 400,
+                unchanged: false,
+                partial: true,
+            },
+            secs(2)
+        ),
+        vec!["[00:02] 4 files, 400 B so far; the sender is still reading its folder."]
+    );
     assert_eq!(
         progress.on_event(DownloadEvent::NoLongerInStick { count: 1 }, secs(2)),
         vec!["[00:02] 1 file no longer in the stick; kept in this folder."]

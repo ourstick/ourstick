@@ -3,6 +3,7 @@
 
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod growing;
 pub mod memory;
 pub mod published;
 

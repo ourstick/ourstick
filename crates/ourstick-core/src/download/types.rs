@@ -35,7 +35,22 @@ pub enum DownloadEvent<'a> {
         files: usize,
         bytes: u64,
         unchanged: bool,
+        /// The owner is still reading its folder (ADR 0007): more files come
+        /// in later versions, and the download waits for them.
+        partial: bool,
     },
+    /// Every file of a partial version is here; waiting for the owner's next
+    /// version.
+    WaitingForMore {
+        seq: u64,
+    },
+    /// While waiting for more, the owner cannot be reached; still trying.
+    /// Reported once per outage.
+    OwnerUnreachable {
+        reason: &'a TransportError,
+    },
+    /// The owner can be reached again.
+    OwnerReachable,
     FileStarted {
         path: &'a str,
         size: u64,

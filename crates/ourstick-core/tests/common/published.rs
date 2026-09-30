@@ -6,7 +6,8 @@ use ourstick_core::clock::FixedClock;
 use ourstick_core::share::publish_folder;
 use ourstick_core::transport::Publisher;
 use ourstick_core::{
-    CipherId, ManifestHint, MemoryStore, OwnedStick, StickKey, StickSigningKey, Store, Ticket,
+    CipherId, Manifest, ManifestHint, MemoryStore, OwnedStick, StickKey, StickSigningKey, Store,
+    Ticket,
 };
 
 use super::memory::{MemoryPublisher, Served};
@@ -23,6 +24,8 @@ pub struct Published {
     pub served: Arc<Mutex<Served>>,
     pub ticket: Ticket,
     pub data: Vec<u8>,
+    pub manifest: Manifest,
+    pub signing_key: StickSigningKey,
     _folder: tempfile::TempDir,
 }
 
@@ -84,6 +87,8 @@ pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
         served,
         ticket,
         data,
+        manifest: publication.manifest,
+        signing_key,
         _folder: folder,
     }
 }

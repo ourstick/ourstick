@@ -179,8 +179,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   the record again, following a newer version if there is one (this does not
   count against the 10). It never gives up on "not ready" alone; the user
   can stop it.
+- A **partial** manifest (the owner is still reading its folder, ADR 0007)
+  does not end a download: once every file it lists is in place, the reader
+  asks for the owner's record every 15 seconds and goes on with the next
+  version, until one is complete. These versions are not counted against the
+  10 above. `ls` says when a listing is partial.
 - A version counts as complete in a folder (`joined_sticks.completed_*`) only
-  if every file of it is there; a file left as changed keeps it incomplete.
+  if it is not partial and every file of it is there; a file left as changed
+  keeps it incomplete.
 
 ### Known limits
 

@@ -31,9 +31,19 @@ pub use listing::{list, Listing};
 pub use relay::RelayPolicy;
 pub use types::{DownloadError, DownloadEvent, DownloadReport};
 
-/// How many new versions a download follows before giving up; a folder that
-/// never stops changing cannot keep it going forever.
+/// How many new versions a download follows after a refusal before giving up;
+/// a folder that never stops changing cannot keep it going forever. Versions
+/// of a catalogue that is still growing are not counted.
 const MAX_NEW_VERSIONS: u32 = 10;
+
+/// How a connection of a download ended.
+enum Over {
+    Done(DownloadReport),
+    /// Every file of this partial version is in place; more will come.
+    Partial {
+        seq: u64,
+    },
+}
 
 /// What carries over from one connection of a download to the next.
 #[derive(Debug, Default)]
@@ -140,12 +150,33 @@ pub async fn download(
         total.direct_ipv6 += usage.direct_ipv6;
         connection.close().await;
         match result {
-            Ok(report) => {
+            Ok(Over::Done(report)) => {
                 return Ok(DownloadReport {
                     received: carried.received,
                     usage: total,
                     ..report
                 })
+            }
+            // ADR 0007: the owner is still reading its folder. Wait for its
+            // next version, then go on with it.
+            Ok(Over::Partial { seq }) => {
+                if on_event(DownloadEvent::WaitingForMore { seq }).is_break() {
+                    return Err(DownloadError::Cancelled);
+                }
+                let mut cancelled = false;
+                wait_for_newer(fetcher, ticket, seq, FOLLOW_EVERY, &mut |event| {
+                    let event = match event {
+                        FollowEvent::Unreachable { reason } => {
+                            DownloadEvent::OwnerUnreachable { reason }
+                        }
+                        FollowEvent::Reachable => DownloadEvent::OwnerReachable,
+                    };
+                    cancelled |= on_event(event).is_break();
+                })
+                .await?;
+                if cancelled {
+                    return Err(DownloadError::Cancelled);
+                }
             }
             // Refused data: most likely the owner published a new version
             // meanwhile and stopped serving this one's blobs. The next
@@ -181,7 +212,7 @@ async fn download_over(
     policy: &RelayPolicy,
     carried: &mut Carried,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<DownloadReport, DownloadError> {
+) -> Result<Over, DownloadError> {
     // What the user was told. The tracker below starts from this, not from
     // the path at that later moment: hole punching often succeeds while the
     // manifest is fetched, and a change nobody reported would never be shown.
@@ -216,6 +247,7 @@ async fn download_over(
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
         unchanged,
+        partial: manifest.partial,
     })
     .is_break()
     {
@@ -277,6 +309,9 @@ async fn download_over(
     tokio::fs::remove_dir_all(&partial)
         .await
         .map_err(io_error(&partial))?;
+    if manifest.partial {
+        return Ok(Over::Partial { seq: version.seq });
+    }
     // Complete only if the folder holds every file of this version.
     if changed_here == 0 {
         let store = store.clone();
@@ -284,7 +319,7 @@ async fn download_over(
         run_blocking(move || store.complete_download(&stick_id, version)).await?;
     }
 
-    Ok(DownloadReport {
+    Ok(Over::Done(DownloadReport {
         seq: version.seq,
         files: manifest.entries.len(),
         bytes: manifest.total_size(),
@@ -293,7 +328,7 @@ async fn download_over(
         already_here,
         changed_here,
         usage: PathUsage::default(),
-    })
+    }))
 }
 
 async fn record_downloaded(

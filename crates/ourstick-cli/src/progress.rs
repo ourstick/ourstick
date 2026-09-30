@@ -121,15 +121,28 @@ impl Progress {
                 files,
                 bytes: total,
                 unchanged,
+                partial,
                 ..
             } => {
                 self.total = total;
-                let note = if unchanged {
+                let note = if partial {
+                    " so far; the sender is still reading its folder"
+                } else if unchanged {
                     " (no changes since last time)"
                 } else {
                     ""
                 };
                 vec![format!("[{at}] {files} files, {}{note}.", bytes(total))]
+            }
+            DownloadEvent::WaitingForMore { .. } => vec![format!(
+                "[{at}] Everything listed so far is here; waiting for the sender to list more."
+            )],
+            DownloadEvent::OwnerUnreachable { reason } => vec![format!(
+                "[{at}] The owner cannot be reached ({}); still trying.",
+                untrusted(&reason.to_string())
+            )],
+            DownloadEvent::OwnerReachable => {
+                vec![format!("[{at}] The owner can be reached again.")]
             }
             DownloadEvent::FileStarted {
                 size,

@@ -100,3 +100,18 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       differ only where the sample does not look would share a nonce.
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.
+
+## ADR 0008, from the first manual test (2026-10-01)
+
+- **Show reading progress per linked entry.** A big linked folder shows
+  "reading…" until its first files are recorded, then a growing size; on a
+  slow disk that looked stuck. Show "reading 40 %" (files or bytes done of
+  the walk) from the pass's progress events.
+- **Linking again should not read again.** Removing a linked entry forgets
+  its files' records (so a reader never gets a stale entry), and adding the
+  same folder back reads all of it again (104 GB on a slow disk, twice in the
+  test). Keep the records of a removed entry for a while, keyed by its path,
+  and reuse them if the same path is linked again with unchanged stamps.
+- **A pass running while a link is removed** may record the removed entry's
+  files once more and publish them in its version; the next pass (nudged by
+  the removal) drops them. Have the pass check its layout before each part.

@@ -52,17 +52,25 @@ export interface Stick {
   sharing: Sharing;
   /** Mounted (macOS) or in the sidebar (Linux); false after Eject. */
   mounted: boolean;
+  /** Its last problem, kept by the app (event `problems-changed`). */
+  problem: ShareProblem | null;
 }
 
-/** An event about one stick; none for a problem of the whole app. */
-export type About<T> = T & { stick_id?: string };
+/** An event about one stick (`activity`). */
+export type About<T> = T & { stick_id: string };
 
-/** A problem with sharing (event `share-problem`). */
-export type ShareProblem =
-  | { kind: "failed"; message: string }
-  | { kind: "ejected" }
-  | { kind: "seen_slowly" }
-  | { kind: "cleared" };
+/** A problem, of a stick or of the whole app. */
+export type ShareProblem = { kind: "failed"; message: string } | { kind: "ejected" } | { kind: "seen_slowly" };
+
+/** The whole app's problem (not of one stick), if any. */
+export function appProblem(): Promise<ShareProblem | null> {
+  return invoke("app_problem");
+}
+
+/** The user closed the app's problem. */
+export function dismissAppProblem(): Promise<void> {
+  return invoke("dismiss_app_problem");
+}
 
 export interface Activity {
   readers: number;

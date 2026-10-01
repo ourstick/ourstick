@@ -33,17 +33,17 @@
 
   let current = $state<Stick | null>(null);
   let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, relay_only: null });
-  let problem = $state<ShareProblem | null>(null);
   let dropping = $state(false);
   let copying = $state(false);
   let failure = $state<string | null>(null);
   /** A drop that does not fit, offered to be shared as it is. */
   let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
-  let pillMenu = $state(false);
+  /** The one menu open, if any: the drive pill's or the stick's "⋯". */
+  let openMenu = $state<"pill" | "more" | null>(null);
   let asking = $state<Ask | null>(null);
 
   async function act(action: (stickId: string) => Promise<void>) {
-    pillMenu = false;
+    openMenu = null;
     try {
       await action(stickId);
     } catch (error) {
@@ -52,16 +52,32 @@
     await refresh();
   }
 
+  /** Answers to an older look are dropped: they arrive in any order. */
+  let looks = 0;
+
   async function refresh() {
+    const look = ++looks;
     try {
-      current = await loadStick(stickId);
-      activity = current.sharing;
+      const loaded = await loadStick(stickId);
+      if (look !== looks) return;
+      current = loaded;
+      activity = loaded.sharing;
     } catch (error) {
-      failure = String(error);
+      if (look === looks) failure = String(error);
+    }
+  }
+
+  /** A click outside a menu, or Escape, closes it. */
+  function closeMenus(event: MouseEvent | KeyboardEvent) {
+    if (event instanceof KeyboardEvent) {
+      if (event.key === "Escape") openMenu = null;
+    } else if (!(event.target instanceof Element && event.target.closest(".menu-box"))) {
+      openMenu = null;
     }
   }
 
   function picked(pick: Pick) {
+    openMenu = null;
     if (pick === "stop") act((id) => openDialog(false, id));
     else if (pick === "start") act(startSharingAgain);
     else asking = pick;
@@ -104,15 +120,11 @@
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
-      // Only this stick's; a problem of the whole app shows everywhere.
+      // Only this stick's.
       listen<About<Activity>>("activity", (event) => {
         if (event.payload.stick_id === stickId) activity = event.payload;
       }),
-      listen<About<ShareProblem>>("share-problem", (event) => {
-        const about = event.payload.stick_id;
-        if (about !== undefined && about !== stickId) return;
-        problem = event.payload.kind === "cleared" ? null : event.payload;
-      }),
+      listen("problems-changed", refresh),
       getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type === "over" || event.payload.type === "enter") {
           dropping = true;
@@ -133,7 +145,10 @@
   );
   let count = $derived(current?.entries.length ?? 0);
   let sharing = $derived(current?.sharing.state === "on" || current?.sharing.state === "starting");
+  let problem = $derived<ShareProblem | null>(current?.problem ?? null);
 </script>
+
+<svelte:window onclick={closeMenus} onkeydown={closeMenus} />
 
 <section class="view">
   <header class="row spread">
@@ -141,11 +156,11 @@
     {#if current}
       <div class="row">
         <div class="menu-box">
-          <button class="pill" onclick={() => (pillMenu = !pillMenu)}>
+          <button class="pill" aria-expanded={openMenu === "pill"} onclick={() => (openMenu = openMenu === "pill" ? null : "pill")}>
             <span class:on={current.mounted}>{current.mounted ? "●" : "○"}</span>
             {current.mounted ? "Mounted" : "Ejected"} ▾
           </button>
-          {#if pillMenu}
+          {#if openMenu === "pill"}
             <div class="menu" role="menu">
               <button role="menuitem" onclick={() => act(openInFileManager)} disabled={!current.mounted}>
                 Open in file manager
@@ -158,7 +173,7 @@
             </div>
           {/if}
         </div>
-        <StickMenu {sharing} onPick={picked} />
+        <StickMenu {sharing} bind:open={() => openMenu === "more", (open) => (openMenu = open ? "more" : null)} onPick={picked} />
       </div>
     {/if}
   </header>
@@ -207,7 +222,7 @@
   {:else if problem?.kind === "failed"}
     <p class="error">{problem.message}</p>
   {:else if problem?.kind === "seen_slowly"}
-    <p class="muted">Some folders cannot be watched (too many); their changes are seen within a minute.</p>
+    <p class="muted">This stick has so many folders that changes in some of them show up within a minute, not at once.</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 

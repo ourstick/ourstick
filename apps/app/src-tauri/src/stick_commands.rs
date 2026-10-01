@@ -60,6 +60,8 @@ pub struct StickView {
     sharing: SharingView,
     /// Mounted (macOS) or in the sidebar (Linux); not after Eject.
     mounted: bool,
+    /// Its last problem (see `problems`), or none.
+    problem: Option<crate::serving::ShareProblem>,
 }
 
 /// What can still be copied onto `stick`. Blocking.
@@ -114,7 +116,11 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
 
 /// The stick as the main window shows it.
 #[tauri::command]
-pub async fn stick(stick_id: String, state: State<'_, AppState>) -> Result<StickView, String> {
+pub async fn stick(
+    stick_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<StickView, String> {
     let stick = state
         .stick_now(&stick_id_of(&stick_id)?)
         .await
@@ -156,6 +162,7 @@ pub async fn stick(stick_id: String, state: State<'_, AppState>) -> Result<Stick
         entries,
         sharing,
         mounted,
+        problem: tauri::Manager::state::<crate::problems::Problems>(&app).of(Some(&id)),
     })
 }
 

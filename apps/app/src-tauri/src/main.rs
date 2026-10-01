@@ -12,6 +12,7 @@ mod inhibit;
 mod making;
 #[cfg(target_os = "macos")]
 mod menu;
+mod problems;
 mod qr;
 mod serving;
 mod share;
@@ -70,6 +71,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .manage(problems::Problems::default())
         // Closing the main window keeps the app in the tray: sharing goes
         // on until "Stop sharing" or Quit. Linux minimizes it instead of
         // hiding it, so that the tray can bring it back (see windows).
@@ -111,6 +113,8 @@ fn main() {
             stick_life_commands::new_link,
             stick_life_commands::new_stick,
             stick_life_commands::rename,
+            problems::app_problem,
+            problems::dismiss_app_problem,
             stick_life_commands::remove,
             stick_commands::add_paths,
             stick_commands::link_paths,

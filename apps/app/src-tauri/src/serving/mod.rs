@@ -332,5 +332,5 @@ fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
         },
         WatchEvent::Ejected => ShareProblem::Ejected,
     };
-    let _ = app.emit("share-problem", StickEvent::new(stick_id, problem));
+    crate::problems::tell(app, Some(*stick_id), problem);
 }

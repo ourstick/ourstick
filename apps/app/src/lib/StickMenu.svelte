@@ -4,8 +4,11 @@
 </script>
 
 <script lang="ts">
-  let { sharing, onPick }: { sharing: boolean; onPick: (pick: Pick) => void } = $props();
-  let open = $state(false);
+  let {
+    sharing,
+    open = $bindable(false),
+    onPick,
+  }: { sharing: boolean; open: boolean; onPick: (pick: Pick) => void } = $props();
 
   function pick(choice: Pick) {
     open = false;

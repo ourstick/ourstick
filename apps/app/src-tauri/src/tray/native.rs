@@ -83,10 +83,10 @@ fn icon(active: bool) -> Result<(Image<'static>, bool)> {
     })
 }
 
-/// A label as the menu shows it: on Windows `&` marks an access key, so a
-/// stick's own `&` is doubled.
+/// A label as the menu shows it: on Windows `&` marks an access key, and
+/// macOS drops it as one (muda), so a stick's own `&` is doubled.
 fn label(text: &str) -> String {
-    if cfg!(windows) {
+    if cfg!(any(windows, target_os = "macos")) {
         text.replace('&', "&&")
     } else {
         text.to_owned()
@@ -119,6 +119,9 @@ fn menu(app: &AppHandle, sticks: &[TrayStick]) -> Result<Menu<Wry>> {
                     .map(|item| item as &dyn IsMenuItem<Wry>)
                     .collect();
                 menu.append(&Submenu::with_items(app, label(&text), true, &items)?)?;
+            }
+            Line::Note(text) => {
+                menu.append(&MenuItem::new(app, label(&text), false, None::<&str>)?)?
             }
             Line::Separator => menu.append(&PredefinedMenuItem::separator(app)?)?,
         }
@@ -182,7 +185,7 @@ mod tests {
         let shown = label("Maria & Co");
         assert_eq!(
             shown,
-            if cfg!(windows) {
+            if cfg!(any(windows, target_os = "macos")) {
                 "Maria && Co"
             } else {
                 "Maria & Co"

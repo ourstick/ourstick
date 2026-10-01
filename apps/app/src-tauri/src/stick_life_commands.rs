@@ -11,7 +11,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::{blocking, shown};
-use crate::serving::ShareProblem;
 use crate::sharing::{make_busy, refresh_tray, start_sharing_later};
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState, Sharing};
 
@@ -35,26 +34,42 @@ pub async fn sticks(state: State<'_, AppState>) -> Result<Vec<StickEntry>, Strin
     Ok(sticks
         .into_iter()
         .map(|stick| {
-            let (word, readers) = match sharing.get(&stick.stick_id) {
-                None | Some(Sharing::Off) => ("off", 0),
-                Some(Sharing::Starting) => ("starting", 0),
-                Some(Sharing::On(serving)) => ("on", serving.activity.borrow().readers),
-                Some(Sharing::Failed(_)) => ("failed", 0),
-                Some(Sharing::Busy(_)) => ("busy", 0),
-            };
-            let doing = match sharing.get(&stick.stick_id) {
-                Some(Sharing::Busy(doing)) => Some(*doing),
-                _ => None,
-            };
-            StickEntry {
-                id: stick_hex(&stick.stick_id),
-                name: stick.name,
-                sharing: word,
-                doing,
-                readers,
-            }
+            let now = sharing.get(&stick.stick_id);
+            entry_of(stick, now)
         })
         .collect())
+}
+
+/// How the list shows `stick`, sharing as `now`.
+fn entry_of(stick: OwnedStick, now: Option<&Sharing>) -> StickEntry {
+    let (word, readers, doing) = match now {
+        None | Some(Sharing::Off) => ("off", 0, None),
+        Some(Sharing::Starting) => ("starting", 0, None),
+        Some(Sharing::On(serving)) => ("on", serving.activity.borrow().readers, None),
+        Some(Sharing::Failed(_)) => ("failed", 0, None),
+        Some(Sharing::Busy(doing)) => ("busy", 0, Some(*doing)),
+    };
+    StickEntry {
+        id: stick_hex(&stick.stick_id),
+        name: stick.name,
+        sharing: word,
+        doing,
+        readers,
+    }
+}
+
+/// Keeps `stick_id` busy while it changes (see `make_busy`); the window,
+/// the tray and its green dot show it at once.
+async fn keep_busy(
+    app: &AppHandle,
+    state: &AppState,
+    stick_id: &StickId,
+    doing: &'static str,
+) -> Result<(), String> {
+    make_busy(state, stick_id, doing).await?;
+    let _ = app.emit("sharing-changed", ());
+    refresh_tray(app).await;
+    Ok(())
 }
 
 /// After a change that kept `stick_id` busy: shared again in the
@@ -71,11 +86,15 @@ async fn share_again_if_wanted(app: &AppHandle, state: &AppState, stick_id: Stic
     }
 }
 
-/// Tells the UI what could not be done after a change that stands.
-fn tell(app: &AppHandle, unplugged: Option<String>) {
+/// Tells the window what could not be done for `stick_id` after a change
+/// that stands.
+pub fn tell_unplugged(app: &AppHandle, stick_id: StickId, unplugged: Option<String>) {
     if let Some(why) = unplugged {
-        let message = format!("It is not shown as a drive ({why}); use Mount to try again.");
-        let _ = app.emit("share-problem", ShareProblem::Failed { message });
+        crate::problems::failed(
+            app,
+            Some(stick_id),
+            format!("It is not shown as a drive ({why}); use Mount to try again."),
+        );
     }
 }
 
@@ -90,8 +109,7 @@ pub async fn new_link(
 ) -> Result<String, String> {
     let old = stick_id_of(&stick_id)?;
     let stick = state.stick_now(&old).await.map_err(shown)?;
-    make_busy(&state, &old, "Giving it a new link…").await?;
-    let _ = app.emit("sharing-changed", ());
+    keep_busy(&app, &state, &old, "Giving it a new link…").await?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = blocking(move || {
@@ -117,6 +135,7 @@ pub async fn new_link(
     };
     state.sticks.lock().await.remove(&old);
     crate::share::close(&app, &old);
+    crate::problems::tell(&app, Some(old), crate::serving::ShareProblem::Cleared);
     share_again_if_wanted(&app, &state, new).await;
     refresh_tray(&app).await;
     let _ = app.emit("sharing-changed", ());
@@ -135,8 +154,7 @@ pub async fn remove(
 ) -> Result<(), String> {
     let id = stick_id_of(&stick_id)?;
     let stick = state.stick_now(&id).await.map_err(shown)?;
-    make_busy(&state, &id, "Removing…").await?;
-    let _ = app.emit("sharing-changed", ());
+    keep_busy(&app, &state, &id, "Removing…").await?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let removed = blocking(move || {
@@ -157,6 +175,7 @@ pub async fn remove(
         Ok(()) => {
             state.sticks.lock().await.remove(&id);
             crate::share::close(&app, &id);
+            crate::problems::tell(&app, Some(id), crate::serving::ShareProblem::Cleared);
         }
         // Not marked as being removed (refused early): still a stick.
         Err(_) => share_again_if_wanted(&app, &state, id).await,
@@ -184,8 +203,7 @@ async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), S
         return Ok(());
     };
     let id = first.stick_id;
-    make_busy(state, &id, "Moving into the OurStick folder…").await?;
-    let _ = app.emit("sharing-changed", ());
+    keep_busy(app, state, &id, "Moving into the OurStick folder…").await?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let moved = blocking(move || {
@@ -238,7 +256,7 @@ pub async fn new_stick(
     let _ = app.emit("mount-changed", ());
     refresh_tray(&app).await;
     let made = made?;
-    tell(&app, made.unplugged);
+    tell_unplugged(&app, made.stick_id, made.unplugged);
     start_sharing_later(&app, made.stick_id);
     Ok(stick_hex(&made.stick_id))
 }
@@ -260,8 +278,7 @@ pub async fn rename(
     // it there would take it out of `~/OurStick`.
     move_first_if_needed(&app, &state).await?;
     let stick = state.stick_now(&id).await.map_err(shown)?;
-    make_busy(&state, &id, "Renaming…").await?;
-    let _ = app.emit("sharing-changed", ());
+    keep_busy(&app, &state, &id, "Renaming…").await?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let renamed = blocking(move || {
@@ -300,6 +317,22 @@ pub async fn rename(
     let _ = app.emit("mount-changed", ());
     let _ = app.emit("sharing-changed", ());
     refresh_tray(&app).await;
-    tell(&app, renamed?);
+    tell_unplugged(&app, id, renamed?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_list_says_what_a_busy_stick_is_doing() {
+        let id = ourstick_core::StickSigningKey::from_bytes(&[5; 32]).stick_id();
+        let stick = OwnedStick::new(id, "Photos", "/s", ourstick_core::CipherId::None, 0);
+        let busy = entry_of(stick.clone(), Some(&Sharing::Busy("Renaming…")));
+        assert_eq!((busy.sharing, busy.doing), ("busy", Some("Renaming…")));
+        let off = entry_of(stick, None);
+        assert_eq!((off.sharing, off.doing, off.readers), ("off", None, 0));
+        assert_eq!(off.id, stick_hex(&id));
+    }
 }

@@ -11,12 +11,19 @@ use ourstick_core::{device, locks, StickId};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub use crate::busy::{is_busy, make_busy, readers_now, stop_serving};
-use crate::serving::{self, ShareProblem};
+use crate::serving;
 use crate::state::{AppState, Sharing};
 
-/// Tells the UI about a problem it cannot otherwise see.
+/// Tells the window about a problem of the whole app.
 fn problem(app: &AppHandle, message: String) {
-    let _ = app.emit("share-problem", ShareProblem::Failed { message });
+    crate::problems::failed(app, None, message);
+}
+
+/// Tells the window about several problems of the whole app, as one.
+fn problems(app: &AppHandle, messages: Vec<String>) {
+    if !messages.is_empty() {
+        problem(app, messages.join("\n"));
+    }
 }
 
 /// What stopped halfway (a removal, a new link), finished; the failures,
@@ -49,7 +56,7 @@ async fn finish_pending_off_thread(app: &AppHandle) {
         tauri::async_runtime::spawn_blocking(move || finish_pending(&handle.state::<AppState>()))
             .await;
     match finished {
-        Ok(Ok(failed)) => failed.into_iter().for_each(|message| problem(app, message)),
+        Ok(Ok(failed)) => problems(app, failed),
         Ok(Err(error)) => problem(app, format!("{error:#}")),
         Err(error) => tracing::warn!(%error, "finishing what waited did not finish"),
     }
@@ -103,9 +110,7 @@ pub fn start_app(app: &AppHandle) {
         })
         .await;
         match prepared {
-            Ok(Ok(failed)) => failed
-                .into_iter()
-                .for_each(|message| problem(&app, message)),
+            Ok(Ok(failed)) => problems(&app, failed),
             Ok(Err(error)) => problem(&app, format!("OurStick could not start: {error:#}")),
             Err(error) => tracing::warn!(%error, "the start did not finish"),
         }
@@ -144,7 +149,11 @@ async fn plug_in_off_thread(app: &AppHandle, stick_id: StickId) -> bool {
         Ok(Ok(follow)) => follow,
         Ok(Err(error)) => {
             tracing::warn!(error = %format!("{error:#}"), "a stick could not be mounted");
-            problem(app, format!("The stick could not be mounted: {error:#}"));
+            crate::problems::failed(
+                app,
+                Some(stick_id),
+                format!("The stick could not be mounted: {error:#}"),
+            );
             true
         }
         Err(error) => {
@@ -187,8 +196,9 @@ pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if is_busy(&app.state::<AppState>(), &stick_id).await {
-            problem(
+            crate::problems::failed(
                 &app,
+                Some(stick_id),
                 "The stick is busy; mount it again in a moment.".to_owned(),
             );
             return;
@@ -235,6 +245,7 @@ pub async fn start_sharing(app: &AppHandle, stick_id: StickId, together: usize) 
         sticks.insert(stick_id, Sharing::Starting);
     }
     let _ = app.emit("sharing-changed", ());
+    refresh_tray(app).await;
     let started = serving::start(
         app.clone(),
         state.data_dir.clone(),
@@ -290,22 +301,30 @@ pub async fn refresh_active(app: &AppHandle) {
     crate::tray::set_active(app, any);
 }
 
-/// The tray lists the app's sticks as they are now: the one place that
-/// tells it, after anything that changes a stick's name, drive or sharing.
+/// The tray lists the app's sticks as they are now, and its green dot
+/// shows whether anyone downloads: the one place that tells it, after
+/// anything that changes a stick's name, drive or sharing. One refresh at a
+/// time, so an older one never shows over a newer one.
 pub async fn refresh_tray(app: &AppHandle) {
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = ONE_AT_A_TIME.lock().await;
     let state = app.state::<AppState>();
-    let Ok(sticks) = state.sticks_now().await else {
-        return;
+    let sticks = match state.sticks_now().await {
+        Ok(sticks) => sticks,
+        Err(error) => {
+            return tracing::warn!(error = %format!("{error:#}"), "the tray stays as it was")
+        }
     };
-    let Ok(mounted) = tauri::async_runtime::spawn_blocking(move || {
+    let mounted = tauri::async_runtime::spawn_blocking(move || {
         sticks
             .into_iter()
             .map(|stick| (crate::drive::is_mounted(&stick), stick))
             .collect::<Vec<_>>()
     })
-    .await
-    else {
-        return;
+    .await;
+    let mounted = match mounted {
+        Ok(mounted) => mounted,
+        Err(error) => return tracing::warn!(%error, "the tray stays as it was"),
     };
     let sharing = state.sticks.lock().await;
     let shown = mounted
@@ -313,12 +332,18 @@ pub async fn refresh_tray(app: &AppHandle) {
         .map(|(mounted, stick)| crate::tray::TrayStick {
             id: stick.stick_id,
             sharing: sharing.get(&stick.stick_id).is_some_and(Sharing::is_on),
+            doing: match sharing.get(&stick.stick_id) {
+                Some(Sharing::Busy(doing)) => Some(*doing),
+                _ => None,
+            },
             name: stick.name,
             mounted,
         })
         .collect();
+    let active = readers_now(&sharing) > 0;
     drop(sharing);
     crate::tray::set_sticks(app, shown);
+    crate::tray::set_active(app, active);
 }
 
 /// Tells the UI (event `mount-changed`) when a stick is ejected or mounted

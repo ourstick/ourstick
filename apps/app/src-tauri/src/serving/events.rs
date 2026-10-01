@@ -6,7 +6,7 @@ use ourstick_core::StickId;
 use serde::Serialize;
 
 /// A problem with sharing, as the UI hears of it (event `share-problem`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ShareProblem {
     /// Could not publish a change; tried again later.

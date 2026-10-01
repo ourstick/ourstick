@@ -188,8 +188,8 @@ fn opens_window(app: &AppHandle, action: Action) -> bool {
             .get_webview_window(&format!("share-{}", crate::state::stick_hex(&stick)))
             .is_none(),
         // The Stop sharing / Quit dialog is always made anew.
-        Action::Sharing(_) | Action::Quit => true,
-        Action::Open | Action::Mount(_) | Action::NewStick => false,
+        Action::StopSharing(_) | Action::Quit => true,
+        Action::Open | Action::Mount(_) | Action::StartSharing(_) | Action::NewStick => false,
     }
 }
 
@@ -265,6 +265,12 @@ impl ksni::Tray for Tray {
                         .iter()
                         .map(|(text, action)| item(text, *action))
                         .collect(),
+                    ..Default::default()
+                }
+                .into(),
+                Line::Note(text) => ksni::menu::StandardItem {
+                    label: label(&text),
+                    enabled: false,
                     ..Default::default()
                 }
                 .into(),

@@ -20,11 +20,10 @@ use native as platform;
 
 pub use platform::{create, set_active, set_sticks};
 
-use anyhow::Result;
 use ourstick_core::StickId;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::state::{stick_hex, stick_id, AppState, Sharing};
+use crate::state::{stick_hex, stick_id, AppState};
 use crate::{dialog, share};
 
 /// One of the app's sticks, as the tray shows it.
@@ -34,6 +33,8 @@ pub struct TrayStick {
     pub name: String,
     pub mounted: bool,
     pub sharing: bool,
+    /// While busy, what is being done ("Renaming…"): nothing to choose.
+    pub doing: Option<&'static str>,
 }
 
 /// What the tray menu's items do.
@@ -43,8 +44,9 @@ enum Action {
     Share(StickId),
     /// Eject, or Mount after an eject.
     Mount(StickId),
-    /// Stop sharing (asks first), or Start sharing after a stop.
-    Sharing(StickId),
+    /// Stop sharing (asks first).
+    StopSharing(StickId),
+    StartSharing(StickId),
     NewStick,
     Quit,
 }
@@ -57,7 +59,8 @@ impl Action {
             Self::Open => "open".to_owned(),
             Self::Share(stick) => format!("share:{}", stick_hex(&stick)),
             Self::Mount(stick) => format!("mount:{}", stick_hex(&stick)),
-            Self::Sharing(stick) => format!("sharing:{}", stick_hex(&stick)),
+            Self::StopSharing(stick) => format!("stop:{}", stick_hex(&stick)),
+            Self::StartSharing(stick) => format!("start:{}", stick_hex(&stick)),
             Self::NewStick => "new-stick".to_owned(),
             Self::Quit => "quit".to_owned(),
         }
@@ -78,7 +81,8 @@ impl Action {
                 match what {
                     "share" => Some(Self::Share(stick)),
                     "mount" => Some(Self::Mount(stick)),
-                    "sharing" => Some(Self::Sharing(stick)),
+                    "stop" => Some(Self::StopSharing(stick)),
+                    "start" => Some(Self::StartSharing(stick)),
                     _ => None,
                 }
             }
@@ -92,6 +96,8 @@ enum Line {
     Item(String, Action),
     /// A stick: its label and its submenu.
     Stick(String, Vec<(String, Action)>),
+    /// Says something; nothing to choose.
+    Note(String),
     Separator,
 }
 
@@ -120,6 +126,10 @@ fn menu_lines(sticks: &[TrayStick]) -> Vec<Line> {
         lines.push(Line::Separator);
     }
     for stick in sticks {
+        if let Some(doing) = stick.doing {
+            lines.push(Line::Note(format!("{} \u{2014} {doing}", stick.name)));
+            continue;
+        }
         let state = if stick.sharing {
             "sharing"
         } else {
@@ -135,7 +145,11 @@ fn menu_lines(sticks: &[TrayStick]) -> Vec<Line> {
                 ),
                 (
                     sharing_label(stick.sharing).to_owned(),
-                    Action::Sharing(stick.id),
+                    if stick.sharing {
+                        Action::StopSharing(stick.id)
+                    } else {
+                        Action::StartSharing(stick.id)
+                    },
                 ),
             ],
         ));
@@ -157,7 +171,11 @@ fn act(app: &AppHandle, action: Action) {
             toggle_mount(app, stick);
             Ok(())
         }
-        Action::Sharing(stick) => toggle_sharing(app, stick),
+        Action::StopSharing(stick) => dialog::open(app, dialog::Mode::StopSharing(stick)),
+        Action::StartSharing(stick) => {
+            start(app, stick);
+            Ok(())
+        }
         Action::NewStick => {
             show_main(app);
             // The window asks for the new stick's name.
@@ -178,12 +196,9 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// Tells the window about a problem it cannot otherwise see.
-fn problem(app: &AppHandle, message: String) {
-    let _ = app.emit(
-        "share-problem",
-        crate::serving::ShareProblem::Failed { message },
-    );
+/// Tells the window about a problem of `stick_id` it cannot otherwise see.
+fn problem(app: &AppHandle, stick_id: StickId, message: String) {
+    crate::problems::failed(app, Some(stick_id), message);
 }
 
 fn toggle_mount(app: &AppHandle, stick_id: StickId) {
@@ -191,11 +206,15 @@ fn toggle_mount(app: &AppHandle, stick_id: StickId) {
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
         if crate::sharing::is_busy(&state, &stick_id).await {
-            return problem(&app, "The stick is busy; try again in a moment.".to_owned());
+            return problem(
+                &app,
+                stick_id,
+                "The stick is busy; try again in a moment.".to_owned(),
+            );
         }
         let stick = match state.stick_now(&stick_id).await {
             Ok(stick) => stick,
-            Err(error) => return problem(&app, format!("{error:#}")),
+            Err(error) => return problem(&app, stick_id, format!("{error:#}")),
         };
         // The disk is read and `hdiutil`/`subst` run off the async runtime.
         let Ok(ejected) = tauri::async_runtime::spawn_blocking(move || {
@@ -209,7 +228,7 @@ fn toggle_mount(app: &AppHandle, stick_id: StickId) {
             Some(ejected) => {
                 if let Err(error) = ejected {
                     tracing::warn!(error = %format!("{error:#}"), "eject failed");
-                    problem(&app, format!("{error:#}"));
+                    problem(&app, stick_id, format!("{error:#}"));
                 }
                 let _ = app.emit("mount-changed", ());
                 crate::sharing::refresh_tray(&app).await;
@@ -219,26 +238,24 @@ fn toggle_mount(app: &AppHandle, stick_id: StickId) {
     });
 }
 
-fn toggle_sharing(app: &AppHandle, stick_id: StickId) -> Result<()> {
-    let state = app.state::<AppState>();
-    // Never wait on the main thread: a busy lock means sharing is changing,
-    // so ask as if it were on.
-    let sharing = state.sticks.try_lock().map_or(true, |sticks| {
-        sticks.get(&stick_id).is_some_and(Sharing::is_on)
+/// "Start sharing": wanted shared from now on, then shared; a busy stick
+/// says so.
+fn start(app: &AppHandle, stick_id: StickId) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if crate::sharing::is_busy(&state, &stick_id).await {
+            return problem(
+                &app,
+                stick_id,
+                "The stick is busy; try again in a moment.".to_owned(),
+            );
+        }
+        match state.set_sharing_wanted(&stick_id, true).await {
+            Ok(()) => crate::sharing::start_sharing(&app, stick_id, 1).await,
+            Err(error) => problem(&app, stick_id, format!("{error:#}")),
+        }
     });
-    if sharing {
-        dialog::open(app, dialog::Mode::StopSharing(stick_id))
-    } else {
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app.state::<AppState>();
-            match state.set_sharing_wanted(&stick_id, true).await {
-                Ok(()) => crate::sharing::start_sharing(&app, stick_id, 1).await,
-                Err(error) => problem(&app, format!("{error:#}")),
-            }
-        });
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -251,6 +268,7 @@ mod tests {
             name: name.to_owned(),
             mounted,
             sharing,
+            doing: None,
         }
     }
 
@@ -275,7 +293,7 @@ mod tests {
                 vec![
                     ("Share…".to_owned(), Action::Share(photos.id)),
                     ("Eject".to_owned(), Action::Mount(photos.id)),
-                    ("Stop sharing…".to_owned(), Action::Sharing(photos.id)),
+                    ("Stop sharing…".to_owned(), Action::StopSharing(photos.id)),
                 ]
             )
         );
@@ -284,11 +302,24 @@ mod tests {
         };
         assert_eq!(label, "Films \u{2014} not sharing");
         assert_eq!(items[1].0, "Mount");
-        assert_eq!(items[2].0, "Start sharing");
+        assert_eq!(
+            items[2],
+            ("Start sharing".to_owned(), Action::StartSharing(films.id))
+        );
         assert_eq!(
             lines[5],
             Line::Item("New stick…".to_owned(), Action::NewStick)
         );
+    }
+
+    #[test]
+    fn a_busy_stick_says_what_it_is_doing_and_offers_nothing() {
+        let renaming = TrayStick {
+            doing: Some("Renaming…"),
+            ..stick(4, "Photos", true, true)
+        };
+        let lines = menu_lines(&[renaming]);
+        assert_eq!(lines[2], Line::Note("Photos \u{2014} Renaming…".to_owned()));
     }
 
     #[test]
@@ -308,7 +339,8 @@ mod tests {
             Action::Open,
             Action::Share(id),
             Action::Mount(id),
-            Action::Sharing(id),
+            Action::StopSharing(id),
+            Action::StartSharing(id),
             Action::NewStick,
             Action::Quit,
         ] {

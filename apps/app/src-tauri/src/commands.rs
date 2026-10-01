@@ -75,13 +75,7 @@ pub async fn plug_in(
     .await?;
     let _ = app.emit("mount-changed", ());
     if let Some(made) = made {
-        if let Some(why) = made.unplugged {
-            let message = format!("It is not shown as a drive ({why}); use Mount to try again.");
-            let _ = app.emit(
-                "share-problem",
-                crate::serving::ShareProblem::Failed { message },
-            );
-        }
+        crate::stick_life_commands::tell_unplugged(&app, made.stick_id, made.unplugged);
         start_sharing_later(&app, made.stick_id);
     }
     Ok(())

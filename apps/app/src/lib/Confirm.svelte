@@ -6,10 +6,13 @@
   let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
   let view = $state<ConfirmView | null>(null);
   let busy = $state(false);
+  let failure = $state<string | null>(null);
 
   onMount(() => {
     appState().then((app) => (document.documentElement.dataset.platform = app.platform));
-    confirmView(stickId).then((loaded) => (view = loaded));
+    confirmView(stickId)
+      .then((loaded) => (view = loaded))
+      .catch((error) => (failure = String(error)));
   });
 
   const close = () => getCurrentWindow().close();
@@ -22,17 +25,29 @@
 
   async function stop() {
     busy = true;
-    if (quitting) {
-      // Sharing stops on the way out.
-      await quit();
-    } else if (stickId) {
-      await stopSharing(stickId);
-      await close();
+    failure = null;
+    try {
+      if (quitting) {
+        // Sharing stops on the way out.
+        await quit();
+      } else if (stickId) {
+        await stopSharing(stickId);
+        await close();
+      }
+    } catch (error) {
+      failure = String(error);
+      busy = false;
     }
   }
 </script>
 
 <main class="card dialog">
+  {#if failure}
+    <p class="error">{failure}</p>
+    {#if !view}
+      <div class="actions"><button onclick={close}>Close</button></div>
+    {/if}
+  {/if}
   <!-- Nothing until the app says whether it shares: never the wrong words. -->
   {#if view && quitting}
     <h1>Quit OurStick?</h1>

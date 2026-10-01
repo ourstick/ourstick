@@ -31,14 +31,23 @@ pub fn open_later(app: &AppHandle, mode: Mode) {
 /// Shows the dialog for `mode` (one at a time). Not from an event handler
 /// (see [`open_later`]) or a synchronous command.
 pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
-    if let Some(window) = app.get_webview_window("confirm") {
-        let _ = window.close();
+    // A label of its own each time: the one closed now may not be gone yet,
+    // and a new window under its label would not be made.
+    static OPENED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("confirm") {
+            let _ = window.close();
+        }
     }
+    let label = format!(
+        "confirm-{}",
+        OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
     let page = match mode {
         Mode::StopSharing(stick_id) => format!("index.html#stop/{}", stick_hex(&stick_id)),
         Mode::Quit => "index.html#quit".to_owned(),
     };
-    let window = WebviewWindowBuilder::new(app, "confirm", WebviewUrl::App(page.into()))
+    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title("OurStick")
         .focused(crate::windows::FOCUS_NEW)
         .inner_size(420.0, 230.0)
@@ -74,42 +83,46 @@ pub async fn confirm_view(
         .sticks_now()
         .await
         .map_err(|error| format!("{error:#}"))?;
-    let sharing = state.sticks.lock().await;
-    let readers_of = |id| match sharing.get(id) {
+    let stick_id = stick_id.as_deref().map(stick_id_of).transpose()?;
+    Ok(confirm_of(&all, &*state.sticks.lock().await, stick_id))
+}
+
+/// What the dialog says about `stick_id` (or, with none, every stick).
+fn confirm_of(
+    all: &[ourstick_core::OwnedStick],
+    sharing: &std::collections::HashMap<StickId, Sharing>,
+    stick_id: Option<StickId>,
+) -> ConfirmView {
+    let readers_of = |id: &StickId| match sharing.get(id) {
         Some(Sharing::On(serving)) => serving.activity.borrow().readers,
         _ => 0,
     };
-    let shared_now = |id| sharing.get(id).is_some_and(Sharing::is_on);
-    Ok(match stick_id {
-        Some(hex) => {
-            let id = stick_id_of(&hex)?;
-            ConfirmView {
-                sharing: shared_now(&id),
-                readers: readers_of(&id),
-                name: all
-                    .iter()
-                    .find(|stick| stick.stick_id == id)
-                    .map(|stick| stick.name.clone()),
-                shared: Vec::new(),
-                downloading: Vec::new(),
-            }
-        }
+    let shared_now = |id: &StickId| sharing.get(id).is_some_and(Sharing::is_on);
+    let names = |keep: &dyn Fn(&StickId) -> bool| -> Vec<String> {
+        all.iter()
+            .filter(|stick| keep(&stick.stick_id))
+            .map(|stick| stick.name.clone())
+            .collect()
+    };
+    match stick_id {
+        Some(id) => ConfirmView {
+            sharing: shared_now(&id),
+            readers: readers_of(&id),
+            name: all
+                .iter()
+                .find(|stick| stick.stick_id == id)
+                .map(|stick| stick.name.clone()),
+            shared: Vec::new(),
+            downloading: Vec::new(),
+        },
         None => ConfirmView {
             sharing: sharing.values().any(Sharing::is_on),
-            readers: readers_now(&sharing),
+            readers: readers_now(sharing),
             name: None,
-            shared: all
-                .iter()
-                .filter(|stick| shared_now(&stick.stick_id))
-                .map(|stick| stick.name.clone())
-                .collect(),
-            downloading: all
-                .iter()
-                .filter(|stick| readers_of(&stick.stick_id) > 0)
-                .map(|stick| stick.name.clone())
-                .collect(),
+            shared: names(&shared_now),
+            downloading: names(&|id| readers_of(id) > 0),
         },
-    })
+    }
 }
 
 /// Async, as `share::open_share`: a window made from a synchronous command
@@ -143,7 +156,6 @@ pub async fn stop_sharing(
         .map_err(|error| format!("{error:#}"))?;
     stop_serving(&state, &stick_id).await;
     refresh_tray(&app).await;
-    crate::sharing::refresh_active(&app).await;
     let _ = tauri::Emitter::emit(&app, "sharing-changed", ());
     Ok(())
 }
@@ -173,4 +185,39 @@ pub static QUIT_CONFIRMED: std::sync::atomic::AtomicBool =
 pub fn quit(app: AppHandle) {
     QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn stick(byte: u8, name: &str) -> ourstick_core::OwnedStick {
+        let id = ourstick_core::StickSigningKey::from_bytes(&[byte; 32]).stick_id();
+        ourstick_core::OwnedStick::new(id, name, "/s", ourstick_core::CipherId::None, 0)
+    }
+
+    #[test]
+    fn quit_names_the_sticks_being_shared_oldest_first() {
+        let all = [stick(1, "Photos"), stick(2, "Films"), stick(3, "Music")];
+        let mut sharing = HashMap::new();
+        sharing.insert(all[0].stick_id, Sharing::Starting);
+        sharing.insert(all[1].stick_id, Sharing::Off);
+        sharing.insert(all[2].stick_id, Sharing::Starting);
+        let view = confirm_of(&all, &sharing, None);
+        assert!(view.sharing);
+        assert_eq!(view.shared, ["Photos", "Music"]);
+        assert!(view.downloading.is_empty());
+        assert_eq!(view.name, None);
+    }
+
+    #[test]
+    fn stop_sharing_names_its_stick() {
+        let all = [stick(1, "Photos"), stick(2, "Films")];
+        let view = confirm_of(&all, &HashMap::new(), Some(all[1].stick_id));
+        assert_eq!(view.name.as_deref(), Some("Films"));
+        assert!(!view.sharing);
+        let gone = stick(9, "Gone").stick_id;
+        assert_eq!(confirm_of(&all, &HashMap::new(), Some(gone)).name, None);
+    }
 }

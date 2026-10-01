@@ -21,8 +21,15 @@ export function plugIn(): Promise<void> {
 
 export interface Entry {
   name: string;
-  size: number;
+  /** null for a linked entry not read yet. */
+  size: number | null;
   is_dir: boolean;
+  /** Shared from where it is, not copied (ADR 0008). */
+  linked: boolean;
+  /** A linked entry that is not there (unplugged, moved). */
+  missing: boolean;
+  /** In the stick's folder but not shared: a linked entry has its name. */
+  left_out: boolean;
 }
 
 export interface Sharing {
@@ -51,6 +58,7 @@ export interface Stick {
 export type ShareProblem =
   | { kind: "failed"; message: string }
   | { kind: "ejected" }
+  | { kind: "seen_slowly" }
   | { kind: "cleared" };
 
 export interface Activity {
@@ -64,12 +72,23 @@ export function stick(): Promise<Stick> {
   return invoke("stick");
 }
 
-/** Copies dropped files and folders onto the stick. */
-export function addPaths(paths: string[]): Promise<void> {
+/** What became of a drop. */
+export type AddOutcome =
+  | { kind: "copied" }
+  /** Refused, as by a real stick; nothing was copied. */
+  | { kind: "does_not_fit"; needed: number; left: number };
+
+/** Copies dropped files and folders onto the stick, if they fit. */
+export function addPaths(paths: string[]): Promise<AddOutcome> {
   return invoke("add_paths", { paths });
 }
 
-/** Removes a file or folder from the stick (the stick's copy). */
+/** "Share it as it is": links them, shared from where they are. */
+export function linkPaths(paths: string[]): Promise<void> {
+  return invoke("link_paths", { paths });
+}
+
+/** Removes a top-level entry: the stick's copy, or only the link. */
 export function removeEntry(name: string): Promise<void> {
   return invoke("remove_entry", { name });
 }

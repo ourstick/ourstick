@@ -61,9 +61,23 @@ so Spotlight leaves it alone.
   Dropping **copies** into the stick folder, like onto a real stick. A drop
   that does not fit in what is left is refused, as by a real stick: nothing
   is copied, and the window says how big it is and how much is left.
-- File list: the top level of the stick folder, name and size, folders with
-  trailing `/`. Removing is done in the file manager, or via right-click →
-  Remove, which deletes the copy on the stick (never an original).
+- A drop that does not fit offers **Share it as it is** (ADR 0008 §2): the
+  folders or files are linked, shared from where they are, not copied, taking
+  no room on the stick and with no size limit of their own. The message says
+  that moving or deleting them there takes them off the stick too. A path
+  that is, holds or lies inside the stick, the data folder or another linked
+  entry is refused, and says why.
+- File list: the top level of the stick, name and size, folders with
+  trailing `/`: the stick folder's entries and the linked ones, marked
+  `linked` (their size is what the last read found, "reading…" before). A
+  linked entry that is not there (unplugged, moved) is marked `missing`;
+  people still get its last version. An entry of the stick folder with a
+  linked entry's name (ignoring case) is marked `not shared`. Removing is
+  done in the file manager, or via right-click → Remove, which deletes the
+  copy on the stick (never an original); for a linked entry it is **Stop
+  sharing**, which removes only the link, never its files.
+- If some folders cannot be watched (e.g. the system's limit on watches), a
+  line says their changes are seen within a minute.
 - Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
   used out of used + left. "Left" is what the computer has room for once its
   reserve and every share's and download's claim are counted (the space

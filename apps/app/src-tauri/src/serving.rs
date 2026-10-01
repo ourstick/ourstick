@@ -16,8 +16,8 @@ use ourstick_core::space::SystemDisks;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
-    follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Owner, PeriodicEvents,
-    WatchEvent, WatchTiming,
+    follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Nudge, Owner,
+    PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{Manifest, ManifestHint, Store, Ticket};
 use serde::Serialize;
@@ -35,6 +35,8 @@ pub struct Serving {
     pub link: Option<String>,
     /// Who downloads now.
     pub activity: watch::Receiver<ReaderActivity>,
+    /// Tells the watcher to look now (a linked entry came or went).
+    pub nudge: Nudge,
 }
 
 impl Serving {
@@ -54,6 +56,9 @@ pub enum ShareProblem {
     Failed { message: String },
     /// The stick's folder is not there; the last version is still served.
     Ejected,
+    /// Some of the stick's folders cannot be watched (e.g. too many
+    /// folders): changes are seen only now and then.
+    SeenSlowly,
     /// Publishing works again.
     Cleared,
 }
@@ -155,12 +160,22 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
         read_again,
         lock,
     };
-    let done = match NotifyEvents::start(&root) {
-        Ok(events) => tauri::async_runtime::spawn(shared.run(events, stopped)),
+    let (done, nudge) = match NotifyEvents::start(&root) {
+        Ok(events) => {
+            let nudge = events.nudge();
+            (
+                tauri::async_runtime::spawn(shared.run(events, stopped)),
+                nudge,
+            )
+        }
         Err(error) => {
             tracing::warn!(%error, "the folder cannot be watched; checking it now and then");
             let events = PeriodicEvents::new(RESCAN_EVERY);
-            tauri::async_runtime::spawn(shared.run(events, stopped))
+            let nudge = events.nudge();
+            (
+                tauri::async_runtime::spawn(shared.run(events, stopped)),
+                nudge,
+            )
         }
     };
     Ok(Serving {
@@ -168,6 +183,7 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
         done,
         link,
         activity,
+        nudge,
     })
 }
 
@@ -348,8 +364,8 @@ fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
             let _ = app.emit("stick-changed", ());
             ShareProblem::Cleared
         }
-        // The window says so with the stick's state (ADR 0008).
-        WatchEvent::StillChanging | WatchEvent::Reading { .. } | WatchEvent::SeenSlowly => return,
+        WatchEvent::StillChanging | WatchEvent::Reading { .. } => return,
+        WatchEvent::SeenSlowly => ShareProblem::SeenSlowly,
         // The window lists linked entries that are gone and own entries
         // left out from the stick itself; it only needs to look again.
         WatchEvent::Roots { .. } => {

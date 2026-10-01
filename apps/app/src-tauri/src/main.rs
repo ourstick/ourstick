@@ -14,6 +14,7 @@ mod qr;
 mod serving;
 mod share;
 mod state;
+mod stick_commands;
 mod tray;
 mod windows;
 
@@ -98,9 +99,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::plug_in,
-            commands::stick,
-            commands::add_paths,
-            commands::remove_entry,
+            stick_commands::stick,
+            stick_commands::add_paths,
+            stick_commands::link_paths,
+            stick_commands::remove_entry,
             share::open_share,
             share::share_view,
             share::copy_link,

@@ -5,6 +5,7 @@
   import {
     addPaths,
     eject,
+    linkPaths,
     mount,
     openInFileManager,
     openShare,
@@ -12,6 +13,7 @@
     removeEntry,
     stick as loadStick,
     type Activity,
+    type Entry,
     type ShareProblem,
     type Stick,
   } from "./api";
@@ -24,6 +26,8 @@
   let copying = $state(false);
   let failure = $state<string | null>(null);
   let removing = $state<string | null>(null);
+  /** A drop that does not fit, offered to be shared as it is. */
+  let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
   let pillMenu = $state(false);
 
   async function pillAction(action: () => Promise<void>) {
@@ -49,14 +53,35 @@
     if (paths.length === 0) return;
     copying = true;
     failure = null;
+    tooBig = null;
     try {
-      await addPaths(paths);
+      const outcome = await addPaths(paths);
+      if (outcome.kind === "does_not_fit") {
+        tooBig = { paths, needed: outcome.needed, left: outcome.left };
+      }
     } catch (error) {
       failure = String(error);
     } finally {
       copying = false;
       await refresh();
     }
+  }
+
+  async function shareAsItIs() {
+    if (!tooBig) return;
+    const paths = tooBig.paths;
+    tooBig = null;
+    failure = null;
+    try {
+      await linkPaths(paths);
+    } catch (error) {
+      failure = String(error);
+    }
+    await refresh();
+  }
+
+  function sizeOf(entry: Entry): string {
+    return entry.size === null ? "reading…" : size(entry.size);
   }
 
   async function remove(name: string) {
@@ -130,6 +155,23 @@
     <span class="muted">{files(count)} · {size(current?.used ?? 0)}</span>
   </section>
 
+  {#if tooBig}
+    <div class="notice" role="alert">
+      <p>
+        Does not fit: {tooBig.paths.length === 1 ? "it needs" : "they need"} {size(tooBig.needed)}, and
+        {size(tooBig.left)} {tooBig.left === 1 ? "is" : "are"} left on this computer.
+      </p>
+      <p class="muted">
+        Share it as it is: shared from where it is, not copied, taking no room on the stick. If you
+        move or delete it there, it is gone from the stick too.
+      </p>
+      <span class="inline-actions">
+        <button onclick={() => (tooBig = null)}>Cancel</button>
+        <button class="primary" onclick={shareAsItIs}>Share it as it is</button>
+      </span>
+    </div>
+  {/if}
+
   <ul class="entries">
     {#each current?.entries ?? [] as entry (entry.name)}
       <li
@@ -139,14 +181,25 @@
         }}
       >
         {#if removing === entry.name}
-          <span>Remove {entry.name}{entry.is_dir ? "/" : ""} from the stick?</span>
+          {#if entry.linked}
+            <span>Stop sharing {entry.name}{entry.is_dir ? "/" : ""}? It stays where it is.</span>
+          {:else}
+            <span>Remove {entry.name}{entry.is_dir ? "/" : ""} from the stick?</span>
+          {/if}
           <span class="inline-actions">
             <button onclick={() => (removing = null)}>Cancel</button>
-            <button class="danger" onclick={() => remove(entry.name)}>Remove</button>
+            <button class="danger" onclick={() => remove(entry.name)}>
+              {entry.linked ? "Stop sharing" : "Remove"}
+            </button>
           </span>
         {:else}
-          <span class="name">{entry.name}{entry.is_dir ? "/" : ""}</span>
-          <span class="muted">{size(entry.size)}</span>
+          <span class="name" class:faded={entry.left_out}>
+            {entry.name}{entry.is_dir ? "/" : ""}
+            {#if entry.linked}<span class="tag" title="Shared from where it is, not copied">linked</span>{/if}
+            {#if entry.missing}<span class="tag warn" title="Not there now (unplugged or moved?); people still get its last version">missing</span>{/if}
+            {#if entry.left_out}<span class="tag warn" title="Not shared: a linked entry has this name">not shared</span>{/if}
+          </span>
+          <span class="muted">{sizeOf(entry)}</span>
         {/if}
       </li>
     {/each}
@@ -182,6 +235,8 @@
     <p class="muted">The stick is ejected; people still get its last version.</p>
   {:else if problem?.kind === "failed"}
     <p class="error">{problem.message}</p>
+  {:else if problem?.kind === "seen_slowly"}
+    <p class="muted">Some folders cannot be watched (too many); their changes are seen within a minute.</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 
@@ -201,6 +256,27 @@
   }
   .drive {
     font-weight: 400;
+  }
+  .notice {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+  }
+  .notice p {
+    margin: 0 0 6px;
+  }
+  .tag {
+    font-size: 0.8em;
+    padding: 0 6px;
+    margin-left: 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .tag.warn {
+    border-color: var(--danger);
+  }
+  .faded {
+    opacity: 0.6;
   }
   .drop {
     flex-shrink: 0;

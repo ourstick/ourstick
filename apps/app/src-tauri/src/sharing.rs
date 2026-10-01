@@ -72,6 +72,19 @@ pub fn start_app(app: &AppHandle) {
         let handle = app.clone();
         let prepared = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>> {
             let state = handle.state::<AppState>();
+            let sticks = state.app_sticks()?;
+            // macOS: the first stick's image, from before images were
+            // recorded, goes to the oldest stick only, if it is there and no
+            // other stick has it; first, as it needs no keys (a keychain
+            // that fails must not leave the stick without its image).
+            if let (Some(oldest), Some(image)) = (sticks.first(), crate::drive::first_image()) {
+                let unclaimed = !sticks
+                    .iter()
+                    .any(|stick| stick.image_path.as_deref() == Some(image.as_path()));
+                if oldest.image_path.is_none() && unclaimed && image.exists() {
+                    state.store.set_image_path(&oldest.stick_id, &image)?;
+                }
+            }
             let secrets = device::open_system_keyring()?;
             check_secret_store(secrets.as_ref())?;
             let backend = device::system_keyring_backend().context("no keyring on this system")?;
@@ -83,18 +96,6 @@ pub fn start_app(app: &AppHandle) {
                     secrets.as_ref(),
                     backend,
                 )?;
-            }
-            let sticks = state.app_sticks()?;
-            // macOS: the first stick's image, from before images were
-            // recorded, goes to the oldest stick only, if it is there and no
-            // other stick has it.
-            if let (Some(oldest), Some(image)) = (sticks.first(), crate::drive::first_image()) {
-                let unclaimed = !sticks
-                    .iter()
-                    .any(|stick| stick.image_path.as_deref() == Some(image.as_path()));
-                if oldest.image_path.is_none() && unclaimed && image.exists() {
-                    state.store.set_image_path(&oldest.stick_id, &image)?;
-                }
             }
             for stick in sticks {
                 // A move of the first stick stopped halfway is finished.

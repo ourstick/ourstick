@@ -57,10 +57,27 @@ so Spotlight leaves it alone.
 
 ### 1 · Main window
 
-- Title: `OurStick`, the stick's name; no size.
-- Right: pill `● Mounted ▾` (macOS, Linux; `○ Ejected ▾` after eject). Click
-  opens a two-item menu: `Open in file manager`, `Eject (keeps sharing)` (or
-  `Mount` when ejected).
+- Left: the app's sticks (ADR 0009), oldest first, each with its name and
+  what it is doing in plain words: `Sharing`, `Someone downloading`,
+  `2 downloading`, `Not sharing`, `Getting ready…`, or while it changes
+  `Renaming…`, `Giving it a new link…`, `Removing…`. One is shown on the
+  right; at the bottom `+ New stick…` asks for a name (`Make it`; "Making
+  it… please wait."). The tray's `New stick…` opens the same field.
+- Right, the chosen stick. Title: its name; no size.
+- Next to it, pill `● Mounted ▾` (macOS, Linux; `○ Ejected ▾` after eject).
+  Click opens a two-item menu: `Open in file manager`, `Eject (keeps
+  sharing)` (or `Mount` when ejected).
+- And `⋯`, the stick's own menu: `Rename…`, `Stop sharing…` (or `Start
+  sharing`), `Give it a new link…`, `Remove this stick…` (red). Each asks
+  in the window first, with "… please wait." while it works:
+  - Rename: the new name (1–60 characters, not the name of another stick).
+    Its folder or volume, its bookmark or letter follow; people see the new
+    name with its next version.
+  - New link: "Everyone with the old link can no longer download. The files
+    stay on the stick. Send the new link to those who should still have it."
+  - Remove: "Its link stops working, and the files copied onto it are
+    deleted from this computer. Folders shared as they are (linked) stay
+    where they are."
 - Drop zone: "Drop files or folders here", below it `N files · size`.
   Dropping **copies** into the stick folder, like onto a real stick. A drop
   that does not fit in what is left is refused, as by a real stick: nothing
@@ -106,9 +123,13 @@ so Spotlight leaves it alone.
 
 ### 3 · Tray icon
 
-- Always present while the app runs. Green dot when someone is downloading.
-- Menu: `Open OurStick`, `Share…`, `Eject / Mount` (Linux), `Stop sharing…`
-  (red), `Quit`.
+- Always present while the app runs. Green dot when someone is downloading
+  from any stick.
+- Menu: `Open OurStick`; then each stick, `Name — sharing` or `Name — not
+  sharing`, with its own submenu: `Share…`, `Eject` / `Mount`, `Stop
+  sharing…` / `Start sharing`; then `New stick…` and `Quit`. The menu is
+  made again whenever a stick is made, renamed, removed, mounted, ejected,
+  or starts or stops sharing.
 - Closing the main window hides it in the tray; it does not stop sharing. On
   Linux it is minimized instead (see Known limitations).
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
@@ -119,15 +140,19 @@ so Spotlight leaves it alone.
 
 ### 4 · Stop sharing (also on Quit)
 
-- "Stop sharing OurStick?" / "Anyone with the link will no longer be able to
-  download."
+- "Stop sharing “Photos”?" (the stick's name) / "Anyone with the link will
+  no longer be able to download."
 - If a download is in progress: bold line `Someone is still downloading.`
   (no names, no remaining size in stage 1).
-- Buttons: `Keep sharing`, `Stop` (red). Quit shows the same dialog.
+- Buttons: `Keep sharing`, `Stop` (red). Quit shows the same dialog for every
+  stick: "Sharing “Photos” and “Films” stops: anyone with their links will
+  no longer be able to download.", and in bold the sticks someone downloads
+  from now.
 
 ### 5 · First launch
 
 - Title "Welcome to OurStick", three sentences (see image).
+- "Name of your stick", with `OurStick` filled in.
 - Button `Plug it in` → creates keys (Secret Service on Linux, Keychain on
   macOS), creates the stick folder (the disk image on macOS, `~/OurStick` on
   Linux), mounts it or adds the bookmark, and opens panel 1.

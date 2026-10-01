@@ -20,9 +20,12 @@ use ourstick_core::watcher::{
     PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{Manifest, ManifestHint, StickId, Store, Ticket};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{oneshot, watch};
+
+mod events;
+
+pub use events::{ActivityView, ShareProblem, StickEvent};
 
 /// How often the folder is checked when the system cannot report changes.
 const RESCAN_EVERY: Duration = Duration::from_secs(60);
@@ -45,61 +48,6 @@ impl Serving {
     pub async fn stop(self) {
         let _ = self.stop.send(());
         let _ = self.done.await;
-    }
-}
-
-/// A problem with sharing, as the UI hears of it (event `share-problem`).
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ShareProblem {
-    /// Could not publish a change; tried again later.
-    Failed { message: String },
-    /// The stick's folder is not there; the last version is still served.
-    Ejected,
-    /// Some of the stick's folders cannot be watched (e.g. too many
-    /// folders): changes are seen only now and then.
-    SeenSlowly,
-    /// Publishing works again.
-    Cleared,
-}
-
-/// Who downloads (event `activity`).
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct ActivityView {
-    pub readers: usize,
-    pub bytes_per_second: u64,
-    /// What to do when readers reach this computer only through the relay
-    /// (see [`relay_only_message`]); `None` otherwise.
-    pub relay_only: Option<&'static str>,
-}
-
-impl From<ReaderActivity> for ActivityView {
-    fn from(activity: ReaderActivity) -> Self {
-        Self {
-            readers: activity.readers,
-            bytes_per_second: activity.bytes_per_second,
-            relay_only: activity.only_relayed.then(relay_only_message),
-        }
-    }
-}
-
-/// Readers reach this computer only through the relay: most likely its
-/// firewall drops what they send (on Windows, after "Cancel" on the
-/// Windows Firewall question). Says so, and how to fix it here.
-pub fn relay_only_message() -> &'static str {
-    if cfg!(windows) {
-        "People can download only through the relay, which is slower. Windows \
-         Firewall probably blocks OurStick: open Windows Security, Firewall & \
-         network protection, Allow an app through firewall, and tick OurStick \
-         for the network you are on."
-    } else if cfg!(target_os = "macos") {
-        "People can download only through the relay, which is slower. The \
-         firewall probably blocks OurStick: open System Settings, Network, \
-         Firewall, Options, and allow incoming connections for OurStick."
-    } else {
-        "People can download only through the relay, which is slower. A \
-         firewall probably drops what they send: allow incoming UDP for \
-         OurStick (e.g. in ufw or firewalld)."
     }
 }
 
@@ -267,7 +215,7 @@ async fn first_publication(
             }),
         ),
         Err(error) => {
-            on_watch_event(app, &WatchEvent::Failed { error });
+            on_watch_event(app, &stick_id, &WatchEvent::Failed { error });
             // The link can still name a version published in an earlier run.
             let hint = {
                 let store = store.clone();
@@ -328,15 +276,20 @@ impl Shared {
                 signing_key: &keys.signing_key,
                 stick_key: &keys.stick_key,
             };
-            let mut on_event = |event: WatchEvent<'_>| on_watch_event(&app, &event);
+            let stick_id = keys.stick.stick_id;
+            let mut on_event = |event: WatchEvent<'_>| on_watch_event(&app, &stick_id, &event);
             let mut activity = publisher.activity();
             let forward = async {
                 let mut awake = crate::inhibit::KeepAwake::default();
                 while activity.changed().await.is_ok() {
                     let now = *activity.borrow();
-                    crate::tray::set_active(&app, now.readers > 0);
                     awake.set(now.readers > 0).await;
-                    let _ = app.emit("activity", ActivityView::from(now));
+                    let _ = app.emit(
+                        "activity",
+                        StickEvent::new(&stick_id, ActivityView::from(now)),
+                    );
+                    // The green dot: anyone downloading from any stick.
+                    crate::sharing::refresh_active(&app).await;
                 }
             };
             let timing = WatchTiming::default();
@@ -360,7 +313,7 @@ impl Shared {
 }
 
 /// Tells the UI what the watcher did.
-fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
+fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
     let problem = match event {
         WatchEvent::Published { .. } | WatchEvent::Unchanged => {
             let _ = app.emit("stick-changed", ());
@@ -379,5 +332,5 @@ fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
         },
         WatchEvent::Ejected => ShareProblem::Ejected,
     };
-    let _ = app.emit("share-problem", problem);
+    let _ = app.emit("share-problem", StickEvent::new(stick_id, problem));
 }

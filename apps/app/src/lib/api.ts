@@ -14,9 +14,9 @@ export function appState(): Promise<AppState> {
   return invoke("app_state");
 }
 
-/** Creates the keys and the stick (no size to choose, ADR 0008). */
-export function plugIn(): Promise<void> {
-  return invoke("plug_in");
+/** Creates the keys and the first stick, called `name` (no size to choose, ADR 0008). */
+export function plugIn(name: string): Promise<void> {
+  return invoke("plug_in", { name });
 }
 
 export interface Entry {
@@ -53,6 +53,9 @@ export interface Stick {
   /** Mounted (macOS) or in the sidebar (Linux); false after Eject. */
   mounted: boolean;
 }
+
+/** An event about one stick; none for a problem of the whole app. */
+export type About<T> = T & { stick_id?: string };
 
 /** A problem with sharing (event `share-problem`). */
 export type ShareProblem =
@@ -123,6 +126,11 @@ export function sendByEmail(stickId: string): Promise<void> {
 export interface ConfirmView {
   sharing: boolean;
   readers: number;
+  /** The stick's name (Stop sharing). */
+  name: string | null;
+  /** Quit: the sticks being shared, and those someone downloads from now. */
+  shared: string[];
+  downloading: string[];
 }
 
 /** About one stick, or (null, for Quit) about every stick. */
@@ -167,6 +175,8 @@ export interface StickEntry {
   id: string;
   name: string;
   sharing: "off" | "starting" | "on" | "failed" | "busy";
+  /** While busy, what is being done ("Renaming…"). */
+  doing: string | null;
   readers: number;
 }
 
@@ -183,4 +193,14 @@ export function newLink(stickId: string): Promise<string> {
 /** "Remove this stick": its copied files go, with its link. */
 export function removeStick(stickId: string): Promise<void> {
   return invoke("remove", { stickId });
+}
+
+/** "New stick…": a stick of its own, with its own link. Returns its id. */
+export function newStick(name: string): Promise<string> {
+  return invoke("new_stick", { name });
+}
+
+/** "Rename…": its folder and drive follow; people see the new name. */
+export function renameStick(stickId: string, name: string): Promise<void> {
+  return invoke("rename", { stickId, name });
 }

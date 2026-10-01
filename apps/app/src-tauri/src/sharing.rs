@@ -166,6 +166,7 @@ async fn plug_in_all(app: &AppHandle) {
         plug_in_off_thread(app, stick.stick_id).await;
     }
     let _ = app.emit("mount-changed", ());
+    refresh_tray(app).await;
     // Drives just plugged in (macOS: images attached only now) let what
     // waited for them finish.
     finish_pending_off_thread(app).await;
@@ -195,6 +196,7 @@ pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
         let restart = plug_in_off_thread(&app, stick_id).await;
         finish_pending_off_thread(&app).await;
         let _ = app.emit("mount-changed", ());
+        refresh_tray(&app).await;
         let state = app.state::<AppState>();
         let wanted = state
             .stick_now(&stick_id)
@@ -281,11 +283,42 @@ pub async fn stop_all(state: &AppState) {
     }
 }
 
-/// The tray says "sharing" while any stick is shared.
+/// The tray's green dot and the dialogs: anyone downloading from any stick.
+pub async fn refresh_active(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let any = readers_now(&*state.sticks.lock().await) > 0;
+    crate::tray::set_active(app, any);
+}
+
+/// The tray lists the app's sticks as they are now: the one place that
+/// tells it, after anything that changes a stick's name, drive or sharing.
 pub async fn refresh_tray(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let any = state.sticks.lock().await.values().any(Sharing::is_on);
-    crate::tray::set_sharing(app, any);
+    let Ok(sticks) = state.sticks_now().await else {
+        return;
+    };
+    let Ok(mounted) = tauri::async_runtime::spawn_blocking(move || {
+        sticks
+            .into_iter()
+            .map(|stick| (crate::drive::is_mounted(&stick), stick))
+            .collect::<Vec<_>>()
+    })
+    .await
+    else {
+        return;
+    };
+    let sharing = state.sticks.lock().await;
+    let shown = mounted
+        .into_iter()
+        .map(|(mounted, stick)| crate::tray::TrayStick {
+            id: stick.stick_id,
+            sharing: sharing.get(&stick.stick_id).is_some_and(Sharing::is_on),
+            name: stick.name,
+            mounted,
+        })
+        .collect();
+    drop(sharing);
+    crate::tray::set_sticks(app, shown);
 }
 
 /// Tells the UI (event `mount-changed`) when a stick is ejected or mounted
@@ -300,7 +333,6 @@ pub fn watch_mount(app: &AppHandle) {
             let Ok(sticks) = app.state::<AppState>().sticks_now().await else {
                 continue;
             };
-            let mut any_mounted = false;
             let mut changed = false;
             for stick in sticks {
                 let id = stick.stick_id;
@@ -308,7 +340,6 @@ pub fn watch_mount(app: &AppHandle) {
                     tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&stick))
                         .await
                         .unwrap_or(false);
-                any_mounted |= mounted;
                 let before = last.insert(id, mounted);
                 if before.is_some_and(|before| before != mounted) {
                     changed = true;
@@ -319,8 +350,8 @@ pub fn watch_mount(app: &AppHandle) {
             }
             if changed {
                 let _ = app.emit("mount-changed", ());
+                refresh_tray(&app).await;
             }
-            crate::tray::set_mounted(&app, any_mounted);
         }
     });
 }

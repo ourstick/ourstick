@@ -56,6 +56,12 @@ pub struct ConfirmView {
     sharing: bool,
     /// How many are downloading right now (from any stick, for Quit).
     readers: usize,
+    /// The stick's name (Stop sharing).
+    name: Option<String>,
+    /// For Quit: the sticks being shared, oldest first, and those someone
+    /// downloads from now.
+    shared: Vec<String>,
+    downloading: Vec<String>,
 }
 
 /// What the dialog says: about `stick_id`, or (none) about every stick.
@@ -64,21 +70,44 @@ pub async fn confirm_view(
     stick_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ConfirmView, String> {
-    let sticks = state.sticks.lock().await;
+    let all = state
+        .sticks_now()
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    let sharing = state.sticks.lock().await;
+    let readers_of = |id| match sharing.get(id) {
+        Some(Sharing::On(serving)) => serving.activity.borrow().readers,
+        _ => 0,
+    };
+    let shared_now = |id| sharing.get(id).is_some_and(Sharing::is_on);
     Ok(match stick_id {
-        Some(hex) => match sticks.get(&stick_id_of(&hex)?) {
-            Some(Sharing::On(serving)) => ConfirmView {
-                sharing: true,
-                readers: serving.activity.borrow().readers,
-            },
-            _ => ConfirmView {
-                sharing: false,
-                readers: 0,
-            },
-        },
+        Some(hex) => {
+            let id = stick_id_of(&hex)?;
+            ConfirmView {
+                sharing: shared_now(&id),
+                readers: readers_of(&id),
+                name: all
+                    .iter()
+                    .find(|stick| stick.stick_id == id)
+                    .map(|stick| stick.name.clone()),
+                shared: Vec::new(),
+                downloading: Vec::new(),
+            }
+        }
         None => ConfirmView {
-            sharing: sticks.values().any(Sharing::is_on),
-            readers: readers_now(&sticks),
+            sharing: sharing.values().any(Sharing::is_on),
+            readers: readers_now(&sharing),
+            name: None,
+            shared: all
+                .iter()
+                .filter(|stick| shared_now(&stick.stick_id))
+                .map(|stick| stick.name.clone())
+                .collect(),
+            downloading: all
+                .iter()
+                .filter(|stick| readers_of(&stick.stick_id) > 0)
+                .map(|stick| stick.name.clone())
+                .collect(),
         },
     })
 }
@@ -114,8 +143,7 @@ pub async fn stop_sharing(
         .map_err(|error| format!("{error:#}"))?;
     stop_serving(&state, &stick_id).await;
     refresh_tray(&app).await;
-    let any_readers = readers_now(&*state.sticks.lock().await) > 0;
-    crate::tray::set_active(&app, any_readers);
+    crate::sharing::refresh_active(&app).await;
     let _ = tauri::Emitter::emit(&app, "sharing-changed", ());
     Ok(())
 }

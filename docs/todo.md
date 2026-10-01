@@ -133,3 +133,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   ship a THIRD-PARTY notices file (e.g. made with `cargo about`), including
   the Unicode-3.0 licence of the ICU crates (`icu_normalizer` for stick
   names, already used by iroh through `url`/`idna`).
+- **The GUI mockup shows one stick.** `docs/gui-mockup.html` and its image
+  predate the stick list and the `⋯` menu (step 7a-iii); redraw them once
+  the manual round has settled the layout.

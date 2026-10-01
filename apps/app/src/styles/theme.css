@@ -170,6 +170,24 @@ select {
   padding: 0 12px;
 }
 
+/* A name is typed and selected like any text. */
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--button-radius);
+  min-height: var(--button-height);
+  padding: 0 8px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -189,4 +207,43 @@ select:disabled {
 
 .error {
   color: var(--danger);
+}
+
+/* A menu that drops down from a button (the drive pill, a stick's "⋯"). */
+.menu-box {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--button-radius);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+}
+
+.menu button {
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menu button + button {
+  border-top: 1px solid var(--border);
+}
+
+.menu button.danger-text {
+  color: var(--danger);
+  background: var(--card);
+}
+
+.muted {
+  color: var(--muted);
 }

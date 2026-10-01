@@ -10,7 +10,7 @@ use anyhow::Result;
 use ksni::TrayMethods;
 use tauri::{AppHandle, Manager};
 
-use super::{act, mount_label, sharing_label, Action};
+use super::{act, menu_lines, Action, Line, TrayStick};
 use crate::windows::Activation;
 
 /// How long a click waits for its token. The extension does not wait for
@@ -24,12 +24,11 @@ const FOCUS_WAIT: Duration = Duration::from_millis(500);
 
 /// What the tray shows; kept here so that changes made before the tray is
 /// up are not lost.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Shown {
     /// Someone downloads: the green dot.
     active: bool,
-    mounted: bool,
-    sharing: bool,
+    sticks: Vec<TrayStick>,
 }
 
 /// The running tray, as app state.
@@ -87,8 +86,7 @@ pub fn create(app: &AppHandle) -> Result<()> {
     app.manage(LinuxTray {
         shown: Mutex::new(Shown {
             active: false,
-            mounted: true,
-            sharing: true,
+            sticks: Vec::new(),
         }),
         handle: OnceLock::new(),
     });
@@ -141,22 +139,19 @@ pub fn set_active(app: &AppHandle, active: bool) {
     change(app, |shown| shown.active = active);
 }
 
-pub fn set_mounted(app: &AppHandle, mounted: bool) {
-    change(app, |shown| shown.mounted = mounted);
-}
-
-pub fn set_sharing(app: &AppHandle, sharing: bool) {
-    change(app, |shown| shown.sharing = sharing);
+/// The app's sticks, as the menu lists them.
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>) {
+    change(app, |shown| shown.sticks = sticks);
 }
 
 impl Tray {
     fn shown(&self) -> Shown {
-        *self
-            .app
+        self.app
             .state::<LinuxTray>()
             .shown
             .lock()
             .expect("tray state lock")
+            .clone()
     }
 
     /// Runs `action` once the click's token is in, or `TOKEN_WAIT` has
@@ -189,10 +184,12 @@ impl Tray {
 /// Whether `action` makes a new window.
 fn opens_window(app: &AppHandle, action: Action) -> bool {
     match action {
-        Action::Share => app.get_webview_window("share").is_none(),
+        Action::Share(stick) => app
+            .get_webview_window(&format!("share-{}", crate::state::stick_hex(&stick)))
+            .is_none(),
         // The Stop sharing / Quit dialog is always made anew.
-        Action::Sharing | Action::Quit => true,
-        Action::Open | Action::Mount => false,
+        Action::Sharing(_) | Action::Quit => true,
+        Action::Open | Action::Mount(_) | Action::NewStick => false,
     }
 }
 
@@ -207,9 +204,15 @@ fn wait_for_main_focus(app: &AppHandle) {
     }
 }
 
-fn item(label: &str, action: Action) -> ksni::MenuItem<Tray> {
+/// A label as the panel shows it: `_` marks an access key there, so a
+/// stick's own `_` is doubled.
+fn label(text: &str) -> String {
+    text.replace('_', "__")
+}
+
+fn item(text: &str, action: Action) -> ksni::MenuItem<Tray> {
     ksni::menu::StandardItem {
-        label: label.into(),
+        label: label(text),
         activate: Box::new(move |tray: &mut Tray| tray.clicked(action)),
         ..Default::default()
     }
@@ -252,21 +255,34 @@ impl ksni::Tray for Tray {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        let shown = self.shown();
-        vec![
-            item("Open OurStick", Action::Open),
-            item("Share…", Action::Share),
-            item(mount_label(shown.mounted), Action::Mount),
-            ksni::MenuItem::Separator,
-            item(sharing_label(shown.sharing), Action::Sharing),
-            item("Quit", Action::Quit),
-        ]
+        menu_lines(&self.shown().sticks)
+            .into_iter()
+            .map(|line| match line {
+                Line::Item(text, action) => item(&text, action),
+                Line::Stick(text, items) => ksni::menu::SubMenu {
+                    label: label(&text),
+                    submenu: items
+                        .iter()
+                        .map(|(text, action)| item(text, *action))
+                        .collect(),
+                    ..Default::default()
+                }
+                .into(),
+                Line::Separator => ksni::MenuItem::Separator,
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stick_name_keeps_its_underscores() {
+        assert_eq!(label("my_photos"), "my__photos");
+        assert_eq!(label("Φωτογραφίες"), "Φωτογραφίες");
+    }
 
     #[test]
     fn the_dot_is_green_in_the_corner_and_clear_elsewhere() {

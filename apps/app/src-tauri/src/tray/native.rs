@@ -2,11 +2,11 @@
 
 use anyhow::Result;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Wry};
 
-use super::{act, mount_label, sharing_label, Action};
+use super::{act, menu_lines, Action, Line, TrayStick};
 
 const TRAY: &str = "main";
 
@@ -83,31 +83,60 @@ fn icon(active: bool) -> Result<(Image<'static>, bool)> {
     })
 }
 
+/// A label as the menu shows it: on Windows `&` marks an access key, so a
+/// stick's own `&` is doubled.
+fn label(text: &str) -> String {
+    if cfg!(windows) {
+        text.replace('&', "&&")
+    } else {
+        text.to_owned()
+    }
+}
+
+fn item(app: &AppHandle, text: &str, action: Action) -> Result<MenuItem<Wry>> {
+    Ok(MenuItem::with_id(
+        app,
+        action.id(),
+        label(text),
+        true,
+        None::<&str>,
+    )?)
+}
+
+/// The menu for the app's sticks.
+fn menu(app: &AppHandle, sticks: &[TrayStick]) -> Result<Menu<Wry>> {
+    let menu = Menu::new(app)?;
+    for line in menu_lines(sticks) {
+        match line {
+            Line::Item(text, action) => menu.append(&item(app, &text, action)?)?,
+            Line::Stick(text, items) => {
+                let items = items
+                    .iter()
+                    .map(|(text, action)| item(app, text, *action))
+                    .collect::<Result<Vec<_>>>()?;
+                let items: Vec<&dyn IsMenuItem<Wry>> = items
+                    .iter()
+                    .map(|item| item as &dyn IsMenuItem<Wry>)
+                    .collect();
+                menu.append(&Submenu::with_items(app, label(&text), true, &items)?)?;
+            }
+            Line::Separator => menu.append(&PredefinedMenuItem::separator(app)?)?,
+        }
+    }
+    Ok(menu)
+}
+
 pub fn create(app: &AppHandle) -> Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open OurStick", true, None::<&str>)?;
-    let share = MenuItem::with_id(app, "share", "Share…", true, None::<&str>)?;
-    let mount = MenuItem::with_id(app, "mount", mount_label(true), true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop", sharing_label(true), true, None::<&str>)?;
-    app.manage(SharingItem(stop.clone()));
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &share, &mount, &separator, &stop, &quit])?;
-    app.manage(MountItem(mount));
     let (image, template) = icon(false)?;
     TrayIconBuilder::with_id(TRAY)
         .icon(image)
         .icon_as_template(template)
         .tooltip("OurStick")
-        .menu(&menu)
+        .menu(&menu(app, &[])?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
-            let action = match event.id.as_ref() {
-                "open" => Action::Open,
-                "share" => Action::Share,
-                "mount" => Action::Mount,
-                "stop" => Action::Sharing,
-                "quit" => Action::Quit,
-                _ => return,
+            let Some(action) = Action::from_id(event.id.as_ref()) else {
+                return;
             };
             // Not in the menu handler itself: a window made there never
             // loads on Windows (WebView2 waits on the event loop's thread).
@@ -129,27 +158,37 @@ pub fn set_active(app: &AppHandle, active: bool) {
     }
 }
 
-/// The tray's Eject / Mount item, to change its text.
-struct MountItem(MenuItem<tauri::Wry>);
-
-pub fn set_mounted(app: &AppHandle, mounted: bool) {
-    if let Some(item) = app.try_state::<MountItem>() {
-        let _ = item.0.set_text(mount_label(mounted));
-    }
-}
-
-/// The tray's Stop sharing / Start sharing item, to change its text.
-struct SharingItem(MenuItem<tauri::Wry>);
-
-pub fn set_sharing(app: &AppHandle, sharing: bool) {
-    if let Some(item) = app.try_state::<SharingItem>() {
-        let _ = item.0.set_text(sharing_label(sharing));
+/// The app's sticks, as the menu lists them: the menu is made anew.
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>) {
+    let Some(tray) = app.tray_by_id(TRAY) else {
+        return;
+    };
+    match menu(app, &sticks) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
+        }
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "the tray menu stays as it was")
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stick_name_keeps_its_ampersands() {
+        let shown = label("Maria & Co");
+        assert_eq!(
+            shown,
+            if cfg!(windows) {
+                "Maria && Co"
+            } else {
+                "Maria & Co"
+            }
+        );
+    }
 
     #[test]
     fn the_taskbar_theme_is_read_from_reg_query() {

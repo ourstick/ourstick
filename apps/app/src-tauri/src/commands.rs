@@ -42,10 +42,15 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     })
 }
 
-/// First launch: this device's keys (made once), and the stick's folder. It
-/// has no size: what it holds is what the computer has room for (ADR 0008).
+/// First launch: this device's keys (made once), and the first stick,
+/// called `name`. It has no size: what it holds is what the computer has
+/// room for (ADR 0008).
 #[tauri::command]
-pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn plug_in(
+    name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     if !state.sticks_now().await.map_err(shown)?.is_empty() {
         return Ok(());
     }
@@ -63,8 +68,8 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         if !crate::state::app_sticks(store.as_ref())?.is_empty() {
             return Ok(None);
         }
-        let made =
-            crate::making::make_stick(store.as_ref(), secrets.as_ref(), &data_dir, "OurStick")?;
+        let name = ourstick_core::stick_names::new_stick_name(&name, &[])?;
+        let made = crate::making::make_stick(store.as_ref(), secrets.as_ref(), &data_dir, &name)?;
         Ok(Some(made))
     })
     .await?;
@@ -96,8 +101,8 @@ pub async fn eject(
     }
     let stick = state.stick_now(&id).await.map_err(shown)?;
     blocking(move || drive::eject(&stick)).await?;
-    crate::tray::set_mounted(&app, false);
     let _ = app.emit("mount-changed", ());
+    crate::sharing::refresh_tray(&app).await;
     Ok(())
 }
 

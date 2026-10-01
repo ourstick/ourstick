@@ -22,6 +22,8 @@ pub struct StickEntry {
     name: String,
     /// "off", "starting", "on", "failed" or "busy".
     sharing: &'static str,
+    /// While busy, what is being done ("Renaming…").
+    doing: Option<&'static str>,
     readers: usize,
 }
 
@@ -40,10 +42,15 @@ pub async fn sticks(state: State<'_, AppState>) -> Result<Vec<StickEntry>, Strin
                 Some(Sharing::Failed(_)) => ("failed", 0),
                 Some(Sharing::Busy(_)) => ("busy", 0),
             };
+            let doing = match sharing.get(&stick.stick_id) {
+                Some(Sharing::Busy(doing)) => Some(*doing),
+                _ => None,
+            };
             StickEntry {
                 id: stick_hex(&stick.stick_id),
                 name: stick.name,
                 sharing: word,
+                doing,
                 readers,
             }
         })
@@ -229,6 +236,7 @@ pub async fn new_stick(
     .await;
     let _ = app.emit("sticks-changed", ());
     let _ = app.emit("mount-changed", ());
+    refresh_tray(&app).await;
     let made = made?;
     tell(&app, made.unplugged);
     start_sharing_later(&app, made.stick_id);
@@ -291,6 +299,7 @@ pub async fn rename(
     let _ = app.emit("sticks-changed", ());
     let _ = app.emit("mount-changed", ());
     let _ = app.emit("sharing-changed", ());
+    refresh_tray(&app).await;
     tell(&app, renamed?);
     Ok(())
 }

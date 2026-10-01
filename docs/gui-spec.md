@@ -25,7 +25,11 @@ platform:
   It appears in Finder's Locations as a drive with an eject button. The mounted
   volume is the stick folder. Ejecting in Finder is a real detach, and the app
   notices. Sparse, it takes room only as it fills, so it never limits first;
-  an image made with a size before is grown at mount. What is left is
+  an image made with a size before is grown at start: it stays attached
+  after Quit, so the app detaches it, grows it and attaches it again (it
+  disappears from Finder for a moment); if a file on it is open, it keeps its
+  size until the next start. Tested on a 5 GB image: grown to the disk's
+  245 GB, its files kept, 17 MB on disk. What is left is
   measured on the disk that holds the image, not on the mounted volume.
 - **Linux:** the folder `~/OurStick`, added as a bookmark to the file manager's
   sidebar (GTK bookmarks for Nautilus, `user-places.xbel` for Dolphin) with a

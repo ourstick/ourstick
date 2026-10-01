@@ -40,6 +40,14 @@ fn device_of(plist: &str, image: &str) -> Option<String> {
         })
 }
 
+/// The image's size in the text `hdiutil imageinfo` prints
+/// (`Total Bytes: 5000000000`).
+fn total_bytes_in(info: &str) -> Option<u64> {
+    info.lines()
+        .find_map(|line| line.trim().strip_prefix("Total Bytes:"))
+        .and_then(|bytes| bytes.trim().parse().ok())
+}
+
 /// `hdiutil` counts `-size …b` in 512-byte sectors.
 fn sectors(bytes: u64) -> u64 {
     bytes.div_ceil(512)
@@ -140,18 +148,24 @@ pub mod platform {
         attach(&image)
     }
 
-    /// Grows a detached image to its disk's size; nothing if it is attached
-    /// (`hdiutil` refuses then) or already that large.
+    /// Grows the image to its disk's size, if it is smaller: an image made
+    /// with a size before ADR 0008 stays attached after Quit, so it is
+    /// detached first (`hdiutil` resizes only a detached image). If it
+    /// cannot be detached (a file on it is open), it stays as it is.
     fn grow(image: &Path) -> Result<()> {
-        let attached = {
-            let resolved = std::fs::canonicalize(image).unwrap_or_else(|_| image.to_path_buf());
-            let info = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;
-            device_of(&info, &resolved.to_string_lossy()).is_some()
-        };
-        if attached {
+        let want = sectors(disk_size(image)?);
+        let info = hdiutil(&["imageinfo".as_ref(), image.as_os_str()])?;
+        let has = total_bytes_in(&info).context("hdiutil told no image size")?;
+        if has >= want * 512 {
             return Ok(());
         }
-        let size = format!("{}b", sectors(disk_size(image)?));
+        let resolved = std::fs::canonicalize(image).unwrap_or_else(|_| image.to_path_buf());
+        let attached = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;
+        if let Some(device) = device_of(&attached, &resolved.to_string_lossy()) {
+            hdiutil(&["detach".as_ref(), device.as_ref()])
+                .context("the stick is in use, so it keeps its old size for now")?;
+        }
+        let size = format!("{want}b");
         hdiutil(&[
             "resize".as_ref(),
             "-size".as_ref(),
@@ -184,6 +198,14 @@ pub mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_image_size_is_read_from_imageinfo() {
+        let info =
+            "Format: UDSP\nSize Information:\n\tTotal Bytes: 5000000000\n\tSector Count: 9765625\n";
+        assert_eq!(total_bytes_in(info), Some(5_000_000_000));
+        assert_eq!(total_bytes_in("Format: UDSP\n"), None);
+    }
 
     #[test]
     fn the_device_is_found_by_its_image() {

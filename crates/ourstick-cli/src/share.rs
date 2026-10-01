@@ -14,13 +14,13 @@ use ourstick_core::share::{
     Publication, PARTIAL_TIMING,
 };
 use ourstick_core::space::SystemDisks;
+use ourstick_core::stick_names::name_from_folder;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{cipher_for, ManifestHint, Ticket};
-use ourstick_core::stick_names::name_from_folder;
 use ourstick_core::{locks, StickId, StickKind};
 
 use crate::display::bytes;

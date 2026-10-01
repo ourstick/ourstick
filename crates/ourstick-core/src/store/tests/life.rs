@@ -122,7 +122,13 @@ fn a_new_link_takes_the_old_ones_place_and_retires_it(store: &dyn Store) {
     assert!(store.owned_files(&new.stick_id).unwrap().is_empty());
     assert!(store.space_claims().unwrap().is_empty());
     // The old id waits for its secrets and cache to go.
-    assert_eq!(store.retired_sticks().unwrap(), [old.stick_id]);
+    assert_eq!(
+        store.retired_sticks().unwrap(),
+        [RetiredStick {
+            old: old.stick_id,
+            replaced_by: new.stick_id
+        }]
+    );
     store.forget_retired(&old.stick_id).unwrap();
     assert!(store.retired_sticks().unwrap().is_empty());
 

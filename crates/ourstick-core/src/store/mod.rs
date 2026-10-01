@@ -107,8 +107,9 @@ pub trait Store: Send + Sync {
         now_ms: u64,
     ) -> Result<(), StoreError>;
 
-    /// Ids retired by a new link whose secrets and cache are not deleted yet.
-    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError>;
+    /// Ids retired by a new link whose secrets and cache are not deleted
+    /// yet, with the id that replaced each.
+    fn retired_sticks(&self) -> Result<Vec<RetiredStick>, StoreError>;
 
     /// A retired id is cleaned up.
     fn forget_retired(&self, stick_id: &StickId) -> Result<(), StoreError>;

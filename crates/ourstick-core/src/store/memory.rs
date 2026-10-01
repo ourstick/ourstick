@@ -13,7 +13,7 @@ mod life;
 use super::{
     check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
     check_seq, check_stamp, path_str, ClaimKind, Device, DownloadedFile, JoinedStick, LinkedEntry,
-    ManifestVersion, OwnedFile, OwnedStick, SpaceClaim, Store, StoreError,
+    ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -31,7 +31,7 @@ struct State {
     /// Owned sticks being removed: hidden from the usual reads.
     removing: std::collections::BTreeSet<[u8; 32]>,
     /// Ids retired by a new link, with when.
-    retired: BTreeMap<[u8; 32], u64>,
+    retired: BTreeMap<[u8; 32], (u64, StickId)>,
 }
 
 fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {
@@ -145,7 +145,7 @@ impl Store for MemoryStore {
         life::replace(self, old, new, now_ms)
     }
 
-    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError> {
+    fn retired_sticks(&self) -> Result<Vec<RetiredStick>, StoreError> {
         life::retired(self)
     }
 

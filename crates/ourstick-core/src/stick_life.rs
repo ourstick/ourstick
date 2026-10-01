@@ -15,7 +15,7 @@ use crate::device::{random_key, StickKeys};
 use crate::secrets::{SecretError, SecretName, SecretStore};
 use crate::share::{drive_present, mark_drive, ShareError};
 use crate::stick_id::{StickId, StickSigningKey};
-use crate::store::{OwnedStick, StickKind, Store, StoreError};
+use crate::store::{OwnedStick, RetiredStick, StickKind, Store, StoreError};
 use crate::transport::iroh::IrohConfig;
 
 /// Why a step of a stick's life failed. The messages are meant for users.
@@ -126,11 +126,17 @@ pub fn give_new_link(
         return Err(error);
     }
     // The new link is made from here on: what is left is tidying up, done
-    // again at the next start if it fails now.
-    if let Err(error) = remark_drive(&new, stick_id) {
-        tracing::warn!(%error, "the stick's marker names its old link until the next start");
-    } else if let Err(error) = clean_up_retired(store, secrets, data_dir) {
-        tracing::warn!(%error, "the old link's keys are deleted at the next start");
+    // again at the next start (or mount) if it cannot be done now.
+    match settle_marker(&new, store) {
+        Ok(true) => {
+            if let Err(error) = clean_up(store, secrets, data_dir, stick_id) {
+                tracing::warn!(%error, "the old link's keys are deleted at the next start");
+            }
+        }
+        Ok(false) => {} // Its drive is not there: at the next start or mount.
+        Err(error) => {
+            tracing::warn!(%error, "the stick's marker names its old link until the next start");
+        }
     }
     Ok(StickKeys {
         stick: new,
@@ -140,54 +146,73 @@ pub fn give_new_link(
     })
 }
 
-/// An app stick's marker names `old`: it names the stick now.
-fn remark_drive(stick: &OwnedStick, old: &StickId) -> Result<(), LifeError> {
-    if stick.kind == StickKind::App && drive_present(&stick.root_path, old) {
-        mark_drive(&stick.root_path, &stick.stick_id)?;
+/// Whether `stick`'s drive marker names it, after rewriting a marker that
+/// names one of its retired ids (a new link, or several, stopped before the
+/// marker was written). False while its drive is not there (unplugged, or a
+/// macOS image not attached): nothing can be known until it is back.
+fn settle_marker(stick: &OwnedStick, store: &dyn Store) -> Result<bool, LifeError> {
+    if stick.kind != StickKind::App || drive_present(&stick.root_path, &stick.stick_id) {
+        return Ok(true);
     }
-    Ok(())
+    for retired in store.retired_sticks()? {
+        if drive_present(&stick.root_path, &retired.old) {
+            mark_drive(&stick.root_path, &stick.stick_id)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-/// At start, before anything is shared or mounted: an app stick whose marker
-/// still names a retired id (a new link stopped halfway) is marked anew, and
-/// what is left of retired ids is deleted. One that fails (its drive is not
-/// there, say) is kept for the next start and does not stop the others;
-/// the failures are returned, by stick name.
+/// The live stick that took `old`'s place, following new links given one
+/// after another; `None` if it was removed since.
+fn successor(old: &StickId, retired: &[RetiredStick], sticks: &[OwnedStick]) -> Option<OwnedStick> {
+    let mut id = *old;
+    // Each step goes to a newer id; never more steps than retired ids.
+    for _ in 0..=retired.len() {
+        let next = retired.iter().find(|entry| entry.old == id)?.replaced_by;
+        if let Some(stick) = sticks.iter().find(|stick| stick.stick_id == next) {
+            return Some(stick.clone());
+        }
+        id = next;
+    }
+    None
+}
+
+/// At start, before anything is shared, and whenever a drive is mounted:
+/// a stick whose marker still names a retired id is marked anew, and a
+/// retired id whose stick's marker names the stick now is forgotten with
+/// its secrets and cache. One whose drive is not there is kept for later;
+/// one that fails (a marker that cannot be written) is kept and returned,
+/// by stick name, and does not stop the others.
 pub fn finish_new_links(
     store: &dyn Store,
     secrets: &dyn SecretStore,
     data_dir: &Path,
 ) -> Result<Vec<(String, LifeError)>, LifeError> {
     let sticks = store.owned_sticks()?;
+    let retired = store.retired_sticks()?;
     let mut failed = Vec::new();
-    for old in store.retired_sticks()? {
-        let mut remarked = true;
-        for stick in &sticks {
-            if let Err(error) = remark_drive(stick, &old) {
-                failed.push((stick.name.clone(), error));
-                remarked = false;
-            }
+    let mut settled: Vec<StickId> = Vec::new();
+    for stick in &sticks {
+        match settle_marker(stick, store) {
+            Ok(true) => settled.push(stick.stick_id),
+            Ok(false) => {}
+            Err(error) => failed.push((stick.name.clone(), error)),
         }
-        // Forgotten only once its stick's marker names the new id: else the
-        // next start could no longer tell which marker to fix.
-        if remarked {
-            if let Err(error) = clean_up(store, secrets, data_dir, &old) {
+    }
+    for entry in &retired {
+        let done = match successor(&entry.old, &retired, &sticks) {
+            Some(stick) => settled.contains(&stick.stick_id),
+            // Removed since: nothing of the old id is needed any more.
+            None => true,
+        };
+        if done {
+            if let Err(error) = clean_up(store, secrets, data_dir, &entry.old) {
                 failed.push((String::new(), error));
             }
         }
     }
     Ok(failed)
-}
-
-fn clean_up_retired(
-    store: &dyn Store,
-    secrets: &dyn SecretStore,
-    data_dir: &Path,
-) -> Result<(), LifeError> {
-    for old in store.retired_sticks()? {
-        clean_up(store, secrets, data_dir, &old)?;
-    }
-    Ok(())
 }
 
 /// Deletes what is left of a retired id.

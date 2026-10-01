@@ -23,8 +23,8 @@ use rows::{blob32, is_constraint_violation, seq_i64, time_i64, to_u64, OwnedRow,
 
 use super::{
     check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedStick,
-    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, SpaceClaim, Store,
-    StoreError,
+    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SecretBackend, SpaceClaim,
+    Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -247,7 +247,7 @@ impl Store for SqliteStore {
         life::replace(&mut self.connection(), old, new, now_ms)
     }
 
-    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError> {
+    fn retired_sticks(&self) -> Result<Vec<RetiredStick>, StoreError> {
         life::retired(&self.connection())
     }
 

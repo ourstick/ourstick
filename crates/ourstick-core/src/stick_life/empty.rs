@@ -146,8 +146,11 @@ mod tests {
         std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o500))
             .unwrap();
         let result = empty_drive(&root, &data);
-        std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o700))
-            .unwrap();
+        // As root nothing is locked, and it is all gone already.
+        if root.join("locked").exists() {
+            std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
         assert!(
             outside.join("keep.txt").exists(),
             "a link is never followed"
@@ -157,7 +160,9 @@ mod tests {
             // Told, and the marker is kept for the next try.
             assert!(root.join(DRIVE_MARKER).exists());
         }
-        empty_drive(&root, &data).unwrap();
+        if root.exists() {
+            empty_drive(&root, &data).unwrap();
+        }
         assert!(!root.exists());
     }
 }

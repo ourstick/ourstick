@@ -41,7 +41,8 @@ pub use secrets::{check_secret_store, SecretError, SecretName, SecretStore};
 pub use stick_id::{InvalidPublicKey, StickId, StickSigningKey};
 pub use store::{
     ClaimKind, Device, DownloadedFile, JoinedStick, LinkedEntry, ManifestVersion, MemoryStore,
-    OwnedFile, OwnedStick, SecretBackend, SpaceClaim, SqliteStore, StickKind, Store, StoreError,
+    OwnedFile, OwnedStick, RetiredStick, SecretBackend, SpaceClaim, SqliteStore, StickKind, Store,
+    StoreError,
 };
 pub use ticket::{AddressHint, NodeId, Ticket, TicketError};
 

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, TransactionBehavior};
 
-use super::super::{check_owned_stick, path_str, OwnedStick, StoreError};
+use super::super::{check_owned_stick, path_str, OwnedStick, RetiredStick, StoreError};
 use super::rows::{blob32, is_constraint_violation, time_i64, OwnedRow, OWNED_COLUMNS};
 use crate::stick_id::StickId;
 
@@ -148,20 +148,30 @@ pub(super) fn replace(
     )?;
     delete_stick_rows(&transaction, old)?;
     transaction.execute(
-        "INSERT INTO retired_sticks (stick_id, retired_at_ms) VALUES (?1, ?2)",
-        params![old.to_bytes(), time_i64(now_ms)?],
+        "INSERT INTO retired_sticks (stick_id, replaced_by, retired_at_ms) VALUES (?1, ?2, ?3)",
+        params![old.to_bytes(), new.stick_id.to_bytes(), time_i64(now_ms)?],
     )?;
     transaction.commit()?;
     Ok(())
 }
 
-pub(super) fn retired(connection: &Connection) -> Result<Vec<StickId>, StoreError> {
-    let mut statement = connection
-        .prepare("SELECT stick_id FROM retired_sticks ORDER BY retired_at_ms, stick_id")?;
-    let rows = statement.query_map([], |row| row.get::<_, Vec<u8>>(0))?;
-    rows.map(|bytes| {
-        StickId::from_bytes(&blob32(bytes?, "stick_id")?)
+pub(super) fn retired(connection: &Connection) -> Result<Vec<RetiredStick>, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT stick_id, replaced_by FROM retired_sticks ORDER BY retired_at_ms, stick_id",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+    })?;
+    let id = |bytes: Vec<u8>, column| {
+        StickId::from_bytes(&blob32(bytes, column)?)
             .map_err(|_| StoreError::Corrupt("a retired id is not a key".to_owned()))
+    };
+    rows.map(|row| {
+        let (old, replaced_by) = row?;
+        Ok(RetiredStick {
+            old: id(old, "stick_id")?,
+            replaced_by: id(replaced_by, "replaced_by")?,
+        })
     })
     .collect()
 }

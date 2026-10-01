@@ -232,7 +232,14 @@ cleaning it up never touches a folder of the user's.
 | Column          | Type    | Meaning                              |
 |-----------------|---------|--------------------------------------|
 | `stick_id`      | BLOB 32 | The retired id (primary key)         |
+| `replaced_by`   | BLOB 32 | The id that took its place           |
 | `retired_at_ms` | INTEGER | When                                 |
+
+A retired id is forgotten (its secrets and cache deleted) once the stick
+that took its place, following new links given one after another, has its
+drive marker naming it; while that stick's drive is not there (unplugged, or
+a macOS image not attached), the id waits. Checked at start and whenever a
+drive is mounted.
 
 ## Not yet in the schema
 

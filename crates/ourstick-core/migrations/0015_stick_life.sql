@@ -12,8 +12,11 @@ ALTER TABLE owned_sticks ADD COLUMN sharing_wanted INTEGER NOT NULL DEFAULT 1 CH
 ALTER TABLE owned_sticks ADD COLUMN removing INTEGER NOT NULL DEFAULT 0 CHECK (removing IN (0, 1));
 
 -- Ids replaced by a new link: only their secrets and cache are left to
--- delete. No folder, so nothing of the user's is ever touched for them.
+-- delete. No folder, so nothing of the user's is ever touched for them. An
+-- id is forgotten once the stick that replaced it (`replaced_by`) has its
+-- drive marker naming it, which may wait until its drive is back.
 CREATE TABLE retired_sticks (
     stick_id      BLOB    PRIMARY KEY CHECK (length(stick_id) = 32),
+    replaced_by   BLOB    NOT NULL CHECK (length(replaced_by) = 32),
     retired_at_ms INTEGER NOT NULL CHECK (retired_at_ms >= 0)
 ) STRICT, WITHOUT ROWID;

@@ -2,7 +2,7 @@
 
 use super::MemoryStore;
 use crate::stick_id::StickId;
-use crate::store::{check_owned_stick, check_time, OwnedStick, StoreError};
+use crate::store::{check_owned_stick, check_time, OwnedStick, RetiredStick, StoreError};
 
 /// The live sticks, or (`removing`) the ones being removed, in order.
 pub(super) fn listed(store: &MemoryStore, removing: bool) -> Vec<OwnedStick> {
@@ -127,20 +127,24 @@ pub(super) fn replace(
     }
     forget_stick_rows(&mut state, &old_key);
     state.owned.remove(&old_key);
-    state.retired.insert(old_key, now_ms);
+    state.retired.insert(old_key, (now_ms, new.stick_id));
     Ok(())
 }
 
-pub(super) fn retired(store: &MemoryStore) -> Result<Vec<StickId>, StoreError> {
+pub(super) fn retired(store: &MemoryStore) -> Result<Vec<RetiredStick>, StoreError> {
     let state = store.state();
-    let mut retired: Vec<(u64, [u8; 32])> =
-        state.retired.iter().map(|(key, at)| (*at, *key)).collect();
-    retired.sort();
+    let mut retired: Vec<(u64, [u8; 32], StickId)> = state
+        .retired
+        .iter()
+        .map(|(key, (at, replaced_by))| (*at, *key, *replaced_by))
+        .collect();
+    retired.sort_by_key(|(at, key, _)| (*at, *key));
     retired
         .into_iter()
-        .map(|(_, key)| {
-            StickId::from_bytes(&key)
-                .map_err(|_| StoreError::Corrupt("a retired id is not a key".to_owned()))
+        .map(|(_, key, replaced_by)| {
+            let old = StickId::from_bytes(&key)
+                .map_err(|_| StoreError::Corrupt("a retired id is not a key".to_owned()))?;
+            Ok(RetiredStick { old, replaced_by })
         })
         .collect()
 }

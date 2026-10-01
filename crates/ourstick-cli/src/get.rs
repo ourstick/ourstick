@@ -64,7 +64,10 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
     // downloads) nor OurStick's data folder; checked before it is made.
     let output = std::path::absolute(&output)
         .with_context(|| format!("cannot resolve {}", output.display()))?;
-    check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, &output)?;
+    check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, &output).context(
+        "a download may not go into, or into a folder holding, a stick of this device or \
+         OurStick's data (what a sender names could land there); choose another folder with --out",
+    )?;
     std::fs::create_dir_all(&output)
         .with_context(|| format!("cannot create {}", output.display()))?;
     let output = std::fs::canonicalize(&output)?;

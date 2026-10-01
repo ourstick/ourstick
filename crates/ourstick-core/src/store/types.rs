@@ -186,3 +186,12 @@ pub struct SpaceClaim {
     pub disk: String,
     pub bytes: u64,
 }
+
+/// A stick id replaced by a new link (ADR 0009 §5): what is left of it are
+/// its secrets and cache, until the stick that replaced it has its drive
+/// marker naming it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetiredStick {
+    pub old: StickId,
+    pub replaced_by: StickId,
+}

@@ -74,6 +74,18 @@ pub trait Store: Send + Sync {
     fn keep_only_owned_files(&self, stick_id: &StickId, paths: &[String])
         -> Result<(), StoreError>;
 
+    /// Adds a folder or file shared where it is (ADR 0008). Fails with
+    /// [`StoreError::LinkExists`] if the stick has an entry of that name
+    /// (exactly; case is the caller's, see `crate::linked`).
+    fn add_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError>;
+
+    /// The stick's linked entries, by name.
+    fn linked_entries(&self, stick_id: &StickId) -> Result<Vec<LinkedEntry>, StoreError>;
+
+    /// Stops sharing a linked entry: removes its row, and the recorded files
+    /// under its name. The user's files are never touched.
+    fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError>;
+
     /// Records a new joined stick. Fails if it exists.
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError>;
 
@@ -124,6 +136,10 @@ pub enum StoreError {
     StickExists,
     #[error("this stick is not in the database")]
     StickNotFound,
+    #[error("the stick already has an entry called {0}")]
+    LinkExists(String),
+    #[error("the stick has no linked entry called {0}")]
+    LinkNotFound(String),
     #[error("seq {seq} is not newer than {stored}, the one already stored")]
     NotNewer { seq: u64, stored: u64 },
     #[error("seq {0} is too large to store")]

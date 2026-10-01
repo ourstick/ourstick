@@ -108,3 +108,23 @@ pub(crate) fn check_device(device: &Device) -> Result<(), StoreError> {
     }
     check_time(device.created_at_ms)
 }
+
+/// A linked entry's name is one manifest path component; its path is
+/// absolute.
+pub(crate) fn check_linked_entry(entry: &LinkedEntry) -> Result<(), StoreError> {
+    let name_ok = !entry.name.is_empty()
+        && !matches!(entry.name.as_str(), "." | "..")
+        && !entry.name.contains(['/', '\\', '\0']);
+    if !name_ok {
+        return Err(StoreError::Inconsistent(
+            "a linked entry's name is one path component",
+        ));
+    }
+    if !entry.path.is_absolute() {
+        return Err(StoreError::Inconsistent(
+            "a linked entry's path is absolute",
+        ));
+    }
+    path_str(&entry.path)?;
+    check_time(entry.added_at_ms)
+}

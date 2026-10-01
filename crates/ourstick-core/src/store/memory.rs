@@ -8,9 +8,9 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{
-    check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
-    check_seq, check_stamp, path_str, Device, DownloadedFile, JoinedStick, ManifestVersion,
-    OwnedFile, OwnedStick, Store, StoreError,
+    check_device, check_drive_letter, check_joined_stick, check_linked_entry, check_owned_file,
+    check_owned_stick, check_seq, check_stamp, path_str, Device, DownloadedFile, JoinedStick,
+    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -23,6 +23,7 @@ struct State {
     floors: BTreeMap<[u8; 32], ManifestVersion>,
     owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
     downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
+    linked: BTreeMap<[u8; 32], BTreeMap<String, LinkedEntry>>,
 }
 
 /// A [`Store`] that forgets everything when dropped.
@@ -196,6 +197,47 @@ impl Store for MemoryStore {
         let keep: std::collections::HashSet<&String> = paths.iter().collect();
         if let Some(recorded) = state.owned_files.get_mut(&key) {
             recorded.retain(|path, _| keep.contains(path));
+        }
+        Ok(())
+    }
+
+    fn add_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
+        check_linked_entry(entry)?;
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        if !state.owned.contains_key(&key) {
+            return Err(StoreError::StickNotFound);
+        }
+        let entries = state.linked.entry(key).or_default();
+        if entries.contains_key(&entry.name) {
+            return Err(StoreError::LinkExists(entry.name.clone()));
+        }
+        entries.insert(entry.name.clone(), entry.clone());
+        Ok(())
+    }
+
+    fn linked_entries(&self, stick_id: &StickId) -> Result<Vec<LinkedEntry>, StoreError> {
+        Ok(self
+            .state()
+            .linked
+            .get(&stick_id.to_bytes())
+            .map(|entries| entries.values().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
+        let mut state = self.state();
+        let key = stick_id.to_bytes();
+        let removed = state
+            .linked
+            .get_mut(&key)
+            .and_then(|entries| entries.remove(name));
+        if removed.is_none() {
+            return Err(StoreError::LinkNotFound(name.to_owned()));
+        }
+        let prefix = format!("{name}/");
+        if let Some(files) = state.owned_files.get_mut(&key) {
+            files.retain(|path, _| path != name && !path.starts_with(&prefix));
         }
         Ok(())
     }

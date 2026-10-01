@@ -6,7 +6,7 @@ use crate::store::StickKind;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 11);
+    assert_eq!(SCHEMA_VERSION, 12);
 }
 
 #[test]
@@ -291,4 +291,31 @@ fn migration_11_keeps_the_device_and_tells_app_sticks_from_cli_ones() {
         .collect();
     assert!(kinds.contains(&(drive, StickKind::App, None)));
     assert!(kinds.contains(&(folder, StickKind::Cli, None)));
+}
+
+#[test]
+fn the_database_itself_refuses_bad_linked_entries() {
+    let store = SqliteStore::open_in_memory().unwrap();
+    let stick = OwnedStick::new(
+        crate::stick_id::StickSigningKey::from_bytes(&[1; 32]).stick_id(),
+        "s",
+        "/s",
+        CipherId::XChaCha20Poly1305,
+        1,
+    );
+    store.add_owned_stick(&stick).unwrap();
+    let connection = store.connection();
+    let insert = |stick_id: Vec<u8>, name: &str, path: &str| {
+        connection.execute(
+            "INSERT INTO linked_entries VALUES (?1, ?2, ?3, 1, NULL, 0)",
+            params![stick_id, name, path],
+        )
+    };
+    let id = stick.stick_id.to_bytes().to_vec();
+    insert(id.clone(), "Films", "/media/Films").unwrap();
+    // A stick that is not there, a name with a slash, an empty one, no path.
+    assert!(insert(vec![9; 32], "x", "/x").is_err());
+    assert!(insert(id.clone(), "a/b", "/x").is_err());
+    assert!(insert(id.clone(), "", "/x").is_err());
+    assert!(insert(id, "y", "").is_err());
 }

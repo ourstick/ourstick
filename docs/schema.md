@@ -25,9 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 11
+## Version 12
 
-Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
+Version 12 (`0012_linked_entries.sql`, ADR 0008) added `linked_entries`,
+below. Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
 `owned_sticks.node_id` (NULL for every stick made before) and
 `owned_sticks.kind` (`app` for the sticks that have a `drive_size`, `cli` for
 the others), and made `device.node_id` optional; the `device` table is made
@@ -174,6 +175,26 @@ Primary key `(stick_id, path)`. A row is written after each file is in place,
 so an interrupted `get` keeps what it finished. Moving the stick to another
 folder deletes its rows (in the same transaction as the move). Rows of files
 that left the stick stay, so their files are known as `get`'s own.
+
+### `linked_entries`
+
+Folders and files shared where they are, not copied onto the stick (ADR 0008
+§2). Each is a top-level entry of its stick: its manifest paths start with
+`name`. Written by `ourstick_core::linked::plan_link`'s decision only.
+
+| Column        | Type            | Meaning                                                  |
+|---------------|-----------------|----------------------------------------------------------|
+| `stick_id`    | BLOB 32         | The owned stick (foreign key to `owned_sticks`)          |
+| `name`        | TEXT            | Its name on the stick; one path component, no `/`        |
+| `path`        | TEXT            | Where it is on this device (absolute). Never leaves the device: a reader sees only `name` |
+| `is_dir`      | INTEGER 0/1     | A folder (1) or a single file (0)                        |
+| `disk`        | INTEGER or NULL | The disk it was on when linked (`st_dev`, the 64 bits stored as they are); NULL where the system has none. On another disk now: its disk is gone and an empty mount point is in its place |
+| `added_at_ms` | INTEGER         | When it was linked                                       |
+
+Primary key `(stick_id, name)`; names that differ only in letter case are kept
+apart by `plan_link`, not by the database. Removing a row stops sharing the
+entry and removes its `owned_files` rows (`name` and `name/…`) in the same
+transaction; the user's files are never touched.
 
 ## Not yet in the schema
 

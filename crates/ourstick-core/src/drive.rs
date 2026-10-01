@@ -71,7 +71,13 @@ pub fn top_entries(root: &Path) -> Result<Vec<TopEntry>, DriveError> {
 /// A name for `name` on the stick that is not taken: `name`, else
 /// `stem (2).ext`, `stem (3).ext`, … as file managers do.
 fn free_name(root: &Path, name: &str) -> String {
-    if !root.join(name).exists() {
+    free_name_where(name, |candidate| root.join(candidate).exists())
+}
+
+/// `name`, else `stem (2).ext`, `stem (3).ext`, …: the first that `taken`
+/// does not refuse.
+pub(crate) fn free_name_where(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(name) {
         return name.to_owned();
     }
     let (stem, extension) = match name.rsplit_once('.') {
@@ -80,7 +86,7 @@ fn free_name(root: &Path, name: &str) -> String {
     };
     (2..)
         .map(|number| format!("{stem} ({number}){extension}"))
-        .find(|candidate| !root.join(candidate).exists())
+        .find(|candidate| !taken(candidate))
         .expect("some number is free")
 }
 

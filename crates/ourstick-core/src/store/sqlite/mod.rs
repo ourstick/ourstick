@@ -2,6 +2,7 @@
 
 mod files;
 mod joined;
+mod linked;
 mod migrations;
 mod owned;
 mod rows;
@@ -21,7 +22,7 @@ use rows::{
 };
 
 use super::{
-    check_device, check_owned_stick, path_str, Device, DownloadedFile, JoinedStick,
+    check_device, check_owned_stick, path_str, Device, DownloadedFile, JoinedStick, LinkedEntry,
     ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
@@ -230,6 +231,18 @@ impl Store for SqliteStore {
         paths: &[String],
     ) -> Result<(), StoreError> {
         files::keep_only_owned_files(&mut self.connection(), stick_id, paths)
+    }
+
+    fn add_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
+        linked::add(&self.connection(), stick_id, entry)
+    }
+
+    fn linked_entries(&self, stick_id: &StickId) -> Result<Vec<LinkedEntry>, StoreError> {
+        linked::entries(&self.connection(), stick_id)
+    }
+
+    fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
+        linked::remove(&mut self.connection(), stick_id, name)
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {

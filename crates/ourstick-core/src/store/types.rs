@@ -149,3 +149,17 @@ pub struct DownloadedFile {
     pub stamp: FileStamp,
     pub blob_hash: [u8; 32],
 }
+
+/// A folder or file shared where it is, not copied onto its stick (ADR 0008):
+/// a top-level entry of the stick under `name`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedEntry {
+    /// Its name on the stick: the first component of its manifest paths.
+    pub name: String,
+    /// Where it is on this device. Never leaves the device.
+    pub path: PathBuf,
+    pub is_dir: bool,
+    /// The disk it was on when linked (`st_dev` on Unix), if known.
+    pub disk: Option<u64>,
+    pub added_at_ms: u64,
+}

@@ -379,4 +379,5 @@ for_every_store!(
 
 // After the macro, so the files scenarios can use it.
 mod files;
+mod linked;
 mod records;

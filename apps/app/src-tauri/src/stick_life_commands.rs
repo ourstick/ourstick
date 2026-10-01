@@ -4,7 +4,11 @@
 
 use ourstick_core::device;
 use ourstick_core::locks::{stick_lock, take_retrying};
+use ourstick_core::places::check_new_stick_folder;
+use ourstick_core::share::mark_drive;
 use ourstick_core::stick_life::{give_new_link, remove_stick};
+use ourstick_core::stick_names::{folder_name, new_stick_name};
+use ourstick_core::{OwnedStick, StickKind};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -134,4 +138,93 @@ pub async fn remove(
     let _ = app.emit("sticks-changed", ());
     let _ = app.emit("mount-changed", ());
     removed
+}
+
+/// Moves the first stick of an older version into `~/OurStick` if it is
+/// `~/OurStick` itself, before a second stick is made there (ADR 0009 §4).
+/// Its share stops meanwhile and starts again after, if wanted.
+async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    let home = blocking(crate::drive::sticks_home).await?;
+    let first = state
+        .app_sticks()
+        .map_err(shown)?
+        .into_iter()
+        .find(|stick| stick.root_path == home);
+    let Some(first) = first else {
+        return Ok(());
+    };
+    let id = first.stick_id;
+    if !make_busy(state, &id, "Moving into the OurStick folder…").await {
+        return Err("the first stick is busy; try again in a moment".to_owned());
+    }
+    let _ = app.emit("sharing-changed", ());
+    let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
+    let moving = first.clone();
+    let moved = blocking(move || {
+        let _lock = take_retrying(|| stick_lock(&data_dir, &moving))?;
+        let folder = folder_name(&moving.name, |candidate| home.join(candidate).exists());
+        let root = crate::drive::move_first(&moving, &folder)?;
+        store.move_owned_stick(&moving.stick_id, &root)?;
+        let moved = OwnedStick {
+            root_path: root,
+            ..moving
+        };
+        crate::drive::mount(&moved)?;
+        Ok(())
+    })
+    .await;
+    state.sticks.lock().await.remove(&id);
+    if first.sharing_wanted {
+        start_sharing(app, id, 1).await;
+    }
+    let _ = app.emit("mount-changed", ());
+    moved
+}
+
+/// "New stick…": a stick called `name`, its own folder (or image) shown as
+/// a drive, its own keys and link, shared at once. Returns its id.
+#[tauri::command]
+pub async fn new_stick(
+    name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    move_first_if_needed(&app, &state).await?;
+    let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
+    let made = blocking(move || {
+        let secrets = device::open_system_keyring()?;
+        // One program makes a stick at a time: names and folders stay
+        // unique.
+        let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
+        let others = crate::state::app_sticks(store.as_ref())?;
+        let name = new_stick_name(&name, &others)?;
+        let home = crate::drive::sticks_home()?;
+        let folder = folder_name(&name, |candidate| home.join(candidate).exists());
+        check_new_stick_folder(store.as_ref(), &data_dir, &home.join(&folder))?;
+        let (root, image) = crate::drive::create(&folder, &name)?;
+        let keys = device::create_stick(
+            store.as_ref(),
+            secrets.as_ref(),
+            &root,
+            &name,
+            StickKind::App,
+        )?;
+        let id = keys.stick.stick_id;
+        mark_drive(&root, &id)?;
+        crate::drive::hide_marker(&root);
+        if let Some(image) = image {
+            store.set_image_path(&id, &image)?;
+        }
+        if let Some(letter) = crate::drive::letter_of(&root) {
+            store.set_drive_letter(&id, Some(letter))?;
+        }
+        Ok(id)
+    })
+    .await?;
+    let _ = app.emit("sticks-changed", ());
+    let _ = app.emit("mount-changed", ());
+    start_sharing(&app, made, 1).await;
+    Ok(stick_hex(&made))
 }

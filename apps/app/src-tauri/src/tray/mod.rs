@@ -94,8 +94,8 @@ fn toggle_mount(app: &AppHandle) {
         let Some(stick) = first_stick(&app) else {
             return;
         };
-        if crate::drive::is_mounted(&stick.root_path) {
-            if let Err(error) = crate::drive::eject(&stick.root_path) {
+        if crate::drive::is_mounted(&stick) {
+            if let Err(error) = crate::drive::eject(&stick) {
                 tracing::warn!(error = %format!("{error:#}"), "eject failed");
                 let _ = tauri::Emitter::emit(
                     &app,

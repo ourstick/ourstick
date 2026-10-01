@@ -215,6 +215,12 @@ fn drive_marker_text(stick_id: &StickId) -> String {
 /// Whether `root` holds the drive marker of `stick_id` (the drive is
 /// plugged in). Blocking.
 pub(crate) fn drive_present(root: &Path, stick_id: &StickId) -> bool {
+    drive_marked_by(root, stick_id)
+}
+
+/// Whether `root` is the drive of `stick_id`: its marker is there and names
+/// this stick (an app looking for a stick's folder). Blocking.
+pub fn drive_marked_by(root: &Path, stick_id: &StickId) -> bool {
     let marker = std::fs::read_to_string(root.join(DRIVE_MARKER)).unwrap_or_default();
     marker.trim() == drive_marker_text(stick_id)
 }
@@ -234,6 +240,21 @@ fn check_drive(root: &Path, stick_id: &StickId) -> Result<(), ShareError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drive_is_known_by_its_marker_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let stick = crate::stick_id::StickSigningKey::from_bytes(&[1; 32]).stick_id();
+        let other = crate::stick_id::StickSigningKey::from_bytes(&[2; 32]).stick_id();
+        assert!(!drive_marked_by(dir.path(), &stick));
+        mark_drive(dir.path(), &stick).unwrap();
+        assert!(drive_marked_by(dir.path(), &stick));
+        assert!(!drive_marked_by(dir.path(), &other));
+        // Marked again for another stick, in place.
+        mark_drive(dir.path(), &other).unwrap();
+        assert!(drive_marked_by(dir.path(), &other));
+        assert!(!drive_marked_by(dir.path(), &stick));
+    }
     use crate::cipher::{ChaChaCipher, NoCipher};
 
     #[test]

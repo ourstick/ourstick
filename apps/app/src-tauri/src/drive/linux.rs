@@ -1,9 +1,7 @@
-//! Linux: `~/OurStick`, bookmarked in the file manager's sidebar (GTK and
-//! KDE). Eject removes the bookmark.
+//! Linux: each stick a folder in `~/OurStick`, bookmarked under its name in
+//! the file manager's sidebar (GTK and KDE). Eject removes the bookmark.
 
 use std::path::Path;
-
-use super::NAME;
 
 /// `path` as a `file://` URI, percent-encoded.
 fn file_uri(path: &Path) -> String {
@@ -21,9 +19,23 @@ fn file_uri(path: &Path) -> String {
 
 // ---------------------------------------------------------------- Linux
 
+/// A name as GTK's bookmarks file takes it: one line, so no line breaks
+/// (a stick's name has none, but a file must never be broken by one).
+fn one_line(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// `text` safe inside XML.
+fn xml_escaped(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// GTK bookmarks (Nautilus and other GTK file managers): one `URI name` per
-/// line. Adds ours unless it is there.
-fn with_gtk_bookmark(content: &str, uri: &str) -> String {
+/// line. Adds ours, named `name`, unless it is there.
+fn with_gtk_bookmark(content: &str, uri: &str, name: &str) -> String {
     if content
         .lines()
         .any(|line| line.split(' ').next() == Some(uri))
@@ -34,7 +46,7 @@ fn with_gtk_bookmark(content: &str, uri: &str) -> String {
     if !content.is_empty() && !content.ends_with('\n') {
         content.push('\n');
     }
-    content.push_str(&format!("{uri} {NAME}\n"));
+    content.push_str(&format!("{uri} {}\n", one_line(name)));
     content
 }
 
@@ -47,16 +59,17 @@ fn without_gtk_bookmark(content: &str, uri: &str) -> String {
 }
 
 /// KDE's places (Dolphin): an XBEL file. Ours gets the USB drive icon.
-fn xbel_bookmark(uri: &str) -> String {
+fn xbel_bookmark(uri: &str, name: &str) -> String {
+    let title = xml_escaped(&one_line(name));
     format!(
-        "  <bookmark href=\"{uri}\">\n   <title>{NAME}</title>\n   <info>\n    \
+        "  <bookmark href=\"{uri}\">\n   <title>{title}</title>\n   <info>\n    \
          <metadata owner=\"http://freedesktop.org\">\n     \
          <bookmark:icon name=\"drive-removable-media-usb\"/>\n    </metadata>\n   \
          </info>\n  </bookmark>\n"
     )
 }
 
-fn with_xbel_bookmark(content: &str, uri: &str) -> Option<String> {
+fn with_xbel_bookmark(content: &str, uri: &str, name: &str) -> Option<String> {
     if content.contains(&format!("<bookmark href=\"{uri}\"")) {
         return Some(content.to_owned());
     }
@@ -64,7 +77,7 @@ fn with_xbel_bookmark(content: &str, uri: &str) -> Option<String> {
     Some(format!(
         "{}{}{}",
         &content[..end],
-        xbel_bookmark(uri),
+        xbel_bookmark(uri, name),
         &content[end..]
     ))
 }
@@ -89,9 +102,9 @@ fn without_xbel_bookmark(content: &str, uri: &str) -> String {
 #[cfg(target_os = "linux")]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home};
+    use crate::drive::{folder_is_there, home, NAME};
     use anyhow::{bail, Context, Result};
-    use ourstick_core::manifest::ignore::is_ignored;
+    use ourstick_core::OwnedStick;
     use std::path::PathBuf;
 
     fn gtk_bookmarks() -> Result<PathBuf> {
@@ -127,54 +140,29 @@ pub mod platform {
         Ok(())
     }
 
-    /// Makes `~/OurStick` for a new stick. An existing one is used only if it
-    /// is empty (system files aside) or already a stick's; anything else is
-    /// the user's and is left alone.
-    pub fn create() -> Result<PathBuf> {
-        let root = home()?.join(NAME);
-        if root.exists() {
-            let has_own_files = std::fs::read_dir(&root)
-                .with_context(|| format!("cannot open {}", root.display()))?
-                .any(|entry| {
-                    entry.is_ok_and(|entry| !entry.file_name().to_str().is_some_and(is_ignored))
-                });
-            if has_own_files && !folder_is_there(&root) {
-                bail!(
-                    "{} already exists and holds files. OurStick will not take it over; \
-                     move it away and try again.",
-                    root.display()
-                );
-            }
-        } else {
-            std::fs::create_dir(&root)
-                .with_context(|| format!("cannot create {}", root.display()))?;
-        }
-        // A USB drive icon for the folder where the file manager honours it.
+    /// A USB drive icon for the folder where the file manager honours it.
+    fn usb_icon(root: &Path) {
         let _ = std::process::Command::new("gio")
             .arg("set")
-            .arg(&root)
+            .arg(root)
             .arg("metadata::custom-icon-name")
             .arg("drive-removable-media-usb")
             .status();
-        mount(&root, None)
     }
 
-    /// Puts the stick in the sidebar; the folder itself is always there.
-    pub fn mount(root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
+    fn add_bookmark(root: &Path, name: &str) -> Result<()> {
         let uri = file_uri(root);
         edit(&gtk_bookmarks()?, |content| {
-            Some(with_gtk_bookmark(content, &uri))
+            Some(with_gtk_bookmark(content, &uri, name))
         })?;
         let places = kde_places()?;
         if places.exists() {
-            edit(&places, |content| with_xbel_bookmark(content, &uri))?;
+            edit(&places, |content| with_xbel_bookmark(content, &uri, name))?;
         }
-        Ok(root.to_path_buf())
+        Ok(())
     }
 
-    /// Takes the stick out of the sidebar. The folder stays, and so does
-    /// sharing.
-    pub fn eject(root: &Path) -> Result<()> {
+    fn remove_bookmark(root: &Path) -> Result<()> {
         let uri = file_uri(root);
         edit(&gtk_bookmarks()?, |content| {
             Some(without_gtk_bookmark(content, &uri))
@@ -188,8 +176,46 @@ pub mod platform {
         Ok(())
     }
 
-    pub fn is_mounted(root: &Path) -> bool {
-        let uri = file_uri(root);
+    /// Where the app's sticks are: `~/OurStick`, a folder each.
+    pub fn sticks_home() -> Result<PathBuf> {
+        Ok(home()?.join(NAME))
+    }
+
+    /// Makes the folder of a new stick, `~/OurStick/<folder>`, in the
+    /// sidebar as `name`. The folder must be new (the caller picks a free
+    /// name); the first stick of an older version, `~/OurStick` itself,
+    /// must have moved into it first.
+    pub fn create(folder: &str, name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+        let home = sticks_home()?;
+        if folder_is_there(&home) {
+            bail!(
+                "the first stick is still {}; it moves first",
+                home.display()
+            );
+        }
+        std::fs::create_dir_all(&home)
+            .with_context(|| format!("cannot create {}", home.display()))?;
+        let root = home.join(folder);
+        std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
+        usb_icon(&root);
+        add_bookmark(&root, name)?;
+        Ok((root, None))
+    }
+
+    /// Puts the stick in the sidebar; the folder itself is always there.
+    pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
+        add_bookmark(&stick.root_path, &stick.name)?;
+        Ok(stick.root_path.clone())
+    }
+
+    /// Takes the stick out of the sidebar. The folder stays, and so does
+    /// sharing.
+    pub fn eject(stick: &OwnedStick) -> Result<()> {
+        remove_bookmark(&stick.root_path)
+    }
+
+    pub fn is_mounted(stick: &OwnedStick) -> bool {
+        let uri = file_uri(&stick.root_path);
         gtk_bookmarks()
             .and_then(|path| Ok(std::fs::read_to_string(path)?))
             .is_ok_and(|content| {
@@ -218,14 +244,18 @@ mod tests {
     #[test]
     fn the_gtk_bookmark_is_added_once_and_removed_alone() {
         let theirs = "file:///home/anna/Music\nfile:///home/anna/Work Work\n";
-        let with = with_gtk_bookmark(theirs, URI);
-        assert_eq!(with, format!("{theirs}{URI} OurStick\n"));
-        assert_eq!(with_gtk_bookmark(&with, URI), with);
+        let with = with_gtk_bookmark(theirs, URI, "For Maria");
+        assert_eq!(with, format!("{theirs}{URI} For Maria\n"));
+        assert_eq!(with_gtk_bookmark(&with, URI, "For Maria"), with);
         assert_eq!(without_gtk_bookmark(&with, URI), theirs);
-        assert_eq!(with_gtk_bookmark("", URI), format!("{URI} OurStick\n"));
+        assert_eq!(
+            with_gtk_bookmark("", URI, "a\nb"),
+            format!("{URI} ab\n"),
+            "one line, whatever the name"
+        );
         // A missing final newline in their file does not glue the lines.
         assert_eq!(
-            with_gtk_bookmark("file:///x", URI),
+            with_gtk_bookmark("file:///x", URI, "OurStick"),
             format!("file:///x\n{URI} OurStick\n")
         );
     }
@@ -233,12 +263,13 @@ mod tests {
     #[test]
     fn the_kde_place_is_added_once_and_removed_alone() {
         let theirs = "<?xml version=\"1.0\"?>\n<xbel>\n  <bookmark href=\"file:///home/anna\">\n   <title>Home</title>\n  </bookmark>\n</xbel>\n";
-        let with = with_xbel_bookmark(theirs, URI).unwrap();
+        let with = with_xbel_bookmark(theirs, URI, "Tom & Jerry <3").unwrap();
         assert!(with.contains("drive-removable-media-usb"));
+        assert!(with.contains("<title>Tom &amp; Jerry &lt;3</title>"));
         assert!(with.ends_with("</bookmark>\n</xbel>\n"));
-        assert_eq!(with_xbel_bookmark(&with, URI).unwrap(), with);
+        assert_eq!(with_xbel_bookmark(&with, URI, "x").unwrap(), with);
         assert_eq!(without_xbel_bookmark(&with, URI), theirs);
         assert_eq!(without_xbel_bookmark(theirs, URI), theirs);
-        assert_eq!(with_xbel_bookmark("not xbel", URI), None);
+        assert_eq!(with_xbel_bookmark("not xbel", URI, "x"), None);
     }
 }

@@ -1,5 +1,6 @@
-//! macOS: a sparse APFS disk image, attached so that Finder shows it with an
-//! eject button. Eject detaches the image.
+//! macOS: a sparse APFS disk image per stick, attached so that Finder shows
+//! it with an eject button, its volume named after the stick. Eject detaches
+//! the image. Each image's path is recorded with its stick.
 
 use std::path::PathBuf;
 
@@ -58,19 +59,32 @@ pub mod platform {
     use super::*;
     use crate::drive::{folder_is_there, home, NAME};
     use anyhow::{bail, Context, Result};
+    use ourstick_core::OwnedStick;
     use std::path::Path;
     use std::process::Command;
 
-    /// Where the first stick's disk image lives.
-    pub fn image_path() -> Result<PathBuf> {
-        image()
+    /// Where the disk images live.
+    fn images() -> Result<PathBuf> {
+        Ok(home()?.join("Library/Application Support/OurStick"))
     }
 
-    /// Where the disk image lives.
-    fn image() -> Result<PathBuf> {
-        Ok(home()?
-            .join("Library/Application Support/OurStick")
-            .join(format!("{NAME}.sparseimage")))
+    /// The first stick's disk image, made before images were recorded.
+    pub fn image_path() -> Result<PathBuf> {
+        Ok(images()?.join(format!("{NAME}.sparseimage")))
+    }
+
+    /// A stick's disk image: as recorded, else the first stick's.
+    fn image_of(stick: &OwnedStick) -> Result<PathBuf> {
+        match &stick.image_path {
+            Some(image) => Ok(image.clone()),
+            None => image_path(),
+        }
+    }
+
+    /// Where volumes appear: a new stick's volume name must not be taken
+    /// there.
+    pub fn sticks_home() -> Result<PathBuf> {
+        Ok(PathBuf::from("/Volumes"))
     }
 
     fn hdiutil(arguments: &[&std::ffi::OsStr]) -> Result<String> {
@@ -87,10 +101,10 @@ pub mod platform {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// The folder that holds the disk image: what is left for the stick is
-    /// measured there.
-    pub fn measure_at(_root: &Path) -> Result<PathBuf> {
-        Ok(image()?
+    /// The folder that holds the stick's disk image: what is left for the
+    /// stick is measured there.
+    pub fn measure_at(stick: &OwnedStick) -> Result<PathBuf> {
+        Ok(image_of(stick)?
             .parent()
             .expect("the image is in a folder")
             .to_path_buf())
@@ -105,18 +119,19 @@ pub mod platform {
             .with_context(|| format!("cannot measure the disk of {}", image.display()))
     }
 
-    /// Makes the disk image for a new stick, as large as its disk (sparse),
-    /// and attaches it.
-    pub fn create() -> Result<PathBuf> {
-        let image = image()?;
+    /// Makes the disk image of a new stick, as large as its disk (sparse),
+    /// its volume called `folder`, under a name of its own (recorded with
+    /// the stick, never derived again), and attaches it.
+    pub fn create(folder: &str, _name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+        let suffix: String = ourstick_core::device::random_key()[..8]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let image = images()?.join(format!("stick-{suffix}.sparseimage"));
         if image.exists() {
-            bail!(
-                "{} already exists. OurStick will not overwrite it; move it away and \
-                 try again.",
-                image.display()
-            );
+            bail!("{} already exists; try again", image.display());
         }
-        std::fs::create_dir_all(image.parent().expect("the image is in a folder"))?;
+        std::fs::create_dir_all(images()?)?;
         let size = format!("{}b", sectors(disk_size(&image)?));
         hdiutil(&[
             "create".as_ref(),
@@ -125,7 +140,7 @@ pub mod platform {
             "-fs".as_ref(),
             "APFS".as_ref(),
             "-volname".as_ref(),
-            NAME.as_ref(),
+            folder.as_ref(),
             "-size".as_ref(),
             size.as_ref(),
             image.as_os_str(),
@@ -133,7 +148,7 @@ pub mod platform {
         let root = attach(&image)?;
         // Spotlight leaves the stick alone (its files never go into a stick).
         std::fs::write(root.join(".metadata_never_index"), b"")?;
-        Ok(root)
+        Ok((root, Some(image)))
     }
 
     fn attach(image: &Path) -> Result<PathBuf> {
@@ -141,12 +156,12 @@ pub mod platform {
         mount_point_in(&plist).context("hdiutil attached the stick but named no mount point")
     }
 
-    /// Attaches the image; returns where it is mounted (it may differ from
-    /// last time, e.g. `/Volumes/OurStick 1`). A detached image made with a
-    /// size (before ADR 0008) is first grown to its disk's size; if that
-    /// fails it stays as it is (growing never touches what is on it).
-    pub fn mount(_root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
-        let image = image()?;
+    /// Attaches the stick's image; returns where it is mounted (it may
+    /// differ from last time, e.g. `/Volumes/OurStick 1`). An image made
+    /// with a size (before ADR 0008) is first grown to its disk's size; if
+    /// that fails it stays as it is (growing never touches what is on it).
+    pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
+        let image = image_of(stick)?;
         if let Err(error) = grow(&image) {
             tracing::warn!(%error, "the stick's disk image could not be grown");
         }
@@ -182,8 +197,8 @@ pub mod platform {
 
     /// Detaches the stick's image by its device, not by the folder: the
     /// folder's path can change between mounts (`/Volumes/OurStick 1`).
-    pub fn eject(_root: &Path) -> Result<()> {
-        let image = image()?;
+    pub fn eject(stick: &OwnedStick) -> Result<()> {
+        let image = image_of(stick)?;
         let image = std::fs::canonicalize(&image).unwrap_or(image);
         let info = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;
         let Some(device) = device_of(&info, &image.to_string_lossy()) else {
@@ -195,8 +210,8 @@ pub mod platform {
         Ok(())
     }
 
-    pub fn is_mounted(root: &Path) -> bool {
-        folder_is_there(root)
+    pub fn is_mounted(stick: &OwnedStick) -> bool {
+        folder_is_there(&stick.root_path)
     }
 }
 

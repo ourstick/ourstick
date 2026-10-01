@@ -62,9 +62,9 @@ pub struct StickView {
     mounted: bool,
 }
 
-/// What can still be copied onto the stick whose folder is `root`. Blocking.
-fn left_on(root: &Path, store: &dyn Store, data_dir: &Path) -> Result<u64> {
-    let measure_at = drive::measure_at(root)?;
+/// What can still be copied onto `stick`. Blocking.
+fn left_on(stick: &OwnedStick, store: &dyn Store, data_dir: &Path) -> Result<u64> {
+    let measure_at = drive::measure_at(stick)?;
     Ok(available(&SystemDisks, store, data_dir, &measure_at, None)?)
 }
 
@@ -122,8 +122,8 @@ pub async fn stick(stick_id: String, state: State<'_, AppState>) -> Result<Stick
     let id = stick.stick_id;
     let (entries, used, left, mounted) = blocking(move || {
         let root = &stick.root_path;
-        let mounted = drive::is_mounted(root);
-        let left = left_on(root, store.as_ref(), &data_dir)?;
+        let mounted = drive::is_mounted(&stick);
+        let left = left_on(&stick, store.as_ref(), &data_dir)?;
         let used = if drive::folder_is_there(root) {
             folder_size(root)?
         } else {
@@ -203,7 +203,7 @@ pub async fn add_paths(
         if !drive::folder_is_there(&stick.root_path) {
             bail!("the stick is ejected; mount it first");
         }
-        let left = left_on(&stick.root_path, store.as_ref(), &data_dir)?;
+        let left = left_on(&stick, store.as_ref(), &data_dir)?;
         let linked: Vec<String> = store
             .linked_entries(&stick.stick_id)?
             .into_iter()

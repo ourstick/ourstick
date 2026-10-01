@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use ourstick_core::device;
 use ourstick_core::secrets::check_secret_store;
 use ourstick_core::share::mark_drive;
+use ourstick_core::stick_names::folder_name;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -64,7 +65,9 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         if !crate::state::app_sticks(store.as_ref())?.is_empty() {
             return Ok(None);
         }
-        let root = drive::create()?;
+        let home = drive::sticks_home()?;
+        let folder = folder_name("OurStick", |candidate| home.join(candidate).exists());
+        let (root, image) = drive::create(&folder, "OurStick")?;
         let keys = device::create_stick(
             store.as_ref(),
             secrets.as_ref(),
@@ -73,6 +76,10 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
             ourstick_core::StickKind::App,
         )?;
         mark_drive(&root, &keys.stick.stick_id).context("cannot mark the stick's folder")?;
+        drive::hide_marker(&root);
+        if let Some(image) = image {
+            store.set_image_path(&keys.stick.stick_id, &image)?;
+        }
         // Windows: the letter it got, to ask for it again after a restart.
         if let Some(letter) = drive::letter_of(&root) {
             store.set_drive_letter(&keys.stick.stick_id, Some(letter))?;
@@ -96,7 +103,7 @@ pub async fn eject(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
-    blocking(move || drive::eject(&stick.root_path)).await?;
+    blocking(move || drive::eject(&stick)).await?;
     crate::tray::set_mounted(&app, false);
     let _ = app.emit("mount-changed", ());
     Ok(())

@@ -103,6 +103,7 @@ fn main() {
             stick_commands::stick,
             stick_life_commands::sticks,
             stick_life_commands::new_link,
+            stick_life_commands::new_stick,
             stick_life_commands::remove,
             stick_commands::add_paths,
             stick_commands::link_paths,

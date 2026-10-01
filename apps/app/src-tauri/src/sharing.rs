@@ -69,6 +69,14 @@ pub fn start_app(app: &AppHandle) {
                         state.store.set_image_path(&stick.stick_id, &image)?;
                     }
                 }
+                // A move of the first stick stopped halfway is finished.
+                let home = crate::drive::sticks_home()?;
+                let folder = ourstick_core::stick_names::folder_name(&stick.name, |candidate| {
+                    home.join(candidate).exists()
+                });
+                if let Some(root) = crate::drive::find_moved(&stick, &folder)? {
+                    state.store.move_owned_stick(&stick.stick_id, &root)?;
+                }
             }
             finish_pending(&state)
         })
@@ -90,7 +98,7 @@ pub fn start_app(app: &AppHandle) {
 /// gone; elsewhere only if the folder moved). Blocking.
 fn plug_in(state: &AppState, stick_id: &StickId) -> Result<bool> {
     let stick = state.app_stick(stick_id)?;
-    let root = crate::drive::mount(&stick.root_path, stick.drive_letter)?;
+    let root = crate::drive::mount(&stick)?;
     let moved = root != stick.root_path;
     if moved {
         state.store.move_owned_stick(stick_id, &root)?;
@@ -308,13 +316,13 @@ pub fn watch_mount(app: &AppHandle) {
             let mut any_mounted = false;
             let mut changed = false;
             for stick in sticks {
-                let root = stick.root_path.clone();
+                let id = stick.stick_id;
                 let mounted =
-                    tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&root))
+                    tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&stick))
                         .await
                         .unwrap_or(false);
                 any_mounted |= mounted;
-                let before = last.insert(stick.stick_id, mounted);
+                let before = last.insert(id, mounted);
                 if before.is_some_and(|before| before != mounted) {
                     changed = true;
                     if mounted {

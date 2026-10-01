@@ -106,6 +106,11 @@ pub(super) fn watch_lines(
             "[{at}] The stick's drive is not there (ejected?); readers keep getting \
              the last version until it is back."
         )],
+        WatchEvent::SeenSlowly => vec![format!(
+            "[{at}] Some folders cannot be watched (too many?); their changes are \
+             seen every {} s.",
+            timing.retry.as_secs()
+        )],
         WatchEvent::StillChanging => {
             vec![format!("[{at}] A file is still being written; waiting…")]
         }

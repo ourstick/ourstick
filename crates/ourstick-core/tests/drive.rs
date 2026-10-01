@@ -148,7 +148,7 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
     let marker = owner.folder.path().join(DRIVE_MARKER);
     let mut events = Manual(receive);
     tokio::select! {
-        () = follow_folder(&publishing, owner.folder.path(), &mut events, timing, current, &mut on_event) => {}
+        () = follow_folder(&publishing, &mut events, timing, current, &mut on_event) => {}
         () = async {
             std::fs::remove_file(&marker).unwrap();
             send.send(()).unwrap();

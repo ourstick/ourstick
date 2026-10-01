@@ -9,11 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub use events::{FolderEvents, NotifyEvents, PeriodicEvents, WatchError};
+pub use events::{FolderEvents, NotifyEvents, Nudge, PeriodicEvents, WatchError};
 
 pub use crate::share::Owner;
 
 use crate::blocking::run_blocking;
+use crate::layout::StickLayout;
 use crate::manifest::build::regular_files;
 use crate::manifest::{FileStamp, Manifest};
 use crate::share::{
@@ -105,6 +106,10 @@ pub enum WatchEvent<'a> {
     /// The stick's drive is not there (ejected): the last version is still
     /// served, and publishing resumes when it is back. Reported once.
     Ejected,
+    /// Some of the stick's folders cannot be watched (e.g. the system's
+    /// limit on watches is reached): their changes are seen by looking
+    /// again every `retry`. Reported when it starts.
+    SeenSlowly,
     /// Linked entries that are gone, and own top-level names left out for
     /// a linked one's, as a pass found them ([`PassEvent::Roots`]).
     Roots {
@@ -113,27 +118,68 @@ pub enum WatchEvent<'a> {
     },
 }
 
-/// Every file's stamp under `root`, or `None` if the folder cannot be read
-/// right now (e.g. a file vanished during the walk).
-fn stamps(root: &Path) -> Option<BTreeMap<PathBuf, FileStamp>> {
-    let files = regular_files(root).ok()?;
-    files
-        .into_iter()
-        .map(|path| {
+/// Every file's stamp under each of `roots` (a root may be one file), or
+/// `None` if one cannot be read right now (e.g. a file vanished during the
+/// walk).
+fn stamps(roots: &[PathBuf]) -> Option<BTreeMap<PathBuf, FileStamp>> {
+    let mut all = BTreeMap::new();
+    for root in roots {
+        let metadata = std::fs::metadata(root).ok()?;
+        let files = if metadata.is_file() {
+            vec![root.clone()]
+        } else {
+            regular_files(root).ok()?
+        };
+        for path in files {
             let stamp = FileStamp::of(&std::fs::metadata(&path).ok()?);
-            Some((path, stamp))
-        })
-        .collect()
+            all.insert(path, stamp);
+        }
+    }
+    Some(all)
 }
 
 /// True if no file under `root` changes size or times over `settle`.
 pub async fn is_settled(root: &Path, settle: Duration) -> bool {
-    let read = |root: PathBuf| run_blocking(move || Ok::<_, std::io::Error>(stamps(&root)));
-    let Ok(Some(before)) = read(root.to_path_buf()).await else {
+    are_settled(vec![root.to_path_buf()], settle).await
+}
+
+/// [`is_settled`] for several roots at once.
+pub async fn are_settled(roots: Vec<PathBuf>, settle: Duration) -> bool {
+    let read = |roots: Vec<PathBuf>| run_blocking(move || Ok::<_, std::io::Error>(stamps(&roots)));
+    let Ok(Some(before)) = read(roots.clone()).await else {
         return false;
     };
     tokio::time::sleep(settle).await;
-    matches!(read(root.to_path_buf()).await, Ok(Some(after)) if after == before)
+    matches!(read(roots).await, Ok(Some(after)) if after == before)
+}
+
+/// The stick's roots that are there now, and whether any linked one is
+/// gone. Its own folder always counts (an ejected drive is the pass's to
+/// tell).
+async fn present_roots(owner: &Owner<'_, impl Publisher>) -> (Vec<PathBuf>, bool) {
+    let store = owner.store.clone();
+    let stick_id = owner.signing_key.stick_id();
+    let found = run_blocking(move || {
+        let layout = StickLayout::load(store.as_ref(), &stick_id)?;
+        let mut present = vec![layout.own().path.clone()];
+        let mut any_gone = false;
+        for root in layout.linked() {
+            if root.is_gone() {
+                any_gone = true;
+            } else {
+                present.push(root.path.clone());
+            }
+        }
+        Ok::<_, crate::store::StoreError>((present, any_gone))
+    })
+    .await;
+    match found {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!(%error, "the stick's folders could not be read from the database");
+            (Vec::new(), true)
+        }
+    }
 }
 
 /// Waits for a sign of change, or with `retry_after`, for that long at most.
@@ -151,13 +197,12 @@ async fn next_change(events: &mut impl FolderEvents, retry_after: Option<Duratio
 /// is the manifest being served now, to report what changed.
 pub async fn follow_folder(
     owner: &Owner<'_, impl Publisher>,
-    root: &Path,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
     current: Manifest,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
-    follow(owner, root, events, timing, current, false, on_event).await;
+    follow(owner, events, timing, current, false, on_event).await;
 }
 
 /// Like [`follow_folder`], with a pass at once: after a start that served
@@ -165,18 +210,16 @@ pub async fn follow_folder(
 /// ([`crate::share::serve_latest`]).
 pub async fn follow_folder_reading_first(
     owner: &Owner<'_, impl Publisher>,
-    root: &Path,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
     current: Manifest,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
-    follow(owner, root, events, timing, current, true, on_event).await;
+    follow(owner, events, timing, current, true, on_event).await;
 }
 
 async fn follow(
     owner: &Owner<'_, impl Publisher>,
-    root: &Path,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
     mut current: Manifest,
@@ -185,16 +228,31 @@ async fn follow(
 ) {
     let mut retry = false;
     let mut ejected = false;
+    let mut slow = false;
     let mut pass_now = pass_first;
     loop {
+        // Watch what is there now: linked entries come and go (ADR 0008).
+        // One gone, or one that cannot be watched, is looked at again every
+        // `retry`.
+        let (roots, any_gone) = present_roots(owner).await;
+        let unwatched = events.watch_roots(&roots);
+        for error in &unwatched {
+            tracing::warn!(%error, "a folder of the stick cannot be watched");
+        }
+        if !unwatched.is_empty() && !slow {
+            on_event(WatchEvent::SeenSlowly);
+        }
+        slow = !unwatched.is_empty();
+        let look_again = retry || any_gone || slow;
         if !std::mem::take(&mut pass_now)
-            && !next_change(events, retry.then_some(timing.retry)).await
+            && !next_change(events, look_again.then_some(timing.retry)).await
         {
             return;
         }
         // Let a burst of changes (a copy, an unzip) finish first.
         while let Ok(Some(())) = tokio::time::timeout(timing.quiet, events.changed()).await {}
-        if !is_settled(root, timing.settle).await {
+        let (roots, _) = present_roots(owner).await;
+        if !are_settled(roots, timing.settle).await {
             on_event(WatchEvent::StillChanging);
             retry = true;
             continue;
@@ -253,57 +311,4 @@ async fn follow(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::manifest::Entry;
-
-    fn manifest(entries: &[(&str, u8)]) -> Manifest {
-        Manifest {
-            entries: entries
-                .iter()
-                .map(|(path, hash)| Entry {
-                    path: (*path).to_owned(),
-                    size: 1,
-                    mtime: 0,
-                    hash: [*hash; 32],
-                })
-                .collect(),
-            ..Manifest::default()
-        }
-    }
-
-    #[test]
-    fn summary_lists_added_changed_and_removed_paths() {
-        let old = manifest(&[("a", 1), ("b", 2), ("c", 3)]);
-        let new = manifest(&[("a", 1), ("b", 9), ("d", 4)]);
-        assert_eq!(
-            ChangeSummary::between(&old, &new),
-            ChangeSummary {
-                added: vec!["d".to_owned()],
-                changed: vec!["b".to_owned()],
-                removed: vec!["c".to_owned()],
-            }
-        );
-        assert_eq!(ChangeSummary::between(&new, &new), ChangeSummary::default());
-    }
-
-    #[tokio::test]
-    async fn a_file_being_written_is_not_settled() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("growing.bin");
-        std::fs::write(&path, b"").unwrap();
-        assert!(is_settled(dir.path(), Duration::from_millis(50)).await);
-
-        let writer = std::thread::spawn(move || {
-            use std::io::Write;
-            let mut file = std::fs::File::options().append(true).open(path).unwrap();
-            for _ in 0..20 {
-                file.write_all(&[0; 1024]).unwrap();
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        });
-        assert!(!is_settled(dir.path(), Duration::from_millis(100)).await);
-        writer.join().unwrap();
-        assert!(is_settled(dir.path(), Duration::from_millis(50)).await);
-    }
-}
+mod tests;

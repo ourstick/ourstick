@@ -230,7 +230,7 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         match NotifyEvents::start(&folder) {
             Ok(events) => {
                 println!("Watching the folder: changes are shared as they happen.");
-                serve(&owner, &folder, events, current, readers, started).await
+                serve(&owner, events, current, readers, started).await
             }
             Err(error) => {
                 println!(
@@ -238,7 +238,7 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
                     RESCAN_EVERY.as_secs()
                 );
                 let events = PeriodicEvents::new(RESCAN_EVERY);
-                serve(&owner, &folder, events, current, readers, started).await
+                serve(&owner, events, current, readers, started).await
             }
         }
     }
@@ -282,7 +282,6 @@ const RESCAN_EVERY: Duration = Duration::from_secs(60);
 /// Follows the folder until Ctrl-C, printing what changes.
 async fn serve(
     owner: &Owner<'_, IrohPublisher>,
-    folder: &Path,
     mut events: impl FolderEvents,
     current: ourstick_core::Manifest,
     readers: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
@@ -312,7 +311,7 @@ async fn serve(
         }
     };
     tokio::select! {
-        () = follow_folder(owner, folder, &mut events, timing, current, &mut on_event) => {
+        () = follow_folder(owner, &mut events, timing, current, &mut on_event) => {
             anyhow::bail!("the folder watch ended unexpectedly")
         }
         () = readers => anyhow::bail!("the reader activity ended unexpectedly"),

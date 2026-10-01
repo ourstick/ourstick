@@ -40,6 +40,7 @@ fn describe(event: WatchEvent<'_>) -> String {
         WatchEvent::Unchanged => "unchanged".to_owned(),
         WatchEvent::Failed { .. } => "failed".to_owned(),
         WatchEvent::Ejected => "ejected".to_owned(),
+        WatchEvent::SeenSlowly => "seen slowly".to_owned(),
         WatchEvent::Reading { done, total } => format!("reading {done}/{total}"),
         WatchEvent::Roots { gone, left_out } => format!("roots -{gone:?} ~{left_out:?}"),
         WatchEvent::Published {
@@ -93,7 +94,7 @@ async fn watch_with(
         }
     };
     tokio::select! {
-        () = follow_folder(&publishing, owner.folder.path(), events, timing, current, &mut on_event) => {}
+        () = follow_folder(&publishing, events, timing, current, &mut on_event) => {}
         () = drive => {}
     }
     let seen = seen.lock().unwrap().clone();
@@ -280,7 +281,6 @@ async fn reading_first_publishes_what_changed_while_stopped() {
     tokio::select! {
         () = follow_folder_reading_first(
             &publishing,
-            owner.folder.path(),
             &mut events,
             FAST,
             current,

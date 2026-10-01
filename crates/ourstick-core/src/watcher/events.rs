@@ -1,8 +1,9 @@
 //! Signs that a folder may have changed: from the operating system through
 //! `notify`, or on a timer when watching is not possible.
 
+use std::collections::BTreeSet;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify::event::{AccessKind, AccessMode};
@@ -14,6 +15,27 @@ use tokio::sync::mpsc;
 pub trait FolderEvents: Send {
     /// Waits for the next sign of change. `None` once there will be no more.
     fn changed(&mut self) -> impl Future<Output = Option<()>> + Send;
+
+    /// Watches exactly `roots` from now on (a stick's own folder and its
+    /// linked entries, ADR 0008), as far as it can; returns those it cannot
+    /// watch, whose changes are then seen only by looking again now and
+    /// then. Sources that watch nothing in particular accept anything.
+    fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
+        let _ = roots;
+        Vec::new()
+    }
+}
+
+/// Gives a source a sign of change from outside, e.g. when the app links a
+/// folder to the stick. Cheap to clone.
+#[derive(Debug, Clone)]
+pub struct Nudge(mpsc::UnboundedSender<()>);
+
+impl Nudge {
+    pub fn now(&self) {
+        // Nobody to tell once watching has stopped.
+        let _ = self.0.send(());
+    }
 }
 
 /// Why a folder cannot be watched. The message is meant for users.
@@ -27,8 +49,10 @@ pub struct WatchError {
 /// Changes reported by the operating system (inotify, FSEvents, …).
 pub struct NotifyEvents {
     // Kept alive: dropping it stops the watch.
-    _watcher: notify::RecommendedWatcher,
+    watcher: notify::RecommendedWatcher,
+    sender: mpsc::UnboundedSender<()>,
     receiver: mpsc::UnboundedReceiver<()>,
+    watched: BTreeSet<PathBuf>,
 }
 
 /// Whether an event may mean the folder's content changed. Opening and
@@ -54,10 +78,11 @@ impl NotifyEvents {
             reason: reason.to_string(),
         };
         let (sender, receiver) = mpsc::unbounded_channel();
+        let from_system = sender.clone();
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             if is_change(&event) {
                 // The receiver is gone only when watching has stopped.
-                let _ = sender.send(());
+                let _ = from_system.send(());
             }
         })
         .map_err(error)?;
@@ -65,9 +90,16 @@ impl NotifyEvents {
             .watch(root, RecursiveMode::Recursive)
             .map_err(error)?;
         Ok(Self {
-            _watcher: watcher,
+            watcher,
+            sender,
             receiver,
+            watched: BTreeSet::from([root.to_path_buf()]),
         })
+    }
+
+    /// A way to give this source a sign of change from outside.
+    pub fn nudge(&self) -> Nudge {
+        Nudge(self.sender.clone())
     }
 }
 
@@ -75,25 +107,69 @@ impl FolderEvents for NotifyEvents {
     async fn changed(&mut self) -> Option<()> {
         self.receiver.recv().await
     }
+
+    fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
+        let wanted: BTreeSet<PathBuf> = roots.iter().cloned().collect();
+        for gone in self
+            .watched
+            .difference(&wanted)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            // A root that went is no longer watched by the system anyway.
+            let _ = self.watcher.unwatch(&gone);
+            self.watched.remove(&gone);
+        }
+        let mut errors = Vec::new();
+        for root in wanted
+            .difference(&self.watched)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            match self.watcher.watch(&root, RecursiveMode::Recursive) {
+                Ok(()) => {
+                    self.watched.insert(root);
+                }
+                Err(reason) => errors.push(WatchError {
+                    path: root.display().to_string(),
+                    reason: reason.to_string(),
+                }),
+            }
+        }
+        errors
+    }
 }
 
 /// A sign of change every `interval`, for when the folder cannot be watched.
 pub struct PeriodicEvents {
     interval: tokio::time::Interval,
+    sender: mpsc::UnboundedSender<()>,
+    receiver: mpsc::UnboundedReceiver<()>,
 }
 
 impl PeriodicEvents {
     pub fn new(interval: Duration) -> Self {
         let start = tokio::time::Instant::now() + interval;
+        let (sender, receiver) = mpsc::unbounded_channel();
         Self {
             interval: tokio::time::interval_at(start, interval),
+            sender,
+            receiver,
         }
+    }
+
+    /// A way to give this source a sign of change from outside.
+    pub fn nudge(&self) -> Nudge {
+        Nudge(self.sender.clone())
     }
 }
 
 impl FolderEvents for PeriodicEvents {
     async fn changed(&mut self) -> Option<()> {
-        self.interval.tick().await;
+        tokio::select! {
+            _ = self.interval.tick() => {}
+            _ = self.receiver.recv() => {}
+        }
         Some(())
     }
 }

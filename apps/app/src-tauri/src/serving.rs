@@ -150,7 +150,6 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
         publisher,
         keys,
         store,
-        root: root.clone(),
         current,
         read_again,
         lock,
@@ -270,7 +269,6 @@ struct Shared {
     publisher: IrohPublisher,
     keys: StickKeys,
     store: Arc<dyn Store>,
-    root: PathBuf,
     current: Manifest,
     /// The folder was not read at start: a pass comes first.
     read_again: bool,
@@ -286,7 +284,6 @@ impl Shared {
             publisher,
             keys,
             store,
-            root,
             current,
             read_again,
             lock,
@@ -313,17 +310,10 @@ impl Shared {
             let timing = WatchTiming::default();
             let follow = async {
                 if read_again {
-                    follow_folder_reading_first(
-                        &owner,
-                        &root,
-                        &mut events,
-                        timing,
-                        current,
-                        &mut on_event,
-                    )
-                    .await
+                    follow_folder_reading_first(&owner, &mut events, timing, current, &mut on_event)
+                        .await
                 } else {
-                    follow_folder(&owner, &root, &mut events, timing, current, &mut on_event).await
+                    follow_folder(&owner, &mut events, timing, current, &mut on_event).await
                 }
             };
             tokio::select! {
@@ -344,7 +334,8 @@ fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
             let _ = app.emit("stick-changed", ());
             ShareProblem::Cleared
         }
-        WatchEvent::StillChanging | WatchEvent::Reading { .. } => return,
+        // The window says so with the stick's state (ADR 0008).
+        WatchEvent::StillChanging | WatchEvent::Reading { .. } | WatchEvent::SeenSlowly => return,
         // The window lists linked entries that are gone and own entries
         // left out from the stick itself; it only needs to look again.
         WatchEvent::Roots { .. } => {

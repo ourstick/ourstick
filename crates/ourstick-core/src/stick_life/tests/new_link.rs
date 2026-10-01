@@ -219,3 +219,131 @@ fn a_new_link_tidies_only_its_own_old_id() {
         .collect();
     assert_eq!(left, [away_stick.stick_id]);
 }
+
+/// The old ids still waiting.
+fn waiting(world: &World) -> Vec<StickId> {
+    world
+        .store
+        .retired_sticks()
+        .unwrap()
+        .iter()
+        .map(|entry| entry.old)
+        .collect()
+}
+
+fn finish(world: &World) {
+    let failed = finish_new_links(&world.store, &world.secrets, &world.data).unwrap();
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
+#[test]
+fn a_chain_of_new_links_waits_for_its_drive_too() {
+    let world = world();
+    let first = app_stick(&world, "For Maria");
+    let second = stopped_new_link(&world, &first, 40);
+    let third = stopped_new_link(&world, &second, 41);
+    let away = first.root_path.with_file_name("away");
+    std::fs::rename(&first.root_path, &away).unwrap();
+    finish(&world);
+    assert_eq!(waiting(&world).len(), 2);
+    std::fs::rename(&away, &first.root_path).unwrap();
+    finish(&world);
+    assert!(drive_present(&third.root_path, &third.stick_id));
+    assert!(waiting(&world).is_empty());
+}
+
+#[test]
+fn an_old_id_whose_stick_was_removed_since_goes_and_touches_nothing() {
+    let world = world();
+    let first = app_stick(&world, "For Maria");
+    let second = stopped_new_link(&world, &first, 42);
+    // Removed with its marker still naming the first id: nothing deleted.
+    remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &second.stick_id,
+        &NoDrive,
+    )
+    .unwrap();
+    assert!(first.root_path.join("photos/a.jpg").exists());
+    finish(&world);
+    assert!(waiting(&world).is_empty());
+    assert!(!has_secret(&world, SecretName::StickKey(first.stick_id)));
+    assert!(
+        drive_present(&first.root_path, &first.stick_id),
+        "left as it was"
+    );
+}
+
+#[test]
+fn a_command_line_stick_has_no_marker_to_wait_for() {
+    let world = world();
+    let folder = world.data.parent().unwrap().join("shared");
+    std::fs::create_dir_all(&folder).unwrap();
+    let keys = create_stick(
+        &world.store,
+        &world.secrets,
+        &folder,
+        "shared",
+        StickKind::Cli,
+    )
+    .unwrap();
+    give_new_link(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &keys.stick.stick_id,
+    )
+    .unwrap();
+    assert!(waiting(&world).is_empty());
+    assert!(!has_secret(
+        &world,
+        SecretName::StickKey(keys.stick.stick_id)
+    ));
+}
+
+#[test]
+fn a_marker_naming_another_sticks_old_id_is_never_claimed() {
+    let world = world();
+    let mine = app_stick(&world, "Mine");
+    let theirs = app_stick(&world, "Theirs");
+    let theirs_new = stopped_new_link(&world, &theirs, 43);
+    // Their drive is where mine should be: my folder's marker names their
+    // old id.
+    mark_drive(&mine.root_path, &theirs.stick_id).unwrap();
+    finish(&world);
+    assert!(
+        drive_present(&mine.root_path, &theirs.stick_id),
+        "not claimed"
+    );
+    assert!(drive_present(&theirs_new.root_path, &theirs_new.stick_id));
+    assert!(waiting(&world).is_empty());
+}
+
+#[test]
+fn a_marker_naming_some_other_id_is_left_and_the_old_id_waits() {
+    let world = world();
+    let old = app_stick(&world, "For Maria");
+    let new = stopped_new_link(&world, &old, 44);
+    let stranger = StickSigningKey::generate().stick_id();
+    mark_drive(&new.root_path, &stranger).unwrap();
+    finish(&world);
+    assert!(drive_present(&new.root_path, &stranger));
+    assert_eq!(waiting(&world), [old.stick_id]);
+}
+
+#[test]
+fn a_new_link_given_while_its_drive_is_away_finishes_when_it_is_back() {
+    let world = world();
+    let old = app_stick(&world, "For Maria");
+    let away = old.root_path.with_file_name("away");
+    std::fs::rename(&old.root_path, &away).unwrap();
+    let new = give_new_link(&world.store, &world.secrets, &world.data, &old.stick_id).unwrap();
+    assert_eq!(waiting(&world), [old.stick_id]);
+    assert!(has_secret(&world, SecretName::StickKey(old.stick_id)));
+    std::fs::rename(&away, &old.root_path).unwrap();
+    finish(&world);
+    assert!(drive_present(&new.stick.root_path, &new.stick.stick_id));
+    assert!(waiting(&world).is_empty());
+}

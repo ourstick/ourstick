@@ -127,7 +127,14 @@ pub fn give_new_link(
     }
     // The new link is made from here on: what is left is tidying up, done
     // again at the next start (or mount) if it cannot be done now.
-    match settle_marker(&new, store) {
+    let settled = store
+        .retired_sticks()
+        .map_err(LifeError::from)
+        .and_then(|retired| {
+            let sticks = store.owned_sticks()?;
+            settle_marker(&new, &retired, &sticks)
+        });
+    match settled {
         Ok(true) => {
             if let Err(error) = clean_up(store, secrets, data_dir, stick_id) {
                 tracing::warn!(%error, "the old link's keys are deleted at the next start");
@@ -150,12 +157,20 @@ pub fn give_new_link(
 /// names one of its retired ids (a new link, or several, stopped before the
 /// marker was written). False while its drive is not there (unplugged, or a
 /// macOS image not attached): nothing can be known until it is back.
-fn settle_marker(stick: &OwnedStick, store: &dyn Store) -> Result<bool, LifeError> {
+fn settle_marker(
+    stick: &OwnedStick,
+    retired: &[RetiredStick],
+    sticks: &[OwnedStick],
+) -> Result<bool, LifeError> {
     if stick.kind != StickKind::App || drive_present(&stick.root_path, &stick.stick_id) {
         return Ok(true);
     }
-    for retired in store.retired_sticks()? {
-        if drive_present(&stick.root_path, &retired.old) {
+    // Only this stick's own earlier ids: a marker naming another stick's
+    // (its drive mounted here, say) is that drive's, never claimed.
+    for entry in retired {
+        let own = successor(&entry.old, retired, sticks)
+            .is_some_and(|successor| successor.stick_id == stick.stick_id);
+        if own && drive_present(&stick.root_path, &entry.old) {
             mark_drive(&stick.root_path, &stick.stick_id)?;
             return Ok(true);
         }
@@ -178,7 +193,8 @@ fn successor(old: &StickId, retired: &[RetiredStick], sticks: &[OwnedStick]) -> 
     None
 }
 
-/// At start, before anything is shared, and whenever a drive is mounted:
+/// At start, before anything is shared, and whenever a drive is mounted
+/// (while no new link is being given for one of its sticks):
 /// a stick whose marker still names a retired id is marked anew, and a
 /// retired id whose stick's marker names the stick now is forgotten with
 /// its secrets and cache. One whose drive is not there is kept for later;
@@ -189,12 +205,15 @@ pub fn finish_new_links(
     secrets: &dyn SecretStore,
     data_dir: &Path,
 ) -> Result<Vec<(String, LifeError)>, LifeError> {
-    let sticks = store.owned_sticks()?;
+    // Retired ids first: a new link committed between the two reads then
+    // has its new stick among `sticks`, never an old id without a successor
+    // (which would read as "removed" and lose the old id too early).
     let retired = store.retired_sticks()?;
+    let sticks = store.owned_sticks()?;
     let mut failed = Vec::new();
     let mut settled: Vec<StickId> = Vec::new();
     for stick in &sticks {
-        match settle_marker(stick, store) {
+        match settle_marker(stick, &retired, &sticks) {
             Ok(true) => settled.push(stick.stick_id),
             Ok(false) => {}
             Err(error) => failed.push((stick.name.clone(), error)),
@@ -208,7 +227,11 @@ pub fn finish_new_links(
         };
         if done {
             if let Err(error) = clean_up(store, secrets, data_dir, &entry.old) {
-                failed.push((String::new(), error));
+                let name = successor(&entry.old, &retired, &sticks).map_or_else(
+                    || "a removed stick's old link".to_owned(),
+                    |stick| format!("{}'s old link", stick.name),
+                );
+                failed.push((name, error));
             }
         }
     }

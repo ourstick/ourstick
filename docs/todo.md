@@ -83,5 +83,20 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       IPv6, but no direct IPv6 path opened: a firewall…" for two machines on
       the same Wi-Fi whose direct path had just worked. When a direct path
       was seen in this download, say that it was lost, not a firewall.
+- [ ] **ADR 0010 (to write): a nonce per chunk, one read per file.** Today
+      the nonce prefix comes from the hash of the whole file (ADR 0003), so
+      a file is read twice before its blob exists. A nonce per 64 KiB chunk,
+      derived (keyed) from that chunk's own plaintext and index ("synthetic
+      IV" per chunk, as AES-GCM-SIV does per message), would encrypt each
+      chunk as it is read: one read, still deterministic (catalogue and
+      suitcases still agree), and no nonce shared by different plaintexts.
+      Costs: blob format version 2 (protocol, test vectors, a new ADR in
+      place of 0003, a security review), 24 bytes more per chunk (~0.04 %),
+      and equal chunks at the same index in two files show as equal (today
+      only whole equal files do). Gain: the first catalogue of big files
+      reads them once (about half the time on a hard disk); small files gain
+      little (the page cache already serves the second read). Prefixes of
+      the first X bytes, or other samples, are not enough: two files that
+      differ only where the sample does not look would share a nonce.
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.

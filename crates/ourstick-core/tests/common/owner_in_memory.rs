@@ -25,6 +25,8 @@ pub struct Served {
     pub(crate) next_suitcase: SuitcaseId,
     /// Where what readers ask for goes, once the owner's policy took it.
     pub(crate) demand: Option<UnboundedSender<Demand>>,
+    /// When a reader was last told "not ready".
+    pub(crate) last_not_ready: Option<std::time::Instant>,
 }
 
 /// Cheap to clone: clones share what is served and the cache folder.
@@ -106,6 +108,13 @@ impl Publisher for MemoryPublisher {
             }
         }
         Ok(())
+    }
+    fn readers_waiting(&self, window: std::time::Duration) -> bool {
+        self.served
+            .lock()
+            .unwrap()
+            .last_not_ready
+            .is_some_and(|at| at.elapsed() < window)
     }
     fn take_demand(&self) -> Option<UnboundedReceiver<Demand>> {
         let mut served = self.served.lock().unwrap();

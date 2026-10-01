@@ -237,6 +237,9 @@ impl PeerConnection for MemoryConnection {
                     })
                     .ok();
             }
+            if blob.is_none() {
+                served.last_not_ready = Some(std::time::Instant::now());
+            }
             blob.ok_or(TransportError::NotReady)?
         };
         {

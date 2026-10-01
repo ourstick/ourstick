@@ -189,6 +189,10 @@ impl Publisher for IrohPublisher {
         self.suitcases.evict(suitcase).await
     }
 
+    fn readers_waiting(&self, window: std::time::Duration) -> bool {
+        self.serving.not_ready_within(window)
+    }
+
     fn take_demand(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<Demand>> {
         lock(&self.demand).take()
     }

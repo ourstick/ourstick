@@ -22,6 +22,14 @@ const PART_FILES: usize = 256;
 /// publish on time and to notice an ejected drive.
 const PART_BYTES: u64 = 256 * 1024 * 1024;
 
+/// A reader told "not ready" this recently is still waiting (its pauses
+/// grow to a minute).
+const READERS_WAIT_WINDOW: Duration = Duration::from_secs(60);
+/// While readers wait, the catalogue pauses after each part as long as the
+/// part took, at most this: suitcases for them (the same disk) go first, and
+/// the catalogue still goes on, or new files would never reach anyone.
+const LONGEST_YIELD: Duration = Duration::from_secs(10);
+
 /// When partial versions are published.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PartialTiming {
@@ -135,6 +143,7 @@ pub async fn run_pass(
                 return Err(ShareError::DriveMissing { path: root.clone() });
             }
         }
+        let part_started = Instant::now();
         let (returned, part) = {
             let cipher = cipher.clone();
             run_blocking(move || {
@@ -165,6 +174,9 @@ pub async fn run_pass(
             done: catalogue.done(),
             total: catalogue.len(),
         });
+        if owner.publisher.readers_waiting(READERS_WAIT_WINDOW) {
+            tokio::time::sleep(part_started.elapsed().min(LONGEST_YIELD)).await;
+        }
         if let (Some(timing), Some(due)) = (timing, next_partial) {
             if Instant::now() >= due && !catalogue.is_finished() {
                 let merged = previous.merged(&entries, catalogue.last_done());

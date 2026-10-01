@@ -181,6 +181,11 @@ pub trait Publisher: Send + Sync {
         suitcase: SuitcaseId,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
+    /// Whether a reader was told "not ready" within the last `window`: a
+    /// reader waits on the owner (ADR 0007), which then puts preparing
+    /// suitcases before reading the folder.
+    fn readers_waiting(&self, window: std::time::Duration) -> bool;
+
     /// What readers ask for, from now on. Only the first call gets it.
     fn take_demand(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>;
 

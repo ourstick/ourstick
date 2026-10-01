@@ -21,7 +21,9 @@ fn serving_with(allowed: &[u8]) -> Serving {
 #[tokio::test]
 async fn only_allowed_plain_blobs_that_a_store_holds_ready_are_served() {
     let serving = serving_with(&[1, 2]);
+    assert!(!serving.not_ready_within(Duration::from_secs(60)));
     assert!(matches!(serving.decide(hash(1), true), Decision::NotReady));
+    assert!(serving.not_ready_within(Duration::from_secs(60)));
     serving.add_store(7, store());
     assert!(matches!(serving.decide(hash(1), true), Decision::NotReady));
     serving.set_ready(7, hash(1));

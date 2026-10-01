@@ -172,7 +172,11 @@ carries only the key). Every file blob of that stick must use the same cipher.
   the suitcase used longest ago leaves, never the one a reader is on nor the
   next one (a reader that asked nothing for 30 s holds none); it leaves once
   no transfer from it is in progress, by removing its folder. With no room,
-  readers wait. A start removes every suitcase of the run before.
+  readers wait. A start removes every suitcase of the run before. While a
+  reader was told "not ready" within the last minute, the catalogue pauses
+  after each part as long as the part took (at most 10 s): suitcases for
+  waiting readers read the same disk and go first, and the catalogue still
+  goes on.
 - A long pass publishes **partial** versions: an empty one at once if the
   stick was never published (so it has a link), then after 30 seconds and
   every 3 minutes, each a new `seq`; the complete version comes at the end. A

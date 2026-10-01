@@ -30,6 +30,8 @@ struct Held {
 struct State {
     /// Blobs of the current version: its manifest and its files.
     allowed: HashSet<Hash>,
+    /// When a reader was last told "not ready".
+    last_not_ready: Option<std::time::Instant>,
     stores: HashMap<StoreId, Held>,
 }
 
@@ -81,8 +83,18 @@ impl Serving {
                     store: held.store.clone(),
                 })
             }
-            None => Decision::NotReady,
+            None => {
+                state.last_not_ready = Some(std::time::Instant::now());
+                Decision::NotReady
+            }
         }
+    }
+
+    /// Whether a reader was told "not ready" within the last `window`.
+    pub(super) fn not_ready_within(&self, window: std::time::Duration) -> bool {
+        self.state()
+            .last_not_ready
+            .is_some_and(|at| at.elapsed() < window)
     }
 
     /// From now on, only these blobs are served.

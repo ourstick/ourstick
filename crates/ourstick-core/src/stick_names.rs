@@ -6,7 +6,7 @@
 
 use icu_normalizer::ComposingNormalizerBorrowed;
 
-use crate::download::files::component_problem;
+use crate::download::files::{component_problem, is_reserved_device};
 use crate::drive::free_name_where;
 use crate::manifest::{name_for_manifest, validate_name};
 use crate::store::OwnedStick;
@@ -71,11 +71,6 @@ pub fn name_from_folder(folder: &str) -> String {
     }
 }
 
-/// Windows' reserved device names, with or without an extension.
-fn is_reserved(name: &str) -> bool {
-    component_problem(name, true) == Some("it is a reserved device name on Windows")
-}
-
 /// The folder for a stick called `name`: what Windows refuses replaced by
 /// `_`, no trailing dot or space, a reserved name (`CON`, `COM1`…) given a
 /// `_`, and " (2)", " (3)"… if `taken` says the name is used (the caller
@@ -96,14 +91,17 @@ pub fn folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
     if folder.is_empty() || folder == "." || folder == ".." {
         folder = "Stick".to_owned();
     }
-    if is_reserved(&folder) {
+    if is_reserved_device(&folder) {
         // Windows reads the name before the first dot: `COM1.txt` is COM1.
         let stem_end = folder.find('.').unwrap_or(folder.len());
         folder.insert(stem_end, '_');
     }
-    let folder = free_name_where(&folder, taken);
-    debug_assert!(component_problem(&folder, true).is_none(), "{folder}");
-    folder
+    // The reader's own rule has the last word, in every build: a name it
+    // would refuse falls back to "Stick".
+    if component_problem(&folder, true).is_some() {
+        folder = "Stick".to_owned();
+    }
+    free_name_where(&folder, taken)
 }
 
 #[cfg(test)]

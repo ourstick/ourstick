@@ -44,3 +44,6 @@ pub use store::{
     OwnedFile, OwnedStick, SecretBackend, SpaceClaim, SqliteStore, StickKind, Store, StoreError,
 };
 pub use ticket::{AddressHint, NodeId, Ticket, TicketError};
+
+#[cfg(test)]
+mod every_script;

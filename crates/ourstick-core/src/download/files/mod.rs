@@ -43,20 +43,32 @@ pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'stat
         if component.ends_with('.') || component.ends_with(' ') {
             return Some("Windows drops a trailing dot or space from names");
         }
-        let stem = component.split('.').next().unwrap_or(component).trim_end();
-        let reserved = ["CON", "PRN", "AUX", "NUL"]
-            .iter()
-            .any(|name| stem.eq_ignore_ascii_case(name))
-            || (stem.len() == 4
-                && (stem[..3].eq_ignore_ascii_case("COM")
-                    || stem[..3].eq_ignore_ascii_case("LPT"))
-                && stem.as_bytes()[3].is_ascii_digit()
-                && stem.as_bytes()[3] != b'0');
-        if reserved {
+        if is_reserved_device(component) {
             return Some("it is a reserved device name on Windows");
         }
     }
     None
+}
+
+/// Whether Windows takes `name` for a device: `CON`, `PRN`, `AUX`, `NUL`,
+/// `COM1`–`COM9`, `LPT1`–`LPT9` (also with ¹ ² ³), with or without an
+/// extension, ignoring case. Compares whole characters, never byte offsets,
+/// so a name in any script is safe here.
+pub(crate) fn is_reserved_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    if ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+    {
+        return true;
+    }
+    let mut chars = stem.chars();
+    let prefix: String = chars.by_ref().take(3).collect();
+    let digit = chars.next();
+    let numbered = prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT");
+    numbered
+        && chars.next().is_none()
+        && digit.is_some_and(|digit| matches!(digit, '1'..='9' | '¹' | '²' | '³'))
 }
 
 /// Errors carry the path escaped: it comes from the owner.
@@ -71,7 +83,7 @@ fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
 /// component must be safe here, nothing may go into our partial directory (in
 /// any letter case), and no two paths may land on the same file on a file
 /// system that ignores letter case, or be both a file and a folder.
-pub(super) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {
+pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {
     let mut by_folded_path: HashMap<String, &str> = HashMap::new();
     for entry in &manifest.entries {
         let path = entry.path.as_str();

@@ -30,6 +30,14 @@ what the others leave of it, but at least 2 GB while that much is free; a
 running share keeps what it took (keepers do not shrink). One share alone
 gets what it always got.
 
+**`get`'s fit check (§3).** Once it knows what it will write into the
+folder (what is there already left out, `DownloadEvent::Planned`), `get`
+claims that much on the folder's disk, plus room for its batches on the data
+folder's disk, under `download-<hex>.lock`; if either does not fit, nothing
+is fetched and it says how much is needed and left. The claim shrinks as
+files land, and `--follow` claims again for each version. One `get` of a
+stick at a time.
+
 Reviewed by two other models before; their findings shaped the order (linked
 entries before the ledger), the gone-root rules (a gone linked entry's files
 are carried as recorded, so the pass never publishes a version without

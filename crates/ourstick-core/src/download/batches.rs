@@ -15,6 +15,10 @@ use crate::manifest::Entry;
 /// alone is bigger: that file is a batch of its own).
 pub(super) const BATCH_BYTES: u64 = 1 << 30;
 
+/// What a download needs on the data folder's disk while it runs: its
+/// batches, this one and the next (for the space ledger).
+pub const SCRATCH_BYTES: u64 = 2 * BATCH_BYTES;
+
 /// A batch closes at this many files, so batches of tiny files stay small in
 /// number of blobs too.
 pub(super) const BATCH_FILES: usize = 512;

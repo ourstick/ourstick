@@ -35,6 +35,18 @@ pub(super) struct FolderPlan {
     pub(super) no_longer_in_stick: usize,
 }
 
+impl FolderPlan {
+    /// The bytes this plan writes into the folder: the files to download.
+    pub(super) fn bytes_to_write(&self, manifest: &Manifest) -> u64 {
+        self.files
+            .iter()
+            .zip(&manifest.entries)
+            .filter(|(plan, _)| matches!(plan, FilePlan::Download { .. }))
+            .map(|(_, entry)| entry.size)
+            .sum()
+    }
+}
+
 /// The blob hash the stick would have for this file's content, or `None` if
 /// it cannot be read right now.
 fn content_hash(output_dir: &Path, path: &Path, cipher: &dyn Cipher) -> Option<[u8; 32]> {

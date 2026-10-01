@@ -46,6 +46,12 @@ pub enum DownloadEvent<'a> {
         /// in later versions, and the download waits for them.
         partial: bool,
     },
+    /// What this download will write into the folder (what is there
+    /// already left out), before anything is fetched: for the space ledger.
+    /// Breaking here leaves everything as it was.
+    Planned {
+        bytes: u64,
+    },
     /// Every file of a partial version is here; waiting for the owner's next
     /// version.
     WaitingForMore {

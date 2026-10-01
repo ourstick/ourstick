@@ -27,6 +27,7 @@ use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::RelayLimiter;
 
+pub use batches::SCRATCH_BYTES;
 pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use listing::{list, Listing};
 pub use relay::RelayPolicy;
@@ -297,6 +298,10 @@ async fn download_over(
         run_blocking(move || plan_folder(&output_dir, &manifest, &recorded, cipher.as_ref()))
             .await?
     };
+    let bytes = plan.bytes_to_write(&manifest);
+    if on_event(DownloadEvent::Planned { bytes }).is_break() {
+        return Err(DownloadError::Cancelled);
+    }
     for found in plan.found.clone() {
         record_downloaded(&store, ticket, found).await?;
     }

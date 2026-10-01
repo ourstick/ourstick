@@ -134,6 +134,8 @@ impl Progress {
                 };
                 vec![format!("[{at}] {files} files, {}{note}.", bytes(total))]
             }
+            // Room is checked by `get` itself (the space ledger).
+            DownloadEvent::Planned { .. } => Vec::new(),
             DownloadEvent::WaitingForMore { .. } => vec![format!(
                 "[{at}] Everything listed so far is here; waiting for the sender to list more."
             )],

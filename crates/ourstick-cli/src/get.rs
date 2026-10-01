@@ -21,6 +21,7 @@ use ourstick_core::Ticket;
 
 use crate::display::untrusted;
 use crate::progress::{clock, Progress};
+use crate::room::Room;
 use crate::setup::{self, hex};
 use ourstick_core::device::random_key;
 
@@ -61,6 +62,15 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
     // does not keep the ticket, so no secret store is opened: `get` runs on
     // every platform. Running `get` again with the same link resumes.
     let setup = tokio::task::spawn_blocking(setup::open_for_reading).await??;
+    // One `get` of a stick at a time; it also keeps this download's room in
+    // the space ledger alive (ADR 0008).
+    let _download_lock = ourstick_core::locks::download_lock(&setup.data_dir, &ticket.stick_id)?;
+    let room = Room::new(
+        setup.store.clone(),
+        setup.data_dir.clone(),
+        ticket.stick_id,
+        output.clone(),
+    );
 
     let store_dir = setup.data_dir.join("joined").join(&stick_hex);
     // A reader needs no lasting identity, and must not reuse the node key: a
@@ -76,6 +86,7 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
         output: &output,
         started: Instant::now(),
         explained: std::sync::atomic::AtomicBool::new(false),
+        room: &room,
     };
     // Ctrl-C stops here instead of killing the process, so the blob store is
     // closed cleanly and keeps everything received so far.
@@ -84,6 +95,11 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
         _ = tokio::signal::ctrl_c() => None,
     };
     let started = getter.started;
+    room.release();
+    if let (Some(Err(_)), Some(refusal)) = (&outcome, room.refusal()) {
+        fetcher.shutdown(true).await?;
+        anyhow::bail!("not downloading: {refusal}");
+    }
 
     match outcome {
         Some(Ok(())) => {
@@ -124,6 +140,7 @@ struct Getter<'a> {
     started: Instant,
     /// Set once the reasons for the relay have been printed.
     explained: std::sync::atomic::AtomicBool,
+    room: &'a Room,
 }
 
 impl Getter<'_> {
@@ -169,6 +186,15 @@ impl Getter<'_> {
     async fn download_once(&self) -> Result<DownloadReport, DownloadError> {
         let mut progress = Progress::default();
         let mut on_event = |event: DownloadEvent<'_>| {
+            match &event {
+                DownloadEvent::Planned { bytes } => {
+                    if self.room.planned(*bytes).is_break() {
+                        return ControlFlow::Break(());
+                    }
+                }
+                DownloadEvent::FileReceived { size, .. } => self.room.landed(*size),
+                _ => {}
+            }
             let elapsed = self.started.elapsed();
             for line in progress.on_event(event, elapsed) {
                 println!("{line}");

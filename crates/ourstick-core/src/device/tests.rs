@@ -54,6 +54,30 @@ fn a_new_device_makes_no_node_key_of_its_own() {
 }
 
 #[test]
+fn keys_go_only_where_the_device_records_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let key_file = SecretBackend::KeyFile("/keys/ourstick.keys".into());
+    open_device(&store, dir.path(), &secrets, key_file.clone()).unwrap();
+    open_device(&store, dir.path(), &secrets, key_file).unwrap();
+    // E.g. the app, with the system keyring, on a device set up with a key
+    // file by the CLI.
+    match open_device(&store, dir.path(), &secrets, SecretBackend::SecretService) {
+        Err(DeviceError::OtherSecretStore { recorded, given }) => {
+            assert_eq!(recorded, "the key file /keys/ourstick.keys");
+            assert_eq!(given, "the Secret Service");
+        }
+        other => panic!("{other:?}"),
+    }
+    let other_file = SecretBackend::KeyFile("/elsewhere.keys".into());
+    assert!(matches!(
+        open_device(&store, dir.path(), &secrets, other_file),
+        Err(DeviceError::OtherSecretStore { .. })
+    ));
+}
+
+#[test]
 fn an_old_node_key_is_never_overwritten() {
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
@@ -147,9 +171,15 @@ fn an_older_stick_uses_the_device_node_key() {
         .unwrap();
     with_device.add_owned_stick(&older).unwrap();
     secrets.put(&SecretName::NodeKey, &[8; 32]).unwrap();
-    let loaded = load_stick(&with_device, &secrets, older).unwrap();
+    let loaded = load_stick(&with_device, &secrets, older.clone()).unwrap();
     assert_eq!(loaded.node_key, [8; 32]);
     assert_ne!(loaded.node_key, made.node_key);
+    // A device key that is not the one recorded: refused, as for a stick's.
+    secrets.put(&SecretName::NodeKey, &[9; 32]).unwrap();
+    assert!(matches!(
+        load_stick(&with_device, &secrets, older),
+        Err(DeviceError::NodeKeyMismatch { .. })
+    ));
 }
 
 #[test]

@@ -18,7 +18,6 @@ use ourstick_core::watcher::{
     follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Owner, PeriodicEvents,
     WatchEvent, WatchTiming,
 };
-use ourstick_core::StickKind;
 use ourstick_core::{Manifest, ManifestHint, Store, Ticket};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -116,10 +115,7 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
             let stick_id = {
                 let _setup = locks::setup_lock(&data_dir)?;
                 device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-                store
-                    .owned_sticks()?
-                    .into_iter()
-                    .find(|stick| stick.kind == StickKind::App)
+                crate::state::app_stick(store.as_ref())?
                     .context("there is no stick yet")?
                     .stick_id
             };
@@ -134,86 +130,16 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
     let config = IrohConfig::new(keys.node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
-    // ADR 0007: files are encrypted into suitcases as readers ask for them,
-    // within a budget. With too little free space, sharing does not start
-    // and the error says why.
-    let budget = {
-        let cache_dir = cache_dir.clone();
-        tauri::async_runtime::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??
-    };
-    tauri::async_runtime::spawn({
-        let keeper = keep_suitcases(
-            publisher.clone(),
-            store.clone(),
-            stick_id,
-            keys.stick_key.clone(),
-            budget,
-        );
-        async move {
-            if let Err(error) = keeper.await {
-                tracing::warn!(%error, "the suitcases' keeper stopped");
-            }
-        }
-    });
-    // The last version at once, if the cache still holds it; the folder is
-    // then read again in the background (`Shared::run`). Otherwise (a new
-    // stick, a cache that is gone) a first pass now, for the link.
-    let latest = serve_latest(&Owner {
-        publisher: &publisher,
-        store: store.clone(),
-        clock: &SystemClock,
-        signing_key: &keys.signing_key,
-        stick_key: &keys.stick_key,
-    })
-    .await;
-    let read_again = matches!(latest, Ok(Some(_)));
-    let first = match latest {
-        Ok(Some(publication)) => Ok(publication),
-        Ok(None) | Err(_) => {
-            publish_folder(
-                &publisher,
-                store.clone(),
-                &SystemClock,
-                &keys.signing_key,
-                &keys.stick_key,
-                false,
-            )
-            .await
-        }
-    };
-    let (current, hint) = match &first {
-        Ok(publication) => (
-            publication.manifest.clone(),
-            Some(ManifestHint {
-                seq: publication.seq,
-                hash: publication.manifest_hash,
-            }),
-        ),
+    // Whatever fails from here stops the endpoint before the locks go: no
+    // second start may bind this node key while it still runs.
+    let (current, link, read_again) = match first_publication(&app, &publisher, &store, &keys).await
+    {
+        Ok(first) => first,
         Err(error) => {
-            on_watch_event(&app, &WatchEvent::Failed { error });
-            // The link can still name a version published in an earlier run.
-            let hint = {
-                let store = store.clone();
-                tauri::async_runtime::spawn_blocking(move || latest_hint(store.as_ref(), &stick_id))
-                    .await??
-            };
-            (Manifest::empty(), hint)
+            publisher.clone().shutdown().await;
+            drop(lock);
+            return Err(error);
         }
-    };
-    // Wait for the home relay, so the link carries it.
-    publisher.online(Duration::from_secs(30)).await;
-    let link = match hint {
-        Some(manifest_hint) => Some(
-            Ticket {
-                stick_id,
-                node_id: publisher.node_id(),
-                manifest_hint,
-                address_hints: publisher.address_hints(),
-                stick_key: keys.stick_key.clone(),
-            }
-            .to_link()?,
-        ),
-        None => None,
     };
     let activity = publisher.activity();
 
@@ -243,6 +169,99 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
         link,
         activity,
     })
+}
+
+/// The keeper of the suitcases, then the first version (from the cache, or a
+/// pass) and the link: what the current manifest is, the link, and whether the
+/// folder must be read again.
+async fn first_publication(
+    app: &AppHandle,
+    publisher: &IrohPublisher,
+    store: &Arc<dyn Store>,
+    keys: &StickKeys,
+) -> Result<(Manifest, Option<String>, bool)> {
+    let stick_id = keys.stick.stick_id;
+    let cache_dir = publisher.cache_dir().to_path_buf();
+    // ADR 0007: files are encrypted into suitcases as readers ask for them,
+    // within a budget. With too little free space, sharing does not start
+    // and the error says why.
+    let budget =
+        tauri::async_runtime::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??;
+    tauri::async_runtime::spawn({
+        let keeper = keep_suitcases(
+            publisher.clone(),
+            store.clone(),
+            stick_id,
+            keys.stick_key.clone(),
+            budget,
+        );
+        async move {
+            if let Err(error) = keeper.await {
+                tracing::warn!(%error, "the suitcases' keeper stopped");
+            }
+        }
+    });
+    // The last version at once, if the cache still holds it; the folder is
+    // then read again in the background (`Shared::run`). Otherwise (a new
+    // stick, a cache that is gone) a first pass now, for the link.
+    let latest = serve_latest(&Owner {
+        publisher,
+        store: store.clone(),
+        clock: &SystemClock,
+        signing_key: &keys.signing_key,
+        stick_key: &keys.stick_key,
+    })
+    .await;
+    let read_again = matches!(latest, Ok(Some(_)));
+    let first = match latest {
+        Ok(Some(publication)) => Ok(publication),
+        Ok(None) | Err(_) => {
+            publish_folder(
+                publisher,
+                store.clone(),
+                &SystemClock,
+                &keys.signing_key,
+                &keys.stick_key,
+                false,
+            )
+            .await
+        }
+    };
+    let (current, hint) = match &first {
+        Ok(publication) => (
+            publication.manifest.clone(),
+            Some(ManifestHint {
+                seq: publication.seq,
+                hash: publication.manifest_hash,
+            }),
+        ),
+        Err(error) => {
+            on_watch_event(app, &WatchEvent::Failed { error });
+            // The link can still name a version published in an earlier run.
+            let hint = {
+                let store = store.clone();
+                tauri::async_runtime::spawn_blocking(move || latest_hint(store.as_ref(), &stick_id))
+                    .await??
+            };
+            (Manifest::empty(), hint)
+        }
+    };
+    // Wait for the home relay, so the link carries it.
+    publisher.online(Duration::from_secs(30)).await;
+    let link = match hint {
+        Some(manifest_hint) => Some(
+            Ticket {
+                stick_id,
+                node_id: publisher.node_id(),
+                manifest_hint,
+                address_hints: publisher.address_hints(),
+                stick_key: keys.stick_key.clone(),
+            }
+            .to_link()?,
+        ),
+        None => None,
+    };
+    Ok((current, link, read_again))
 }
 
 /// What the sharing task owns.

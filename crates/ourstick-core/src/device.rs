@@ -35,7 +35,9 @@ pub enum DeviceError {
     KeyDamaged { name: String, store: String },
     #[error("{store} already holds an OurStick node key, but the database at {} is new. Restore the database or remove the old key yourself; OurStick will not overwrite it.", .database.display())]
     NodeKeyExists { store: String, database: PathBuf },
-    #[error("the network key of the stick \u{201c}{stick}\u{201d} is not the one recorded for it; OurStick will not use it (its links name another). Restore the right key, or give the stick a new link.")]
+    #[error("this device keeps its keys in {recorded}, but this program uses {given}; keys made here would be where the database does not look for them. Use the program that uses {recorded}.")]
+    OtherSecretStore { recorded: String, given: String },
+    #[error("the network key of the stick \u{201c}{stick}\u{201d} is not the one recorded for it; OurStick will not use it (its links name another). Restore the right key.")]
     NodeKeyMismatch { stick: String },
     #[error("the stick \u{201c}{stick}\u{201d} uses this device's network key, but the database records none; the database is inconsistent")]
     NoDeviceNodeKey { stick: String },
@@ -151,18 +153,26 @@ pub fn load_key(secrets: &dyn SecretStore, name: &SecretName) -> Result<[u8; 32]
     })
 }
 
-/// Records this device on first use, with `backend` as where its keys live.
-/// A device made now has no node key of its own: each stick gets one
-/// (ADR 0009). A device made before keeps its node key (rule 9), loaded only
-/// for its older sticks. Take [`crate::locks::setup_lock`] first: two
-/// programs must not record the device at once.
+/// Records this device on first use, with `backend` as where its keys live;
+/// later, checks that `backend` is the one recorded, so no key is ever put
+/// where the database does not look for it. A device made now has no node
+/// key of its own: each stick gets one (ADR 0009). A device made before keeps
+/// its node key (rule 9), loaded only for its older sticks. Take
+/// [`crate::locks::setup_lock`] first: two programs must not record the
+/// device at once.
 pub fn open_device(
     store: &dyn Store,
     data_dir: &Path,
     secrets: &dyn SecretStore,
     backend: SecretBackend,
 ) -> Result<(), DeviceError> {
-    if store.device()?.is_some() {
+    if let Some(device) = store.device()? {
+        if device.secret_backend != backend {
+            return Err(DeviceError::OtherSecretStore {
+                recorded: backend_name(&device.secret_backend),
+                given: backend_name(&backend),
+            });
+        }
         return Ok(());
     }
     // A key without its database: the user's to sort out, never replaced.
@@ -178,6 +188,16 @@ pub fn open_device(
         created_at_ms: SystemClock.now_ms(),
     })?;
     Ok(())
+}
+
+/// How a backend is named in messages.
+pub fn backend_name(backend: &SecretBackend) -> String {
+    match backend {
+        SecretBackend::SecretService => "the Secret Service".to_owned(),
+        SecretBackend::Keychain => "the macOS keychain".to_owned(),
+        SecretBackend::CredentialManager => "the Windows Credential Manager".to_owned(),
+        SecretBackend::KeyFile(path) => format!("the key file {}", path.display()),
+    }
 }
 
 /// An owned stick with its keys.

@@ -51,34 +51,33 @@ pub fn open_for_reading() -> Result<ReaderSetup> {
 /// Blocking: call from `spawn_blocking`.
 pub fn open(choice: &SecretsChoice) -> Result<Setup> {
     let ReaderSetup { data_dir, store } = open_for_reading()?;
-    // One program records the device at a time.
-    let setup_lock = locks::setup_lock(&data_dir)?;
     let device = store.device()?;
+    let recorded = device.as_ref().map(|device| &device.secret_backend);
     // Before the key file is opened (and before any passphrase is asked
-    // for): nothing to ask if another program uses it. A device not yet
-    // recorded may end up with one.
-    let key_file = matches!(
-        device.as_ref().map(|device| &device.secret_backend),
-        Some(SecretBackend::KeyFile(_)) | None
-    );
-    let mut key_file_lock = if key_file {
+    // for): nothing to ask if another program uses it.
+    let key_file = match recorded {
+        Some(backend) => matches!(backend, SecretBackend::KeyFile(_)),
+        None => matches!(choice, SecretsChoice::KeyFile(_)),
+    };
+    let key_file_lock = if key_file {
         Some(locks::key_file_lock(&data_dir)?)
     } else {
         None
     };
     let (secrets, backend) = open_secrets(
-        device.as_ref().map(|device| &device.secret_backend),
+        recorded,
         choice,
         &system_keyring(),
         &TerminalPassphrases,
         KeyFileParams::default(),
     )?;
-    if !matches!(backend, SecretBackend::KeyFile(_)) {
-        key_file_lock = None;
-    }
     check_secret_store(secrets.as_ref())?;
-    device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-    drop(setup_lock);
+    // Only now, after any passphrase: one program records the device at a
+    // time. If another recorded it meanwhile with other keys, this refuses.
+    {
+        let _setup = locks::setup_lock(&data_dir)?;
+        device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
+    }
     Ok(Setup {
         key_file_lock,
         data_dir,

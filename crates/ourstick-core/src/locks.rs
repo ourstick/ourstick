@@ -28,7 +28,7 @@ use crate::store::{OwnedStick, Store, StoreError};
 pub enum LockError {
     #[error("the stick \u{201c}{name}\u{201d} is already being shared on this device (by another `ourstick share` or the app)")]
     StickInUse { name: String },
-    #[error("{}; sticks made before this version of OurStick share one network identity, so only one of them is shared at a time. Stop it first, or give this stick a new link.", .shared.as_ref().map_or_else(|| "another older stick is being shared".to_owned(), |name| format!("the older stick \u{201c}{name}\u{201d} is being shared")))]
+    #[error("{}; sticks made before this version of OurStick share one network identity, so only one of them is shared at a time. Stop it first.", .shared.as_ref().map_or_else(|| "another older stick is being shared".to_owned(), |name| format!("the older stick \u{201c}{name}\u{201d} is being shared")))]
     NodeKeyInUse { shared: Option<String> },
     #[error("another OurStick program is using the key file; with a key file, one program at a time (stop the other one first)")]
     KeyFileInUse,
@@ -99,6 +99,12 @@ pub fn node_key_lock(
 /// The older stick (other than `this`) another program shares: the one whose
 /// own lock is held, since a sharer of an older stick takes its stick's lock
 /// before the node key's. A probe that gets a lock lets it go at once.
+///
+/// Only for the message, and it may be off: a stick's lock is also held while
+/// the stick is changed (not only shared), a program sharing it may have
+/// stopped between the two locks (`None`), and while the probe holds a lock
+/// for an instant, a program starting to share that very stick is refused
+/// (it can try again). The refusal itself never depends on it.
 fn older_stick_shared(
     data_dir: &Path,
     store: &dyn Store,

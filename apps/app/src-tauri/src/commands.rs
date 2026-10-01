@@ -73,11 +73,7 @@ pub async fn plug_in(
         // One program makes the device and the stick at a time.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
         device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-        let made = store
-            .owned_sticks()?
-            .into_iter()
-            .any(|stick| stick.kind == ourstick_core::StickKind::App);
-        if made {
+        if crate::state::app_stick(store.as_ref())?.is_some() {
             return Ok(());
         }
         let root = drive::create(size_gb * 1_000_000_000)?;

@@ -3,6 +3,7 @@
 //! use, and recorded in the database; the node key must never change after
 //! that (CLAUDE.md rule 9), so the choice cannot change either.
 
+use ourstick_core::device::backend_name;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -66,15 +67,6 @@ pub struct SystemKeyring<'a> {
 }
 
 /// A backend's name, for messages.
-fn backend_name(backend: &SecretBackend) -> String {
-    match backend {
-        SecretBackend::SecretService => "the Secret Service".to_owned(),
-        SecretBackend::Keychain => "the macOS keychain".to_owned(),
-        SecretBackend::CredentialManager => "the Windows Credential Manager".to_owned(),
-        SecretBackend::KeyFile(path) => path.display().to_string(),
-    }
-}
-
 /// The secret store to use, and the backend to record for a new device.
 ///
 /// `recorded` is the backend in the database (`None` for a new device).

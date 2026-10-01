@@ -84,3 +84,20 @@ fn the_key_file_and_setup_locks_are_one_program_at_a_time() {
     key_file_lock(dir.path()).unwrap();
     setup_lock(dir.path()).unwrap();
 }
+
+#[test]
+fn the_refusal_names_no_stick_when_it_cannot_tell() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let older = stick(&store, 1, "Older", false);
+    // Held by a program between its two locks, or one that holds only it.
+    let _node_key = try_take(dir.path().join("node-key.lock")).unwrap().unwrap();
+    match lock_for_sharing(dir.path(), &store, &older.stick_id) {
+        Err(error @ LockError::NodeKeyInUse { shared: None }) => {
+            assert!(error
+                .to_string()
+                .starts_with("another older stick is being shared"));
+        }
+        other => panic!("{other:?}"),
+    }
+}

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use ourstick_core::device;
-use ourstick_core::{OwnedStick, Store};
+use ourstick_core::{OwnedStick, StickKind, Store};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::serving::{self, Serving};
@@ -39,14 +39,19 @@ impl AppState {
         })
     }
 
-    /// The app's stick: the owned stick that is a drive, if there is one yet.
+    /// The app's stick, if there is one yet.
     pub fn drive_stick(&self) -> Result<Option<OwnedStick>> {
-        Ok(self
-            .store
-            .owned_sticks()?
-            .into_iter()
-            .find(|stick| stick.drive_size.is_some()))
+        app_stick(self.store.as_ref())
     }
+}
+
+/// The app's stick (`StickKind::App`), if there is one yet: the one place
+/// that says which stick is the app's.
+pub fn app_stick(store: &dyn Store) -> Result<Option<OwnedStick>> {
+    Ok(store
+        .owned_sticks()?
+        .into_iter()
+        .find(|stick| stick.kind == StickKind::App))
 }
 
 /// Plugs the stick in (mounts its image, or puts it in the sidebar), records
@@ -60,11 +65,7 @@ pub fn plug_in_and_share(app: &AppHandle) {
         // after a disk image was attached (its old watch is gone), on Linux
         // only if the folder moved.
         let mounted = tauri::async_runtime::spawn_blocking(move || -> Result<Option<bool>> {
-            let Some(stick) = store
-                .owned_sticks()?
-                .into_iter()
-                .find(|stick| stick.drive_size.is_some())
-            else {
+            let Some(stick) = app_stick(store.as_ref())? else {
                 return Ok(None);
             };
             let root = crate::drive::mount(&stick.root_path, stick.drive_letter)?;

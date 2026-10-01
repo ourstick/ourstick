@@ -212,6 +212,7 @@ async fn first_publication(
                 &data_dir,
                 &stick_id,
                 &cache_dir,
+                1,
             )
         })
         .await??

@@ -71,11 +71,11 @@ fn the_reserve_and_what_is_left() {
 
 #[test]
 fn one_sharer_gets_what_it_always_got() {
-    assert_eq!(cache_share(161 * GB, 0).unwrap(), 161 * GB / 10);
-    assert_eq!(cache_share(5 * GB, 0).unwrap(), MIN_BUDGET);
-    assert_eq!(cache_share(483 * GB, 0).unwrap(), MAX_BUDGET);
+    assert_eq!(cache_share(161 * GB, 0, 1).unwrap(), 161 * GB / 10);
+    assert_eq!(cache_share(5 * GB, 0, 1).unwrap(), MIN_BUDGET);
+    assert_eq!(cache_share(483 * GB, 0, 1).unwrap(), MAX_BUDGET);
     assert!(matches!(
-        cache_share(GB, 0),
+        cache_share(GB, 0, 1),
         Err(SpaceError::NoRoomForCache { .. })
     ));
 }
@@ -84,12 +84,15 @@ fn one_sharer_gets_what_it_always_got() {
 fn sharers_split_one_budget_but_each_gets_two_gigabytes() {
     // 100 GB free, another share holds 10: the device's budget is 11, so
     // only the floor is left for this one.
-    assert_eq!(cache_share(100 * GB, 10 * GB).unwrap(), MIN_BUDGET);
+    assert_eq!(cache_share(100 * GB, 10 * GB, 1).unwrap(), MIN_BUDGET);
     // 300 GB free, others hold 10: the budget is 31, 21 are left.
-    assert_eq!(cache_share(300 * GB, 10 * GB).unwrap(), 31 * GB - 10 * GB);
+    assert_eq!(
+        cache_share(300 * GB, 10 * GB, 1).unwrap(),
+        31 * GB - 10 * GB
+    );
     // Not even the floor is free.
     assert!(matches!(
-        cache_share(GB, 10 * GB),
+        cache_share(GB, 10 * GB, 1),
         Err(SpaceError::NoRoomForCache { .. })
     ));
 }
@@ -103,14 +106,14 @@ fn a_cache_claim_counts_while_its_stick_is_shared() {
     ]));
     let cache = Path::new("/data/cache");
     let (first, _) = lock_for_sharing(data.path(), &store, &stick_id(1)).unwrap();
-    let mine = claim_cache(&disks, &store, data.path(), &stick_id(1), cache).unwrap();
+    let mine = claim_cache(&disks, &store, data.path(), &stick_id(1), cache, 1).unwrap();
     assert_eq!(mine, 10 * GB);
     // What is left on the cache's disk counts it whole.
     let left = available(&disks, &store, data.path(), cache, None).unwrap();
     assert_eq!(left, 100 * GB - 20 * GB - 10 * GB);
     // A second sharer gets what is left of the device's budget.
     let (_second, _) = lock_for_sharing(data.path(), &store, &stick_id(2)).unwrap();
-    let theirs = claim_cache(&disks, &store, data.path(), &stick_id(2), cache).unwrap();
+    let theirs = claim_cache(&disks, &store, data.path(), &stick_id(2), cache, 1).unwrap();
     assert_eq!(theirs, MIN_BUDGET);
     // The first one stops (or crashes): its claim no longer counts.
     drop(first);
@@ -185,4 +188,17 @@ fn the_real_disks_answer() {
     let disks = SystemDisks;
     assert_eq!(disks.key(&missing).unwrap(), disks.key(dir.path()).unwrap());
     assert!(disks.total(&missing).unwrap() >= disks.free(&missing).unwrap());
+}
+
+#[test]
+fn sticks_started_together_get_equal_parts() {
+    // 300 GB free: a device budget of 30 GB, three sticks at once.
+    let first = cache_share(300 * GB, 0, 3).unwrap();
+    assert_eq!(first, 10 * GB);
+    let second = cache_share(300 * GB - first, first, 3).unwrap();
+    assert_eq!(second, 10 * GB);
+    let third = cache_share(300 * GB - 2 * first, 2 * first, 3).unwrap();
+    assert_eq!(third, 10 * GB);
+    // Many on a small disk: each still gets the floor while it is free.
+    assert_eq!(cache_share(30 * GB, 0, 10).unwrap(), MIN_BUDGET);
 }

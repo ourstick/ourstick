@@ -165,16 +165,19 @@ pub fn available(
 
 /// The cache budget of the stick `stick_id` about to be shared, whose lock
 /// this program holds: one budget for the whole device (10 % of the cache
-/// disk's free space plus what other shares hold, 2 to 40 GB), and this
-/// sharer gets what the others leave of it, but at least 2 GB while that
-/// much is free. Recorded as a claim until the stick's lock goes. Running
-/// sharers keep theirs.
+/// disk's free space plus what other shares hold, 2 to 40 GB), split
+/// equally between the `together` sticks started at once (this one
+/// included; 1 for one): this sharer gets its part, or what the others
+/// leave if that is less, but at least 2 GB while that much is free.
+/// Recorded as a claim until the stick's lock goes. Running sharers keep
+/// theirs.
 pub fn claim_cache(
     disks: &dyn Disks,
     store: &dyn Store,
     data_dir: &Path,
     stick_id: &StickId,
     cache_dir: &Path,
+    together: usize,
 ) -> Result<u64, SpaceError> {
     let disk = disks.key(cache_dir).map_err(io(cache_dir))?;
     let free = disks.free(cache_dir).map_err(io(cache_dir))?;
@@ -186,7 +189,7 @@ pub fn claim_cache(
                 .filter(|claim| claim.kind == ClaimKind::Cache)
                 .map(|claim| claim.bytes)
                 .sum();
-            cache_share(free, held)
+            cache_share(free, held, together)
         });
         let claim = match &decided {
             Ok(Ok(bytes)) => Some(SpaceClaim {
@@ -204,10 +207,12 @@ pub fn claim_cache(
 }
 
 /// This sharer's part of the device's cache budget, when `free` bytes are
-/// free on the cache's disk and other live shares hold `held`.
-pub fn cache_share(free: u64, held: u64) -> Result<u64, SpaceError> {
+/// free on the cache's disk, other live shares hold `held`, and `together`
+/// sticks start at once.
+pub fn cache_share(free: u64, held: u64, together: usize) -> Result<u64, SpaceError> {
     let total = ((free + held) / BUDGET_SHARE).clamp(MIN_BUDGET, MAX_BUDGET);
-    let mine = total.saturating_sub(held).max(MIN_BUDGET);
+    let part = total / u64::try_from(together.max(1)).unwrap_or(u64::MAX);
+    let mine = part.min(total.saturating_sub(held)).max(MIN_BUDGET);
     if free < mine {
         return Err(SpaceError::NoRoomForCache { free, held });
     }

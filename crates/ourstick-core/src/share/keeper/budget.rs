@@ -36,16 +36,18 @@ impl Budget {
 
     /// The budget of the stick `stick_id`, whose lock this program holds,
     /// with its suitcases in `cache_dir`: its part of the device's budget,
-    /// claimed in the space ledger while the lock is held. Blocking.
+    /// claimed in the space ledger while the lock is held; `together` sticks
+    /// start at once (1 for one). Blocking.
     pub fn claim(
         disks: &dyn Disks,
         store: &dyn Store,
         data_dir: &Path,
         stick_id: &StickId,
         cache_dir: &Path,
+        together: usize,
     ) -> Result<Self, SpaceError> {
         Ok(Self::new(claim_cache(
-            disks, store, data_dir, stick_id, cache_dir,
+            disks, store, data_dir, stick_id, cache_dir, together,
         )?))
     }
 

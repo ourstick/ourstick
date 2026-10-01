@@ -37,9 +37,11 @@ use lines::{catalogue_line, network_line, readers_line, relay_only_line, watch_l
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
 
 /// The stick already made for `folder`, or a new one with new keys (its own
-/// node key among them). Under the setup lock, so two `share` runs of one
+/// node key among them), called `name` (made fit) or after its folder; an
+/// existing stick given another `name` is renamed (its readers see it with
+/// the next version). Under the setup lock, so two `share` runs of one
 /// folder never make two sticks.
-fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
+fn stick_for(setup: &setup::Setup, folder: &Path, name: Option<&str>) -> Result<StickId> {
     let _setup = locks::setup_lock(&setup.data_dir)?;
     let found = setup
         .store
@@ -53,18 +55,24 @@ fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
                 folder.display()
             );
         }
+        if let Some(name) = name.map(name_from_folder) {
+            if name != stick.name {
+                setup.store.rename_owned_stick(&stick.stick_id, &name)?;
+            }
+        }
         return Ok(stick.stick_id);
     }
     // Not a place only OurStick may use: an app stick's folder, the data
     // folder (ADR 0009, as reviewed).
     check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, folder)?;
-    // Never refused: made fit (ADR 0009 §3), named after its folder.
-    let name = name_from_folder(
-        &folder
+    // Never refused: made fit (ADR 0009 §3), named after its folder unless
+    // given a name.
+    let name = name_from_folder(&name.map(str::to_owned).unwrap_or_else(|| {
+        folder
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-    );
+            .unwrap_or_default()
+    }));
     let made = device::create_stick(
         setup.store.as_ref(),
         setup.secrets.as_ref(),
@@ -75,15 +83,21 @@ fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
     Ok(made.stick.stick_id)
 }
 
-pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<()> {
+pub async fn run(
+    folder: &Path,
+    name: Option<&str>,
+    secrets: SecretsChoice,
+    rescan: bool,
+) -> Result<()> {
     let started = Instant::now();
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
     let (setup, sharing_locks, keys) = tokio::task::spawn_blocking({
         let folder = folder.clone();
+        let name = name.map(str::to_owned);
         move || -> Result<_> {
             let setup = setup::open(&secrets)?;
-            let stick_id = stick_for(&setup, &folder)?;
+            let stick_id = stick_for(&setup, &folder, name.as_deref())?;
             // The stick's lock first (and the device node key's for an older
             // stick), then its row again, then its keys.
             let (sharing_locks, stick) =
@@ -133,6 +147,7 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
                 &data_dir,
                 &stick_id,
                 &cache_dir,
+                1,
             )
         })
         .await??
@@ -361,8 +376,11 @@ mod tests {
     fn a_folder_gets_one_stick_and_never_the_apps() {
         let dir = tempfile::tempdir().unwrap();
         let setup = setup(dir.path());
-        let first = stick_for(&setup, Path::new("/photos")).unwrap();
-        assert_eq!(stick_for(&setup, Path::new("/photos")).unwrap(), first);
+        let first = stick_for(&setup, Path::new("/photos"), None).unwrap();
+        assert_eq!(
+            stick_for(&setup, Path::new("/photos"), None).unwrap(),
+            first
+        );
         let stick = setup.store.owned_stick(&first).unwrap().unwrap();
         assert_eq!(
             (stick.name.as_str(), stick.kind),
@@ -377,8 +395,22 @@ mod tests {
             StickKind::App,
         )
         .unwrap();
-        let refused = stick_for(&setup, Path::new("/drive")).unwrap_err();
+        let refused = stick_for(&setup, Path::new("/drive"), None).unwrap_err();
         assert!(refused.to_string().contains("the app's stick"), "{refused}");
+    }
+
+    #[test]
+    fn a_stick_is_named_by_name_or_folder_and_renamed_by_a_new_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = setup(dir.path());
+        let id = stick_for(&setup, Path::new("/photos"), Some("For Maria")).unwrap();
+        let name = |id| setup.store.owned_stick(&id).unwrap().unwrap().name;
+        assert_eq!(name(id), "For Maria");
+        // Shared again without a name: kept.
+        stick_for(&setup, Path::new("/photos"), None).unwrap();
+        assert_eq!(name(id), "For Maria");
+        stick_for(&setup, Path::new("/photos"), Some("Family")).unwrap();
+        assert_eq!(name(id), "Family");
     }
 
     #[test]
@@ -386,7 +418,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let setup = setup(dir.path());
         let _held = locks::setup_lock(dir.path()).unwrap();
-        let refused = stick_for(&setup, Path::new("/photos")).unwrap_err();
+        let refused = stick_for(&setup, Path::new("/photos"), None).unwrap_err();
         assert!(refused.downcast_ref::<locks::LockError>().is_some());
         assert!(setup.store.owned_sticks().unwrap().is_empty());
     }

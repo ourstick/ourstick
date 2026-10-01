@@ -20,7 +20,7 @@ const USAGE: &str = "\
 ourstick — a USB stick you can send
 
 Usage:
-  ourstick share [--key-file <path>] [--rescan] <folder>
+  ourstick share [--name <name>] [--key-file <path>] [--rescan] <folder>
                                            Share a folder and print its ticket
   ourstick ls <ticket>                     List a stick's files without downloading
   ourstick get <ticket> [--out <folder>] [--follow]
@@ -48,6 +48,8 @@ Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
 enum Command {
     Share {
         folder: PathBuf,
+        /// The stick's name, if not the folder's.
+        name: Option<String>,
         secrets: SecretsChoice,
         rescan: bool,
     },
@@ -75,10 +77,11 @@ fn parse(args: &[String]) -> Result<Command> {
     }
 }
 
-/// `share <folder>`, with `--key-file <path>` and/or `--rescan` before or
-/// after it.
+/// `share <folder>`, with `--name <name>`, `--key-file <path>` and/or
+/// `--rescan` before or after it.
 fn parse_share(options: &[String]) -> Result<Command> {
     let mut folder = None;
+    let mut name = None;
     let mut key_file = None;
     let mut rescan = false;
     let mut options = options.iter();
@@ -87,6 +90,10 @@ fn parse_share(options: &[String]) -> Result<Command> {
             "--key-file" => match options.next() {
                 Some(path) if key_file.is_none() => key_file = Some(PathBuf::from(path)),
                 _ => bail!("--key-file needs one path\n\n{USAGE}"),
+            },
+            "--name" => match options.next() {
+                Some(given) if name.is_none() => name = Some(given.to_owned()),
+                _ => bail!("--name needs one name\n\n{USAGE}"),
             },
             "--rescan" => rescan = true,
             other if other.starts_with("--") => bail!("unknown option {other}\n\n{USAGE}"),
@@ -99,6 +106,7 @@ fn parse_share(options: &[String]) -> Result<Command> {
     };
     Ok(Command::Share {
         folder,
+        name,
         secrets: key_file.map_or(SecretsChoice::Default, SecretsChoice::KeyFile),
         rescan,
     })
@@ -137,9 +145,10 @@ async fn main() -> Result<()> {
     match parse(&args)? {
         Command::Share {
             folder,
+            name,
             secrets,
             rescan,
-        } => share::run(&folder, secrets, rescan).await,
+        } => share::run(&folder, name.as_deref(), secrets, rescan).await,
         Command::List { ticket } => ls::run(&ticket).await,
         Command::Get {
             ticket,
@@ -165,7 +174,7 @@ mod tests {
     fn parses_commands() {
         assert!(matches!(
             parse(&args(&["share", "photos"])),
-            Ok(Command::Share { folder, secrets: SecretsChoice::Default, rescan: false })
+            Ok(Command::Share { folder, name: None, secrets: SecretsChoice::Default, rescan: false })
                 if folder == std::path::Path::new("photos")
         ));
         assert!(matches!(
@@ -184,6 +193,11 @@ mod tests {
             ));
         }
         assert!(parse(&args(&["share", "a", "b"])).is_err());
+        assert!(matches!(
+            parse(&args(&["share", "--name", "For Maria", "photos"])),
+            Ok(Command::Share { name: Some(name), .. }) if name == "For Maria"
+        ));
+        assert!(parse(&args(&["share", "photos", "--name"])).is_err());
         assert!(parse(&args(&["share", "--key-file"])).is_err());
         assert!(parse(&args(&["share", "--key-file", "k"])).is_err());
         assert!(parse(&args(&["share", "--key-file", "k", "--key-file", "j", "a"])).is_err());

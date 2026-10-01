@@ -66,13 +66,16 @@ so Spotlight leaves it alone.
   no room on the stick and with no size limit of their own. The message says
   that moving or deleting them there takes them off the stick too. A path
   that is, holds or lies inside the stick, the data folder or another linked
-  entry is refused, and says why.
+  entry is refused, and says why. While it is added (checking and reading the
+  folder can take a moment) the message says "Adding… please wait." and its
+  buttons wait.
 - File list: the top level of the stick, name and size, folders with
   trailing `/`: the stick folder's entries and the linked ones, marked
   `linked` (their size is what the last read found, "reading…" before). A
-  linked entry that is not there (unplugged, moved) is marked `missing`;
+  linked entry that is not there (unplugged, moved) is marked `not available`;
   people still get its last version. An entry of the stick folder with a
-  linked entry's name (ignoring case) is marked `not shared`. Removing is
+  linked entry's name (ignoring case) is marked `hidden: same name`. Words
+  for everyone: no other jargon than "linked". Removing is
   done in the file manager, or via right-click → Remove, which deletes the
   copy on the stick (never an original); for a linked entry it is **Stop
   sharing**, which removes only the link, never its files.

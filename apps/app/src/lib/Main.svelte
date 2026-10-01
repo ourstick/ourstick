@@ -28,6 +28,8 @@
   let removing = $state<string | null>(null);
   /** A drop that does not fit, offered to be shared as it is. */
   let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
+  /** "Share it as it is" is under way (checking and reading the folder can take a moment). */
+  let linking = $state(false);
   let pillMenu = $state(false);
 
   async function pillAction(action: () => Promise<void>) {
@@ -68,14 +70,17 @@
   }
 
   async function shareAsItIs() {
-    if (!tooBig) return;
+    if (!tooBig || linking) return;
     const paths = tooBig.paths;
-    tooBig = null;
+    linking = true;
     failure = null;
     try {
       await linkPaths(paths);
+      tooBig = null;
     } catch (error) {
       failure = String(error);
+    } finally {
+      linking = false;
     }
     await refresh();
   }
@@ -166,8 +171,9 @@
         move or delete it there, it is gone from the stick too.
       </p>
       <span class="inline-actions">
-        <button onclick={() => (tooBig = null)}>Cancel</button>
-        <button class="primary" onclick={shareAsItIs}>Share it as it is</button>
+        {#if linking}<span class="muted">Adding… please wait.</span>{/if}
+        <button onclick={() => (tooBig = null)} disabled={linking}>Cancel</button>
+        <button class="primary" onclick={shareAsItIs} disabled={linking}>Share it as it is</button>
       </span>
     </div>
   {/if}
@@ -196,8 +202,8 @@
           <span class="name" class:faded={entry.left_out}>
             {entry.name}{entry.is_dir ? "/" : ""}
             {#if entry.linked}<span class="tag" title="Shared from where it is, not copied">linked</span>{/if}
-            {#if entry.missing}<span class="tag warn" title="Not there now (unplugged or moved?); people still get its last version">missing</span>{/if}
-            {#if entry.left_out}<span class="tag warn" title="Not shared: a linked entry has this name">not shared</span>{/if}
+            {#if entry.missing}<span class="tag warn" title="Its disk is unplugged, or it was moved. People still get what they had.">not available</span>{/if}
+            {#if entry.left_out}<span class="tag warn" title="Not shared: another item on the stick has this name.">hidden: same name</span>{/if}
           </span>
           <span class="muted">{sizeOf(entry)}</span>
         {/if}

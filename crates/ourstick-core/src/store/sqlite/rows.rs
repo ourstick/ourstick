@@ -58,10 +58,13 @@ pub(super) struct OwnedRow {
     latest_partial: bool,
     node_id: Option<Vec<u8>>,
     kind: String,
+    image_path: Option<String>,
+    sharing_wanted: bool,
 }
 
 pub(super) const OWNED_COLUMNS: &str = "stick_id, name, root_path, cipher, last_signed_seq, \
-     latest_record, created_at_ms, drive_letter, latest_partial, node_id, kind";
+     latest_record, created_at_ms, drive_letter, latest_partial, node_id, kind, image_path, \
+     sharing_wanted";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -77,6 +80,8 @@ impl OwnedRow {
             latest_partial: row.get(8)?,
             node_id: row.get(9)?,
             kind: row.get(10)?,
+            image_path: row.get(11)?,
+            sharing_wanted: row.get(12)?,
         })
     }
 
@@ -110,6 +115,8 @@ impl OwnedRow {
                 other => return Err(StoreError::Corrupt(format!("kind {other}"))),
             },
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
+            image_path: self.image_path.map(PathBuf::from),
+            sharing_wanted: self.sharing_wanted,
             drive_letter: self
                 .drive_letter
                 .map(|letter| {

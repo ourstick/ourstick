@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 mod extra;
+mod life;
 
 use super::{
     check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
@@ -27,6 +28,10 @@ struct State {
     downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
     linked: BTreeMap<[u8; 32], BTreeMap<String, LinkedEntry>>,
     claims: BTreeMap<([u8; 32], u8), SpaceClaim>,
+    /// Owned sticks being removed: hidden from the usual reads.
+    removing: std::collections::BTreeSet<[u8; 32]>,
+    /// Ids retired by a new link, with when.
+    retired: BTreeMap<[u8; 32], u64>,
 }
 
 fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {
@@ -92,36 +97,71 @@ impl Store for MemoryStore {
     }
 
     fn owned_stick(&self, stick_id: &StickId) -> Result<Option<OwnedStick>, StoreError> {
-        Ok(self.state().owned.get(&stick_id.to_bytes()).cloned())
+        let state = self.state();
+        let key = stick_id.to_bytes();
+        if state.removing.contains(&key) {
+            return Ok(None);
+        }
+        Ok(state.owned.get(&key).cloned())
     }
 
     fn owned_sticks(&self) -> Result<Vec<OwnedStick>, StoreError> {
-        let state = self.state();
-        Ok(sorted(state.owned.iter().map(|(key, stick)| {
-            (stick.created_at_ms, *key, stick.clone())
-        })))
+        Ok(life::listed(self, false))
+    }
+
+    fn removing_sticks(&self) -> Result<Vec<OwnedStick>, StoreError> {
+        Ok(life::listed(self, true))
+    }
+
+    fn mark_removing(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        life::mark_removing(self, stick_id)
+    }
+
+    fn remove_owned_stick(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        life::remove(self, stick_id)
+    }
+
+    fn rename_owned_stick(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
+        life::change(self, stick_id, |stick| stick.name = name.to_owned())
+    }
+
+    fn set_sharing_wanted(&self, stick_id: &StickId, wanted: bool) -> Result<(), StoreError> {
+        life::change(self, stick_id, |stick| stick.sharing_wanted = wanted)
+    }
+
+    fn set_image_path(&self, stick_id: &StickId, path: &Path) -> Result<(), StoreError> {
+        path_str(path)?;
+        life::change(self, stick_id, |stick| {
+            stick.image_path = Some(path.to_path_buf())
+        })
+    }
+
+    fn replace_owned_stick(
+        &self,
+        old: &StickId,
+        new: &OwnedStick,
+        now_ms: u64,
+    ) -> Result<(), StoreError> {
+        life::replace(self, old, new, now_ms)
+    }
+
+    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError> {
+        life::retired(self)
+    }
+
+    fn forget_retired(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        self.state().retired.remove(&stick_id.to_bytes());
+        Ok(())
     }
 
     fn move_owned_stick(&self, stick_id: &StickId, root: &Path) -> Result<(), StoreError> {
         path_str(root)?;
-        let mut state = self.state();
-        let stick = state
-            .owned
-            .get_mut(&stick_id.to_bytes())
-            .ok_or(StoreError::StickNotFound)?;
-        stick.root_path = root.to_path_buf();
-        Ok(())
+        life::change(self, stick_id, |stick| stick.root_path = root.to_path_buf())
     }
 
     fn set_drive_letter(&self, stick_id: &StickId, letter: Option<char>) -> Result<(), StoreError> {
         check_drive_letter(letter)?;
-        let mut state = self.state();
-        let stick = state
-            .owned
-            .get_mut(&stick_id.to_bytes())
-            .ok_or(StoreError::StickNotFound)?;
-        stick.drive_letter = letter;
-        Ok(())
+        life::change(self, stick_id, |stick| stick.drive_letter = letter)
     }
 
     fn save_signed_record(

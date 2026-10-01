@@ -74,6 +74,45 @@ pub trait Store: Send + Sync {
     fn keep_only_owned_files(&self, stick_id: &StickId, paths: &[String])
         -> Result<(), StoreError>;
 
+    /// The sticks being removed (hidden from every other read), for the
+    /// one place that finishes their removal.
+    fn removing_sticks(&self) -> Result<Vec<OwnedStick>, StoreError>;
+
+    /// Marks a stick as being removed: from now on it is hidden from
+    /// [`Store::owned_stick`] and [`Store::owned_sticks`].
+    fn mark_removing(&self, stick_id: &StickId) -> Result<(), StoreError>;
+
+    /// Deletes a stick being removed, with its files' records, linked
+    /// entries and claims. Refused for a stick not marked removing.
+    fn remove_owned_stick(&self, stick_id: &StickId) -> Result<(), StoreError>;
+
+    /// Gives a stick a new name (checked by the caller).
+    fn rename_owned_stick(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError>;
+
+    /// Whether the user wants the stick shared ("Stop sharing" sets false).
+    fn set_sharing_wanted(&self, stick_id: &StickId, wanted: bool) -> Result<(), StoreError>;
+
+    /// Records a macOS stick's disk image.
+    fn set_image_path(&self, stick_id: &StickId, path: &Path) -> Result<(), StoreError>;
+
+    /// "Give it a new link" (ADR 0009 §5), in one transaction: `new` (a new
+    /// id, the old one's folder and settings) takes the old stick's place
+    /// and linked entries; the old stick's row, files' records and claims go,
+    /// and its id is retired (only its secrets and cache are left to delete:
+    /// [`Store::retired_sticks`]).
+    fn replace_owned_stick(
+        &self,
+        old: &StickId,
+        new: &OwnedStick,
+        now_ms: u64,
+    ) -> Result<(), StoreError>;
+
+    /// Ids retired by a new link whose secrets and cache are not deleted yet.
+    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError>;
+
+    /// A retired id is cleaned up.
+    fn forget_retired(&self, stick_id: &StickId) -> Result<(), StoreError>;
+
     /// Adds a folder or file shared where it is (ADR 0008). Fails with
     /// [`StoreError::LinkExists`] if the stick has an entry of that name
     /// (exactly; case is the caller's, see `crate::linked`).

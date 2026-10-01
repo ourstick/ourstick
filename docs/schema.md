@@ -25,9 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 14
+## Version 15
 
-Version 14 (`0014_no_drive_size.sql`, ADR 0008) dropped
+Version 15 (`0015_stick_life.sql`, ADR 0009 §5) added `owned_sticks.image_path`,
+`sharing_wanted` and `removing`, and `retired_sticks`, below. Version 14 (`0014_no_drive_size.sql`, ADR 0008) dropped
 `owned_sticks.drive_size`: a stick has no fixed size, and the app's stick is
 told by `kind`. Version 13 (`0013_space_claims.sql`, ADR 0008's notes) added
 `space_claims`, below. Version 12 (`0012_linked_entries.sql`, ADR 0008) added
@@ -93,6 +94,9 @@ Sticks this device owns. One row per stick.
 | `drive_letter`    | TEXT     | Windows: the drive letter (`A`–`Z`) the stick was last shown at with `subst`, asked for again after a restart so that the stick stays where the user saw it. NULL elsewhere. |
 | `node_id`         | BLOB 32 or NULL | iroh NodeId of the stick's own node key (`stick/<hex>/node-key`, ADR 0009); unique. NULL for a stick made before version 11, which uses `device.node_id` |
 | `kind`            | TEXT     | `app` (the app's stick: a drive) or `cli` (shared from the command line); which program lists it |
+| `image_path`      | TEXT or NULL | macOS: the app stick's disk image, recorded once and never derived from its name or id |
+| `sharing_wanted`  | INTEGER  | 1 unless the user chose "Stop sharing" (kept across restarts) |
+| `removing`        | INTEGER  | 1 while the stick is being removed: every read but `removing_sticks` leaves it out, so it is never shared again; the one place that finishes removals deletes its files (behind its drive marker), secrets and rows |
 | `latest_partial`  | INTEGER  | 1 if `latest_record` is of a partial manifest (the owner was still reading its folder, ADR 0007), so a restarted owner goes on publishing partial versions until a complete one; else 0 |
 
 `last_signed_seq`, `latest_record` and `latest_partial` change together, in one statement that
@@ -216,6 +220,19 @@ counts only while its holder's lock is held (`share-<hex>.lock` for `cache`,
 `download-<hex>.lock` for `download`); otherwise it is stale, ignored, and
 replaced next time. Claims are decided and written in one transaction, so
 two programs never both take the same room.
+
+### `retired_sticks`
+
+Stick ids replaced by "Give it a new link" (ADR 0009 §5). The new row took
+the old one's place, folder, settings and linked entries in the same
+transaction that wrote this row; what is left for a retired id is only its
+secrets (never the device's `node-key`) and its `cache/<hex>` folder, so
+cleaning it up never touches a folder of the user's.
+
+| Column          | Type    | Meaning                              |
+|-----------------|---------|--------------------------------------|
+| `stick_id`      | BLOB 32 | The retired id (primary key)         |
+| `retired_at_ms` | INTEGER | When                                 |
 
 ## Not yet in the schema
 

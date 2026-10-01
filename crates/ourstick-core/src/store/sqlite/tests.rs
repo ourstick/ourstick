@@ -6,7 +6,7 @@ use crate::store::StickKind;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 14);
+    assert_eq!(SCHEMA_VERSION, 15);
 }
 
 #[test]
@@ -166,13 +166,16 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO device VALUES (1, zeroblob(32), 'keychain', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'credential-manager', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'key-file', NULL, 0)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'o', 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'OO', 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 2, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, zeroblob(31), 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'phone')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, 0, NULL, 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, 0, NULL, 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'o', 0, NULL, 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'OO', 0, NULL, 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 2, NULL, 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, zeroblob(31), 'cli', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'phone', NULL, 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli', '', 1, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli', NULL, 2, 0)",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli', NULL, 1, 2)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 5, NULL, 0)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 'five', zeroblob(32), 0)",
         "INSERT INTO record_floors VALUES (zeroblob(32), NULL, zeroblob(32))",
@@ -183,7 +186,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
     ];
     connection
         .execute(
-            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli')",
+            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli', NULL, 1, 0)",
             [],
         )
         .unwrap();
@@ -341,7 +344,7 @@ fn migration_14_drops_the_size_and_keeps_the_sticks() {
             .unwrap();
     }
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 14);
+    assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
     let stick = store.owned_stick(&drive).unwrap().unwrap();
     assert_eq!(
         (stick.kind, stick.drive_letter, stick.root_path),

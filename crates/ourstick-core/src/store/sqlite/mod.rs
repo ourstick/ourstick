@@ -2,6 +2,7 @@
 
 mod files;
 mod joined;
+mod life;
 mod linked;
 mod migrations;
 mod owned;
@@ -18,9 +19,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use migrations::MIGRATIONS;
 pub use migrations::SCHEMA_VERSION;
 use migrations::{migrate, user_version};
-use rows::{
-    blob32, is_constraint_violation, kind_str, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS,
-};
+use rows::{blob32, is_constraint_violation, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS};
 
 use super::{
     check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedStick,
@@ -143,39 +142,20 @@ impl Store for SqliteStore {
 
     fn add_owned_stick(&self, stick: &OwnedStick) -> Result<(), StoreError> {
         check_owned_stick(stick)?;
-        let inserted = self.connection().execute(
-            &format!(
-                "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
-            ),
-            params![
-                stick.stick_id.to_bytes(),
-                stick.name,
-                path_str(&stick.root_path)?,
-                stick.cipher.to_byte(),
-                seq_i64(stick.last_signed_seq)?,
-                stick
-                    .latest_record
-                    .as_ref()
-                    .map(|record| record.to_bytes().to_vec()),
-                time_i64(stick.created_at_ms)?,
-                stick.drive_letter.map(String::from),
-                stick.latest_partial,
-                stick.node_id.map(|node_id| node_id.0.to_vec()),
-                kind_str(stick.kind),
-            ],
-        );
-        match inserted {
-            Ok(_) => Ok(()),
-            Err(error) if is_constraint_violation(&error) => Err(StoreError::StickExists),
-            Err(error) => Err(error.into()),
+        match owned::insert_owned(&self.connection(), stick) {
+            Err(StoreError::Sqlite(error)) if is_constraint_violation(&error) => {
+                Err(StoreError::StickExists)
+            }
+            other => other,
         }
     }
 
     fn owned_stick(&self, stick_id: &StickId) -> Result<Option<OwnedStick>, StoreError> {
         self.connection()
             .query_row(
-                &format!("SELECT {OWNED_COLUMNS} FROM owned_sticks WHERE stick_id = ?1"),
+                &format!(
+                    "SELECT {OWNED_COLUMNS} FROM owned_sticks WHERE stick_id = ?1 AND removing = 0"
+                ),
                 [stick_id.to_bytes()],
                 OwnedRow::read,
             )
@@ -187,7 +167,8 @@ impl Store for SqliteStore {
     fn owned_sticks(&self) -> Result<Vec<OwnedStick>, StoreError> {
         let connection = self.connection();
         let mut statement = connection.prepare(&format!(
-            "SELECT {OWNED_COLUMNS} FROM owned_sticks ORDER BY created_at_ms, stick_id"
+            "SELECT {OWNED_COLUMNS} FROM owned_sticks WHERE removing = 0
+             ORDER BY created_at_ms, stick_id"
         ))?;
         let rows = statement.query_map([], OwnedRow::read)?;
         rows.map(|row| row?.into_stick()).collect()
@@ -231,6 +212,47 @@ impl Store for SqliteStore {
         paths: &[String],
     ) -> Result<(), StoreError> {
         files::keep_only_owned_files(&mut self.connection(), stick_id, paths)
+    }
+
+    fn removing_sticks(&self) -> Result<Vec<OwnedStick>, StoreError> {
+        life::removing(&self.connection())
+    }
+
+    fn mark_removing(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        life::mark_removing(&self.connection(), stick_id)
+    }
+
+    fn remove_owned_stick(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        life::remove(&mut self.connection(), stick_id)
+    }
+
+    fn rename_owned_stick(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
+        life::rename(&self.connection(), stick_id, name)
+    }
+
+    fn set_sharing_wanted(&self, stick_id: &StickId, wanted: bool) -> Result<(), StoreError> {
+        life::set_sharing_wanted(&self.connection(), stick_id, wanted)
+    }
+
+    fn set_image_path(&self, stick_id: &StickId, path: &Path) -> Result<(), StoreError> {
+        life::set_image_path(&self.connection(), stick_id, path)
+    }
+
+    fn replace_owned_stick(
+        &self,
+        old: &StickId,
+        new: &OwnedStick,
+        now_ms: u64,
+    ) -> Result<(), StoreError> {
+        life::replace(&mut self.connection(), old, new, now_ms)
+    }
+
+    fn retired_sticks(&self) -> Result<Vec<StickId>, StoreError> {
+        life::retired(&self.connection())
+    }
+
+    fn forget_retired(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        life::forget_retired(&self.connection(), stick_id)
     }
 
     fn add_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
@@ -351,5 +373,7 @@ impl Store for SqliteStore {
     }
 }
 
+#[cfg(test)]
+mod migration_tests;
 #[cfg(test)]
 mod tests;

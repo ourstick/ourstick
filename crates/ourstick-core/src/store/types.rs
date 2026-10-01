@@ -63,6 +63,11 @@ pub struct OwnedStick {
     /// stick made before, which uses the device's.
     pub node_id: Option<NodeId>,
     pub kind: StickKind,
+    /// macOS: the app stick's disk image, recorded once, never derived from
+    /// its name or id.
+    pub image_path: Option<PathBuf>,
+    /// False after the user's "Stop sharing", so a restart keeps it stopped.
+    pub sharing_wanted: bool,
 }
 
 impl OwnedStick {
@@ -86,6 +91,8 @@ impl OwnedStick {
             drive_letter: None,
             node_id: None,
             kind: StickKind::Cli,
+            image_path: None,
+            sharing_wanted: true,
         }
     }
 }

@@ -4,9 +4,8 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::super::{check_drive_letter, path_str, StoreError};
-use super::rows::seq_i64;
-use super::rows::to_u64;
+use super::super::{check_drive_letter, path_str, OwnedStick, StoreError};
+use super::rows::{kind_str, seq_i64, time_i64, to_u64, OWNED_COLUMNS};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 
@@ -16,7 +15,7 @@ pub(super) fn move_owned_stick(
     root: &Path,
 ) -> Result<(), StoreError> {
     let updated = connection.execute(
-        "UPDATE owned_sticks SET root_path = ?1 WHERE stick_id = ?2",
+        "UPDATE owned_sticks SET root_path = ?1 WHERE stick_id = ?2 AND removing = 0",
         params![path_str(root)?, stick_id.to_bytes()],
     )?;
     if updated == 1 {
@@ -33,7 +32,7 @@ pub(super) fn set_drive_letter(
 ) -> Result<(), StoreError> {
     check_drive_letter(letter)?;
     let updated = connection.execute(
-        "UPDATE owned_sticks SET drive_letter = ?1 WHERE stick_id = ?2",
+        "UPDATE owned_sticks SET drive_letter = ?1 WHERE stick_id = ?2 AND removing = 0",
         params![letter.map(String::from), stick_id.to_bytes()],
     )?;
     if updated == 1 {
@@ -73,4 +72,33 @@ pub(super) fn save_signed_record(
             stored: to_u64(stored, "last_signed_seq")?,
         }),
     }
+}
+
+/// Inserts an owned stick's row (checked by the caller).
+pub(super) fn insert_owned(connection: &Connection, stick: &OwnedStick) -> Result<(), StoreError> {
+    connection.execute(
+        &format!(
+            "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+        ),
+        params![
+            stick.stick_id.to_bytes(),
+            stick.name,
+            path_str(&stick.root_path)?,
+            stick.cipher.to_byte(),
+            seq_i64(stick.last_signed_seq)?,
+            stick
+                .latest_record
+                .as_ref()
+                .map(|record| record.to_bytes().to_vec()),
+            time_i64(stick.created_at_ms)?,
+            stick.drive_letter.map(String::from),
+            stick.latest_partial,
+            stick.node_id.map(|node_id| node_id.0.to_vec()),
+            kind_str(stick.kind),
+            stick.image_path.as_deref().map(path_str).transpose()?,
+            stick.sharing_wanted,
+        ],
+    )?;
+    Ok(())
 }

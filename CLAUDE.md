@@ -26,7 +26,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
    Αν χρειάζεται κάτι από το UI, ο σχεδιασμός είναι λάθος.
 2. **Κάθε εξωτερική εξάρτηση μπαίνει πίσω από trait** στο core:
    `Publisher`/`Fetcher` (iroh, στο `transport/`), `Store` (SQLite), `SecretStore`,
-   `Cipher` (κρυπτογράφηση), `Clock`.
+   `Cipher` (κρυπτογράφηση), `Clock`, `Disks` (ελεύθερος χώρος, `space.rs`).
    Έτσι τα tests τρέχουν με in-memory υλοποιήσεις, χωρίς δίκτυο ή δίσκο.
 3. **Η κατάσταση ζει σε SQLite** (`rusqlite`), με migrations σε `crates/ourstick-core/migrations/`.
    Όχι JSON αρχεία για state. Όχι global mutable state.
@@ -43,7 +43,8 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 9. **Κλειδιά (NodeId, StickId) δεν ξαναδημιουργούνται ποτέ αφού μοιραστεί ticket.**
    Αν χαθούν ή αλλάξουν, κάθε ticket που έχει μοιραστεί πεθαίνει. Τα κλειδιά είναι ανά stick
    (κάθε νέο stick έχει και δικό του node key, ADR 0009) και σβήνονται μόνο όταν ο χρήστης
-   αφαιρεί το stick τους ή του δίνει νέο link.
+   αφαιρεί το stick τους ή του δίνει νέο link. Το node key της συσκευής (`node-key`), που
+   μοιράζονται τα sticks πριν από το ADR 0009, δεν σβήνεται ποτέ όσο το χρησιμοποιεί έστω ένα stick.
 
 ## Έννοιες (domain model)
 

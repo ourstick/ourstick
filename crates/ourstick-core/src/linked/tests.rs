@@ -1,10 +1,15 @@
 use super::*;
+use crate::cipher::CipherId;
+use crate::stick_id::StickSigningKey;
+use crate::store::{MemoryStore, OwnedStick, StickKind};
 
 struct Setup {
     _dir: tempfile::TempDir,
     own: PathBuf,
     data: PathBuf,
     outside: PathBuf,
+    store: MemoryStore,
+    stick_id: StickId,
 }
 
 fn setup() -> Setup {
@@ -15,16 +20,27 @@ fn setup() -> Setup {
     for folder in [&own, &data, &outside] {
         std::fs::create_dir(folder).unwrap();
     }
+    let store = MemoryStore::new();
+    let stick_id = StickSigningKey::from_bytes(&[1; 32]).stick_id();
+    store
+        .add_owned_stick(&OwnedStick {
+            kind: StickKind::App,
+            ..OwnedStick::new(stick_id, "s", &own, CipherId::XChaCha20Poly1305, 1)
+        })
+        .unwrap();
     Setup {
         own,
         data,
         outside,
+        store,
+        stick_id,
         _dir: dir,
     }
 }
 
-fn plan(setup: &Setup, existing: &[LinkedEntry], path: &Path) -> Result<LinkedEntry, LinkError> {
-    plan_link(&setup.own, &setup.data, existing, path, 5)
+/// Plans a link with `planned` decided but not stored yet.
+fn plan(setup: &Setup, planned: &[LinkedEntry], path: &Path) -> Result<LinkedEntry, LinkError> {
+    plan_link(&setup.store, &setup.stick_id, &setup.data, planned, path, 5)
 }
 
 #[test]
@@ -127,4 +143,40 @@ fn a_relative_or_missing_path_is_refused() {
         plan(&setup, &[], &setup.outside.join("nothing")),
         Err(LinkError::Io { .. })
     ));
+}
+
+#[test]
+fn another_app_sticks_folder_is_refused_but_a_command_line_ones_is_not() {
+    let setup = setup();
+    let other_app = setup.outside.join("For Maria");
+    let cli = setup.outside.join("Shared from the command line");
+    std::fs::create_dir_all(other_app.join("inside")).unwrap();
+    std::fs::create_dir_all(&cli).unwrap();
+    for (seed, root, kind) in [(2, &other_app, StickKind::App), (3, &cli, StickKind::Cli)] {
+        setup
+            .store
+            .add_owned_stick(&OwnedStick {
+                kind,
+                ..OwnedStick::new(
+                    StickSigningKey::from_bytes(&[seed; 32]).stick_id(),
+                    "other",
+                    root,
+                    CipherId::XChaCha20Poly1305,
+                    1,
+                )
+            })
+            .unwrap();
+    }
+    for refused in [&other_app, &other_app.join("inside"), &setup.outside] {
+        assert!(
+            matches!(plan(&setup, &[], refused), Err(LinkError::Overlaps { .. })),
+            "{}",
+            refused.display()
+        );
+    }
+    // The same files in two sticks: one per person.
+    assert_eq!(
+        plan(&setup, &[], &cli).unwrap().name,
+        "Shared from the command line"
+    );
 }

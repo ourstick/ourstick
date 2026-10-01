@@ -5,7 +5,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::drive::free_name_where;
-use crate::store::LinkedEntry;
+use crate::places::{app_places, clash, Taken};
+use crate::stick_id::StickId;
+use crate::store::{LinkedEntry, Store, StoreError};
 
 /// Why a path cannot be linked. The messages are meant for users.
 #[derive(Debug, thiserror::Error)]
@@ -18,7 +20,7 @@ pub enum LinkError {
     NotFileOrFolder(PathBuf),
     #[error("{}'s name cannot be shared (it is not valid Unicode, or not a name at all)", .0.display())]
     BadName(PathBuf),
-    #[error("{} {relation} {other}; a stick shares each file once", .path.display())]
+    #[error("{} {relation} {other}, which a link may not touch", .path.display())]
     Overlaps {
         path: PathBuf,
         relation: &'static str,
@@ -30,6 +32,8 @@ pub enum LinkError {
         #[source]
         source: std::io::Error,
     },
+    #[error(transparent)]
+    Store(#[from] StoreError),
 }
 
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> LinkError + '_ {
@@ -53,37 +57,28 @@ pub(crate) fn disk_of(metadata: &std::fs::Metadata) -> Option<u64> {
     }
 }
 
-/// `path` with links resolved, or as it is if it cannot be (gone).
-fn real(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// Whether `a` contains `b`, `b` contains `a`, or they are one.
-fn relation(a: &Path, b: &Path) -> Option<&'static str> {
-    if a == b {
-        Some("is")
-    } else if b.starts_with(a) {
-        Some("contains")
-    } else if a.starts_with(b) {
-        Some("is inside")
-    } else {
-        None
-    }
-}
-
-/// Decides whether `path` may be linked to the stick whose own folder is
-/// `own`, and its name there. Refused: a symbolic link; anything that is,
-/// contains or lies inside the stick's folder, the data folder (`data_dir`,
-/// which holds the cache) or another linked entry. The name is the last
-/// component of `path`, with " (2)", " (3)"… if it clashes, ignoring case,
-/// with an entry already on the stick. `now_ms` is when it is added.
+/// Decides whether `path` may be linked to the stick `stick_id`, and its
+/// name there. Refused: a symbolic link; anything that is, contains or lies
+/// inside this stick's own folder or one of its links (each file once in a
+/// stick), and the places only OurStick may use ([`crate::places`]: other
+/// app sticks' folders, the data folder). `planned` are links decided but
+/// not stored yet (several dropped at once). The name is the last component
+/// of `path`, with " (2)", " (3)"… if it clashes, ignoring case, with an
+/// entry already on the stick. `now_ms` is when it is added.
 pub fn plan_link(
-    own: &Path,
+    store: &dyn Store,
+    stick_id: &StickId,
     data_dir: &Path,
-    existing: &[LinkedEntry],
+    planned: &[LinkedEntry],
     path: &Path,
     now_ms: u64,
 ) -> Result<LinkedEntry, LinkError> {
+    let stick = store
+        .owned_stick(stick_id)?
+        .ok_or(StoreError::StickNotFound)?;
+    let own = stick.root_path.as_path();
+    let mut existing = store.linked_entries(stick_id)?;
+    existing.extend(planned.iter().cloned());
     if !path.is_absolute() {
         return Err(LinkError::NotAbsolute(path.to_path_buf()));
     }
@@ -94,25 +89,21 @@ pub fn plan_link(
     if !metadata.is_dir() && !metadata.is_file() {
         return Err(LinkError::NotFileOrFolder(path.to_path_buf()));
     }
-    let resolved = std::fs::canonicalize(path).map_err(io(path))?;
-    let mut others = vec![
-        (real(own), "the stick's own folder".to_owned()),
-        (real(data_dir), "OurStick's data folder".to_owned()),
-    ];
-    others.extend(existing.iter().map(|entry| {
-        (
-            real(&entry.path),
-            format!("\u{201c}{}\u{201d}, already shared", entry.name),
-        )
+    let mut taken = vec![Taken {
+        place: crate::places::comparable(own),
+        what: "the stick's own folder".to_owned(),
+    }];
+    taken.extend(existing.iter().map(|entry| Taken {
+        place: crate::places::comparable(&entry.path),
+        what: format!("\u{201c}{}\u{201d}, already shared", entry.name),
     }));
-    for (other_path, other) in others {
-        if let Some(relation) = relation(&resolved, &other_path) {
-            return Err(LinkError::Overlaps {
-                path: path.to_path_buf(),
-                relation,
-                other,
-            });
-        }
+    taken.extend(app_places(store, data_dir, Some(stick_id))?);
+    if let Some((relation, taken)) = clash(path, &taken) {
+        return Err(LinkError::Overlaps {
+            path: path.to_path_buf(),
+            relation: relation.words(),
+            other: taken.what.clone(),
+        });
     }
     let name = path
         .file_name()

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
+use ourstick_core::places::check_new_stick_folder;
 use ourstick_core::share::{
     keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
     Publication, PARTIAL_TIMING,
@@ -54,6 +55,9 @@ fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
         }
         return Ok(stick.stick_id);
     }
+    // Not a place only OurStick may use: an app stick's folder, the data
+    // folder (ADR 0009, as reviewed).
+    check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, folder)?;
     // Never refused: made fit (ADR 0009 §3), named after its folder.
     let name = name_from_folder(
         &folder

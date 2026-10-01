@@ -15,9 +15,15 @@ use ourstick_core::Store;
 /// Links `path` to the owner's stick.
 fn link(owner: &Owner, path: &Path) {
     let stick_id = owner.signing_key.stick_id();
-    let existing = owner.store.linked_entries(&stick_id).unwrap();
-    let data_dir = owner.cache.path();
-    let entry = plan_link(owner.folder.path(), data_dir, &existing, path, 1).unwrap();
+    let entry = plan_link(
+        owner.store.as_ref(),
+        &stick_id,
+        owner.cache.path(),
+        &[],
+        path,
+        1,
+    )
+    .unwrap();
     owner.store.add_linked_entry(&stick_id, &entry).unwrap();
 }
 

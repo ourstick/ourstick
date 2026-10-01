@@ -249,11 +249,11 @@ pub async fn link_paths(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     blocking(move || {
-        let mut planned = store.linked_entries(&stick.stick_id)?;
-        let known = planned.len();
+        let mut planned = Vec::new();
         for path in paths {
             let entry = plan_link(
-                &stick.root_path,
+                store.as_ref(),
+                &stick.stick_id,
                 &data_dir,
                 &planned,
                 Path::new(&path),
@@ -261,7 +261,7 @@ pub async fn link_paths(
             )?;
             planned.push(entry);
         }
-        for entry in &planned[known..] {
+        for entry in &planned {
             store.add_linked_entry(&stick.stick_id, entry)?;
         }
         Ok(())

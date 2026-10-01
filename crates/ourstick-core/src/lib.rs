@@ -14,6 +14,7 @@ pub mod layout;
 pub mod linked;
 pub mod locks;
 pub mod manifest;
+pub mod places;
 pub mod record;
 pub mod secrets;
 pub mod share;

@@ -18,6 +18,30 @@ writes. The stick sharing an older stick's node key is named by trying the
 older sticks' own locks, never by writing into a lock file (Windows locks
 cannot be read). A device set up from now on records no node key of its own.
 
+## Notes from step 7a-i (2026-10-01)
+
+Reviewed four times before (two other models, then Opus, then Sonnet on
+Opus). What changed from the text below:
+
+- **A new link never touches files.** The old row is not kept as "removing":
+  in one transaction the new row takes its place (folder, name, letter,
+  image, linked entries) and the old id goes into `retired_sticks`, whose
+  cleanup deletes only its secrets and `cache/<hex>`. A stick being removed
+  is hidden from every read but `removing_sticks`, so a restart never
+  shares it again (`stick_life.rs`).
+- **The device's node key is never deleted** while a stick uses it, by a new
+  link or a removal (`CLAUDE.md` rule 9).
+- **Overlaps:** only an app stick's own folder and the data folder are
+  OurStick's alone (removal deletes the former); the same files may be in
+  several sticks, and what exists is never checked again (`places.rs`).
+- **Removal** deletes copied files only behind the marker, never across a
+  mount point, marker last; a failure leaves the stick removing, finished at
+  the next start.
+- **Names** are stored in one Unicode form (NFC); names kept from before are
+  not checked; the CLI makes a name fit instead of refusing it.
+- **§7, the budget:** one budget per device (ADR 0008's notes), split equally
+  between the sticks started together, each at least 2 GB.
+
 ## Context
 
 People send different things to different people: a disk for one relative,
@@ -136,8 +160,10 @@ its file, and its path is recorded.
   delete the old secrets last. The files, folder, letter, bookmark and image
   are kept. Nothing of the old catalogue is reused (every blob hash changes), so
   the stick is catalogued again (ADR 0007: a full read of every file). Readers
-  with the old link are refused ("unknown stick") while the owner is online,
-  and see it as offline otherwise; their entry says the link no longer works.
+  with the old link find nobody at the old node (its key is deleted) and see
+  the stick as offline; for an older stick, whose node is the device's and
+  still serves its siblings, they are refused ("unknown stick"). Their entry
+  says the link no longer works.
   Readers given the new link check the files they already have by encrypting
   them with the new key (reader work, listed below), and download only what
   differs.

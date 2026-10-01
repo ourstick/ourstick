@@ -120,3 +120,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   keys). Sign the app with a Developer ID before the first release, so
   updates keep the keychain's permission; and consider one keychain item per
   stick (its keys together) so a new program asks once per stick.
+- **Windows: Explorer calls the stick "Windows (O:)"**, the label of the
+  disk that holds its folder, since a `subst` letter has none of its own.
+  Give the letter the name "OurStick" per user (HKCU `...\Explorer\
+  DriveIcons\<letter>\DefaultLabel`, no admin rights), set with the letter
+  and removed with it.

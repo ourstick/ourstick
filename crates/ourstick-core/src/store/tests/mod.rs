@@ -2,8 +2,10 @@
 //! [`MemoryStore`] and [`SqliteStore`], so the two cannot drift apart.
 
 use super::*;
+use crate::cipher::CipherId;
 use crate::record::ManifestRecord;
 use crate::stick_id::StickSigningKey;
+use crate::ticket::NodeId;
 
 fn owner(seed: u8) -> StickSigningKey {
     StickSigningKey::from_bytes(&[seed; 32])

@@ -1,6 +1,7 @@
 //! [`Store`] on SQLite, with migrations from `crates/ourstick-core/migrations/`.
 
 mod files;
+mod joined;
 mod migrations;
 mod owned;
 mod rows;
@@ -9,20 +10,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 
 #[cfg(test)]
 use migrations::MIGRATIONS;
 pub use migrations::SCHEMA_VERSION;
 use migrations::{migrate, user_version};
 use rows::{
-    blob32, is_constraint_violation, kind_str, seq_i64, time_i64, to_u64, JoinedRow, OwnedRow,
-    JOINED_COLUMNS, OWNED_COLUMNS,
+    blob32, is_constraint_violation, kind_str, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS,
 };
 
 use super::{
-    check_device, check_joined_stick, check_owned_stick, path_str, Device, DownloadedFile,
-    JoinedStick, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
+    check_device, check_owned_stick, path_str, Device, DownloadedFile, JoinedStick,
+    ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -233,67 +233,19 @@ impl Store for SqliteStore {
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {
-        check_joined_stick(stick)?;
-        let (seq, hash) = match &stick.completed {
-            Some(completed) => (Some(seq_i64(completed.seq)?), Some(completed.hash.to_vec())),
-            None => (None, None),
-        };
-        let inserted = self.connection().execute(
-            &format!("INSERT INTO joined_sticks ({JOINED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5)"),
-            params![
-                stick.stick_id.to_bytes(),
-                path_str(&stick.output_dir)?,
-                seq,
-                hash,
-                time_i64(stick.joined_at_ms)?,
-            ],
-        );
-        match inserted {
-            Ok(_) => Ok(()),
-            Err(error) if is_constraint_violation(&error) => Err(StoreError::StickExists),
-            Err(error) => Err(error.into()),
-        }
+        joined::add_joined_stick(&self.connection(), stick)
     }
 
     fn joined_stick(&self, stick_id: &StickId) -> Result<Option<JoinedStick>, StoreError> {
-        self.connection()
-            .query_row(
-                &format!("SELECT {JOINED_COLUMNS} FROM joined_sticks WHERE stick_id = ?1"),
-                [stick_id.to_bytes()],
-                JoinedRow::read,
-            )
-            .optional()?
-            .map(JoinedRow::into_stick)
-            .transpose()
+        joined::joined_stick(&self.connection(), stick_id)
     }
 
     fn joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError> {
-        let connection = self.connection();
-        let mut statement = connection.prepare(&format!(
-            "SELECT {JOINED_COLUMNS} FROM joined_sticks ORDER BY joined_at_ms, stick_id"
-        ))?;
-        let rows = statement.query_map([], JoinedRow::read)?;
-        rows.map(|row| row?.into_stick()).collect()
+        joined::joined_sticks(&self.connection())
     }
 
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
-        let mut connection = self.connection();
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let updated = transaction.execute(
-            "UPDATE joined_sticks
-             SET output_dir = ?1, completed_seq = NULL, completed_manifest_hash = NULL
-             WHERE stick_id = ?2",
-            params![path_str(output_dir)?, stick_id.to_bytes()],
-        )?;
-        if updated != 1 {
-            return Err(StoreError::StickNotFound);
-        }
-        transaction.execute(
-            "DELETE FROM downloaded_files WHERE stick_id = ?1",
-            [stick_id.to_bytes()],
-        )?;
-        transaction.commit()?;
-        Ok(())
+        joined::move_joined_stick(&mut self.connection(), stick_id, output_dir)
     }
 
     fn complete_download(
@@ -301,32 +253,7 @@ impl Store for SqliteStore {
         stick_id: &StickId,
         version: ManifestVersion,
     ) -> Result<(), StoreError> {
-        let seq = seq_i64(version.seq)?;
-        let stick_id = stick_id.to_bytes();
-        let mut connection = self.connection();
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let floor: Option<i64> = transaction
-            .query_row(
-                "SELECT highest_seq FROM record_floors WHERE stick_id = ?1",
-                [stick_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if floor.is_none_or(|floor| floor < seq) {
-            return Err(StoreError::Inconsistent(
-                "a download completed for a record that was never accepted",
-            ));
-        }
-        let updated = transaction.execute(
-            "UPDATE joined_sticks SET completed_seq = ?1, completed_manifest_hash = ?2
-             WHERE stick_id = ?3",
-            params![seq, version.hash.to_vec(), stick_id],
-        )?;
-        if updated != 1 {
-            return Err(StoreError::StickNotFound);
-        }
-        transaction.commit()?;
-        Ok(())
+        joined::complete_download(&mut self.connection(), stick_id, version)
     }
 
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {

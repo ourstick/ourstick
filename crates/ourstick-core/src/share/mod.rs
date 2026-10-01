@@ -184,9 +184,25 @@ pub fn folder_size(root: &Path) -> Result<u64, ShareError> {
 /// Makes `root` the drive of `stick_id` by writing the drive marker into it.
 /// Blocking.
 pub fn mark_drive(root: &Path, stick_id: &StickId) -> Result<(), ShareError> {
+    use std::io::Write;
     let path = root.join(DRIVE_MARKER);
-    std::fs::write(&path, drive_marker_text(stick_id))
-        .map_err(|source| ShareError::Io { path, source })
+    let io = |source| ShareError::Io {
+        path: path.clone(),
+        source,
+    };
+    // An existing marker is truncated, not made again: Windows refuses to
+    // make a file anew over a hidden one (the app hides the marker there).
+    let mut file = if path.exists() {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(io)?
+    } else {
+        std::fs::File::create_new(&path).map_err(io)?
+    };
+    file.write_all(drive_marker_text(stick_id).as_bytes())
+        .map_err(io)
 }
 
 /// What the drive marker of `stick_id` holds: the StickId in hex.
@@ -196,7 +212,7 @@ fn drive_marker_text(stick_id: &StickId) -> String {
 
 /// Whether `root` holds the drive marker of `stick_id` (the drive is
 /// plugged in). Blocking.
-fn drive_present(root: &Path, stick_id: &StickId) -> bool {
+pub(crate) fn drive_present(root: &Path, stick_id: &StickId) -> bool {
     let marker = std::fs::read_to_string(root.join(DRIVE_MARKER)).unwrap_or_default();
     marker.trim() == drive_marker_text(stick_id)
 }

@@ -20,6 +20,7 @@ pub mod secrets;
 pub mod share;
 pub mod space;
 pub mod stick_id;
+pub mod stick_life;
 pub mod stick_names;
 pub mod store;
 pub mod ticket;

@@ -4,18 +4,19 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { appState, copyLink, copyQrImage, sendByEmail, shareView, type ShareView } from "./api";
 
+  let { stickId }: { stickId: string } = $props();
   let view = $state<ShareView | null>(null);
   let loaded = $state(false);
   let note = $state<string | null>(null);
 
   async function load() {
-    view = await shareView();
+    view = await shareView(stickId);
     loaded = true;
   }
 
-  async function act(action: () => Promise<void>, done: string) {
+  async function act(action: (stickId: string) => Promise<void>, done: string) {
     try {
-      await action();
+      await action(stickId);
       note = done;
     } catch (error) {
       note = String(error);

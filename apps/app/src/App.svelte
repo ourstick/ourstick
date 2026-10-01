@@ -6,8 +6,8 @@
   import Confirm from "./lib/Confirm.svelte";
 
   // The Share popup and the Stop sharing / Quit dialog are the same UI,
-  // opened at #share, #stop and #quit.
-  const page = location.hash;
+  // opened at #share/<stick id>, #stop/<stick id> and #quit.
+  const [page, pageStick] = location.hash.split("/");
 
   let app = $state<AppState | null>(null);
   let failure = $state<string | null>(null);
@@ -24,10 +24,12 @@
   load();
 </script>
 
-{#if page === "#share"}
-  <Share />
-{:else if page === "#stop" || page === "#quit"}
-  <Confirm quitting={page === "#quit"} />
+{#if page === "#share" && pageStick}
+  <Share stickId={pageStick} />
+{:else if page === "#stop" && pageStick}
+  <Confirm quitting={false} stickId={pageStick} />
+{:else if page === "#quit"}
+  <Confirm quitting={true} stickId={null} />
 {:else if failure}
   <main class="card"><p class="error">{failure}</p></main>
 {:else if app?.first_launch}

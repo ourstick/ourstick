@@ -61,6 +61,11 @@ pub mod platform {
     use std::path::Path;
     use std::process::Command;
 
+    /// Where the first stick's disk image lives.
+    pub fn image_path() -> Result<PathBuf> {
+        image()
+    }
+
     /// Where the disk image lives.
     fn image() -> Result<PathBuf> {
         Ok(home()?

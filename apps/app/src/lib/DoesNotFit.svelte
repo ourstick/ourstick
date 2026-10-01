@@ -5,11 +5,13 @@
   import { size } from "./format";
 
   let {
+    stickId,
     paths,
     needed,
     left,
     onClose,
   }: {
+    stickId: string;
     paths: string[];
     needed: number;
     left: number;
@@ -24,7 +26,7 @@
     if (linking) return;
     linking = true;
     try {
-      await linkPaths(paths);
+      await linkPaths(stickId, paths);
       onClose(null);
     } catch (error) {
       onClose(String(error));

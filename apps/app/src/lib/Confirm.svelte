@@ -3,13 +3,13 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { appState, confirmView, quit, stopSharing, type ConfirmView } from "./api";
 
-  let { quitting }: { quitting: boolean } = $props();
+  let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
   let view = $state<ConfirmView | null>(null);
   let busy = $state(false);
 
   onMount(() => {
     appState().then((app) => (document.documentElement.dataset.platform = app.platform));
-    confirmView().then((loaded) => (view = loaded));
+    confirmView(stickId).then((loaded) => (view = loaded));
   });
 
   const close = () => getCurrentWindow().close();
@@ -19,8 +19,8 @@
     if (quitting) {
       // Sharing stops on the way out.
       await quit();
-    } else {
-      await stopSharing();
+    } else if (stickId) {
+      await stopSharing(stickId);
       await close();
     }
   }

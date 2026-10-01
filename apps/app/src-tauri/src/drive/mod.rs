@@ -62,6 +62,35 @@ mod platform {
 
 pub use platform::{create, eject, is_mounted, mount};
 
+/// The disk image of a stick made before its image was recorded (macOS:
+/// the one image of the app's first stick); `None` elsewhere.
+#[cfg(target_os = "macos")]
+pub fn image_of(_stick: &ourstick_core::OwnedStick) -> Option<PathBuf> {
+    platform::image_path().ok()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn image_of(_stick: &ourstick_core::OwnedStick) -> Option<PathBuf> {
+    None
+}
+
+/// What the app undoes for a stick being removed (ADR 0009 §5): its
+/// bookmark or drive letter, or its disk image, detached then deleted.
+pub struct AppDrive;
+
+impl ourstick_core::stick_life::DriveOps for AppDrive {
+    fn take_away(&self, stick: &ourstick_core::OwnedStick) -> Result<(), String> {
+        eject(&stick.root_path).map_err(|error| format!("{error:#}"))?;
+        if let Some(image) = &stick.image_path {
+            match std::fs::remove_file(image) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("cannot delete {}: {error}", image.display())),
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Where to measure what is left for the stick (ADR 0008): the disk that
 /// really holds its files. On macOS that is the disk image's folder, not the
 /// mounted volume (which tells the image's own size).

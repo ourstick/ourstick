@@ -10,7 +10,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::drive;
-use crate::state::{start_sharing, AppState};
+use crate::sharing::{mount_and_share, start_sharing_later};
+use crate::state::{stick_id as stick_id_of, AppState};
 
 /// An error as the UI shows it.
 pub(crate) fn shown(error: anyhow::Error) -> String {
@@ -35,7 +36,7 @@ pub struct AppStateView {
 
 #[tauri::command]
 pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, String> {
-    let first_launch = state.drive_stick().map_err(shown)?.is_none();
+    let first_launch = state.app_sticks().map_err(shown)?.is_empty();
     Ok(AppStateView {
         platform: std::env::consts::OS,
         first_launch,
@@ -46,12 +47,12 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
 /// has no size: what it holds is what the computer has room for (ADR 0008).
 #[tauri::command]
 pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    if state.drive_stick().map_err(shown)?.is_some() {
+    if !state.app_sticks().map_err(shown)?.is_empty() {
         return Ok(());
     }
     let data_dir = state.data_dir.clone();
     let store = state.store.clone();
-    blocking(move || {
+    let made = blocking(move || {
         let secrets = device::open_system_keyring()?;
         check_secret_store(secrets.as_ref())?;
         let Some(backend) = device::system_keyring_backend() else {
@@ -60,8 +61,8 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         // One program makes the device and the stick at a time.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
         device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-        if crate::state::app_stick(store.as_ref())?.is_some() {
-            return Ok(());
+        if !crate::state::app_sticks(store.as_ref())?.is_empty() {
+            return Ok(None);
         }
         let root = drive::create()?;
         let keys = device::create_stick(
@@ -76,44 +77,46 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         if let Some(letter) = drive::letter_of(&root) {
             store.set_drive_letter(&keys.stick.stick_id, Some(letter))?;
         }
-        Ok(())
+        Ok(Some(keys.stick.stick_id))
     })
     .await?;
     let _ = app.emit("mount-changed", ());
-    start_sharing(&app);
+    if let Some(stick_id) = made {
+        start_sharing_later(&app, stick_id);
+    }
     Ok(())
 }
 
-/// Ejects the stick (detaches the image, or takes it out of the sidebar).
+/// Ejects a stick (detaches the image, or takes it out of the sidebar).
 /// Sharing goes on with the last version.
 #[tauri::command]
-pub async fn eject(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+pub async fn eject(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     blocking(move || drive::eject(&stick.root_path)).await?;
     crate::tray::set_mounted(&app, false);
     let _ = app.emit("mount-changed", ());
     Ok(())
 }
 
-/// Mounts the stick again, and shares from where it is now.
+/// Mounts a stick again, and shares it from where it is now.
 #[tauri::command]
-pub fn mount(app: AppHandle) {
-    crate::state::plug_in_and_share(&app);
+pub fn mount(stick_id: String, app: AppHandle) -> Result<(), String> {
+    mount_and_share(&app, stick_id_of(&stick_id)?);
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn open_in_file_manager(
+    stick_id: String,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     let shown = blocking(move || Ok(drive::shown_at(&stick.root_path))).await?;
     app.opener()
         .open_path(shown.to_string_lossy(), None::<&str>)

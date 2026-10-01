@@ -11,6 +11,7 @@
     startSharingAgain,
     removeEntry,
     stick as loadStick,
+    sticks,
     type Activity,
     type Entry,
     type ShareProblem,
@@ -20,6 +21,8 @@
   import DoesNotFit from "./DoesNotFit.svelte";
 
   let current = $state<Stick | null>(null);
+  /** The stick shown: the app's first, until the window lists them all. */
+  let stickId = $state<string | null>(null);
   let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, relay_only: null });
   let problem = $state<ShareProblem | null>(null);
   let dropping = $state(false);
@@ -30,10 +33,11 @@
   let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
   let pillMenu = $state(false);
 
-  async function pillAction(action: () => Promise<void>) {
+  async function pillAction(action: (stickId: string) => Promise<void>) {
     pillMenu = false;
+    if (!stickId) return;
     try {
-      await action();
+      await action(stickId);
     } catch (error) {
       failure = String(error);
     }
@@ -42,7 +46,10 @@
 
   async function refresh() {
     try {
-      current = await loadStick();
+      // A new link gives the stick a new id: look it up each time.
+      stickId = (await sticks())[0]?.id ?? null;
+      if (!stickId) return;
+      current = await loadStick(stickId);
       activity = current.sharing;
     } catch (error) {
       failure = String(error);
@@ -55,7 +62,8 @@
     failure = null;
     tooBig = null;
     try {
-      const outcome = await addPaths(paths);
+      if (!stickId) return;
+      const outcome = await addPaths(stickId, paths);
       if (outcome.kind === "does_not_fit") {
         tooBig = { paths, needed: outcome.needed, left: outcome.left };
       }
@@ -80,7 +88,7 @@
   async function remove(name: string) {
     removing = null;
     try {
-      await removeEntry(name);
+      if (stickId) await removeEntry(stickId, name);
     } catch (error) {
       failure = String(error);
     }
@@ -93,6 +101,7 @@
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
+      listen("sticks-changed", refresh),
       listen<Activity>("activity", (event) => (activity = event.payload)),
       listen<ShareProblem>("share-problem", (event) => {
         problem = event.payload.kind === "cleared" ? null : event.payload;
@@ -149,7 +158,7 @@
   </section>
 
   {#if tooBig}
-    <DoesNotFit {...tooBig} onClose={tooBigClosed} />
+    <DoesNotFit stickId={stickId ?? ""} {...tooBig} onClose={tooBigClosed} />
   {/if}
 
   <ul class="entries">
@@ -204,7 +213,7 @@
   {#if current?.sharing.state === "off"}
     <p class="row spread">
       <span class="muted">Not sharing: nobody can download.</span>
-      <button onclick={() => startSharingAgain()}>Start sharing</button>
+      <button onclick={() => stickId && startSharingAgain(stickId)}>Start sharing</button>
     </p>
   {:else if current?.sharing.state === "starting"}
     <p class="muted">Getting ready to share…</p>
@@ -220,7 +229,10 @@
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 
-  <button class="share" onclick={() => openShare().catch((error) => (failure = String(error)))}>
+  <button
+    class="share"
+    onclick={() => stickId && openShare(stickId).catch((error) => (failure = String(error)))}
+  >
     ⤴ Share
   </button>
 </main>

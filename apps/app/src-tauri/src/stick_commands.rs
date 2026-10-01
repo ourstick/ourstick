@@ -10,13 +10,13 @@ use ourstick_core::layout::StickLayout;
 use ourstick_core::linked::plan_link;
 use ourstick_core::share::folder_size;
 use ourstick_core::space::{available, SystemDisks};
-use ourstick_core::{OwnedStick, Store};
+use ourstick_core::{OwnedStick, StickId, Store};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::{blocking, shown};
 use crate::drive;
-use crate::state::{AppState, Sharing};
+use crate::state::{stick_id as stick_id_of, AppState, Sharing};
 
 #[derive(Debug, Serialize)]
 pub struct SharingView {
@@ -114,14 +114,12 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
 
 /// The stick as the main window shows it.
 #[tauri::command]
-pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+pub async fn stick(stick_id: String, state: State<'_, AppState>) -> Result<StickView, String> {
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let name = stick.name.clone();
+    let id = stick.stick_id;
     let (entries, used, left, mounted) = blocking(move || {
         let root = &stick.root_path;
         let mounted = drive::is_mounted(root);
@@ -134,11 +132,14 @@ pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
         Ok((entries_of(&stick, store.as_ref())?, used, left, mounted))
     })
     .await?;
-    let sharing = match &*state.sharing.lock().await {
-        Sharing::Off => sharing_view("off", None, false, None),
-        Sharing::Starting => sharing_view("starting", None, false, None),
-        Sharing::Failed(message) => sharing_view("failed", Some(message.clone()), false, None),
-        Sharing::On(serving) => sharing_view(
+    let sharing = match state.sticks.lock().await.get(&id) {
+        None | Some(Sharing::Off) => sharing_view("off", None, false, None),
+        Some(Sharing::Starting) => sharing_view("starting", None, false, None),
+        Some(Sharing::Busy(doing)) => sharing_view("busy", Some((*doing).to_owned()), false, None),
+        Some(Sharing::Failed(message)) => {
+            sharing_view("failed", Some(message.clone()), false, None)
+        }
+        Some(Sharing::On(serving)) => sharing_view(
             "on",
             None,
             serving.link.is_some(),
@@ -189,14 +190,12 @@ pub enum AddOutcome {
 /// if they fit in what is left.
 #[tauri::command]
 pub async fn add_paths(
+    stick_id: String,
     paths: Vec<String>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AddOutcome, String> {
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -224,10 +223,10 @@ pub async fn add_paths(
     Ok(outcome)
 }
 
-/// Tells the running share to look at the stick now (a linked entry came or
-/// went: no file system event says so).
-async fn nudge(state: &AppState) {
-    if let Sharing::On(serving) = &*state.sharing.lock().await {
+/// Tells the running share of `stick_id` to look at the stick now (a
+/// linked entry came or went: no file system event says so).
+async fn nudge(state: &AppState, stick_id: &StickId) {
+    if let Some(Sharing::On(serving)) = state.sticks.lock().await.get(stick_id) {
         serving.nudge.now();
     }
 }
@@ -238,14 +237,12 @@ async fn nudge(state: &AppState) {
 /// entry; a name that is taken gets a number).
 #[tauri::command]
 pub async fn link_paths(
+    stick_id: String,
     paths: Vec<String>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     blocking(move || {
@@ -267,7 +264,7 @@ pub async fn link_paths(
         Ok(())
     })
     .await?;
-    nudge(&state).await;
+    nudge(&state, &stick.stick_id).await;
     let _ = app.emit("stick-changed", ());
     Ok(())
 }
@@ -276,14 +273,12 @@ pub async fn link_paths(
 /// a linked one, only the link (its files stay where they are).
 #[tauri::command]
 pub async fn remove_entry(
+    stick_id: String,
     name: String,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state
-        .drive_stick()
-        .map_err(shown)?
-        .ok_or("there is no stick yet")?;
+    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
     let store = state.store.clone();
     let unlinked = blocking(move || {
         let linked = store
@@ -299,7 +294,7 @@ pub async fn remove_entry(
     })
     .await?;
     if unlinked {
-        nudge(&state).await;
+        nudge(&state, &stick.stick_id).await;
     }
     let _ = app.emit("stick-changed", ());
     Ok(())

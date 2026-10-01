@@ -1,31 +1,42 @@
-//! What the app keeps while it runs.
+//! What the app keeps while it runs: the data folder, the database, and
+//! where sharing stands for each of the app's sticks (ADR 0009).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ourstick_core::device;
-use ourstick_core::{OwnedStick, StickKind, Store};
-use tauri::{AppHandle, Emitter, Manager};
+use ourstick_core::{OwnedStick, StickId, StickKind, Store};
 
-use crate::serving::{self, Serving};
+use crate::serving::Serving;
 
-/// Where sharing stands.
+/// Where sharing one stick stands.
 pub enum Sharing {
-    /// No stick yet, or not started.
+    /// Not shared: the user stopped it, or it was never started.
     Off,
     Starting,
     On(Serving),
     /// Could not start; the message says why.
     Failed(String),
+    /// Being renamed, given a new link or removed: nothing starts it
+    /// meanwhile. Says what is happening.
+    Busy(&'static str),
+}
+
+impl Sharing {
+    /// Whether it serves, or is about to.
+    pub fn is_on(&self) -> bool {
+        matches!(self, Self::On(_) | Self::Starting)
+    }
 }
 
 /// The data folder and database (shared with the CLI on this device), and
-/// the running share.
+/// the running shares, by stick.
 pub struct AppState {
     pub data_dir: PathBuf,
     pub store: Arc<dyn Store>,
-    pub sharing: tokio::sync::Mutex<Sharing>,
+    pub sticks: tokio::sync::Mutex<HashMap<StickId, Sharing>>,
 }
 
 impl AppState {
@@ -35,136 +46,66 @@ impl AppState {
         Ok(Self {
             data_dir,
             store,
-            sharing: tokio::sync::Mutex::new(Sharing::Off),
+            sticks: tokio::sync::Mutex::new(HashMap::new()),
         })
     }
 
-    /// The app's stick, if there is one yet.
-    pub fn drive_stick(&self) -> Result<Option<OwnedStick>> {
-        app_stick(self.store.as_ref())
+    /// The app's sticks, oldest first.
+    pub fn app_sticks(&self) -> Result<Vec<OwnedStick>> {
+        app_sticks(self.store.as_ref())
+    }
+
+    /// The app's stick `id`.
+    pub fn app_stick(&self, id: &StickId) -> Result<OwnedStick> {
+        self.store
+            .owned_stick(id)?
+            .filter(|stick| stick.kind == StickKind::App)
+            .context("that stick is not on this device any more")
     }
 }
 
-/// The app's stick (`StickKind::App`), if there is one yet: the one place
-/// that says which stick is the app's.
-pub fn app_stick(store: &dyn Store) -> Result<Option<OwnedStick>> {
+/// The app's sticks (`StickKind::App`), oldest first: the one place that
+/// says which sticks are the app's.
+pub fn app_sticks(store: &dyn Store) -> Result<Vec<OwnedStick>> {
     Ok(store
         .owned_sticks()?
         .into_iter()
-        .find(|stick| stick.kind == StickKind::App))
+        .filter(|stick| stick.kind == StickKind::App)
+        .collect())
 }
 
-/// Plugs the stick in (mounts its image, or puts it in the sidebar), records
-/// where its folder is now, and starts sharing. At start and on Mount.
-pub fn plug_in_and_share(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        let store = state.store.clone();
-        // Whether sharing must start again to follow the folder: always
-        // after a disk image was attached (its old watch is gone), on Linux
-        // only if the folder moved.
-        let mounted = tauri::async_runtime::spawn_blocking(move || -> Result<Option<bool>> {
-            let Some(stick) = app_stick(store.as_ref())? else {
-                return Ok(None);
-            };
-            let root = crate::drive::mount(&stick.root_path, stick.drive_letter)?;
-            let moved = root != stick.root_path;
-            if moved {
-                store.move_owned_stick(&stick.stick_id, &root)?;
-            }
-            // Windows: keep the letter it got, to ask for it after a restart.
-            let letter = crate::drive::letter_of(&root);
-            if letter.is_some() && letter != stick.drive_letter {
-                store.set_drive_letter(&stick.stick_id, letter)?;
-            }
-            Ok(Some(moved || cfg!(target_os = "macos")))
-        })
-        .await;
-        let mut restart = true;
-        match mounted {
-            Ok(Ok(Some(follow))) => restart = follow,
-            Ok(Ok(None)) => return,
-            Ok(Err(error)) => {
-                // Sharing still serves the last version from the cache.
-                tracing::warn!(error = %format!("{error:#}"), "the stick could not be mounted");
-                let _ = app.emit(
-                    "share-problem",
-                    serving::ShareProblem::Failed {
-                        message: format!("The stick could not be mounted: {error:#}"),
-                    },
-                );
-            }
-            Err(error) => tracing::warn!(%error, "mounting did not finish"),
-        }
-        let _ = app.emit("mount-changed", ());
-        {
-            let mut sharing = state.sharing.lock().await;
-            if !restart && matches!(*sharing, Sharing::On(_) | Sharing::Starting) {
-                return;
-            }
-            // The watcher follows the folder where it is now.
-            if let Sharing::On(serving) = std::mem::replace(&mut *sharing, Sharing::Off) {
-                serving.stop().await;
-            }
-        }
-        start_sharing(&app);
-    });
+/// A stick id as the UI passes it (64 hex digits).
+pub fn stick_id(hex: &str) -> Result<StickId, String> {
+    let not_one = || "not a stick id".to_owned();
+    if hex.len() != 64 || !hex.is_ascii() {
+        return Err(not_one());
+    }
+    let mut bytes = [0u8; 32];
+    for (byte, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks(2)) {
+        let pair = std::str::from_utf8(pair).map_err(|_| not_one())?;
+        *byte = u8::from_str_radix(pair, 16).map_err(|_| not_one())?;
+    }
+    StickId::from_bytes(&bytes).map_err(|_| not_one())
 }
 
-/// Tells the UI (event `mount-changed`) when the stick is ejected or mounted
-/// behind the app's back, e.g. with Finder's eject button. Checks every few
-/// seconds while the app runs.
-pub fn watch_mount(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut last = None;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let state = app.state::<AppState>();
-            let Ok(Some(stick)) = state.drive_stick() else {
-                continue;
-            };
-            let root = stick.root_path.clone();
-            let mounted =
-                tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&root))
-                    .await
-                    .unwrap_or(false);
-            if last != Some(mounted) {
-                if last.is_some() {
-                    let _ = app.emit("mount-changed", ());
-                }
-                crate::tray::set_mounted(&app, mounted);
-                last = Some(mounted);
-            }
-        }
-    });
+/// A stick id as the UI gets it.
+pub fn stick_hex(id: &StickId) -> String {
+    id.to_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
-/// Starts sharing in the background; the UI hears `sharing-changed` when it
-/// starts and when it is running or has failed.
-pub fn start_sharing(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        {
-            let mut sharing = state.sharing.lock().await;
-            if matches!(*sharing, Sharing::Starting | Sharing::On(_)) {
-                return;
-            }
-            *sharing = Sharing::Starting;
-        }
-        let _ = app.emit("sharing-changed", ());
-        let started =
-            serving::start(app.clone(), state.data_dir.clone(), state.store.clone()).await;
-        crate::tray::set_sharing(&app, started.is_ok());
-        *state.sharing.lock().await = match started {
-            Ok(serving) => Sharing::On(serving),
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "sharing did not start");
-                Sharing::Failed(format!("{error:#}"))
-            }
-        };
-        let _ = app.emit("sharing-changed", ());
-    });
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stick_id_goes_to_the_ui_and_back() {
+        let id = ourstick_core::StickSigningKey::from_bytes(&[7; 32]).stick_id();
+        assert_eq!(stick_id(&stick_hex(&id)), Ok(id));
+        assert_eq!(stick_id(&stick_hex(&id).to_uppercase()), Ok(id));
+        assert!(stick_id("zz").is_err());
+        assert!(stick_id(&"ab".repeat(31)).is_err());
+    }
 }

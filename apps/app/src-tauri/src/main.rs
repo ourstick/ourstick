@@ -13,8 +13,10 @@ mod menu;
 mod qr;
 mod serving;
 mod share;
+mod sharing;
 mod state;
 mod stick_commands;
+mod stick_life_commands;
 mod tray;
 mod windows;
 
@@ -83,23 +85,25 @@ fn main() {
         })
         .setup(|app| {
             tray::create(app.handle())?;
-            // A stick from an earlier run is shared again at once.
-            let has_stick = app
+            // Sticks from an earlier run are plugged in and shared again at
+            // once, like USB sticks plugged back in.
+            let has_sticks = app
                 .state::<state::AppState>()
-                .drive_stick()
-                .map(|stick| stick.is_some())
-                .unwrap_or(false);
-            if has_stick {
-                // Like plugging a USB stick back in.
-                state::plug_in_and_share(app.handle());
+                .app_sticks()
+                .is_ok_and(|sticks| !sticks.is_empty());
+            if has_sticks {
+                sharing::start_app(app.handle());
             }
-            state::watch_mount(app.handle());
+            sharing::watch_mount(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::plug_in,
             stick_commands::stick,
+            stick_life_commands::sticks,
+            stick_life_commands::new_link,
+            stick_life_commands::remove,
             stick_commands::add_paths,
             stick_commands::link_paths,
             stick_commands::remove_entry,
@@ -131,13 +135,7 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 // Close the suitcases cleanly and release the stick's locks.
                 let state = app.state::<state::AppState>();
-                tauri::async_runtime::block_on(async {
-                    let sharing =
-                        std::mem::replace(&mut *state.sharing.lock().await, state::Sharing::Off);
-                    if let state::Sharing::On(serving) = sharing {
-                        serving.stop().await;
-                    }
-                });
+                tauri::async_runtime::block_on(sharing::stop_all(&state));
             }
         });
 }

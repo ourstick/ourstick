@@ -10,39 +10,45 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::qr;
-use crate::state::{AppState, Sharing};
+use crate::state::{stick_hex, stick_id as stick_id_of, AppState, Sharing};
+use ourstick_core::StickId;
 
 /// Pixels per module of the QR image put on the clipboard.
 const QR_IMAGE_SCALE: usize = 8;
 
-/// Shows the Share window, making it if needed.
-pub fn open(app: &AppHandle) -> Result<()> {
-    if let Some(window) = app.get_webview_window("share") {
+/// Shows the Share window of `stick_id`, making it if needed (one per
+/// stick, so two sticks' links are never confused).
+pub fn open(app: &AppHandle, stick_id: &StickId) -> Result<()> {
+    let hex = stick_hex(stick_id);
+    let label = format!("share-{hex}");
+    if let Some(window) = app.get_webview_window(&label) {
         crate::windows::bring_forward(&window);
         return Ok(());
     }
-    let window =
-        WebviewWindowBuilder::new(app, "share", WebviewUrl::App("index.html#share".into()))
-            .title("Share OurStick")
-            .focused(crate::windows::FOCUS_NEW)
-            .inner_size(400.0, 560.0)
-            .resizable(false)
-            .build()?;
+    let name = app.state::<AppState>().app_stick(stick_id)?.name;
+    let page = format!("index.html#share/{hex}");
+    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
+        .title(format!("Share \u{201c}{name}\u{201d}"))
+        .focused(crate::windows::FOCUS_NEW)
+        .inner_size(400.0, 560.0)
+        .resizable(false)
+        .build()?;
     crate::windows::show_new(&window);
     Ok(())
 }
 
-/// The link, if the stick is shared and has been published.
-async fn link(state: &AppState) -> Option<String> {
-    match &*state.sharing.lock().await {
-        Sharing::On(serving) => serving.link.clone(),
+/// The link of `stick_id`, if it is shared and has been published.
+async fn link(state: &AppState, stick_id: &str) -> Result<Option<String>, String> {
+    let stick_id = stick_id_of(stick_id)?;
+    Ok(match state.sticks.lock().await.get(&stick_id) {
+        Some(Sharing::On(serving)) => serving.link.clone(),
         _ => None,
-    }
+    })
 }
 
-async fn required_link(state: &AppState) -> Result<String, String> {
-    link(state)
-        .await
+async fn required_link(state: &AppState, stick_id: &str) -> Result<String, String> {
+    link(state, stick_id)
+        .await?
         .ok_or_else(|| "the link is not ready yet".to_owned())
 }
 
@@ -53,8 +59,8 @@ fn shown(error: impl std::fmt::Display) -> String {
 /// Async: on Windows a window made from a synchronous command never loads
 /// (WebView2 waits on the thread the command holds).
 #[tauri::command]
-pub async fn open_share(app: AppHandle) -> Result<(), String> {
-    open(&app).map_err(|error| format!("{error:#}"))
+pub async fn open_share(stick_id: String, app: AppHandle) -> Result<(), String> {
+    open(&app, &stick_id_of(&stick_id)?).map_err(|error| format!("{error:#}"))
 }
 
 /// The link and its QR code as SVG, or nothing while there is no link yet.
@@ -65,8 +71,11 @@ pub struct ShareView {
 }
 
 #[tauri::command]
-pub async fn share_view(state: State<'_, AppState>) -> Result<Option<ShareView>, String> {
-    let Some(link) = link(&state).await else {
+pub async fn share_view(
+    stick_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<ShareView>, String> {
+    let Some(link) = link(&state, &stick_id).await? else {
         return Ok(None);
     };
     let qr_svg = qr::svg(&link).map_err(shown)?;
@@ -74,14 +83,22 @@ pub async fn share_view(state: State<'_, AppState>) -> Result<Option<ShareView>,
 }
 
 #[tauri::command]
-pub async fn copy_link(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let link = required_link(&state).await?;
+pub async fn copy_link(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let link = required_link(&state, &stick_id).await?;
     app.clipboard().write_text(link).map_err(shown)
 }
 
 #[tauri::command]
-pub async fn copy_qr_image(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let link = required_link(&state).await?;
+pub async fn copy_qr_image(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let link = required_link(&state, &stick_id).await?;
     let (pixels, width, height) = qr::rgba(&link, QR_IMAGE_SCALE).map_err(shown)?;
     app.clipboard()
         .write_image(&Image::new_owned(pixels, width, height))
@@ -90,8 +107,12 @@ pub async fn copy_qr_image(app: AppHandle, state: State<'_, AppState>) -> Result
 
 /// Opens the user's mail program with the link in the body.
 #[tauri::command]
-pub async fn send_by_email(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let link = required_link(&state).await?;
+pub async fn send_by_email(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let link = required_link(&state, &stick_id).await?;
     let url = mailto(&link);
     app.opener()
         .open_url(url, None::<&str>)

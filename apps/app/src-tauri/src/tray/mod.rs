@@ -52,13 +52,23 @@ fn sharing_label(sharing: bool) -> &'static str {
     }
 }
 
+/// The stick the tray's items act on: the app's first, until the tray
+/// lists every stick (ADR 0009 §5, step 7a-iii).
+fn first_stick(app: &AppHandle) -> Option<ourstick_core::OwnedStick> {
+    let state = app.state::<crate::state::AppState>();
+    state.app_sticks().ok()?.into_iter().next()
+}
+
 fn act(app: &AppHandle, action: Action) {
     let result = match action {
         Action::Open => {
             show_main(app);
             Ok(())
         }
-        Action::Share => share::open(app),
+        Action::Share => match first_stick(app) {
+            Some(stick) => share::open(app, &stick.stick_id),
+            None => Ok(()),
+        },
         Action::Mount => {
             toggle_mount(app);
             Ok(())
@@ -81,8 +91,7 @@ pub fn show_main(app: &AppHandle) {
 fn toggle_mount(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<crate::state::AppState>();
-        let Ok(Some(stick)) = state.drive_stick() else {
+        let Some(stick) = first_stick(&app) else {
             return;
         };
         if crate::drive::is_mounted(&stick.root_path) {
@@ -99,25 +108,28 @@ fn toggle_mount(app: &AppHandle) {
             set_mounted(&app, false);
             let _ = tauri::Emitter::emit(&app, "mount-changed", ());
         } else {
-            crate::state::plug_in_and_share(&app);
+            crate::sharing::mount_and_share(&app, stick.stick_id);
         }
     });
 }
 
 fn toggle_sharing(app: &AppHandle) -> Result<()> {
+    let Some(stick) = first_stick(app) else {
+        return Ok(());
+    };
     let state = app.state::<crate::state::AppState>();
     // Never wait on the main thread: a busy lock means sharing is changing,
     // so ask as if it were on.
-    let sharing = state.sharing.try_lock().map_or(true, |sharing| {
-        matches!(
-            *sharing,
-            crate::state::Sharing::On(_) | crate::state::Sharing::Starting
-        )
+    let sharing = state.sticks.try_lock().map_or(true, |sticks| {
+        sticks
+            .get(&stick.stick_id)
+            .is_some_and(crate::state::Sharing::is_on)
     });
     if sharing {
-        dialog::open(app, dialog::Mode::StopSharing)
+        dialog::open(app, dialog::Mode::StopSharing(stick.stick_id))
     } else {
-        crate::state::start_sharing(app);
+        state.store.set_sharing_wanted(&stick.stick_id, true)?;
+        crate::sharing::start_sharing_later(app, stick.stick_id);
         Ok(())
     }
 }

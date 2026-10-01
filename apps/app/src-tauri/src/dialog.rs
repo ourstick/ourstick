@@ -5,11 +5,15 @@ use anyhow::Result;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::state::{start_sharing, AppState, Sharing};
+use crate::sharing::{readers_now, refresh_tray, start_sharing_later, stop_serving};
+use crate::state::{stick_hex, stick_id as stick_id_of, AppState, Sharing};
+use ourstick_core::StickId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    StopSharing,
+    /// Stop sharing one stick.
+    StopSharing(StickId),
+    /// Quit: every stick stops.
     Quit,
 }
 
@@ -31,8 +35,8 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         let _ = window.close();
     }
     let page = match mode {
-        Mode::StopSharing => "index.html#stop",
-        Mode::Quit => "index.html#quit",
+        Mode::StopSharing(stick_id) => format!("index.html#stop/{}", stick_hex(&stick_id)),
+        Mode::Quit => "index.html#quit".to_owned(),
     };
     let window = WebviewWindowBuilder::new(app, "confirm", WebviewUrl::App(page.into()))
         .title("OurStick")
@@ -48,22 +52,33 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
 
 #[derive(Debug, Serialize)]
 pub struct ConfirmView {
-    /// The stick is being shared now.
+    /// The stick (any stick, for Quit) is being shared now.
     sharing: bool,
-    /// How many are downloading right now.
+    /// How many are downloading right now (from any stick, for Quit).
     readers: usize,
 }
 
+/// What the dialog says: about `stick_id`, or (none) about every stick.
 #[tauri::command]
-pub async fn confirm_view(state: State<'_, AppState>) -> Result<ConfirmView, String> {
-    Ok(match &*state.sharing.lock().await {
-        Sharing::On(serving) => ConfirmView {
-            sharing: true,
-            readers: serving.activity.borrow().readers,
+pub async fn confirm_view(
+    stick_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ConfirmView, String> {
+    let sticks = state.sticks.lock().await;
+    Ok(match stick_id {
+        Some(hex) => match sticks.get(&stick_id_of(&hex)?) {
+            Some(Sharing::On(serving)) => ConfirmView {
+                sharing: true,
+                readers: serving.activity.borrow().readers,
+            },
+            _ => ConfirmView {
+                sharing: false,
+                readers: 0,
+            },
         },
-        _ => ConfirmView {
-            sharing: false,
-            readers: 0,
+        None => ConfirmView {
+            sharing: sticks.values().any(Sharing::is_on),
+            readers: readers_now(&sticks),
         },
     })
 }
@@ -71,29 +86,54 @@ pub async fn confirm_view(state: State<'_, AppState>) -> Result<ConfirmView, Str
 /// Async, as `share::open_share`: a window made from a synchronous command
 /// never loads on Windows.
 #[tauri::command]
-pub async fn open_dialog(app: AppHandle, quit: bool) -> Result<(), String> {
-    let mode = if quit { Mode::Quit } else { Mode::StopSharing };
+pub async fn open_dialog(
+    app: AppHandle,
+    quit: bool,
+    stick_id: Option<String>,
+) -> Result<(), String> {
+    let mode = match (quit, stick_id) {
+        (true, _) => Mode::Quit,
+        (false, Some(hex)) => Mode::StopSharing(stick_id_of(&hex)?),
+        (false, None) => return Err("which stick?".to_owned()),
+    };
     open(&app, mode).map_err(|error| format!("{error:#}"))
 }
 
-/// Stops serving the stick. Anyone with the link can no longer download.
+/// Stops serving a stick, until the user starts it again (even after a
+/// restart). Anyone with its link can no longer download.
 #[tauri::command]
-pub async fn stop_sharing(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let sharing = std::mem::replace(&mut *state.sharing.lock().await, Sharing::Off);
-    if let Sharing::On(serving) = sharing {
-        serving.stop().await;
-    }
-    crate::tray::set_active(&app, false);
-    crate::tray::set_sharing(&app, false);
+pub async fn stop_sharing(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let stick_id = stick_id_of(&stick_id)?;
+    state
+        .store
+        .set_sharing_wanted(&stick_id, false)
+        .map_err(|error| error.to_string())?;
+    stop_serving(&state, &stick_id).await;
+    refresh_tray(&app).await;
+    let any_readers = readers_now(&*state.sticks.lock().await) > 0;
+    crate::tray::set_active(&app, any_readers);
     let _ = tauri::Emitter::emit(&app, "sharing-changed", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn start_sharing_again(app: AppHandle) {
-    start_sharing(&app);
+pub fn start_sharing_again(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let stick_id = stick_id_of(&stick_id)?;
+    state
+        .store
+        .set_sharing_wanted(&stick_id, true)
+        .map_err(|error| error.to_string())?;
+    start_sharing_later(&app, stick_id);
+    Ok(())
 }
-
 /// Set once the user confirmed Quit: any other way out (the Dock, ⌘Q, the
 /// app menu) is held back and shows the dialog first (see main).
 pub static QUIT_CONFIRMED: std::sync::atomic::AtomicBool =

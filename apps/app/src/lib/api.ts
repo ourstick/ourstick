@@ -68,8 +68,8 @@ export interface Activity {
   relay_only: string | null;
 }
 
-export function stick(): Promise<Stick> {
-  return invoke("stick");
+export function stick(stickId: string): Promise<Stick> {
+  return invoke("stick", { stickId });
 }
 
 /** What became of a drop. */
@@ -79,18 +79,18 @@ export type AddOutcome =
   | { kind: "does_not_fit"; needed: number; left: number };
 
 /** Copies dropped files and folders onto the stick, if they fit. */
-export function addPaths(paths: string[]): Promise<AddOutcome> {
-  return invoke("add_paths", { paths });
+export function addPaths(stickId: string, paths: string[]): Promise<AddOutcome> {
+  return invoke("add_paths", { stickId, paths });
 }
 
 /** "Share it as it is": links them, shared from where they are. */
-export function linkPaths(paths: string[]): Promise<void> {
-  return invoke("link_paths", { paths });
+export function linkPaths(stickId: string, paths: string[]): Promise<void> {
+  return invoke("link_paths", { stickId, paths });
 }
 
 /** Removes a top-level entry: the stick's copy, or only the link. */
-export function removeEntry(name: string): Promise<void> {
-  return invoke("remove_entry", { name });
+export function removeEntry(stickId: string, name: string): Promise<void> {
+  return invoke("remove_entry", { stickId, name });
 }
 
 export interface ShareView {
@@ -99,25 +99,25 @@ export interface ShareView {
   qr_svg: string;
 }
 
-export function openShare(): Promise<void> {
-  return invoke("open_share");
+export function openShare(stickId: string): Promise<void> {
+  return invoke("open_share", { stickId });
 }
 
 /** The link and its QR code; null while the stick is not published yet. */
-export function shareView(): Promise<ShareView | null> {
-  return invoke("share_view");
+export function shareView(stickId: string): Promise<ShareView | null> {
+  return invoke("share_view", { stickId });
 }
 
-export function copyLink(): Promise<void> {
-  return invoke("copy_link");
+export function copyLink(stickId: string): Promise<void> {
+  return invoke("copy_link", { stickId });
 }
 
-export function copyQrImage(): Promise<void> {
-  return invoke("copy_qr_image");
+export function copyQrImage(stickId: string): Promise<void> {
+  return invoke("copy_qr_image", { stickId });
 }
 
-export function sendByEmail(): Promise<void> {
-  return invoke("send_by_email");
+export function sendByEmail(stickId: string): Promise<void> {
+  return invoke("send_by_email", { stickId });
 }
 
 export interface ConfirmView {
@@ -125,21 +125,22 @@ export interface ConfirmView {
   readers: number;
 }
 
-export function confirmView(): Promise<ConfirmView> {
-  return invoke("confirm_view");
+/** About one stick, or (null, for Quit) about every stick. */
+export function confirmView(stickId: string | null): Promise<ConfirmView> {
+  return invoke("confirm_view", { stickId });
 }
 
 /** Shows the Stop sharing dialog, or the Quit one. */
-export function openDialog(quit: boolean): Promise<void> {
-  return invoke("open_dialog", { quit });
+export function openDialog(quit: boolean, stickId: string | null): Promise<void> {
+  return invoke("open_dialog", { quit, stickId });
 }
 
-export function stopSharing(): Promise<void> {
-  return invoke("stop_sharing");
+export function stopSharing(stickId: string): Promise<void> {
+  return invoke("stop_sharing", { stickId });
 }
 
-export function startSharingAgain(): Promise<void> {
-  return invoke("start_sharing_again");
+export function startSharingAgain(stickId: string): Promise<void> {
+  return invoke("start_sharing_again", { stickId });
 }
 
 export function quit(): Promise<void> {
@@ -147,15 +148,39 @@ export function quit(): Promise<void> {
 }
 
 /** Ejects the stick; sharing goes on. */
-export function eject(): Promise<void> {
-  return invoke("eject");
+export function eject(stickId: string): Promise<void> {
+  return invoke("eject", { stickId });
 }
 
 /** Mounts the stick again. */
-export function mount(): Promise<void> {
-  return invoke("mount");
+export function mount(stickId: string): Promise<void> {
+  return invoke("mount", { stickId });
 }
 
-export function openInFileManager(): Promise<void> {
-  return invoke("open_in_file_manager");
+export function openInFileManager(stickId: string): Promise<void> {
+  return invoke("open_in_file_manager", { stickId });
+}
+
+/** One of the app's sticks, as the list shows it. */
+export interface StickEntry {
+  /** Its id (hex), which every stick command takes. */
+  id: string;
+  name: string;
+  sharing: "off" | "starting" | "on" | "failed" | "busy";
+  readers: number;
+}
+
+/** The app's sticks, oldest first. */
+export function sticks(): Promise<StickEntry[]> {
+  return invoke("sticks");
+}
+
+/** "Give it a new link": everyone with the old link loses it. Returns the new id. */
+export function newLink(stickId: string): Promise<string> {
+  return invoke("new_link", { stickId });
+}
+
+/** "Remove this stick": its copied files go, with its link. */
+export function removeStick(stickId: string): Promise<void> {
+  return invoke("remove", { stickId });
 }

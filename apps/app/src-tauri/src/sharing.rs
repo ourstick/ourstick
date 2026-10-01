@@ -1,0 +1,335 @@
+//! Sharing the app's sticks (ADR 0009): each its own endpoint, locks,
+//! budget and watcher, started one after another; what stopped halfway
+//! (a removal, a new link) finished first, at start and on every mount.
+
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use ourstick_core::secrets::check_secret_store;
+use ourstick_core::stick_life::{finish_new_links, finish_removals};
+use ourstick_core::{device, locks, StickId};
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::serving::{self, ShareProblem};
+use crate::state::{AppState, Sharing};
+
+/// Tells the UI about a problem it cannot otherwise see.
+fn problem(app: &AppHandle, message: String) {
+    let _ = app.emit("share-problem", ShareProblem::Failed { message });
+}
+
+/// What stopped halfway (a removal, a new link), finished; the failures,
+/// told. At start and after a drive is mounted (a new link waits for its
+/// drive). Blocking.
+fn finish_pending(state: &AppState) -> Result<Vec<String>> {
+    let secrets = device::open_system_keyring()?;
+    let store = state.store.as_ref();
+    let mut failed = Vec::new();
+    for (name, error) in finish_removals(
+        store,
+        secrets.as_ref(),
+        &state.data_dir,
+        &crate::drive::AppDrive,
+    )? {
+        failed.push(format!(
+            "Removing \u{201c}{name}\u{201d} is not finished: {error}"
+        ));
+    }
+    for (name, error) in finish_new_links(store, secrets.as_ref(), &state.data_dir)? {
+        failed.push(format!("A new link for {name} is not finished: {error}"));
+    }
+    Ok(failed)
+}
+
+/// At start: this device recorded once (never by each share: they start
+/// one after another and would refuse each other's setup lock), the macOS
+/// image of an older stick recorded, what stopped halfway finished; then
+/// every stick plugged in, and those the user wants shared, shared.
+pub fn start_app(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let handle = app.clone();
+        let prepared = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>> {
+            let state = handle.state::<AppState>();
+            let secrets = device::open_system_keyring()?;
+            check_secret_store(secrets.as_ref())?;
+            let backend = device::system_keyring_backend().context("no keyring on this system")?;
+            {
+                let _setup = locks::setup_lock(&state.data_dir)?;
+                device::open_device(
+                    state.store.as_ref(),
+                    &state.data_dir,
+                    secrets.as_ref(),
+                    backend,
+                )?;
+            }
+            for stick in state.app_sticks()? {
+                if stick.image_path.is_none() {
+                    if let Some(image) = crate::drive::image_of(&stick) {
+                        state.store.set_image_path(&stick.stick_id, &image)?;
+                    }
+                }
+            }
+            finish_pending(&state)
+        })
+        .await;
+        match prepared {
+            Ok(Ok(failed)) => failed
+                .into_iter()
+                .for_each(|message| problem(&app, message)),
+            Ok(Err(error)) => problem(&app, format!("OurStick could not start: {error:#}")),
+            Err(error) => tracing::warn!(%error, "the start did not finish"),
+        }
+        plug_in_all(&app).await;
+    });
+}
+
+/// Plugs `stick` in (mounts its image, or puts it in the sidebar) and
+/// records where its folder is now; whether a running share must start
+/// again to follow it (always after an image is attached: its watch is
+/// gone; elsewhere only if the folder moved). Blocking.
+fn plug_in(state: &AppState, stick_id: &StickId) -> Result<bool> {
+    let stick = state.app_stick(stick_id)?;
+    let root = crate::drive::mount(&stick.root_path, stick.drive_letter)?;
+    let moved = root != stick.root_path;
+    if moved {
+        state.store.move_owned_stick(stick_id, &root)?;
+    }
+    // Windows: keep the letter it got, to ask for it after a restart.
+    let letter = crate::drive::letter_of(&root);
+    if letter.is_some() && letter != stick.drive_letter {
+        state.store.set_drive_letter(stick_id, letter)?;
+    }
+    Ok(moved || cfg!(target_os = "macos"))
+}
+
+/// [`plug_in`] off the async runtime; a failure is told (sharing still
+/// serves the last version).
+async fn plug_in_off_thread(app: &AppHandle, stick_id: StickId) -> bool {
+    let handle = app.clone();
+    let plugged = tauri::async_runtime::spawn_blocking(move || {
+        plug_in(&handle.state::<AppState>(), &stick_id)
+    })
+    .await;
+    match plugged {
+        Ok(Ok(follow)) => follow,
+        Ok(Err(error)) => {
+            tracing::warn!(error = %format!("{error:#}"), "a stick could not be mounted");
+            problem(app, format!("The stick could not be mounted: {error:#}"));
+            true
+        }
+        Err(error) => {
+            tracing::warn!(%error, "mounting did not finish");
+            true
+        }
+    }
+}
+
+/// Every stick plugged in, then shared if the user wants it shared, one
+/// after another, the cache budget split between them.
+async fn plug_in_all(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let sticks = match state.app_sticks() {
+        Ok(sticks) => sticks,
+        Err(error) => return problem(app, format!("{error:#}")),
+    };
+    for stick in &sticks {
+        plug_in_off_thread(app, stick.stick_id).await;
+    }
+    let _ = app.emit("mount-changed", ());
+    let wanted: Vec<StickId> = sticks
+        .iter()
+        .filter(|stick| stick.sharing_wanted)
+        .map(|stick| stick.stick_id)
+        .collect();
+    for id in &wanted {
+        start_sharing(app, *id, wanted.len()).await;
+    }
+}
+
+/// Mount (from the window or the tray): plugs the stick in, finishes what
+/// waited for its drive, and shares it again from where it is now if the
+/// user wants it shared.
+pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let restart = plug_in_off_thread(&app, stick_id).await;
+        let handle = app.clone();
+        let finished = tauri::async_runtime::spawn_blocking(move || {
+            finish_pending(&handle.state::<AppState>())
+        })
+        .await;
+        if let Ok(Ok(failed)) = finished {
+            failed
+                .into_iter()
+                .for_each(|message| problem(&app, message));
+        }
+        let _ = app.emit("mount-changed", ());
+        let state = app.state::<AppState>();
+        let wanted = state
+            .app_stick(&stick_id)
+            .is_ok_and(|stick| stick.sharing_wanted);
+        if !wanted {
+            return;
+        }
+        {
+            let sticks = state.sticks.lock().await;
+            let running = sticks.get(&stick_id).is_some_and(Sharing::is_on);
+            if running && !restart {
+                return;
+            }
+        }
+        // The watcher follows the folder where it is now.
+        stop_serving(&state, &stick_id).await;
+        start_sharing(&app, stick_id, 1).await;
+    });
+}
+
+/// Starts sharing `stick_id` and waits until it runs or has failed;
+/// `together` sticks start at once (their cache budget is split). The UI
+/// hears `sharing-changed` when it starts and when it is done. Nothing
+/// happens while the stick is busy or already shared.
+pub async fn start_sharing(app: &AppHandle, stick_id: StickId, together: usize) {
+    let state = app.state::<AppState>();
+    {
+        let mut sticks = state.sticks.lock().await;
+        if sticks
+            .get(&stick_id)
+            .is_some_and(|sharing| sharing.is_on() || matches!(sharing, Sharing::Busy(_)))
+        {
+            return;
+        }
+        sticks.insert(stick_id, Sharing::Starting);
+    }
+    let _ = app.emit("sharing-changed", ());
+    let started = serving::start(
+        app.clone(),
+        state.data_dir.clone(),
+        state.store.clone(),
+        stick_id,
+        together,
+    )
+    .await;
+    let mut sticks = state.sticks.lock().await;
+    // Busy meanwhile (removed, renamed): this share is not wanted.
+    if !matches!(sticks.get(&stick_id), Some(Sharing::Starting)) {
+        drop(sticks);
+        if let Ok(serving) = started {
+            serving.stop().await;
+        }
+        return;
+    }
+    sticks.insert(
+        stick_id,
+        match started {
+            Ok(serving) => Sharing::On(serving),
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "sharing did not start");
+                Sharing::Failed(format!("{error:#}"))
+            }
+        },
+    );
+    drop(sticks);
+    refresh_tray(app).await;
+    let _ = app.emit("sharing-changed", ());
+}
+
+/// [`start_sharing`] in the background.
+pub fn start_sharing_later(app: &AppHandle, stick_id: StickId) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { start_sharing(&app, stick_id, 1).await });
+}
+
+/// Stops serving `stick_id`, if it does, and waits until its endpoint is
+/// closed and its locks are released; it is then `Off`.
+pub async fn stop_serving(state: &AppState, stick_id: &StickId) {
+    let previous = state.sticks.lock().await.insert(*stick_id, Sharing::Off);
+    if let Some(Sharing::On(serving)) = previous {
+        serving.stop().await;
+    }
+}
+
+/// Marks `stick_id` busy (nothing starts it meanwhile) and stops serving
+/// it. Refused if it is busy already.
+pub async fn make_busy(state: &AppState, stick_id: &StickId, doing: &'static str) -> bool {
+    let previous = {
+        let mut sticks = state.sticks.lock().await;
+        if matches!(sticks.get(stick_id), Some(Sharing::Busy(_))) {
+            return false;
+        }
+        sticks.insert(*stick_id, Sharing::Busy(doing))
+    };
+    if let Some(Sharing::On(serving)) = previous {
+        serving.stop().await;
+    }
+    true
+}
+
+/// Stops every share (Quit).
+pub async fn stop_all(state: &AppState) {
+    let sticks: HashMap<StickId, Sharing> = std::mem::take(&mut *state.sticks.lock().await);
+    for sharing in sticks.into_values() {
+        if let Sharing::On(serving) = sharing {
+            serving.stop().await;
+        }
+    }
+}
+
+/// How many download from any stick now.
+pub fn readers_now(sticks: &HashMap<StickId, Sharing>) -> usize {
+    sticks
+        .values()
+        .map(|sharing| match sharing {
+            Sharing::On(serving) => serving.activity.borrow().readers,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// The tray says "sharing" while any stick is shared.
+pub async fn refresh_tray(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let any = state.sticks.lock().await.values().any(Sharing::is_on);
+    crate::tray::set_sharing(app, any);
+}
+
+/// Tells the UI (event `mount-changed`) when a stick is ejected or mounted
+/// behind the app's back, e.g. with Finder's eject button, and finishes
+/// what waited for a drive when one comes back. Every few seconds.
+pub fn watch_mount(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last: HashMap<StickId, bool> = HashMap::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let Ok(sticks) = app.state::<AppState>().app_sticks() else {
+                continue;
+            };
+            let mut any_mounted = false;
+            let mut changed = false;
+            for stick in sticks {
+                let root = stick.root_path.clone();
+                let mounted =
+                    tauri::async_runtime::spawn_blocking(move || crate::drive::is_mounted(&root))
+                        .await
+                        .unwrap_or(false);
+                any_mounted |= mounted;
+                let before = last.insert(stick.stick_id, mounted);
+                if before.is_some_and(|before| before != mounted) {
+                    changed = true;
+                    if mounted {
+                        let handle = app.clone();
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            finish_pending(&handle.state::<AppState>())
+                        })
+                        .await;
+                    }
+                }
+            }
+            if changed {
+                let _ = app.emit("mount-changed", ());
+            }
+            crate::tray::set_mounted(&app, any_mounted);
+        }
+    });
+}

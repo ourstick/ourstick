@@ -5,7 +5,6 @@
   import {
     addPaths,
     eject,
-    linkPaths,
     mount,
     openInFileManager,
     openShare,
@@ -18,6 +17,7 @@
     type Stick,
   } from "./api";
   import { files, rate, size } from "./format";
+  import DoesNotFit from "./DoesNotFit.svelte";
 
   let current = $state<Stick | null>(null);
   let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, relay_only: null });
@@ -28,8 +28,6 @@
   let removing = $state<string | null>(null);
   /** A drop that does not fit, offered to be shared as it is. */
   let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
-  /** "Share it as it is" is under way (checking and reading the folder can take a moment). */
-  let linking = $state(false);
   let pillMenu = $state(false);
 
   async function pillAction(action: () => Promise<void>) {
@@ -69,19 +67,9 @@
     }
   }
 
-  async function shareAsItIs() {
-    if (!tooBig || linking) return;
-    const paths = tooBig.paths;
-    linking = true;
-    failure = null;
-    try {
-      await linkPaths(paths);
-      tooBig = null;
-    } catch (error) {
-      failure = String(error);
-    } finally {
-      linking = false;
-    }
+  async function tooBigClosed(why: string | null) {
+    tooBig = null;
+    failure = why;
     await refresh();
   }
 
@@ -161,21 +149,7 @@
   </section>
 
   {#if tooBig}
-    <div class="notice" role="alert">
-      <p>
-        Does not fit: {tooBig.paths.length === 1 ? "it needs" : "they need"} {size(tooBig.needed)}, and
-        {size(tooBig.left)} {tooBig.left === 1 ? "is" : "are"} left on this computer.
-      </p>
-      <p class="muted">
-        Share it as it is: shared from where it is, not copied, taking no room on the stick. If you
-        move or delete it there, it is gone from the stick too.
-      </p>
-      <span class="inline-actions">
-        {#if linking}<span class="muted">Adding… please wait.</span>{/if}
-        <button onclick={() => (tooBig = null)} disabled={linking}>Cancel</button>
-        <button class="primary" onclick={shareAsItIs} disabled={linking}>Share it as it is</button>
-      </span>
-    </div>
+    <DoesNotFit {...tooBig} onClose={tooBigClosed} />
   {/if}
 
   <ul class="entries">
@@ -262,14 +236,6 @@
   }
   .drive {
     font-weight: 400;
-  }
-  .notice {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 8px 12px;
-  }
-  .notice p {
-    margin: 0 0 6px;
   }
   .tag {
     font-size: 0.8em;

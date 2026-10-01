@@ -21,6 +21,12 @@ how it is used. The helper scripts are in `tools/windows-vm/`.
   without a TPM. The disk image can live elsewhere through a symbolic link.
 - In the `.conf`: `cpu_cores="8"`, `ram="16G"`, `disk_size="100G"`,
   `port_forwards=("2222:22")`.
+- **Once Windows is installed, comment out `iso=`** in the `.conf`. quickemu
+  decides whether the disk is in use by the size of `disk.qcow2`, and with
+  the disk image behind a symbolic link it sees 40 bytes: "Looks unused,
+  booting from windows-11.iso", and it presses Enter at "Press any key to
+  boot from CD". On 2026-10-01 Windows still booted from its disk (it was
+  finishing an update), but the unattended setup could have started.
 
 ### Changes to quickget's unattended setup
 

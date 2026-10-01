@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
-use ourstick_core::device::{self, ShareLock, StickKeys};
+use ourstick_core::device::{self, StickKeys};
+use ourstick_core::locks::{self, SharingLocks};
 use ourstick_core::secrets::check_secret_store;
 use ourstick_core::share::{keep_suitcases, latest_hint, publish_folder, serve_latest, Budget};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
@@ -17,6 +18,7 @@ use ourstick_core::watcher::{
     follow_folder, follow_folder_reading_first, FolderEvents, NotifyEvents, Owner, PeriodicEvents,
     WatchEvent, WatchTiming,
 };
+use ourstick_core::StickKind;
 use ourstick_core::{Manifest, ManifestHint, Store, Ticket};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -100,32 +102,37 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Starts sharing the drive stick. Takes the device's share lock first: if the
-/// CLI already shares on this device, this fails and says so.
+/// Starts sharing the drive stick. Takes its lock first (ADR 0009): if
+/// another program shares it, or shares another older stick while this one
+/// is older too, this fails and says so.
 pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> Result<Serving> {
-    let (lock, node_key, keys) = tauri::async_runtime::spawn_blocking({
+    let (lock, keys) = tauri::async_runtime::spawn_blocking({
         let data_dir = data_dir.clone();
         let store = store.clone();
-        move || -> Result<(ShareLock, [u8; 32], StickKeys)> {
-            let lock = ShareLock::acquire(&data_dir)?;
+        move || -> Result<(SharingLocks, StickKeys)> {
             let secrets = device::open_system_keyring()?;
             check_secret_store(secrets.as_ref())?;
             let backend = device::system_keyring_backend().context("no keyring on this system")?;
-            let node_key =
+            let stick_id = {
+                let _setup = locks::setup_lock(&data_dir)?;
                 device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-            let stick = store
-                .owned_sticks()?
-                .into_iter()
-                .find(|stick| stick.drive_size.is_some())
-                .context("there is no stick yet")?;
-            Ok((lock, node_key, device::load_stick(secrets.as_ref(), stick)?))
+                store
+                    .owned_sticks()?
+                    .into_iter()
+                    .find(|stick| stick.kind == StickKind::App)
+                    .context("there is no stick yet")?
+                    .stick_id
+            };
+            let (lock, stick) = locks::lock_for_sharing(&data_dir, store.as_ref(), &stick_id)?;
+            let keys = device::load_stick(store.as_ref(), secrets.as_ref(), stick)?;
+            Ok((lock, keys))
         }
     })
     .await??;
 
     let stick_id = keys.stick.stick_id;
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
-    let config = IrohConfig::new(node_key, Network::Public);
+    let config = IrohConfig::new(keys.node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
     // ADR 0007: files are encrypted into suitcases as readers ask for them,
     // within a budget. With too little free space, sharing does not start
@@ -248,7 +255,7 @@ struct Shared {
     current: Manifest,
     /// The folder was not read at start: a pass comes first.
     read_again: bool,
-    lock: ShareLock,
+    lock: SharingLocks,
 }
 
 impl Shared {

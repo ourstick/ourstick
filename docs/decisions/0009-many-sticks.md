@@ -6,6 +6,18 @@ sticks", in the design canvas "OurStick large shares"). Changes lines of
 `CLAUDE.md` listed under Consequences, to be updated when this is accepted.
 Reviewed twice before this version.
 
+## Notes from the implementation (step 5, 2026-10-01)
+
+Reviewed again by two other models against the code: the one `share.lock` of
+section 2 became four locks with one job each (`share-<hex>.lock`,
+`node-key.lock`, `key-file.lock`, and a short `setup.lock` around making the
+device or a stick, so two `share` runs of one folder never make two sticks).
+A key file is read whole when opened and written whole on each change, so its
+lock is held from before it is opened until the program ends, not only around
+writes. The stick sharing an older stick's node key is named by trying the
+older sticks' own locks, never by writing into a lock file (Windows locks
+cannot be read). A device set up from now on records no node key of its own.
+
 ## Context
 
 People send different things to different people: a disk for one relative,

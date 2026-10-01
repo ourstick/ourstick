@@ -10,9 +10,10 @@
 //!
 //! The key is Argon2id(passphrase, salt). The ciphertext is XChaCha20-Poly1305
 //! over `postcard(map of name -> secret)`, with everything before it as AAD.
-//! The whole file is rewritten atomically on every change. Only one process may
-//! use a key file at a time: there is no locking yet, and two writers would
-//! lose each other's changes.
+//! The whole file is rewritten atomically on every change, from what was read
+//! when it was opened. So only one program may use a key file at a time, from
+//! opening it to its end: a program takes `crate::locks::key_file_lock` before
+//! opening it, or two writers would lose each other's changes.
 
 use std::collections::BTreeMap;
 use std::fmt;

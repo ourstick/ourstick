@@ -1,23 +1,24 @@
-//! What every command needs: the data folder, the secret store, the database,
-//! and this device's node key.
+//! What every command needs: the data folder, the secret store and the
+//! database.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use ourstick_core::device;
 use ourstick_core::secrets::{check_secret_store, KeyFileParams, SecretStore};
+use ourstick_core::store::SecretBackend;
 use ourstick_core::Store;
+use ourstick_core::{device, locks};
 
 use crate::secrets::{open_secrets, SecretsChoice, SystemKeyring, TerminalPassphrases};
 
 pub struct Setup {
-    /// Held while sharing: one sharer per device.
-    pub lock: device::ShareLock,
+    /// With a key file, held until the program ends: a key file is read whole
+    /// when opened and written whole on every change (`ourstick_core::locks`).
+    pub key_file_lock: Option<locks::Lock>,
     pub data_dir: PathBuf,
     pub store: Arc<dyn Store>,
     pub secrets: Box<dyn SecretStore>,
-    pub node_key: [u8; 32],
 }
 
 /// This system's keyring (see [`SystemKeyring`]).
@@ -45,16 +46,26 @@ pub fn open_for_reading() -> Result<ReaderSetup> {
     Ok(ReaderSetup { data_dir, store })
 }
 
-/// Opens everything for sharing, creating the device and its node key on first
-/// use, and takes the device's share lock; the
-/// keys go where `choice` says, and stay there. May ask for a passphrase.
+/// Opens everything for sharing, recording the device on first use; the keys
+/// go where `choice` says, and stay there. May ask for a passphrase.
 /// Blocking: call from `spawn_blocking`.
 pub fn open(choice: &SecretsChoice) -> Result<Setup> {
     let ReaderSetup { data_dir, store } = open_for_reading()?;
-    // Before any passphrase is asked for: nothing to ask if another sharer
-    // runs.
-    let lock = device::ShareLock::acquire(&data_dir)?;
+    // One program records the device at a time.
+    let setup_lock = locks::setup_lock(&data_dir)?;
     let device = store.device()?;
+    // Before the key file is opened (and before any passphrase is asked
+    // for): nothing to ask if another program uses it. A device not yet
+    // recorded may end up with one.
+    let key_file = matches!(
+        device.as_ref().map(|device| &device.secret_backend),
+        Some(SecretBackend::KeyFile(_)) | None
+    );
+    let mut key_file_lock = if key_file {
+        Some(locks::key_file_lock(&data_dir)?)
+    } else {
+        None
+    };
     let (secrets, backend) = open_secrets(
         device.as_ref().map(|device| &device.secret_backend),
         choice,
@@ -62,14 +73,17 @@ pub fn open(choice: &SecretsChoice) -> Result<Setup> {
         &TerminalPassphrases,
         KeyFileParams::default(),
     )?;
+    if !matches!(backend, SecretBackend::KeyFile(_)) {
+        key_file_lock = None;
+    }
     check_secret_store(secrets.as_ref())?;
-    let node_key = device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
+    device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
+    drop(setup_lock);
     Ok(Setup {
-        lock,
+        key_file_lock,
         data_dir,
         store,
         secrets,
-        node_key,
     })
 }
 

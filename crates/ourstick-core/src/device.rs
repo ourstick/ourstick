@@ -1,8 +1,8 @@
-//! This device: its data folder and database, its node key, the sticks it
-//! owns with their keys, and the lock held while it shares. Used by every
-//! front end (CLI, app); all of it blocks, so call it from `spawn_blocking`.
+//! This device: its data folder and database, the sticks it owns with their
+//! keys (a node key each since ADR 0009; the device's for older ones). Used
+//! by every front end (CLI, app); all of it blocks, so call it from
+//! `spawn_blocking`. The locks are in [`crate::locks`].
 
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -35,8 +35,12 @@ pub enum DeviceError {
     KeyDamaged { name: String, store: String },
     #[error("{store} already holds an OurStick node key, but the database at {} is new. Restore the database or remove the old key yourself; OurStick will not overwrite it.", .database.display())]
     NodeKeyExists { store: String, database: PathBuf },
-    #[error("OurStick is already sharing on this device (another `ourstick share` or the app); stop it first")]
-    AlreadySharing,
+    #[error("the network key of the stick \u{201c}{stick}\u{201d} is not the one recorded for it; OurStick will not use it (its links name another). Restore the right key, or give the stick a new link.")]
+    NodeKeyMismatch { stick: String },
+    #[error("the stick \u{201c}{stick}\u{201d} uses this device's network key, but the database records none; the database is inconsistent")]
+    NoDeviceNodeKey { stick: String },
+    #[error(transparent)]
+    Lock(#[from] crate::locks::LockError),
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -147,31 +151,33 @@ pub fn load_key(secrets: &dyn SecretStore, name: &SecretName) -> Result<[u8; 32]
     })
 }
 
-/// This device's node key: loaded, or on first use created and recorded with
-/// `backend` as where the keys live. Never replaces a key that exists.
+/// Records this device on first use, with `backend` as where its keys live.
+/// A device made now has no node key of its own: each stick gets one
+/// (ADR 0009). A device made before keeps its node key (rule 9), loaded only
+/// for its older sticks. Take [`crate::locks::setup_lock`] first: two
+/// programs must not record the device at once.
 pub fn open_device(
     store: &dyn Store,
     data_dir: &Path,
     secrets: &dyn SecretStore,
     backend: SecretBackend,
-) -> Result<[u8; 32], DeviceError> {
+) -> Result<(), DeviceError> {
     if store.device()?.is_some() {
-        return load_key(secrets, &SecretName::NodeKey);
+        return Ok(());
     }
+    // A key without its database: the user's to sort out, never replaced.
     if secrets.get(&SecretName::NodeKey)?.is_some() {
         return Err(DeviceError::NodeKeyExists {
             store: secrets.describe(),
             database: data_dir.join("state.sqlite"),
         });
     }
-    let key = random_key();
-    secrets.put(&SecretName::NodeKey, &key)?;
     store.create_device(&Device {
-        node_id: Some(IrohConfig::node_id_of(&key)),
+        node_id: None,
         secret_backend: backend,
         created_at_ms: SystemClock.now_ms(),
     })?;
-    Ok(key)
+    Ok(())
 }
 
 /// An owned stick with its keys.
@@ -179,22 +185,52 @@ pub struct StickKeys {
     pub stick: OwnedStick,
     pub signing_key: StickSigningKey,
     pub stick_key: StickKey,
+    /// The iroh node key it is shared with: its own, or the device's for a
+    /// stick made before ADR 0009.
+    pub node_key: [u8; 32],
 }
 
-/// Loads the keys of a stick this device owns.
-pub fn load_stick(secrets: &dyn SecretStore, stick: OwnedStick) -> Result<StickKeys, DeviceError> {
+/// Loads the keys of a stick this device owns. Its node key must be the one
+/// the database records ("who" before "what": a key that names another node
+/// would serve links nobody has).
+pub fn load_stick(
+    store: &dyn Store,
+    secrets: &dyn SecretStore,
+    stick: OwnedStick,
+) -> Result<StickKeys, DeviceError> {
     let signing = load_key(secrets, &SecretName::StickSigningKey(stick.stick_id))?;
     let stick_key = load_key(secrets, &SecretName::StickKey(stick.stick_id))?;
+    let (name, recorded) = match stick.node_id {
+        Some(node_id) => (SecretName::StickNodeKey(stick.stick_id), node_id),
+        None => {
+            let device_node = store.device()?.and_then(|device| device.node_id);
+            let Some(node_id) = device_node else {
+                return Err(DeviceError::NoDeviceNodeKey {
+                    stick: stick.name.clone(),
+                });
+            };
+            (SecretName::NodeKey, node_id)
+        }
+    };
+    let node_key = load_key(secrets, &name)?;
+    if IrohConfig::node_id_of(&node_key) != recorded {
+        return Err(DeviceError::NodeKeyMismatch {
+            stick: stick.name.clone(),
+        });
+    }
     Ok(StickKeys {
         stick,
         signing_key: StickSigningKey::from_bytes(&signing),
         stick_key: StickKey::from_bytes(stick_key),
+        node_key,
     })
 }
 
-/// Makes a new stick for `root` with new keys; `drive_size` for a drive (the
-/// app's stick). The keys are stored first: a stick in the database always
-/// has its keys.
+/// Makes a new stick for `root` with new keys, its own node key among them;
+/// `drive_size` for a drive (the app's stick). The keys are stored first: a
+/// stick in the database always has its keys, and keys left by a crash
+/// before the row belong to no stick and are never used. Take
+/// [`crate::locks::setup_lock`] first.
 pub fn create_stick(
     store: &dyn Store,
     secrets: &dyn SecretStore,
@@ -204,12 +240,14 @@ pub fn create_stick(
 ) -> Result<StickKeys, DeviceError> {
     let signing_key = StickSigningKey::generate();
     let stick_key = StickKey::generate();
+    let node_key = random_key();
     let stick_id = signing_key.stick_id();
     secrets.put(
         &SecretName::StickSigningKey(stick_id),
         &signing_key.to_bytes(),
     )?;
     secrets.put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
+    secrets.put(&SecretName::StickNodeKey(stick_id), &node_key)?;
     let stick = OwnedStick {
         drive_size,
         // Only the app makes drives (until ADR 0008 and step 7 say more).
@@ -218,6 +256,7 @@ pub fn create_stick(
         } else {
             StickKind::Cli
         },
+        node_id: Some(IrohConfig::node_id_of(&node_key)),
         ..OwnedStick::new(stick_id, name, root, CIPHER, SystemClock.now_ms())
     };
     store.add_owned_stick(&stick)?;
@@ -225,32 +264,8 @@ pub fn create_stick(
         stick,
         signing_key,
         stick_key,
+        node_key,
     })
-}
-
-/// Held while this device shares: only one front end may serve its sticks at
-/// a time, since they would share one node identity. Released when dropped
-/// (and by the system if the process dies).
-#[derive(Debug)]
-pub struct ShareLock {
-    _file: File,
-}
-
-impl ShareLock {
-    pub fn acquire(data_dir: &Path) -> Result<Self, DeviceError> {
-        let path = data_dir.join("share.lock");
-        let file = File::options()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .map_err(io(&path))?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { _file: file }),
-            Err(std::fs::TryLockError::WouldBlock) => Err(DeviceError::AlreadySharing),
-            Err(std::fs::TryLockError::Error(source)) => Err(DeviceError::Io { path, source }),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -302,32 +317,23 @@ mod tests {
     use crate::store::MemoryStore;
 
     #[test]
-    fn the_node_key_is_made_once_and_then_loaded() {
+    fn a_new_device_makes_no_node_key_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let store = MemoryStore::new();
         let secrets = MemorySecretStore::new();
-        let first =
-            open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
-        let again =
-            open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
-        assert_eq!(first, again);
-        assert_eq!(
-            store.device().unwrap().unwrap().node_id,
-            Some(IrohConfig::node_id_of(&first))
-        );
+        open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
+        open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
+        assert_eq!(store.device().unwrap().unwrap().node_id, None);
+        assert_eq!(secrets.get(&SecretName::NodeKey).unwrap(), None);
     }
 
     #[test]
     fn an_old_node_key_is_never_overwritten() {
         let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new();
         let secrets = MemorySecretStore::new();
         secrets.put(&SecretName::NodeKey, &[7; 32]).unwrap();
-        let result = open_device(
-            &MemoryStore::new(),
-            dir.path(),
-            &secrets,
-            SecretBackend::SecretService,
-        );
+        let result = open_device(&store, dir.path(), &secrets, SecretBackend::SecretService);
         assert!(matches!(result, Err(DeviceError::NodeKeyExists { .. })));
         assert_eq!(
             secrets.get(&SecretName::NodeKey).unwrap(),
@@ -336,36 +342,103 @@ mod tests {
     }
 
     #[test]
-    fn a_created_stick_loads_with_the_same_keys() {
+    fn a_new_stick_has_its_own_node_key_and_loads_with_the_same_keys() {
         let store = MemoryStore::new();
         let secrets = MemorySecretStore::new();
         let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", Some(10)).unwrap();
-        assert_eq!(made.stick.drive_size, Some(10));
-        let stick = store.owned_sticks().unwrap().remove(0);
-        let loaded = load_stick(&secrets, stick).unwrap();
-        assert_eq!(loaded.signing_key.to_bytes(), made.signing_key.to_bytes());
+        let other = create_stick(&store, &secrets, Path::new("/tmp/t"), "t", None).unwrap();
+        assert_ne!(made.node_key, other.node_key);
+        assert_eq!(made.stick.kind, StickKind::App);
+        assert_eq!(other.stick.kind, StickKind::Cli);
+        let stick = store.owned_stick(&made.stick.stick_id).unwrap().unwrap();
+        assert_eq!(stick.node_id, Some(IrohConfig::node_id_of(&made.node_key)));
+        let loaded = load_stick(&store, &secrets, stick.clone()).unwrap();
+        assert_eq!(loaded.signing_key.stick_id(), made.stick.stick_id);
         assert_eq!(loaded.stick_key.as_bytes(), made.stick_key.as_bytes());
+        assert_eq!(loaded.node_key, made.node_key);
 
-        // A missing key is an error, never replaced.
+        // A missing key is an error, never made again (rule 9).
         secrets
-            .delete(&SecretName::StickKey(made.stick.stick_id))
+            .delete(&SecretName::StickNodeKey(stick.stick_id))
             .unwrap();
-        let stick = store.owned_sticks().unwrap().remove(0);
         assert!(matches!(
-            load_stick(&secrets, stick),
+            load_stick(&store, &secrets, stick.clone()),
             Err(DeviceError::KeyMissing { .. })
+        ));
+        // A key that names another node is refused.
+        secrets
+            .put(&SecretName::StickNodeKey(stick.stick_id), &[1; 32])
+            .unwrap();
+        assert!(matches!(
+            load_stick(&store, &secrets, stick),
+            Err(DeviceError::NodeKeyMismatch { .. })
         ));
     }
 
     #[test]
-    fn only_one_may_share_at_a_time() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = ShareLock::acquire(dir.path()).unwrap();
+    fn an_older_stick_uses_the_device_node_key() {
+        let store = MemoryStore::new();
+        let secrets = MemorySecretStore::new();
+        let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+        // As a stick made before ADR 0009 is: no node key of its own.
+        let older = OwnedStick {
+            node_id: None,
+            ..OwnedStick::new(
+                StickSigningKey::generate().stick_id(),
+                "older",
+                "/tmp/o",
+                CIPHER,
+                1,
+            )
+        };
+        let older_keys = [
+            (SecretName::StickSigningKey(older.stick_id), [3; 32]),
+            (SecretName::StickKey(older.stick_id), [4; 32]),
+        ];
+        for (name, key) in &older_keys {
+            secrets.put(name, key).unwrap();
+        }
+        store.add_owned_stick(&older).unwrap();
+        // No device node key recorded: inconsistent, not made up.
+        store
+            .create_device(&Device {
+                node_id: None,
+                secret_backend: SecretBackend::SecretService,
+                created_at_ms: 1,
+            })
+            .unwrap();
         assert!(matches!(
-            ShareLock::acquire(dir.path()),
-            Err(DeviceError::AlreadySharing)
+            load_stick(&store, &secrets, older.clone()),
+            Err(DeviceError::NoDeviceNodeKey { .. })
         ));
-        drop(first);
-        ShareLock::acquire(dir.path()).unwrap();
+        let with_device = MemoryStore::new();
+        with_device
+            .create_device(&Device {
+                node_id: Some(IrohConfig::node_id_of(&[8; 32])),
+                secret_backend: SecretBackend::SecretService,
+                created_at_ms: 1,
+            })
+            .unwrap();
+        with_device.add_owned_stick(&older).unwrap();
+        secrets.put(&SecretName::NodeKey, &[8; 32]).unwrap();
+        let loaded = load_stick(&with_device, &secrets, older).unwrap();
+        assert_eq!(loaded.node_key, [8; 32]);
+        assert_ne!(loaded.node_key, made.node_key);
+    }
+
+    #[test]
+    fn two_sticks_never_share_a_node_key() {
+        let store = MemoryStore::new();
+        let secrets = MemorySecretStore::new();
+        let first = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+        let mut clash = first.stick.clone();
+        clash.stick_id = StickSigningKey::generate().stick_id();
+        // The same node id for another stick: refused.
+        store.add_owned_stick(&clash).unwrap_err();
+        assert_eq!(store.owned_sticks().unwrap().len(), 1);
+        // A new stick gets a node key of its own.
+        let next = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+        assert_ne!(next.stick.stick_id, first.stick.stick_id);
+        assert_ne!(next.node_key, first.node_key);
     }
 }

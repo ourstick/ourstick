@@ -35,9 +35,9 @@ pub(super) struct Suitcases {
 
 impl Suitcases {
     /// Suitcases in `root`. Whatever an earlier run left there is removed
-    /// first: suitcases are prepared again when asked for (ADR 0007). Only
-    /// one program shares on a device at a time (`share.lock`), so no one
-    /// else's suitcases are here.
+    /// first: suitcases are prepared again when asked for (ADR 0007). One
+    /// program shares a stick at a time (its lock, `crate::locks`), and the
+    /// folder is the stick's, so no one else's suitcases are here.
     pub(super) async fn start(root: PathBuf, serving: Serving) -> Result<Self, TransportError> {
         match tokio::fs::remove_dir_all(&root).await {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),

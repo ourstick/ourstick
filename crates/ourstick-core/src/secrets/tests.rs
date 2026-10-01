@@ -78,6 +78,10 @@ fn secret_names_are_stable_and_distinct() {
         format!("stick/{hex}/stick-key")
     );
     assert_eq!(
+        SecretName::StickNodeKey(stick_id()).as_key(),
+        format!("stick/{hex}/node-key")
+    );
+    assert_eq!(
         SecretName::Ticket(stick_id()).as_key(),
         format!("stick/{hex}/ticket")
     );

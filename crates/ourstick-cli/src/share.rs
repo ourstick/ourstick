@@ -19,6 +19,7 @@ use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{cipher_for, ManifestHint, Ticket};
+use ourstick_core::{locks, StickId, StickKind};
 
 use crate::display::bytes;
 use crate::qr::qr_lines;
@@ -32,46 +33,63 @@ use lines::{catalogue_line, network_line, readers_line, relay_only_line, watch_l
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
 
-/// Finds the stick already made for `folder`, or makes one with new keys.
-fn owned_stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickKeys> {
+/// The stick already made for `folder`, or a new one with new keys (its own
+/// node key among them). Under the setup lock, so two `share` runs of one
+/// folder never make two sticks.
+fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
+    let _setup = locks::setup_lock(&setup.data_dir)?;
     let found = setup
         .store
         .owned_sticks()?
         .into_iter()
         .find(|stick| stick.root_path == folder);
     if let Some(stick) = found {
-        return Ok(device::load_stick(setup.secrets.as_ref(), stick)?);
+        if stick.kind != StickKind::Cli {
+            anyhow::bail!(
+                "{} is the app's stick; share it from the app",
+                folder.display()
+            );
+        }
+        return Ok(stick.stick_id);
     }
     let name = folder
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "stick".to_owned());
-    Ok(device::create_stick(
+    let made = device::create_stick(
         setup.store.as_ref(),
         setup.secrets.as_ref(),
         folder,
         &name,
         None,
-    )?)
+    )?;
+    Ok(made.stick.stick_id)
 }
 
 pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<()> {
     let started = Instant::now();
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
-    let (setup, stick, signing_key, stick_key) = tokio::task::spawn_blocking({
+    let (setup, sharing_locks, keys) = tokio::task::spawn_blocking({
         let folder = folder.clone();
         move || -> Result<_> {
             let setup = setup::open(&secrets)?;
-            let StickKeys {
-                stick,
-                signing_key,
-                stick_key,
-            } = owned_stick_for(&setup, &folder)?;
-            Ok((setup, stick, signing_key, stick_key))
+            let stick_id = stick_for(&setup, &folder)?;
+            // The stick's lock first (and the device node key's for an older
+            // stick), then its row again, then its keys.
+            let (sharing_locks, stick) =
+                locks::lock_for_sharing(&setup.data_dir, setup.store.as_ref(), &stick_id)?;
+            let keys = device::load_stick(setup.store.as_ref(), setup.secrets.as_ref(), stick)?;
+            Ok((setup, sharing_locks, keys))
         }
     })
     .await??;
+    let StickKeys {
+        stick,
+        signing_key,
+        stick_key,
+        node_key,
+    } = keys;
 
     let cache_dir = setup
         .data_dir
@@ -89,7 +107,7 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         bytes(plan.plaintext_bytes)
     );
 
-    let config = IrohConfig::new(setup.node_key, Network::Public);
+    let config = IrohConfig::new(node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
     // ADR 0007: files are encrypted into suitcases as readers ask for them,
     // within a budget, instead of a full encrypted copy.
@@ -232,7 +250,8 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
         Ok(Ok(())) => {}
     }
     // Only now may another sharer start.
-    drop(setup.lock);
+    drop(sharing_locks);
+    drop(setup.key_file_lock);
     Ok(())
 }
 

@@ -36,8 +36,11 @@ pub enum Durability {
 /// what SQLite stores in place of the secret.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum SecretName {
-    /// The iroh node secret key of this device.
+    /// The iroh node secret key of this device, used by the sticks made
+    /// before ADR 0009.
     NodeKey,
+    /// The iroh node secret key of one stick (ADR 0009).
+    StickNodeKey(StickId),
     /// The owner's signing key for a stick.
     StickSigningKey(StickId),
     /// The symmetric key of a stick.
@@ -56,6 +59,7 @@ impl SecretName {
             Self::NodeKey => "node-key".to_owned(),
             Self::StickSigningKey(id) => format!("stick/{}/signing-key", hex(id)),
             Self::StickKey(id) => format!("stick/{}/stick-key", hex(id)),
+            Self::StickNodeKey(id) => format!("stick/{}/node-key", hex(id)),
             Self::Ticket(id) => format!("stick/{}/ticket", hex(id)),
             Self::HealthCheck(nonce) => {
                 format!("health-check/{}", data_encoding::HEXLOWER.encode(nonce))

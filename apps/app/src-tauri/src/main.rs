@@ -57,8 +57,8 @@ fn main() {
         }
     });
     builder
-        // A second launch shows the running app instead: two would serve with
-        // one node identity (see device::ShareLock).
+        // A second launch shows the running app instead: one app per user,
+        // which shares its sticks (each locked, see ourstick_core::locks).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
@@ -127,7 +127,7 @@ fn main() {
                 }
             }
             if let tauri::RunEvent::Exit = event {
-                // Close the cache cleanly and release the share lock.
+                // Close the suitcases cleanly and release the stick's locks.
                 let state = app.state::<state::AppState>();
                 tauri::async_runtime::block_on(async {
                     let sharing =

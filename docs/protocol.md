@@ -515,7 +515,8 @@ look the same.
 ## Key storage (local, not part of the wire format)
 
 Secrets never go into SQLite. They are: the stick signing seed, the StickKey,
-the iroh node secret key, and on a reader the tickets it holds. SQLite keeps
+the stick's iroh node secret key (ADR 0009: each stick made since has its own;
+older sticks use the device's), and on a reader the tickets it holds. SQLite keeps
 only non-secret state (StickId, NodeId, `seq`, highest accepted `seq`, folders)
 and which secret store the device uses. The name of each secret is derived
 from the StickId (below), so SQLite needs no column for it. See
@@ -531,8 +532,32 @@ from the StickId (below), so SQLite needs no column for it. See
 | iOS                       | Keychain, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not synced to iCloud) | Later (Tauri) |
 
 Secret Service items use service `ourstick` and the secret's name as user:
-`node-key`, `stick/<hex StickId>/signing-key`, `stick/<hex StickId>/stick-key`,
-`stick/<hex StickId>/ticket`.
+`node-key` (the device's, only on a device set up before ADR 0009),
+`stick/<hex StickId>/signing-key`, `stick/<hex StickId>/stick-key`,
+`stick/<hex StickId>/node-key`, `stick/<hex StickId>/ticket`. A stick's node
+key must give the node id the database records for it (`owned_sticks.node_id`,
+or `device.node_id` for an older stick); otherwise it is not used.
+
+### Who may share what at once (ADR 0009)
+
+The operating system's file locks in the data folder, tried and never waited
+for, released when a program ends:
+
+- `share-<hex StickId>.lock`, per stick: one program shares a stick, or
+  changes it.
+- `node-key.lock`: the device's node key, which every older stick shares, so
+  one older stick is shared at a time; the refusal names the one shared.
+- `key-file.lock`: a key file is read whole when opened and written whole on
+  every change, so a program using one holds this from before it opens it
+  until it ends. With a key file, one program at a time.
+- `setup.lock`, briefly, while the device or a stick is made: two programs
+  never make the device twice, or two sticks for one folder.
+
+So the app and the CLI, or two CLIs, share different sticks at the same time,
+each with its own node id, when the keys are in the system keyring. Separate
+node ids keep a node id alone from linking two sticks; they do not hide that
+two tickets come from one computer (same public addresses and home relay in
+their hints).
 
 ### Key file (version 1)
 

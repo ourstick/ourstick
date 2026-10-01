@@ -7,11 +7,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+mod extra;
+
 use super::{
-    check_device, check_drive_letter, check_joined_stick, check_linked_entry, check_owned_file,
-    check_owned_stick, check_seq, check_stamp, check_value, path_str, ClaimKind, Device,
-    DownloadedFile, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, SpaceClaim,
-    Store, StoreError,
+    check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
+    check_seq, check_stamp, path_str, ClaimKind, Device, DownloadedFile, JoinedStick, LinkedEntry,
+    ManifestVersion, OwnedFile, OwnedStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -208,67 +209,26 @@ impl Store for MemoryStore {
     }
 
     fn add_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
-        check_linked_entry(entry)?;
-        let mut state = self.state();
-        let key = stick_id.to_bytes();
-        if !state.owned.contains_key(&key) {
-            return Err(StoreError::StickNotFound);
-        }
-        let entries = state.linked.entry(key).or_default();
-        if entries.contains_key(&entry.name) {
-            return Err(StoreError::LinkExists(entry.name.clone()));
-        }
-        entries.insert(entry.name.clone(), entry.clone());
-        Ok(())
+        extra::add_linked_entry(self, stick_id, entry)
     }
 
     fn linked_entries(&self, stick_id: &StickId) -> Result<Vec<LinkedEntry>, StoreError> {
-        Ok(self
-            .state()
-            .linked
-            .get(&stick_id.to_bytes())
-            .map(|entries| entries.values().cloned().collect())
-            .unwrap_or_default())
+        extra::linked_entries(self, stick_id)
     }
 
     fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
-        let mut state = self.state();
-        let key = stick_id.to_bytes();
-        let removed = state
-            .linked
-            .get_mut(&key)
-            .and_then(|entries| entries.remove(name));
-        if removed.is_none() {
-            return Err(StoreError::LinkNotFound(name.to_owned()));
-        }
-        let prefix = format!("{name}/");
-        if let Some(files) = state.owned_files.get_mut(&key) {
-            files.retain(|path, _| path != name && !path.starts_with(&prefix));
-        }
-        Ok(())
+        extra::remove_linked_entry(self, stick_id, name)
     }
 
     fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError> {
-        Ok(self.state().claims.values().cloned().collect())
+        extra::space_claims(self)
     }
 
     fn claim_space(
         &self,
         decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
     ) -> Result<Option<SpaceClaim>, StoreError> {
-        let mut state = self.state();
-        let all: Vec<SpaceClaim> = state.claims.values().cloned().collect();
-        let decided = decide(&all);
-        if let Some(claim) = &decided {
-            check_value("bytes", claim.bytes)?;
-            if claim.disk.is_empty() {
-                return Err(StoreError::Inconsistent("a claim names its disk"));
-            }
-            state
-                .claims
-                .insert(claim_key(&claim.stick_id, claim.kind), claim.clone());
-        }
-        Ok(decided)
+        extra::claim_space(self, decide)
     }
 
     fn update_space_claim(
@@ -277,16 +237,11 @@ impl Store for MemoryStore {
         kind: ClaimKind,
         bytes: u64,
     ) -> Result<(), StoreError> {
-        check_value("bytes", bytes)?;
-        if let Some(claim) = self.state().claims.get_mut(&claim_key(stick_id, kind)) {
-            claim.bytes = bytes;
-        }
-        Ok(())
+        extra::update_space_claim(self, stick_id, kind, bytes)
     }
 
     fn remove_space_claim(&self, stick_id: &StickId, kind: ClaimKind) -> Result<(), StoreError> {
-        self.state().claims.remove(&claim_key(stick_id, kind));
-        Ok(())
+        extra::remove_space_claim(self, stick_id, kind)
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {

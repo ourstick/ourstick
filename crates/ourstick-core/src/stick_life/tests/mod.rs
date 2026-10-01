@@ -216,4 +216,55 @@ fn a_removal_stopped_halfway_is_finished_later_and_twice_is_fine() {
     assert!(!has_secret(&world, SecretName::StickKey(going.stick_id)));
 }
 
+/// Takes the drive away only while the stick's marker is still there.
+struct MarkerDrive;
+
+impl DriveOps for MarkerDrive {
+    fn take_away(&self, stick: &OwnedStick) -> Result<(), String> {
+        if crate::share::drive_marked_by(&stick.root_path, &stick.stick_id) {
+            Ok(())
+        } else {
+            Err("the marker is gone: the letter can no longer be found".to_owned())
+        }
+    }
+}
+
+#[test]
+fn the_drive_is_taken_away_before_the_stick_is_emptied() {
+    let world = world();
+    let going = app_stick(&world, "For Maria");
+    remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &going.stick_id,
+        &MarkerDrive,
+    )
+    .unwrap();
+    assert!(world.store.removing_sticks().unwrap().is_empty());
+}
+
+#[test]
+fn a_removal_running_now_is_left_to_its_own_command() {
+    let world = world();
+    let going = app_stick(&world, "For Maria");
+    let drive = FlakyDrive {
+        failures: Cell::new(1),
+    };
+    let _ = remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &going.stick_id,
+        &drive,
+    );
+    let lock = crate::locks::stick_lock(&world.data, &going).unwrap();
+    let failed = finish_removals(&world.store, &world.secrets, &world.data, &NoDrive).unwrap();
+    assert!(failed.is_empty());
+    assert_eq!(world.store.removing_sticks().unwrap().len(), 1);
+    drop(lock);
+    finish_removals(&world.store, &world.secrets, &world.data, &NoDrive).unwrap();
+    assert!(world.store.removing_sticks().unwrap().is_empty());
+}
+
 mod new_link;

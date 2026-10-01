@@ -41,6 +41,16 @@ fn device_of(plist: &str, image: &str) -> Option<String> {
         })
 }
 
+/// Where `image` is mounted, in the plist that `hdiutil info -plist`
+/// prints; `None` if it is not attached.
+fn mount_point_of(plist: &str, image: &str) -> Option<PathBuf> {
+    plist
+        .split("<key>image-path</key>")
+        .skip(1)
+        .find(|entry| first_string(entry).as_deref() == Some(image))
+        .and_then(mount_point_in)
+}
+
 /// The image's size in the text `hdiutil imageinfo` prints
 /// (`Total Bytes: 5000000000`).
 fn total_bytes_in(info: &str) -> Option<u64> {
@@ -57,7 +67,7 @@ fn sectors(bytes: u64) -> u64 {
 #[cfg(target_os = "macos")]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home, NAME};
+    use crate::drive::{folder_is_there, home, Renamed, NAME};
     use anyhow::{bail, Context, Result};
     use ourstick_core::OwnedStick;
     use std::path::Path;
@@ -124,7 +134,7 @@ pub mod platform {
     /// Makes the disk image of a new stick, as large as its disk (sparse),
     /// its volume called `folder`, under a name of its own (recorded with
     /// the stick, never derived again), and attaches it.
-    pub fn create(folder: &str, _name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
         let suffix: String = ourstick_core::device::random_key()[..8]
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -212,11 +222,17 @@ pub mod platform {
         Ok(())
     }
 
-    /// Renames the stick's volume to `folder` (`diskutil rename`). Its
-    /// mount point keeps the old name until it is attached again; the image
-    /// file keeps its own. A detached image is renamed at its next attach.
-    /// Returns where the volume is now.
-    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<PathBuf> {
+    /// Detaches the image mounted at `root` (a stick that could not be
+    /// made). Best effort.
+    pub fn detach_at(root: &Path) {
+        let _ = hdiutil(&["detach".as_ref(), root.as_os_str()]);
+    }
+
+    /// Renames the stick's volume to `folder` (`diskutil rename`); macOS
+    /// mounts it again at `/Volumes/<folder>`, so where it is now is asked
+    /// of `hdiutil`. The image file keeps its own name. Only a mounted
+    /// stick is renamed.
+    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<Renamed> {
         if !folder_is_there(&stick.root_path) {
             bail!("the stick is ejected; mount it, then rename it");
         }
@@ -232,7 +248,15 @@ pub mod platform {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        Ok(stick.root_path.clone())
+        let image = image_of(stick)?;
+        let image = std::fs::canonicalize(&image).unwrap_or(image);
+        let info = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;
+        let root = mount_point_of(&info, &image.to_string_lossy())
+            .context("the stick was renamed, but where it is mounted now is not known")?;
+        Ok(Renamed {
+            root,
+            unplugged: None,
+        })
     }
 
     pub fn is_mounted(stick: &OwnedStick) -> bool {
@@ -271,6 +295,23 @@ mod tests {
         );
         assert_eq!(device_of(plist, "/Users/a/Missing.dmg"), None);
         assert_eq!(device_of("<plist></plist>", ours), None);
+    }
+
+    #[test]
+    fn the_mount_point_is_found_by_its_image() {
+        let plist = "<dict><key>images</key><array>\
+            <dict><key>image-path</key><string>/a/other.sparseimage</string>\
+            <key>system-entities</key><array><dict><key>mount-point</key>\
+            <string>/Volumes/Other</string></dict></array></dict>\
+            <dict><key>image-path</key><string>/a/stick.sparseimage</string>\
+            <key>system-entities</key><array><dict><key>dev-entry</key>\
+            <string>/dev/disk9</string></dict><dict><key>mount-point</key>\
+            <string>/Volumes/Maria &amp; Co</string></dict></array></dict></array></dict>";
+        assert_eq!(
+            mount_point_of(plist, "/a/stick.sparseimage"),
+            Some(PathBuf::from("/Volumes/Maria & Co"))
+        );
+        assert_eq!(mount_point_of(plist, "/a/gone.sparseimage"), None);
     }
 
     #[test]

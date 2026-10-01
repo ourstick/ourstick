@@ -102,7 +102,7 @@ fn without_xbel_bookmark(content: &str, uri: &str) -> String {
 #[cfg(target_os = "linux")]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home, NAME};
+    use crate::drive::{folder_is_there, home, Renamed, NAME};
     use anyhow::{bail, Context, Result};
     use ourstick_core::OwnedStick;
     use std::path::PathBuf;
@@ -133,7 +133,14 @@ pub mod platform {
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                std::fs::write(path, changed)
+                // Written aside, then put in place: a crash never leaves
+                // the user's bookmarks half written.
+                let mut aside = path.as_os_str().to_owned();
+                aside.push(".ourstick-new");
+                let aside = PathBuf::from(aside);
+                std::fs::write(&aside, changed)
+                    .with_context(|| format!("cannot write {}", aside.display()))?;
+                std::fs::rename(&aside, path)
                     .with_context(|| format!("cannot write {}", path.display()))?;
             }
         }
@@ -193,11 +200,11 @@ pub mod platform {
         Ok(home()?.join(NAME))
     }
 
-    /// Makes the folder of a new stick, `~/OurStick/<folder>`, in the
-    /// sidebar as `name`. The folder must be new (the caller picks a free
-    /// name); the first stick of an older version, `~/OurStick` itself,
-    /// must have moved into it first.
-    pub fn create(folder: &str, name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+    /// Makes the folder of a new stick, `~/OurStick/<folder>`; [`mount`]
+    /// puts it in the sidebar once it is marked. The folder must be new (the
+    /// caller picks a free name); the first stick of an older version,
+    /// `~/OurStick` itself, must have moved into it first.
+    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
         let home = sticks_home()?;
         if folder_is_there(&home) {
             bail!(
@@ -209,8 +216,6 @@ pub mod platform {
             .with_context(|| format!("cannot create {}", home.display()))?;
         let root = home.join(folder);
         std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
-        usb_icon(&root);
-        add_bookmark(&root, name)?;
         Ok((root, None))
     }
 
@@ -228,24 +233,29 @@ pub mod platform {
     }
 
     /// Renames the stick's folder to `folder` (in the same place) and its
-    /// bookmark to `name`. Returns where the folder is now.
-    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<PathBuf> {
+    /// bookmark to `name`. A bookmark that cannot be made after the folder
+    /// moved is told, not undone.
+    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<Renamed> {
         let root = &stick.root_path;
-        let renamed = match root.parent() {
-            Some(parent) if root.file_name() != Some(std::ffi::OsStr::new(folder)) => {
-                parent.join(folder)
-            }
-            _ => root.clone(),
-        };
+        let renamed = crate::drive::renamed_root(root, folder)?;
         remove_bookmark(root)?;
         if &renamed != root {
-            std::fs::rename(root, &renamed).with_context(|| {
-                format!("cannot rename {} to {}", root.display(), renamed.display())
-            })?;
+            if let Err(error) = std::fs::rename(root, &renamed) {
+                // Back in the sidebar where it was.
+                let _ = add_bookmark(root, &stick.name);
+                return Err(error).with_context(|| {
+                    format!("cannot rename {} to {}", root.display(), renamed.display())
+                });
+            }
         }
         usb_icon(&renamed);
-        add_bookmark(&renamed, name)?;
-        Ok(renamed)
+        let unplugged = add_bookmark(&renamed, name)
+            .err()
+            .map(|error| format!("{error:#}"));
+        Ok(Renamed {
+            root: renamed,
+            unplugged,
+        })
     }
 
     pub fn is_mounted(stick: &OwnedStick) -> bool {

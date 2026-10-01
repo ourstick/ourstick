@@ -4,10 +4,12 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod busy;
 mod commands;
 mod dialog;
 mod drive;
 mod inhibit;
+mod making;
 #[cfg(target_os = "macos")]
 mod menu;
 mod qr;

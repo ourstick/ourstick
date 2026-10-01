@@ -24,6 +24,49 @@ fn home() -> Result<PathBuf> {
     ))
 }
 
+/// A stick's drive after a rename: where its folder is now, and what could
+/// not be done after the folder was renamed (its bookmark or letter), to
+/// tell; the rename itself stands.
+pub struct Renamed {
+    pub root: PathBuf,
+    pub unplugged: Option<String>,
+}
+
+/// Undoes [`create`] for a stick that could not be made: the folder (only
+/// if empty), or the disk image, detached and deleted. Best effort.
+pub fn discard(root: &Path, image: Option<&Path>) {
+    match image {
+        Some(image) => {
+            #[cfg(target_os = "macos")]
+            platform::detach_at(root);
+            let _ = std::fs::remove_file(image);
+        }
+        None => {
+            let _ = std::fs::remove_dir(root);
+        }
+    }
+}
+
+/// Where `root` is renamed to `folder`, next to itself. Refused if
+/// something else is there already (Linux would silently replace an empty
+/// folder), or if `root` is the first stick of an older version, which
+/// moves into `~/OurStick` first.
+#[cfg(any(target_os = "linux", windows))]
+fn renamed_root(root: &Path, folder: &str) -> Result<PathBuf> {
+    use anyhow::bail;
+    if *root == sticks_home()? {
+        bail!("the stick moves into the OurStick folder first; try again");
+    }
+    let Some(parent) = root.parent() else {
+        bail!("{} has no folder around it", root.display());
+    };
+    let renamed = parent.join(folder);
+    if renamed != *root && std::fs::symlink_metadata(&renamed).is_ok() {
+        bail!("{} is in the way; choose another name", renamed.display());
+    }
+    Ok(renamed)
+}
+
 /// Whether the stick's folder is there and is the stick (its marker).
 pub fn folder_is_there(root: &Path) -> bool {
     root.join(DRIVE_MARKER).is_file()
@@ -51,7 +94,7 @@ mod platform {
     pub fn sticks_home() -> Result<PathBuf> {
         bail!("OurStick has no drive for this system yet")
     }
-    pub fn create(_folder: &str, _name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+    pub fn create(_folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
         bail!("OurStick has no drive for this system yet")
     }
     pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
@@ -63,8 +106,11 @@ mod platform {
     pub fn is_mounted(stick: &OwnedStick) -> bool {
         folder_is_there(&stick.root_path)
     }
-    pub fn rename(stick: &OwnedStick, _folder: &str, _name: &str) -> Result<PathBuf> {
-        Ok(stick.root_path.clone())
+    pub fn rename(stick: &OwnedStick, _folder: &str, _name: &str) -> Result<Renamed> {
+        Ok(Renamed {
+            root: stick.root_path.clone(),
+            unplugged: None,
+        })
     }
 }
 

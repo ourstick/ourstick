@@ -10,6 +10,7 @@ use ourstick_core::stick_life::{finish_new_links, finish_removals};
 use ourstick_core::{device, locks, StickId};
 use tauri::{AppHandle, Emitter, Manager};
 
+pub use crate::busy::{is_busy, make_busy, readers_now, stop_serving};
 use crate::serving::{self, ShareProblem};
 use crate::state::{AppState, Sharing};
 
@@ -39,6 +40,19 @@ fn finish_pending(state: &AppState) -> Result<Vec<String>> {
         failed.push(format!("A new link for {name} is not finished: {error}"));
     }
     Ok(failed)
+}
+
+/// [`finish_pending`] off the async runtime; its failures told.
+async fn finish_pending_off_thread(app: &AppHandle) {
+    let handle = app.clone();
+    let finished =
+        tauri::async_runtime::spawn_blocking(move || finish_pending(&handle.state::<AppState>()))
+            .await;
+    match finished {
+        Ok(Ok(failed)) => failed.into_iter().for_each(|message| problem(app, message)),
+        Ok(Err(error)) => problem(app, format!("{error:#}")),
+        Err(error) => tracing::warn!(%error, "finishing what waited did not finish"),
+    }
 }
 
 /// At start: this device recorded once (never by each share: they start
@@ -152,6 +166,9 @@ async fn plug_in_all(app: &AppHandle) {
         plug_in_off_thread(app, stick.stick_id).await;
     }
     let _ = app.emit("mount-changed", ());
+    // Drives just plugged in (macOS: images attached only now) let what
+    // waited for them finish.
+    finish_pending_off_thread(app).await;
     let wanted: Vec<StickId> = sticks
         .iter()
         .filter(|stick| stick.sharing_wanted)
@@ -176,18 +193,7 @@ pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
             return;
         }
         let restart = plug_in_off_thread(&app, stick_id).await;
-        let handle = app.clone();
-        let finished = tauri::async_runtime::spawn_blocking(move || {
-            finish_pending(&handle.state::<AppState>())
-        })
-        .await;
-        match finished {
-            Ok(Ok(failed)) => failed
-                .into_iter()
-                .for_each(|message| problem(&app, message)),
-            Ok(Err(error)) => problem(&app, format!("{error:#}")),
-            Err(error) => tracing::warn!(%error, "finishing what waited did not finish"),
-        }
+        finish_pending_off_thread(&app).await;
         let _ = app.emit("mount-changed", ());
         let state = app.state::<AppState>();
         let wanted = state
@@ -265,59 +271,6 @@ pub fn start_sharing_later(app: &AppHandle, stick_id: StickId) {
     tauri::async_runtime::spawn(async move { start_sharing(&app, stick_id, 1).await });
 }
 
-/// Stops serving `stick_id`, if it does, and waits until its endpoint is
-/// closed and its locks are released; it is then `Off`. A busy stick is left
-/// to what keeps it busy.
-pub async fn stop_serving(state: &AppState, stick_id: &StickId) {
-    let previous = {
-        let mut sticks = state.sticks.lock().await;
-        if matches!(sticks.get(stick_id), Some(Sharing::Busy(_))) {
-            return;
-        }
-        sticks.insert(*stick_id, Sharing::Off)
-    };
-    if let Some(Sharing::On(serving)) = previous {
-        serving.stop().await;
-    }
-}
-
-/// Whether `stick_id` is busy (being renamed, given a new link, removed).
-pub async fn is_busy(state: &AppState, stick_id: &StickId) -> bool {
-    matches!(
-        state.sticks.lock().await.get(stick_id),
-        Some(Sharing::Busy(_))
-    )
-}
-
-/// Marks `stick_id` busy (nothing starts it meanwhile) and stops serving
-/// it, so its lock is free. Refused, saying why, if it is busy already or
-/// still starting (its share holds the lock and cannot be stopped yet).
-pub async fn make_busy(
-    state: &AppState,
-    stick_id: &StickId,
-    doing: &'static str,
-) -> Result<(), String> {
-    let previous = {
-        let mut sticks = state.sticks.lock().await;
-        match sticks.get(stick_id) {
-            Some(Sharing::Busy(_)) => {
-                return Err("the stick is busy; try again in a moment".to_owned())
-            }
-            Some(Sharing::Starting) => {
-                return Err(
-                    "the stick is still getting ready to share; try again in a moment".to_owned(),
-                )
-            }
-            _ => {}
-        }
-        sticks.insert(*stick_id, Sharing::Busy(doing))
-    };
-    if let Some(Sharing::On(serving)) = previous {
-        serving.stop().await;
-    }
-    Ok(())
-}
-
 /// Stops every share (Quit).
 pub async fn stop_all(state: &AppState) {
     let sticks: HashMap<StickId, Sharing> = std::mem::take(&mut *state.sticks.lock().await);
@@ -326,17 +279,6 @@ pub async fn stop_all(state: &AppState) {
             serving.stop().await;
         }
     }
-}
-
-/// How many download from any stick now.
-pub fn readers_now(sticks: &HashMap<StickId, Sharing>) -> usize {
-    sticks
-        .values()
-        .map(|sharing| match sharing {
-            Sharing::On(serving) => serving.activity.borrow().readers,
-            _ => 0,
-        })
-        .sum()
 }
 
 /// The tray says "sharing" while any stick is shared.
@@ -371,11 +313,7 @@ pub fn watch_mount(app: &AppHandle) {
                 if before.is_some_and(|before| before != mounted) {
                     changed = true;
                     if mounted {
-                        let handle = app.clone();
-                        let _ = tauri::async_runtime::spawn_blocking(move || {
-                            finish_pending(&handle.state::<AppState>())
-                        })
-                        .await;
+                        finish_pending_off_thread(&app).await;
                     }
                 }
             }

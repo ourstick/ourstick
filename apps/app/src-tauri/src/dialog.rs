@@ -109,9 +109,9 @@ pub async fn stop_sharing(
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
     state
-        .store
         .set_sharing_wanted(&stick_id, false)
-        .map_err(|error| error.to_string())?;
+        .await
+        .map_err(|error| format!("{error:#}"))?;
     stop_serving(&state, &stick_id).await;
     refresh_tray(&app).await;
     let any_readers = readers_now(&*state.sticks.lock().await) > 0;
@@ -121,16 +121,17 @@ pub async fn stop_sharing(
 }
 
 #[tauri::command]
-pub fn start_sharing_again(
+pub async fn start_sharing_again(
     stick_id: String,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
     state
-        .store
         .set_sharing_wanted(&stick_id, true)
-        .map_err(|error| error.to_string())?;
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    // A busy stick is shared again, if wanted, when what keeps it busy ends.
     start_sharing_later(&app, stick_id);
     Ok(())
 }

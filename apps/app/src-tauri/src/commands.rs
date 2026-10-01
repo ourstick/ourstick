@@ -1,12 +1,9 @@
 //! The commands the UI may call. Each one calls only `ourstick-core`, and its
 //! errors reach the UI as text meant for users.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use ourstick_core::device;
-use ourstick_core::places::check_new_stick_folder;
 use ourstick_core::secrets::check_secret_store;
-use ourstick_core::share::mark_drive;
-use ourstick_core::stick_names::folder_name;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -66,31 +63,21 @@ pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         if !crate::state::app_sticks(store.as_ref())?.is_empty() {
             return Ok(None);
         }
-        let home = drive::sticks_home()?;
-        let folder = folder_name("OurStick", |candidate| home.join(candidate).exists());
-        // Not where a stick still being removed has its folder, say.
-        check_new_stick_folder(store.as_ref(), &data_dir, &home.join(&folder))?;
-        let (root, image) = drive::create(&folder, "OurStick")?;
-        let keys = device::create_stick(
-            store.as_ref(),
-            secrets.as_ref(),
-            &root,
-            "OurStick",
-            ourstick_core::StickKind::App,
-            image.as_deref(),
-        )?;
-        mark_drive(&root, &keys.stick.stick_id).context("cannot mark the stick's folder")?;
-        drive::hide_marker(&root);
-        // Windows: the letter it got, to ask for it again after a restart.
-        if let Some(letter) = drive::letter_of(&root) {
-            store.set_drive_letter(&keys.stick.stick_id, Some(letter))?;
-        }
-        Ok(Some(keys.stick.stick_id))
+        let made =
+            crate::making::make_stick(store.as_ref(), secrets.as_ref(), &data_dir, "OurStick")?;
+        Ok(Some(made))
     })
     .await?;
     let _ = app.emit("mount-changed", ());
-    if let Some(stick_id) = made {
-        start_sharing_later(&app, stick_id);
+    if let Some(made) = made {
+        if let Some(why) = made.unplugged {
+            let message = format!("It is not shown as a drive ({why}); use Mount to try again.");
+            let _ = app.emit(
+                "share-problem",
+                crate::serving::ShareProblem::Failed { message },
+            );
+        }
+        start_sharing_later(&app, made.stick_id);
     }
     Ok(())
 }
@@ -103,10 +90,11 @@ pub async fn eject(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state
-        .stick_now(&stick_id_of(&stick_id)?)
-        .await
-        .map_err(shown)?;
+    let id = stick_id_of(&stick_id)?;
+    if crate::sharing::is_busy(&state, &id).await {
+        return Err("the stick is busy; try again in a moment".to_owned());
+    }
+    let stick = state.stick_now(&id).await.map_err(shown)?;
     blocking(move || drive::eject(&stick)).await?;
     crate::tray::set_mounted(&app, false);
     let _ = app.emit("mount-changed", ());

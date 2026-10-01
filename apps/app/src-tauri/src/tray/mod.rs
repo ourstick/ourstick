@@ -93,16 +93,28 @@ fn toggle_mount(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         // The disk is read and `hdiutil`/`subst` run off the async runtime.
         let handle = app.clone();
-        let ejected = tauri::async_runtime::spawn_blocking(move || {
-            let stick = first_stick(&handle)?;
-            if crate::drive::is_mounted(&stick) {
-                Some((stick.stick_id, Some(crate::drive::eject(&stick))))
-            } else {
-                Some((stick.stick_id, None))
-            }
+        let Ok(Some(stick)) =
+            tauri::async_runtime::spawn_blocking(move || first_stick(&handle)).await
+        else {
+            return;
+        };
+        let stick_id = stick.stick_id;
+        let state = app.state::<crate::state::AppState>();
+        if crate::sharing::is_busy(&state, &stick_id).await {
+            let _ = tauri::Emitter::emit(
+                &app,
+                "share-problem",
+                crate::serving::ShareProblem::Failed {
+                    message: "The stick is busy; try again in a moment.".to_owned(),
+                },
+            );
+            return;
+        }
+        let Ok(ejected) = tauri::async_runtime::spawn_blocking(move || {
+            crate::drive::is_mounted(&stick).then(|| crate::drive::eject(&stick))
         })
-        .await;
-        let Ok(Some((stick_id, ejected))) = ejected else {
+        .await
+        else {
             return;
         };
         if let Some(ejected) = ejected {
@@ -139,8 +151,14 @@ fn toggle_sharing(app: &AppHandle) -> Result<()> {
     if sharing {
         dialog::open(app, dialog::Mode::StopSharing(stick.stick_id))
     } else {
-        state.store.set_sharing_wanted(&stick.stick_id, true)?;
-        crate::sharing::start_sharing_later(app, stick.stick_id);
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<crate::state::AppState>();
+            match state.set_sharing_wanted(&stick.stick_id, true).await {
+                Ok(()) => crate::sharing::start_sharing(&app, stick.stick_id, 1).await,
+                Err(error) => tracing::warn!(error = %format!("{error:#}"), "cannot start sharing"),
+            }
+        });
         Ok(())
     }
 }

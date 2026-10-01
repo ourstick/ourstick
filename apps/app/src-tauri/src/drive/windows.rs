@@ -37,7 +37,7 @@ fn subst_letters_in(output: &[u8]) -> Vec<char> {
 #[cfg(windows)]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home, NAME};
+    use crate::drive::{folder_is_there, home, Renamed, NAME};
     use anyhow::{bail, Context, Result};
     use ourstick_core::manifest::DRIVE_MARKER;
     use ourstick_core::OwnedStick;
@@ -117,10 +117,10 @@ pub mod platform {
     }
 
     /// Makes the folder of a new stick, `%USERPROFILE%\OurStick\<folder>`,
-    /// and gives it a letter. The folder must be new (the
+    /// ([`mount`] gives it a letter once it is marked). The folder must be new (the
     /// caller picks a free name); the first stick of an older version,
     /// `%USERPROFILE%\OurStick` itself, must have moved into it first.
-    pub fn create(folder: &str, _name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
         let home = sticks_home()?;
         if folder_is_there(&home) {
             bail!(
@@ -132,7 +132,6 @@ pub mod platform {
             .with_context(|| format!("cannot create {}", home.display()))?;
         let root = home.join(folder);
         std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
-        give_letter(&root, None)?;
         Ok((root, None))
     }
 
@@ -159,16 +158,12 @@ pub mod platform {
     }
 
     /// Renames the stick's folder to `folder` (in the same place): its
-    /// letter goes first (`subst` keeps the old path) and comes back after. Windows refuses while a file in it is open; the error
-    /// says to close it. Returns where the folder is now.
-    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<PathBuf> {
+    /// letter goes first (`subst` keeps the old path) and comes back after;
+    /// a letter that cannot come back is told, not undone. Windows refuses
+    /// while a file in it is open; the error says to close it.
+    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<Renamed> {
         let root = &stick.root_path;
-        let renamed = match root.parent() {
-            Some(parent) if root.file_name() != Some(std::ffi::OsStr::new(folder)) => {
-                parent.join(folder)
-            }
-            _ => root.clone(),
-        };
+        let renamed = crate::drive::renamed_root(root, folder)?;
         let letter = letters_showing(root)
             .first()
             .copied()
@@ -186,8 +181,13 @@ pub mod platform {
                 });
             }
         }
-        give_letter(&renamed, letter)?;
-        Ok(renamed)
+        let unplugged = give_letter(&renamed, letter)
+            .err()
+            .map(|error| format!("{error:#}"));
+        Ok(Renamed {
+            root: renamed,
+            unplugged,
+        })
     }
 
     pub fn is_mounted(stick: &OwnedStick) -> bool {

@@ -48,7 +48,11 @@
     try {
       // A new link gives the stick a new id: look it up each time.
       stickId = (await sticks())[0]?.id ?? null;
-      if (!stickId) return;
+      if (!stickId) {
+        // The last stick was removed: nothing of it stays on screen.
+        current = null;
+        return;
+      }
       current = await loadStick(stickId);
       activity = current.sharing;
     } catch (error) {

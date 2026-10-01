@@ -74,6 +74,14 @@ impl AppState {
         .await?
     }
 
+    /// Records whether the user wants `id` shared, off the async runtime.
+    pub async fn set_sharing_wanted(&self, id: &StickId, wanted: bool) -> Result<()> {
+        let store = self.store.clone();
+        let id = *id;
+        tauri::async_runtime::spawn_blocking(move || Ok(store.set_sharing_wanted(&id, wanted)?))
+            .await?
+    }
+
     /// The app's stick `id`.
     pub fn app_stick(&self, id: &StickId) -> Result<OwnedStick> {
         self.store

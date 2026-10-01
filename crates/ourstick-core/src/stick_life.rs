@@ -31,6 +31,8 @@ pub enum LifeError {
     Secret(#[from] SecretError),
     #[error(transparent)]
     Share(#[from] ShareError),
+    #[error(transparent)]
+    Lock(#[from] crate::locks::LockError),
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: std::path::PathBuf,
@@ -285,8 +287,10 @@ pub fn remove_stick(
     finish_removal(store, secrets, data_dir, &stick, drive)
 }
 
-/// At start, before anything is shared or mounted: every removal stopped
-/// halfway is finished; one that fails again stays, and says why.
+/// At start, before anything is shared or mounted, and after a drive comes
+/// back: every removal stopped halfway is finished; one that fails again
+/// stays, and says why. A stick whose lock is held is being removed right
+/// now by its own command, and is left to it.
 pub fn finish_removals(
     store: &dyn Store,
     secrets: &dyn SecretStore,
@@ -295,6 +299,14 @@ pub fn finish_removals(
 ) -> Result<Vec<(String, LifeError)>, LifeError> {
     let mut failed = Vec::new();
     for stick in store.removing_sticks()? {
+        let _lock = match crate::locks::stick_lock(data_dir, &stick) {
+            Ok(lock) => lock,
+            Err(crate::locks::LockError::StickInUse { .. }) => continue,
+            Err(error) => {
+                failed.push((stick.name.clone(), error.into()));
+                continue;
+            }
+        };
         if let Err(error) = finish_removal(store, secrets, data_dir, &stick, drive) {
             failed.push((stick.name.clone(), error));
         }
@@ -310,15 +322,17 @@ fn finish_removal(
     drive: &dyn DriveOps,
 ) -> Result<(), LifeError> {
     image_known(stick)?;
+    // The drive first, while its marker still tells which letter is the
+    // stick's (Windows); taking it away again later does nothing.
+    drive.take_away(stick).map_err(LifeError::Drive)?;
     // Copied files: only an app stick's, only behind its marker; a disk
-    // image's go with the image.
+    // image's went with the image.
     if stick.kind == StickKind::App
         && stick.image_path.is_none()
         && drive_present(&stick.root_path, &stick.stick_id)
     {
         empty::empty_drive(&stick.root_path, data_dir)?;
     }
-    drive.take_away(stick).map_err(LifeError::Drive)?;
     if stick.node_id.is_some() {
         delete_secrets(secrets, &stick.stick_id)?;
     } else {

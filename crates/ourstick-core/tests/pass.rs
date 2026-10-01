@@ -55,6 +55,8 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
     let outcome = run_pass(&publishing(&owner), AT_ONCE, &mut |event| match event {
         PassEvent::Published(publication) => {
             assert!(publication.manifest.partial);
+            // The stick's name travels with every version (ADR 0009).
+            assert_eq!(publication.manifest.name, "test stick");
             partial.push(publication.manifest.entries.len());
         }
         PassEvent::Progress { done, total } => progress.push((done, total)),
@@ -68,6 +70,7 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
     assert_eq!(progress, vec![(256, 600), (512, 600), (600, 600)]);
     let publication = outcome.publication;
     assert!(!publication.manifest.partial);
+    assert_eq!(publication.manifest.name, "test stick");
     assert_eq!(publication.manifest.entries.len(), 600);
     assert_eq!(outcome.skipped, 0);
     let stick = owner

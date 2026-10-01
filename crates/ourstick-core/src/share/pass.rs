@@ -12,7 +12,7 @@ use super::version::{Signed, Versions};
 use super::{check_drive, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
-use crate::manifest::{Catalogue, Catalogued, Entry, Manifest};
+use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};
 use crate::store::OwnedFile;
 use crate::transport::Publisher;
 
@@ -87,6 +87,9 @@ pub async fn run_pass(
     }
     .ok_or(ShareError::NotOwned)?;
     let cipher = cipher_for(owned.cipher, owner.stick_key);
+    // ADR 0009: the stick's name travels in its manifest, for the reader's
+    // list.
+    let name = name_for_manifest(&owned.name);
     let root = owned.root_path.clone();
     if let Some(size) = owned.drive_size {
         // Never publish an ejected drive (an empty mount point) as an empty
@@ -128,7 +131,7 @@ pub async fn run_pass(
     let mut next_partial = timing.map(|timing| started + timing.first_after);
     if timing.is_some() && owned.latest_record.is_none() {
         let publication = versions
-            .publish(&mut signed, partial_manifest(Vec::new()), 0)
+            .publish(&mut signed, partial_manifest(&name, Vec::new()), 0)
             .await?;
         on_event(PassEvent::Published(&publication));
     }
@@ -182,7 +185,7 @@ pub async fn run_pass(
                 let merged = previous.merged(&entries, catalogue.last_done());
                 if previous.changes(&merged) {
                     let publication = versions
-                        .publish(&mut signed, partial_manifest(merged.clone()), reused)
+                        .publish(&mut signed, partial_manifest(&name, merged.clone()), reused)
                         .await?;
                     on_event(PassEvent::Published(&publication));
                     previous.published(merged);
@@ -195,7 +198,7 @@ pub async fn run_pass(
     let paths: Vec<String> = entries.iter().map(|entry| entry.path.clone()).collect();
     let manifest = Manifest {
         partial: false,
-        name: String::new(),
+        name: name.clone(),
         entries,
     };
     let publication = versions.publish(&mut signed, manifest, reused).await?;
@@ -211,10 +214,10 @@ pub async fn run_pass(
     })
 }
 
-fn partial_manifest(entries: Vec<Entry>) -> Manifest {
+fn partial_manifest(name: &str, entries: Vec<Entry>) -> Manifest {
     Manifest {
         partial: true,
-        name: String::new(),
+        name: name.to_owned(),
         entries,
     }
 }

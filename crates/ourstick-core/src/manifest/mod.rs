@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use catalogue::{Catalogue, Catalogued, CataloguedFile};
-pub use encoding::{validate_name, MANIFEST_FORMAT_VERSION};
+pub use encoding::{name_for_manifest, validate_name, MANIFEST_FORMAT_VERSION};
 pub use stamp::FileStamp;
 
 /// The file in a drive stick's folder that says which stick it is (its

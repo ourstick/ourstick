@@ -60,7 +60,7 @@ from an independent generator.
 | Field     | Postcard type    | Meaning                                                    |
 |-----------|------------------|------------------------------------------------------------|
 | `partial` | bool (one byte)  | More files follow in a later version: the owner is still reading its folder (ADR 0007). A reader waits for a complete version. |
-| `name`    | string           | The stick's name as its owner chose it (ADR 0009); empty if none. |
+| `name`    | string           | The stick's name as its owner chose it (ADR 0009): the folder's name for a stick shared from the command line, the stick's name in the app. The owner drops the characters the rule below refuses, trims it and cuts it to 60 scalar values. Owners before this sent it empty, so a stick's first version after an upgrade is a new version (its manifest hash changes). |
 | `entries` | sequence of `Entry` | Varint count, then the entries.                         |
 
 Version 1 is the entries alone (varint count, then the entries), read as

@@ -96,6 +96,22 @@ pub fn validate_name(name: &str) -> Result<(), ManifestError> {
     }
 }
 
+/// A stick's name as it goes into its manifest: without the characters
+/// [`validate_name`] refuses, trimmed, cut to [`MAX_NAME_CHARS`] scalar
+/// values. Always passes [`validate_name`].
+pub fn name_for_manifest(name: &str) -> String {
+    let kept: String = name
+        .chars()
+        .filter(|c| !c.is_control() && !is_format_or_separator(*c))
+        .collect();
+    kept.trim()
+        .chars()
+        .take(MAX_NAME_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
 /// Checks that `path` is a relative, `/`-separated path that stays inside the
 /// stick root on every platform.
 pub(super) fn validate_path(path: &str) -> Result<(), ManifestError> {
@@ -114,6 +130,24 @@ pub(super) fn validate_path(path: &str) -> Result<(), ManifestError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stick_name_is_made_fit_for_the_manifest() {
+        assert_eq!(name_for_manifest("Photos 2024"), "Photos 2024");
+        assert_eq!(name_for_manifest("  Για τη Μαρία  "), "Για τη Μαρία");
+        // Controls, bidi overrides and zero-width characters go.
+        assert_eq!(
+            name_for_manifest("tab\there\u{202E}evil\u{200B}x"),
+            "tabhereevilx"
+        );
+        // Cut by scalar values, not bytes.
+        let long = "Ω".repeat(70);
+        let cut = name_for_manifest(&long);
+        assert_eq!(cut.chars().count(), MAX_NAME_CHARS);
+        for name in ["\u{7}", "x".repeat(100).as_str(), "a\u{2028}b", ""] {
+            validate_name(&name_for_manifest(name)).unwrap();
+        }
+    }
     use crate::manifest::Entry;
     use rand::{Rng, SeedableRng};
 

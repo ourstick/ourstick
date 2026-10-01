@@ -71,7 +71,12 @@ impl Store for MemoryStore {
         check_owned_stick(stick)?;
         let mut state = self.state();
         let key = stick.stick_id.to_bytes();
-        if state.owned.contains_key(&key) {
+        let same_node = stick.node_id.is_some()
+            && state
+                .owned
+                .values()
+                .any(|owned| owned.node_id == stick.node_id);
+        if state.owned.contains_key(&key) || same_node {
             return Err(StoreError::StickExists);
         }
         state.owned.insert(key, stick.clone());

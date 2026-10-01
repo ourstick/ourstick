@@ -16,7 +16,7 @@ use migrations::MIGRATIONS;
 pub use migrations::SCHEMA_VERSION;
 use migrations::{migrate, user_version};
 use rows::{
-    blob32, is_constraint_violation, seq_i64, time_i64, to_u64, JoinedRow, OwnedRow,
+    blob32, is_constraint_violation, kind_str, seq_i64, time_i64, to_u64, JoinedRow, OwnedRow,
     JOINED_COLUMNS, OWNED_COLUMNS,
 };
 
@@ -86,7 +86,7 @@ impl Store for SqliteStore {
                 [],
                 |row| {
                     Ok((
-                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Option<Vec<u8>>>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, i64>(3)?,
@@ -105,7 +105,9 @@ impl Store for SqliteStore {
             _ => return Err(StoreError::Corrupt(format!("secret_backend {backend}"))),
         };
         Ok(Some(Device {
-            node_id: NodeId(blob32(node_id, "node_id")?),
+            node_id: node_id
+                .map(|node_id| blob32(node_id, "node_id").map(NodeId))
+                .transpose()?,
             secret_backend,
             created_at_ms: to_u64(created_at_ms, "created_at_ms")?,
         }))
@@ -123,7 +125,7 @@ impl Store for SqliteStore {
             "INSERT INTO device (id, node_id, secret_backend, key_file_path, created_at_ms)
              VALUES (1, ?1, ?2, ?3, ?4)",
             params![
-                device.node_id.0,
+                device.node_id.map(|node_id| node_id.0.to_vec()),
                 backend,
                 key_file_path,
                 time_i64(device.created_at_ms)?
@@ -141,7 +143,7 @@ impl Store for SqliteStore {
         let inserted = self.connection().execute(
             &format!(
                 "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
             ),
             params![
                 stick.stick_id.to_bytes(),
@@ -158,6 +160,8 @@ impl Store for SqliteStore {
                 stick.drive_size.map(|size| size as i64),
                 stick.drive_letter.map(String::from),
                 stick.latest_partial,
+                stick.node_id.map(|node_id| node_id.0.to_vec()),
+                kind_str(stick.kind),
             ],
         );
         match inserted {

@@ -11,7 +11,7 @@ fn owner(seed: u8) -> StickSigningKey {
 
 fn device() -> Device {
     Device {
-        node_id: NodeId([9; 32]),
+        node_id: Some(NodeId([9; 32])),
         secret_backend: SecretBackend::SecretService,
         created_at_ms: 1_700_000_000_000,
     }
@@ -49,7 +49,7 @@ fn device_is_created_once(store: &dyn Store) {
     assert_eq!(store.device().unwrap(), Some(device()));
 
     let replacement = Device {
-        node_id: NodeId([8; 32]),
+        node_id: Some(NodeId([8; 32])),
         ..device()
     };
     assert!(matches!(
@@ -288,6 +288,53 @@ fn non_utf8_paths_are_refused(store: &dyn Store) {
 #[cfg(not(unix))]
 fn non_utf8_paths_are_refused(_store: &dyn Store) {}
 
+fn a_device_made_now_has_no_node_key(store: &dyn Store) {
+    let device = Device {
+        node_id: None,
+        ..device()
+    };
+    store.create_device(&device).unwrap();
+    assert_eq!(store.device().unwrap(), Some(device));
+}
+
+fn a_stick_keeps_its_node_id_and_kind(store: &dyn Store) {
+    let stick = OwnedStick {
+        node_id: Some(NodeId([5; 32])),
+        kind: StickKind::App,
+        drive_size: Some(1 << 30),
+        ..owned(1, 10)
+    };
+    store.add_owned_stick(&stick).unwrap();
+    assert_eq!(
+        store.owned_stick(&stick.stick_id).unwrap(),
+        Some(stick.clone())
+    );
+    // Two sticks never share a node key.
+    let twin = OwnedStick {
+        node_id: stick.node_id,
+        ..owned(2, 20)
+    };
+    assert!(matches!(
+        store.add_owned_stick(&twin),
+        Err(StoreError::StickExists)
+    ));
+    // Older sticks all have none.
+    store.add_owned_stick(&owned(3, 30)).unwrap();
+    store.add_owned_stick(&owned(4, 40)).unwrap();
+}
+
+fn a_drive_is_the_apps_stick(store: &dyn Store) {
+    let drive_of_the_cli = OwnedStick {
+        drive_size: Some(1 << 30),
+        kind: StickKind::Cli,
+        ..owned(1, 10)
+    };
+    assert!(matches!(
+        store.add_owned_stick(&drive_of_the_cli),
+        Err(StoreError::Inconsistent(_))
+    ));
+}
+
 macro_rules! for_every_store {
     ($($scenario:ident),* $(,)?) => {
         mod memory {
@@ -310,6 +357,9 @@ macro_rules! for_every_store {
 }
 
 for_every_store!(
+    a_device_made_now_has_no_node_key,
+    a_stick_keeps_its_node_id_and_kind,
+    a_drive_is_the_apps_stick,
     device_is_created_once,
     device_with_key_file_roundtrips,
     device_with_keychain_roundtrips,

@@ -25,9 +25,13 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 10
+## Version 11
 
-Version 10 (`0010_latest_partial.sql`) added `owned_sticks.latest_partial`
+Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
+`owned_sticks.node_id` (NULL for every stick made before) and
+`owned_sticks.kind` (`app` for the sticks that have a `drive_size`, `cli` for
+the others), and made `device.node_id` optional; the `device` table is made
+again with the same row, since SQLite cannot drop NOT NULL. Version 10 (`0010_latest_partial.sql`) added `owned_sticks.latest_partial`
 (ADR 0007). Version 9 (`0009_owned_plaintext_hash.sql`) added
 `owned_files.plaintext_hash` (ADR 0007), NULL in rows written before.
 Version 8 (`0008_drive_letter.sql`) added `owned_sticks.drive_letter`, the
@@ -53,12 +57,14 @@ so the migration copies them to `record_floors` and starts every
 
 This device. At most one row (`id = 1`). Created once and never replaced:
 replacing it would mean a new node key, which kills every ticket already shared
-(CLAUDE.md rule 9).
+(CLAUDE.md rule 9). Since version 11 a device made anew has no node key of its
+own (`node_id` NULL): each stick has one (ADR 0009). A device made before keeps
+its node key, which its older sticks use.
 
 | Column           | Type    | Meaning                                                  |
 |------------------|---------|----------------------------------------------------------|
 | `id`             | INTEGER | Always 1                                                 |
-| `node_id`        | BLOB 32 | iroh NodeId (public key) of this device                  |
+| `node_id`        | BLOB 32 or NULL | iroh NodeId (public key) of the device's own node key, used by sticks made before version 11; NULL on a device made after |
 | `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS), `credential-manager` (Windows) or `key-file` |
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
@@ -82,6 +88,8 @@ Sticks this device owns. One row per stick.
 | `created_at_ms`   | INTEGER  | When the stick was created                                 |
 | `drive_size`      | INTEGER  | Size in bytes of a drive (the app's stick); NULL for a plain shared folder. A drive's folder must carry `.ourstick-drive` and may not hold more than this. |
 | `drive_letter`    | TEXT     | Windows: the drive letter (`A`–`Z`) the stick was last shown at with `subst`, asked for again after a restart so that the stick stays where the user saw it. NULL elsewhere. |
+| `node_id`         | BLOB 32 or NULL | iroh NodeId of the stick's own node key (`stick/<hex>/node-key`, ADR 0009); unique. NULL for a stick made before version 11, which uses `device.node_id` |
+| `kind`            | TEXT     | `app` (the app's stick: a drive) or `cli` (shared from the command line); which program lists it |
 | `latest_partial`  | INTEGER  | 1 if `latest_record` is of a partial manifest (the owner was still reading its folder, ADR 0007), so a restarted owner goes on publishing partial versions until a complete one; else 0 |
 
 `last_signed_seq`, `latest_record` and `latest_partial` change together, in one statement that

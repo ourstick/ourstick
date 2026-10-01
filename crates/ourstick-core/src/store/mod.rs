@@ -36,9 +36,20 @@ pub enum SecretBackend {
 /// This device. Created once, never replaced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
-    pub node_id: NodeId,
+    /// The device's own node key, shared by the sticks made before ADR 0009;
+    /// `None` on a device made after it, whose sticks each have their own.
+    pub node_id: Option<NodeId>,
     pub secret_backend: SecretBackend,
     pub created_at_ms: u64,
+}
+
+/// Which program lists a stick (ADR 0009).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StickKind {
+    /// The app's: a drive.
+    App,
+    /// Shared from the command line.
+    Cli,
 }
 
 /// A stick this device owns.
@@ -63,6 +74,10 @@ pub struct OwnedStick {
     /// Windows: the drive letter the stick was last given (`A`–`Z`), asked
     /// for again after a restart. `None` elsewhere.
     pub drive_letter: Option<char>,
+    /// The node id of the stick's own node key (ADR 0009); `None` for a
+    /// stick made before, which uses the device's.
+    pub node_id: Option<NodeId>,
+    pub kind: StickKind,
 }
 
 impl OwnedStick {
@@ -85,6 +100,8 @@ impl OwnedStick {
             created_at_ms,
             drive_size: None,
             drive_letter: None,
+            node_id: None,
+            kind: StickKind::Cli,
         }
     }
 }
@@ -304,6 +321,9 @@ pub(crate) fn check_drive_letter(letter: Option<char>) -> Result<(), StoreError>
 
 pub(crate) fn check_owned_stick(stick: &OwnedStick) -> Result<(), StoreError> {
     check_seq(stick.last_signed_seq)?;
+    if stick.drive_size.is_some() && stick.kind != StickKind::App {
+        return Err(StoreError::Inconsistent("a drive is the app's stick"));
+    }
     check_drive_letter(stick.drive_letter)?;
     match stick.drive_size {
         Some(0) => return Err(StoreError::Inconsistent("a drive of size 0")),

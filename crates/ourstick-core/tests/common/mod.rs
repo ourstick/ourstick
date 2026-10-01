@@ -20,7 +20,8 @@ use ourstick_core::share::{keep_suitcases, publish_folder, Budget, Publication};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::{
-    CipherId, ManifestHint, MemoryStore, OwnedStick, StickKey, StickSigningKey, Store, Ticket,
+    CipherId, ManifestHint, MemoryStore, OwnedStick, StickKey, StickKind, StickSigningKey, Store,
+    Ticket,
 };
 use rand::RngCore;
 use tempfile::TempDir;
@@ -107,6 +108,11 @@ impl Owner {
         store
             .add_owned_stick(&OwnedStick {
                 drive_size,
+                kind: if drive_size.is_some() {
+                    StickKind::App
+                } else {
+                    StickKind::Cli
+                },
                 ..OwnedStick::new(
                     signing_key.stick_id(),
                     "test stick",

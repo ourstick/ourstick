@@ -12,7 +12,7 @@ use crate::cipher::{CipherId, StickKey};
 use crate::clock::{Clock, SystemClock};
 use crate::secrets::{SecretError, SecretName, SecretStore};
 use crate::stick_id::StickSigningKey;
-use crate::store::{Device, OwnedStick, SecretBackend, SqliteStore, Store, StoreError};
+use crate::store::{Device, OwnedStick, SecretBackend, SqliteStore, StickKind, Store, StoreError};
 use crate::transport::iroh::IrohConfig;
 
 /// The cipher of every new stick.
@@ -167,7 +167,7 @@ pub fn open_device(
     let key = random_key();
     secrets.put(&SecretName::NodeKey, &key)?;
     store.create_device(&Device {
-        node_id: IrohConfig::node_id_of(&key),
+        node_id: Some(IrohConfig::node_id_of(&key)),
         secret_backend: backend,
         created_at_ms: SystemClock.now_ms(),
     })?;
@@ -212,6 +212,12 @@ pub fn create_stick(
     secrets.put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
     let stick = OwnedStick {
         drive_size,
+        // Only the app makes drives (until ADR 0008 and step 7 say more).
+        kind: if drive_size.is_some() {
+            StickKind::App
+        } else {
+            StickKind::Cli
+        },
         ..OwnedStick::new(stick_id, name, root, CIPHER, SystemClock.now_ms())
     };
     store.add_owned_stick(&stick)?;
@@ -307,7 +313,7 @@ mod tests {
         assert_eq!(first, again);
         assert_eq!(
             store.device().unwrap().unwrap().node_id,
-            IrohConfig::node_id_of(&first)
+            Some(IrohConfig::node_id_of(&first))
         );
     }
 

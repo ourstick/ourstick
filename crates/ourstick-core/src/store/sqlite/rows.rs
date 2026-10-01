@@ -4,10 +4,13 @@ use std::path::PathBuf;
 
 use rusqlite::Row;
 
-use super::super::{check_seq, check_time, JoinedStick, ManifestVersion, OwnedStick, StoreError};
+use super::super::{
+    check_seq, check_time, JoinedStick, ManifestVersion, OwnedStick, StickKind, StoreError,
+};
 use crate::cipher::CipherId;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
+use crate::ticket::NodeId;
 
 pub(super) fn seq_i64(seq: u64) -> Result<i64, StoreError> {
     check_seq(seq)?;
@@ -54,10 +57,12 @@ pub(super) struct OwnedRow {
     drive_size: Option<i64>,
     drive_letter: Option<String>,
     latest_partial: bool,
+    node_id: Option<Vec<u8>>,
+    kind: String,
 }
 
 pub(super) const OWNED_COLUMNS: &str = "stick_id, name, root_path, cipher, last_signed_seq, \
-     latest_record, created_at_ms, drive_size, drive_letter, latest_partial";
+     latest_record, created_at_ms, drive_size, drive_letter, latest_partial, node_id, kind";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -72,6 +77,8 @@ impl OwnedRow {
             drive_size: row.get(7)?,
             drive_letter: row.get(8)?,
             latest_partial: row.get(9)?,
+            node_id: row.get(10)?,
+            kind: row.get(11)?,
         })
     }
 
@@ -95,6 +102,15 @@ impl OwnedRow {
             last_signed_seq: to_u64(self.last_signed_seq, "last_signed_seq")?,
             latest_record,
             latest_partial: self.latest_partial,
+            node_id: self
+                .node_id
+                .map(|node_id| blob32(node_id, "node_id").map(NodeId))
+                .transpose()?,
+            kind: match self.kind.as_str() {
+                "app" => StickKind::App,
+                "cli" => StickKind::Cli,
+                other => return Err(StoreError::Corrupt(format!("kind {other}"))),
+            },
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
             drive_size: self
                 .drive_size
@@ -155,5 +171,13 @@ impl JoinedRow {
             completed,
             joined_at_ms: to_u64(self.joined_at_ms, "joined_at_ms")?,
         })
+    }
+}
+
+/// How a [`StickKind`] is stored.
+pub(super) fn kind_str(kind: StickKind) -> &'static str {
+    match kind {
+        StickKind::App => "app",
+        StickKind::Cli => "cli",
     }
 }

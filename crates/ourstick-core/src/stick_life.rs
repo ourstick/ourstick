@@ -12,7 +12,6 @@ use std::path::Path;
 use crate::cipher::StickKey;
 use crate::clock::{Clock, SystemClock};
 use crate::device::{random_key, StickKeys};
-use crate::manifest::DRIVE_MARKER;
 use crate::secrets::{SecretError, SecretName, SecretStore};
 use crate::share::{drive_present, mark_drive, ShareError};
 use crate::stick_id::{StickId, StickSigningKey};
@@ -100,12 +99,14 @@ pub fn give_new_link(
     let stick_key = StickKey::generate();
     let node_key = random_key();
     let new_id = signing_key.stick_id();
-    secrets.put(
-        &SecretName::StickSigningKey(new_id),
-        &signing_key.to_bytes(),
-    )?;
-    secrets.put(&SecretName::StickKey(new_id), stick_key.as_bytes())?;
-    secrets.put(&SecretName::StickNodeKey(new_id), &node_key)?;
+    let stored = (|| {
+        secrets.put(
+            &SecretName::StickSigningKey(new_id),
+            &signing_key.to_bytes(),
+        )?;
+        secrets.put(&SecretName::StickKey(new_id), stick_key.as_bytes())?;
+        secrets.put(&SecretName::StickNodeKey(new_id), &node_key)
+    })();
     let new = OwnedStick {
         stick_id: new_id,
         node_id: Some(IrohConfig::node_id_of(&node_key)),
@@ -114,9 +115,23 @@ pub fn give_new_link(
         latest_partial: false,
         ..old.clone()
     };
-    store.replace_owned_stick(stick_id, &new, SystemClock.now_ms())?;
-    remark_drive(&new, stick_id)?;
-    clean_up_retired(store, secrets, data_dir)?;
+    let replaced = stored
+        .map_err(LifeError::from)
+        .and_then(|()| Ok(store.replace_owned_stick(stick_id, &new, SystemClock.now_ms())?));
+    if let Err(error) = replaced {
+        // Nothing changed: the new keys belong to no stick, so they go.
+        if let Err(left) = delete_secrets(secrets, &new_id) {
+            tracing::warn!(error = %left, "the keys of a failed new link could not be deleted");
+        }
+        return Err(error);
+    }
+    // The new link is made from here on: what is left is tidying up, done
+    // again at the next start if it fails now.
+    if let Err(error) = remark_drive(&new, stick_id) {
+        tracing::warn!(%error, "the stick's marker names its old link until the next start");
+    } else if let Err(error) = clean_up_retired(store, secrets, data_dir) {
+        tracing::warn!(%error, "the old link's keys are deleted at the next start");
+    }
     Ok(StickKeys {
         stick: new,
         signing_key,
@@ -135,19 +150,33 @@ fn remark_drive(stick: &OwnedStick, old: &StickId) -> Result<(), LifeError> {
 
 /// At start, before anything is shared or mounted: an app stick whose marker
 /// still names a retired id (a new link stopped halfway) is marked anew, and
-/// what is left of retired ids is deleted.
+/// what is left of retired ids is deleted. One that fails (its drive is not
+/// there, say) is kept for the next start and does not stop the others;
+/// the failures are returned, by stick name.
 pub fn finish_new_links(
     store: &dyn Store,
     secrets: &dyn SecretStore,
     data_dir: &Path,
-) -> Result<(), LifeError> {
-    let retired = store.retired_sticks()?;
-    for stick in store.owned_sticks()? {
-        for old in &retired {
-            remark_drive(&stick, old)?;
+) -> Result<Vec<(String, LifeError)>, LifeError> {
+    let sticks = store.owned_sticks()?;
+    let mut failed = Vec::new();
+    for old in store.retired_sticks()? {
+        let mut remarked = true;
+        for stick in &sticks {
+            if let Err(error) = remark_drive(stick, &old) {
+                failed.push((stick.name.clone(), error));
+                remarked = false;
+            }
+        }
+        // Forgotten only once its stick's marker names the new id: else the
+        // next start could no longer tell which marker to fix.
+        if remarked {
+            if let Err(error) = clean_up(store, secrets, data_dir, &old) {
+                failed.push((String::new(), error));
+            }
         }
     }
-    clean_up_retired(store, secrets, data_dir)
+    Ok(failed)
 }
 
 fn clean_up_retired(
@@ -156,9 +185,32 @@ fn clean_up_retired(
     data_dir: &Path,
 ) -> Result<(), LifeError> {
     for old in store.retired_sticks()? {
-        delete_secrets(secrets, &old)?;
-        remove_cache(data_dir, &old)?;
-        store.forget_retired(&old)?;
+        clean_up(store, secrets, data_dir, &old)?;
+    }
+    Ok(())
+}
+
+/// Deletes what is left of a retired id.
+fn clean_up(
+    store: &dyn Store,
+    secrets: &dyn SecretStore,
+    data_dir: &Path,
+    old: &StickId,
+) -> Result<(), LifeError> {
+    delete_secrets(secrets, old)?;
+    remove_cache(data_dir, old)?;
+    store.forget_retired(old)?;
+    Ok(())
+}
+
+/// macOS: an app stick is its disk image, and the image must be known
+/// before anything of it is deleted (an older stick's is recorded at the
+/// app's start); its mount point alone could be another volume's.
+fn image_known(stick: &OwnedStick) -> Result<(), LifeError> {
+    if cfg!(target_os = "macos") && stick.kind == StickKind::App && stick.image_path.is_none() {
+        return Err(LifeError::Drive(
+            "the stick's disk image is not recorded yet (open OurStick, then try again)".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -172,6 +224,10 @@ pub fn remove_stick(
     stick_id: &StickId,
     drive: &dyn DriveOps,
 ) -> Result<(), LifeError> {
+    let stick = store.owned_stick(stick_id)?.ok_or(LifeError::NotFound)?;
+    // Refused before it is marked: a stick being removed is never changed
+    // again, so its image could not be recorded any more.
+    image_known(&stick)?;
     store.mark_removing(stick_id)?;
     let stick = store
         .removing_sticks()?
@@ -205,13 +261,14 @@ fn finish_removal(
     stick: &OwnedStick,
     drive: &dyn DriveOps,
 ) -> Result<(), LifeError> {
+    image_known(stick)?;
     // Copied files: only an app stick's, only behind its marker; a disk
     // image's go with the image.
     if stick.kind == StickKind::App
         && stick.image_path.is_none()
         && drive_present(&stick.root_path, &stick.stick_id)
     {
-        empty_drive(&stick.root_path)?;
+        empty::empty_drive(&stick.root_path, data_dir)?;
     }
     drive.take_away(stick).map_err(LifeError::Drive)?;
     if stick.node_id.is_some() {
@@ -226,50 +283,7 @@ fn finish_removal(
     Ok(())
 }
 
-/// Deletes what is in a drive's folder, then its marker, then the folder if
-/// it is empty: never following a link, never crossing into another disk
-/// mounted inside (left in place). The marker goes last, so a removal
-/// stopped halfway still finds it.
-fn empty_drive(root: &Path) -> Result<(), LifeError> {
-    let io = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| LifeError::Io { path, source }
-    };
-    let disk = crate::linked::disk_of(&std::fs::metadata(root).map_err(io(root))?);
-    for entry in std::fs::read_dir(root).map_err(io(root))? {
-        let entry = entry.map_err(io(root))?;
-        if entry.file_name() == DRIVE_MARKER {
-            continue;
-        }
-        delete_tree(&entry.path(), disk)?;
-    }
-    let marker = root.join(DRIVE_MARKER);
-    std::fs::remove_file(&marker).map_err(io(&marker))?;
-    // Not empty: something on another disk was left; that is the user's.
-    let _ = std::fs::remove_dir(root);
-    Ok(())
-}
-
-fn delete_tree(path: &Path, disk: Option<u64>) -> Result<(), LifeError> {
-    let io = |source| LifeError::Io {
-        path: path.to_path_buf(),
-        source,
-    };
-    let metadata = std::fs::symlink_metadata(path).map_err(io)?;
-    if !metadata.is_dir() {
-        return std::fs::remove_file(path).map_err(io);
-    }
-    if disk.is_some() && crate::linked::disk_of(&metadata) != disk {
-        // Another disk mounted inside the stick: not the stick's.
-        return Ok(());
-    }
-    for entry in std::fs::read_dir(path).map_err(io)? {
-        delete_tree(&entry.map_err(io)?.path(), disk)?;
-    }
-    // Not empty if something inside was on another disk.
-    let _ = std::fs::remove_dir(path);
-    Ok(())
-}
+mod empty;
 
 #[cfg(test)]
 mod tests;

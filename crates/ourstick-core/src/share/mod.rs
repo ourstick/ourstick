@@ -190,19 +190,21 @@ pub fn mark_drive(root: &Path, stick_id: &StickId) -> Result<(), ShareError> {
         path: path.clone(),
         source,
     };
-    // An existing marker is truncated, not made again: Windows refuses to
-    // make a file anew over a hidden one (the app hides the marker there).
-    let mut file = if path.exists() {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(io)?
-    } else {
-        std::fs::File::create_new(&path).map_err(io)?
+    let text = drive_marker_text(stick_id);
+    // Written over in place, never emptied first, so a crash leaves the old
+    // id or the new one, never nothing (every id has the same length). Not
+    // made anew either: Windows refuses that for a hidden file, and the app
+    // hides the marker there.
+    let mut file = match std::fs::OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::File::create_new(&path).map_err(io)?
+        }
+        Err(error) => return Err(io(error)),
     };
-    file.write_all(drive_marker_text(stick_id).as_bytes())
-        .map_err(io)
+    file.write_all(text.as_bytes()).map_err(io)?;
+    file.set_len(text.len() as u64).map_err(io)?;
+    file.sync_all().map_err(io)
 }
 
 /// What the drive marker of `stick_id` holds: the StickId in hex.

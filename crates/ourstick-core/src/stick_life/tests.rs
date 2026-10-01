@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::device::{create_stick, load_stick};
+use crate::manifest::DRIVE_MARKER;
 use crate::secrets::MemorySecretStore;
 use crate::store::{Device, LinkedEntry, MemoryStore, SecretBackend};
 use crate::ticket::NodeId;
@@ -253,4 +254,99 @@ fn a_removal_stopped_halfway_is_finished_later_and_twice_is_fine() {
     }
     assert!(world.store.removing_sticks().unwrap().is_empty());
     assert!(!has_secret(&world, SecretName::StickKey(going.stick_id)));
+}
+
+/// A secret store whose `put` fails from the `fail_from`th call on, and
+/// that remembers what it was asked to store.
+struct FailingPuts {
+    inner: MemorySecretStore,
+    puts: std::sync::atomic::AtomicU32,
+    fail_from: u32,
+    asked: std::sync::Mutex<Vec<SecretName>>,
+}
+
+impl SecretStore for FailingPuts {
+    fn describe(&self) -> String {
+        "failing".to_owned()
+    }
+    fn durability(&self) -> crate::secrets::Durability {
+        self.inner.durability()
+    }
+    fn put(&self, name: &SecretName, secret: &[u8]) -> Result<(), SecretError> {
+        let puts = self.puts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.asked.lock().unwrap().push(name.clone());
+        if puts >= self.fail_from {
+            return Err(SecretError::Unavailable {
+                store: "failing".to_owned(),
+                reason: "test".to_owned(),
+            });
+        }
+        self.inner.put(name, secret)
+    }
+    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+        self.inner.get(name)
+    }
+    fn delete(&self, name: &SecretName) -> Result<(), SecretError> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+fn a_new_link_that_fails_leaves_no_keys_behind() {
+    let world = world();
+    let stick = app_stick(&world, "For Maria");
+    let failing = FailingPuts {
+        inner: MemorySecretStore::new(),
+        puts: std::sync::atomic::AtomicU32::new(0),
+        fail_from: 3,
+        asked: std::sync::Mutex::default(),
+    };
+    let result = give_new_link(&world.store, &failing, &world.data, &stick.stick_id);
+    assert!(result.is_err());
+    let asked = failing.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 3);
+    for name in asked {
+        assert_eq!(failing.inner.get(&name).unwrap(), None, "{name:?} was left");
+    }
+    // Nothing changed for the stick.
+    assert_eq!(world.store.owned_sticks().unwrap(), [stick]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_new_link_whose_marker_cannot_be_fixed_waits_and_others_go_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = world();
+    let stuck = app_stick(&world, "Stuck");
+    let fine = app_stick(&world, "Fine");
+    let mut news = Vec::new();
+    for old in [&stuck, &fine] {
+        let new = OwnedStick {
+            stick_id: StickSigningKey::generate().stick_id(),
+            node_id: Some(NodeId([news.len() as u8 + 20; 32])),
+            ..old.clone()
+        };
+        world
+            .store
+            .replace_owned_stick(&old.stick_id, &new, 1)
+            .unwrap();
+        news.push(new);
+    }
+    // The stuck stick's marker cannot be written (a read-only drive).
+    let marker = stuck.root_path.join(DRIVE_MARKER);
+    std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o400)).unwrap();
+    let failed = finish_new_links(&world.store, &world.secrets, &world.data).unwrap();
+    std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600)).unwrap();
+    if failed.is_empty() {
+        return; // Running as root: nothing is read-only.
+    }
+    assert_eq!(failed[0].0, "Stuck");
+    assert!(drive_present(&news[1].root_path, &news[1].stick_id));
+    // The stuck one's old id waits for the next start; it then goes.
+    assert_eq!(world.store.retired_sticks().unwrap(), [stuck.stick_id]);
+    assert!(finish_new_links(&world.store, &world.secrets, &world.data)
+        .unwrap()
+        .is_empty());
+    assert!(drive_present(&news[0].root_path, &news[0].stick_id));
+    assert!(world.store.retired_sticks().unwrap().is_empty());
 }

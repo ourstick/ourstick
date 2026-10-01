@@ -172,6 +172,40 @@ pub mod platform {
         Ok(())
     }
 
+    /// Renames the stick's folder to `folder` (in the same place): its
+    /// letter goes first (`subst` keeps the old path) and comes back after,
+    /// named `name`. Windows refuses while a file in it is open; the error
+    /// says to close it. Returns where the folder is now.
+    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<PathBuf> {
+        let root = &stick.root_path;
+        let renamed = match root.parent() {
+            Some(parent) if root.file_name() != Some(std::ffi::OsStr::new(folder)) => {
+                parent.join(folder)
+            }
+            _ => root.clone(),
+        };
+        let letter = letters_showing(root)
+            .first()
+            .copied()
+            .or(stick.drive_letter);
+        eject(stick)?;
+        if &renamed != root {
+            if let Err(error) = std::fs::rename(root, &renamed) {
+                // The letter comes back where it was.
+                let _ = give_letter(root, letter);
+                return Err(error).with_context(|| {
+                    format!(
+                        "cannot rename {}: if a file in it is open, close it and try again",
+                        root.display()
+                    )
+                });
+            }
+        }
+        let letter = give_letter(&renamed, letter)?;
+        set_label(letter, name);
+        Ok(renamed)
+    }
+
     pub fn is_mounted(stick: &OwnedStick) -> bool {
         !letters_showing(&stick.root_path).is_empty()
     }

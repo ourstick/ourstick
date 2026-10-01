@@ -214,6 +214,26 @@ pub mod platform {
         remove_bookmark(&stick.root_path)
     }
 
+    /// Renames the stick's folder to `folder` (in the same place) and its
+    /// bookmark to `name`. Returns where the folder is now.
+    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<PathBuf> {
+        let root = &stick.root_path;
+        let renamed = match root.parent() {
+            Some(parent) if root.file_name() != Some(std::ffi::OsStr::new(folder)) => {
+                parent.join(folder)
+            }
+            _ => root.clone(),
+        };
+        remove_bookmark(root)?;
+        if &renamed != root {
+            std::fs::rename(root, &renamed).with_context(|| {
+                format!("cannot rename {} to {}", root.display(), renamed.display())
+            })?;
+        }
+        add_bookmark(&renamed, name)?;
+        Ok(renamed)
+    }
+
     pub fn is_mounted(stick: &OwnedStick) -> bool {
         let uri = file_uri(&stick.root_path);
         gtk_bookmarks()

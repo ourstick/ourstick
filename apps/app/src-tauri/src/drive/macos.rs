@@ -210,6 +210,29 @@ pub mod platform {
         Ok(())
     }
 
+    /// Renames the stick's volume to `folder` (`diskutil rename`). Its
+    /// mount point keeps the old name until it is attached again; the image
+    /// file keeps its own. A detached image is renamed at its next attach.
+    /// Returns where the volume is now.
+    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<PathBuf> {
+        if !folder_is_there(&stick.root_path) {
+            bail!("the stick is ejected; mount it, then rename it");
+        }
+        let output = Command::new("diskutil")
+            .arg("rename")
+            .arg(&stick.root_path)
+            .arg(folder)
+            .output()
+            .context("cannot run diskutil")?;
+        if !output.status.success() {
+            bail!(
+                "diskutil could not rename the stick: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(stick.root_path.clone())
+    }
+
     pub fn is_mounted(stick: &OwnedStick) -> bool {
         folder_is_there(&stick.root_path)
     }

@@ -228,3 +228,60 @@ pub async fn new_stick(
     start_sharing(&app, made, 1).await;
     Ok(stick_hex(&made))
 }
+
+/// "Rename…": the stick gets the name `name` (stored in one form, unique
+/// among the app's sticks), its folder or volume and its bookmark or letter
+/// follow, and readers see the new name with its next version. Its share
+/// stops meanwhile and starts again after, if wanted. Windows refuses while
+/// a file in it is open, and says so.
+#[tauri::command]
+pub async fn rename(
+    stick_id: String,
+    name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let id = stick_id_of(&stick_id)?;
+    let stick = state.app_stick(&id).map_err(shown)?;
+    if !make_busy(&state, &id, "Renaming…").await {
+        return Err("the stick is busy; try again in a moment".to_owned());
+    }
+    let _ = app.emit("sharing-changed", ());
+    let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
+    let renaming = stick.clone();
+    let renamed = blocking(move || {
+        let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
+        let _lock = take_retrying(|| stick_lock(&data_dir, &renaming))?;
+        let others: Vec<OwnedStick> = crate::state::app_sticks(store.as_ref())?
+            .into_iter()
+            .filter(|other| other.stick_id != renaming.stick_id)
+            .collect();
+        let name = new_stick_name(&name, &others)?;
+        let home = crate::drive::sticks_home()?;
+        let current = renaming.root_path.file_name().map(|name| name.to_owned());
+        let folder = folder_name(&name, |candidate| {
+            current.as_deref() != Some(std::ffi::OsStr::new(candidate))
+                && home.join(candidate).exists()
+        });
+        let root = crate::drive::rename(&renaming, &folder, &name)?;
+        if root != renaming.root_path {
+            store.move_owned_stick(&renaming.stick_id, &root)?;
+        }
+        store.rename_owned_stick(&renaming.stick_id, &name)?;
+        if let Some(letter) = crate::drive::letter_of(&root) {
+            store.set_drive_letter(&renaming.stick_id, Some(letter))?;
+        }
+        Ok(())
+    })
+    .await;
+    state.sticks.lock().await.remove(&id);
+    if stick.sharing_wanted {
+        // A new version carries the new name to readers.
+        start_sharing(&app, id, 1).await;
+    }
+    let _ = app.emit("sticks-changed", ());
+    let _ = app.emit("mount-changed", ());
+    let _ = app.emit("sharing-changed", ());
+    renamed
+}

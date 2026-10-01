@@ -63,9 +63,12 @@ mod platform {
     pub fn is_mounted(stick: &OwnedStick) -> bool {
         folder_is_there(&stick.root_path)
     }
+    pub fn rename(stick: &OwnedStick, _folder: &str, _name: &str) -> Result<PathBuf> {
+        Ok(stick.root_path.clone())
+    }
 }
 
-pub use platform::{create, eject, is_mounted, mount, sticks_home};
+pub use platform::{create, eject, is_mounted, mount, rename, sticks_home};
 
 /// The first stick of a version before ADR 0009 is `~/OurStick` itself
 /// (Linux, Windows): it moves into it as `~/OurStick/<folder>` before a

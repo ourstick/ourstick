@@ -6,7 +6,7 @@
 //! Checked only when a stick or a link is made, never when one is shared, so
 //! what was made before stays as it is. Blocking I/O.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::stick_id::StickId;
 use crate::store::{StickKind, Store, StoreError};
@@ -29,23 +29,30 @@ impl Relation {
     }
 }
 
-/// `path` as places are compared: links resolved where it exists, Windows'
-/// `\\?\` prefix dropped (so a gone path compares like a found one), and
-/// letter case ignored where the file system ignores it (macOS, Windows).
+/// `path` as places are compared: links resolved where it exists, then
+/// [`comparable_text`] with letter case ignored where the file system
+/// ignores it (macOS, Windows).
 pub fn comparable(path: &Path) -> PathBuf {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let text = resolved.to_string_lossy();
-    let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
-    let path = PathBuf::from(text);
-    if cfg!(any(target_os = "macos", windows)) {
-        path.components()
-            .map(|component| match component {
-                Component::Normal(name) => PathBuf::from(name.to_string_lossy().to_lowercase()),
-                other => PathBuf::from(other.as_os_str()),
-            })
-            .collect()
+    PathBuf::from(comparable_text(
+        &resolved.to_string_lossy(),
+        cfg!(any(target_os = "macos", windows)),
+    ))
+}
+
+/// The text of a path as places are compared: Windows' `\\?\` dropped and
+/// `\\?\UNC\` made `\\` again (so a gone path compares like a resolved
+/// one), and with `fold_case` all of it in lower case, the drive letter too.
+pub fn comparable_text(text: &str, fold_case: bool) -> String {
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
     } else {
-        path
+        text.strip_prefix(r"\\?\").unwrap_or(text).to_owned()
+    };
+    if fold_case {
+        text.to_lowercase()
+    } else {
+        text
     }
 }
 
@@ -90,10 +97,18 @@ pub fn app_places(
         if stick.kind != StickKind::App || Some(&stick.stick_id) == except {
             continue;
         }
+        let what = format!("the stick \u{201c}{}\u{201d}", stick.name);
         taken.push(Taken {
             place: comparable(&stick.root_path),
-            what: format!("the stick \u{201c}{}\u{201d}", stick.name),
+            what: what.clone(),
         });
+        // macOS: the disk image it lives in.
+        if let Some(image) = &stick.image_path {
+            taken.push(Taken {
+                place: comparable(image),
+                what,
+            });
+        }
     }
     Ok(taken)
 }
@@ -120,8 +135,9 @@ pub enum PlaceError {
 }
 
 /// Whether `path` may be the folder of a new stick (a command-line one, or
-/// a new app stick's): not, nor around, nor inside an app stick's folder or
-/// the data folder.
+/// a new app stick's) or where a download goes: not, nor around, nor
+/// inside an app stick's folder or image, or the data folder. (Downloads
+/// inside an app stick would be deleted with it.)
 pub fn check_new_stick_folder(
     store: &dyn Store,
     data_dir: &Path,

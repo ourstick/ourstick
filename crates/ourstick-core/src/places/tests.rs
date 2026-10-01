@@ -113,10 +113,20 @@ fn a_stick_being_removed_keeps_its_folder_until_it_is_gone() {
 
 #[test]
 fn places_compare_the_way_the_system_does() {
-    // A gone Windows path and a resolved one compare alike.
-    assert_eq!(
-        comparable(Path::new(r"\\?\C:\Users\me\OurStick")),
-        comparable(Path::new(r"C:\Users\me\OurStick"))
+    // Windows, tried everywhere: a gone path and a resolved one compare
+    // alike, network shares too, and the drive letter's case does not count.
+    for (resolved, stored) in [
+        (r"\\?\C:\Users\me\OurStick", r"c:\users\me\ourstick"),
+        (r"\\?\UNC\server\share\Photos", r"\\SERVER\share\photos"),
+    ] {
+        assert_eq!(
+            comparable_text(resolved, true),
+            comparable_text(stored, true)
+        );
+    }
+    assert_ne!(
+        comparable_text(r"\\?\UNC\server\share", true),
+        comparable_text(r"UNC\server\share", true)
     );
     let lower = comparable(Path::new("/nowhere/Photos"));
     let upper = comparable(Path::new("/nowhere/PHOTOS"));
@@ -126,4 +136,21 @@ fn places_compare_the_way_the_system_does() {
         Some(Relation::Contains)
     );
     assert_eq!(relation(Path::new("/a/b"), Path::new("/a/bc")), None);
+}
+
+#[test]
+fn a_macos_sticks_image_is_ourstick_s_too() {
+    let device = device();
+    let app_id = StickSigningKey::from_bytes(&[4; 32]).stick_id();
+    let image = device
+        .data
+        .parent()
+        .unwrap()
+        .join("Images/OurStick.sparseimage");
+    device.store.set_image_path(&app_id, &image).unwrap();
+    assert!(check(&device, &image).is_err());
+    assert!(
+        check(&device, image.parent().unwrap()).is_err(),
+        "it holds the image"
+    );
 }

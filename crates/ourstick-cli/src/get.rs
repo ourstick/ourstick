@@ -14,6 +14,7 @@ use ourstick_core::download::{
     download, wait_for_newer, DownloadError, DownloadEvent, DownloadReport, FollowEvent,
     RelayPolicy, FOLLOW_EVERY,
 };
+use ourstick_core::places::check_new_stick_folder;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
 use ourstick_core::Store;
@@ -54,14 +55,19 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
         Some(output) => output,
         None => std::env::current_dir()?.join(format!("ourstick-{}", &stick_hex[..8])),
     };
-    std::fs::create_dir_all(&output)
-        .with_context(|| format!("cannot create {}", output.display()))?;
-    let output = std::fs::canonicalize(&output)?;
 
     // A reader needs no keys of its own (a fresh node key per run, below) and
     // does not keep the ticket, so no secret store is opened: `get` runs on
     // every platform. Running `get` again with the same link resumes.
     let setup = tokio::task::spawn_blocking(setup::open_for_reading).await??;
+    // Not inside an app stick's folder (removing the stick would delete the
+    // downloads) nor OurStick's data folder; checked before it is made.
+    let output = std::path::absolute(&output)
+        .with_context(|| format!("cannot resolve {}", output.display()))?;
+    check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, &output)?;
+    std::fs::create_dir_all(&output)
+        .with_context(|| format!("cannot create {}", output.display()))?;
+    let output = std::fs::canonicalize(&output)?;
     // One `get` of a stick at a time; it also keeps this download's room in
     // the space ledger alive (ADR 0008).
     let _download_lock = ourstick_core::locks::download_lock(&setup.data_dir, &ticket.stick_id)?;

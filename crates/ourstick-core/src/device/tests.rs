@@ -1,0 +1,169 @@
+use super::*;
+use crate::secrets::MemorySecretStore;
+
+fn environment<'a>(values: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> + 'a {
+    move |name| {
+        values
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value.into())
+    }
+}
+
+#[test]
+fn the_data_folder_follows_the_system() {
+    let unix = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "")];
+    assert_eq!(
+        data_dir_from(environment(&unix), false).unwrap(),
+        PathBuf::from("/home/anna/.local/share/ourstick")
+    );
+    let xdg = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "/data")];
+    assert_eq!(
+        data_dir_from(environment(&xdg), false).unwrap(),
+        PathBuf::from("/data/ourstick")
+    );
+    let windows = [("LOCALAPPDATA", r"C:\Users\anna\AppData\Local")];
+    assert_eq!(
+        data_dir_from(environment(&windows), true).unwrap(),
+        PathBuf::from(r"C:\Users\anna\AppData\Local").join("OurStick")
+    );
+    // $HOME alone does not count on Windows.
+    assert!(matches!(
+        data_dir_from(environment(&[("HOME", "/home/anna")]), true),
+        Err(DeviceError::NoHome("%LOCALAPPDATA%"))
+    ));
+    let chosen = [("OURSTICK_DATA_DIR", "/elsewhere"), ("HOME", "/home/anna")];
+    for windows in [false, true] {
+        assert_eq!(
+            data_dir_from(environment(&chosen), windows).unwrap(),
+            PathBuf::from("/elsewhere")
+        );
+    }
+}
+use crate::store::MemoryStore;
+
+#[test]
+fn a_new_device_makes_no_node_key_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
+    open_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
+    assert_eq!(store.device().unwrap().unwrap().node_id, None);
+    assert_eq!(secrets.get(&SecretName::NodeKey).unwrap(), None);
+}
+
+#[test]
+fn an_old_node_key_is_never_overwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    secrets.put(&SecretName::NodeKey, &[7; 32]).unwrap();
+    let result = open_device(&store, dir.path(), &secrets, SecretBackend::SecretService);
+    assert!(matches!(result, Err(DeviceError::NodeKeyExists { .. })));
+    assert_eq!(
+        secrets.get(&SecretName::NodeKey).unwrap(),
+        Some(vec![7; 32])
+    );
+}
+
+#[test]
+fn a_new_stick_has_its_own_node_key_and_loads_with_the_same_keys() {
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", Some(10)).unwrap();
+    let other = create_stick(&store, &secrets, Path::new("/tmp/t"), "t", None).unwrap();
+    assert_ne!(made.node_key, other.node_key);
+    assert_eq!(made.stick.kind, StickKind::App);
+    assert_eq!(other.stick.kind, StickKind::Cli);
+    let stick = store.owned_stick(&made.stick.stick_id).unwrap().unwrap();
+    assert_eq!(stick.node_id, Some(IrohConfig::node_id_of(&made.node_key)));
+    let loaded = load_stick(&store, &secrets, stick.clone()).unwrap();
+    assert_eq!(loaded.signing_key.stick_id(), made.stick.stick_id);
+    assert_eq!(loaded.stick_key.as_bytes(), made.stick_key.as_bytes());
+    assert_eq!(loaded.node_key, made.node_key);
+
+    // A missing key is an error, never made again (rule 9).
+    secrets
+        .delete(&SecretName::StickNodeKey(stick.stick_id))
+        .unwrap();
+    assert!(matches!(
+        load_stick(&store, &secrets, stick.clone()),
+        Err(DeviceError::KeyMissing { .. })
+    ));
+    // A key that names another node is refused.
+    secrets
+        .put(&SecretName::StickNodeKey(stick.stick_id), &[1; 32])
+        .unwrap();
+    assert!(matches!(
+        load_stick(&store, &secrets, stick),
+        Err(DeviceError::NodeKeyMismatch { .. })
+    ));
+}
+
+#[test]
+fn an_older_stick_uses_the_device_node_key() {
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+    // As a stick made before ADR 0009 is: no node key of its own.
+    let older = OwnedStick {
+        node_id: None,
+        ..OwnedStick::new(
+            StickSigningKey::generate().stick_id(),
+            "older",
+            "/tmp/o",
+            CIPHER,
+            1,
+        )
+    };
+    let older_keys = [
+        (SecretName::StickSigningKey(older.stick_id), [3; 32]),
+        (SecretName::StickKey(older.stick_id), [4; 32]),
+    ];
+    for (name, key) in &older_keys {
+        secrets.put(name, key).unwrap();
+    }
+    store.add_owned_stick(&older).unwrap();
+    // No device node key recorded: inconsistent, not made up.
+    store
+        .create_device(&Device {
+            node_id: None,
+            secret_backend: SecretBackend::SecretService,
+            created_at_ms: 1,
+        })
+        .unwrap();
+    assert!(matches!(
+        load_stick(&store, &secrets, older.clone()),
+        Err(DeviceError::NoDeviceNodeKey { .. })
+    ));
+    let with_device = MemoryStore::new();
+    with_device
+        .create_device(&Device {
+            node_id: Some(IrohConfig::node_id_of(&[8; 32])),
+            secret_backend: SecretBackend::SecretService,
+            created_at_ms: 1,
+        })
+        .unwrap();
+    with_device.add_owned_stick(&older).unwrap();
+    secrets.put(&SecretName::NodeKey, &[8; 32]).unwrap();
+    let loaded = load_stick(&with_device, &secrets, older).unwrap();
+    assert_eq!(loaded.node_key, [8; 32]);
+    assert_ne!(loaded.node_key, made.node_key);
+}
+
+#[test]
+fn two_sticks_never_share_a_node_key() {
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let first = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+    let mut clash = first.stick.clone();
+    clash.stick_id = StickSigningKey::generate().stick_id();
+    // The same node id for another stick: refused.
+    store.add_owned_stick(&clash).unwrap_err();
+    assert_eq!(store.owned_sticks().unwrap().len(), 1);
+    // A new stick gets a node key of its own.
+    let next = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", None).unwrap();
+    assert_ne!(next.stick.stick_id, first.stick.stick_id);
+    assert_ne!(next.node_key, first.node_key);
+}

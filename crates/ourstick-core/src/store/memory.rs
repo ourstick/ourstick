@@ -9,8 +9,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::{
     check_device, check_drive_letter, check_joined_stick, check_linked_entry, check_owned_file,
-    check_owned_stick, check_seq, check_stamp, path_str, Device, DownloadedFile, JoinedStick,
-    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, Store, StoreError,
+    check_owned_stick, check_seq, check_stamp, check_value, path_str, ClaimKind, Device,
+    DownloadedFile, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, SpaceClaim,
+    Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -24,6 +25,11 @@ struct State {
     owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
     downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
     linked: BTreeMap<[u8; 32], BTreeMap<String, LinkedEntry>>,
+    claims: BTreeMap<([u8; 32], u8), SpaceClaim>,
+}
+
+fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {
+    (stick_id.to_bytes(), kind as u8)
 }
 
 /// A [`Store`] that forgets everything when dropped.
@@ -239,6 +245,47 @@ impl Store for MemoryStore {
         if let Some(files) = state.owned_files.get_mut(&key) {
             files.retain(|path, _| path != name && !path.starts_with(&prefix));
         }
+        Ok(())
+    }
+
+    fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError> {
+        Ok(self.state().claims.values().cloned().collect())
+    }
+
+    fn claim_space(
+        &self,
+        decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
+    ) -> Result<Option<SpaceClaim>, StoreError> {
+        let mut state = self.state();
+        let all: Vec<SpaceClaim> = state.claims.values().cloned().collect();
+        let decided = decide(&all);
+        if let Some(claim) = &decided {
+            check_value("bytes", claim.bytes)?;
+            if claim.disk.is_empty() {
+                return Err(StoreError::Inconsistent("a claim names its disk"));
+            }
+            state
+                .claims
+                .insert(claim_key(&claim.stick_id, claim.kind), claim.clone());
+        }
+        Ok(decided)
+    }
+
+    fn update_space_claim(
+        &self,
+        stick_id: &StickId,
+        kind: ClaimKind,
+        bytes: u64,
+    ) -> Result<(), StoreError> {
+        check_value("bytes", bytes)?;
+        if let Some(claim) = self.state().claims.get_mut(&claim_key(stick_id, kind)) {
+            claim.bytes = bytes;
+        }
+        Ok(())
+    }
+
+    fn remove_space_claim(&self, stick_id: &StickId, kind: ClaimKind) -> Result<(), StoreError> {
+        self.state().claims.remove(&claim_key(stick_id, kind));
         Ok(())
     }
 

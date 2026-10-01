@@ -13,6 +13,7 @@ use ourstick_core::share::{
     keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
     Publication, PARTIAL_TIMING,
 };
+use ourstick_core::space::SystemDisks;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::watcher::{
@@ -110,10 +111,23 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
     let config = IrohConfig::new(node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
     // ADR 0007: files are encrypted into suitcases as readers ask for them,
-    // within a budget, instead of a full encrypted copy.
+    // within a budget, instead of a full encrypted copy; the budget is this
+    // stick's part of the device's (the space ledger).
     let budget = {
         let cache_dir = cache_dir.clone();
-        tokio::task::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??
+        let store = setup.store.clone();
+        let data_dir = setup.data_dir.clone();
+        let stick_id = stick.stick_id;
+        tokio::task::spawn_blocking(move || {
+            Budget::claim(
+                &SystemDisks,
+                store.as_ref(),
+                &data_dir,
+                &stick_id,
+                &cache_dir,
+            )
+        })
+        .await??
     };
     println!(
         "Encrypted copies of what readers ask for take up to {} in {}.",

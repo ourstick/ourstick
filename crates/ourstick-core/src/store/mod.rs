@@ -86,6 +86,30 @@ pub trait Store: Send + Sync {
     /// under its name. The user's files are never touched.
     fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError>;
 
+    /// Every claim on room, stale ones included (the caller tells them
+    /// apart).
+    fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError>;
+
+    /// Decides and records a claim at once, so two programs never both take
+    /// the same room: `decide` gets every claim and returns the one to
+    /// record (replacing the stick's claim of that kind), or `None` to
+    /// record nothing. One transaction.
+    fn claim_space(
+        &self,
+        decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
+    ) -> Result<Option<SpaceClaim>, StoreError>;
+
+    /// Changes how much a claim holds; nothing if there is none.
+    fn update_space_claim(
+        &self,
+        stick_id: &StickId,
+        kind: ClaimKind,
+        bytes: u64,
+    ) -> Result<(), StoreError>;
+
+    /// Drops a claim; nothing if there is none.
+    fn remove_space_claim(&self, stick_id: &StickId, kind: ClaimKind) -> Result<(), StoreError>;
+
     /// Records a new joined stick. Fails if it exists.
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError>;
 

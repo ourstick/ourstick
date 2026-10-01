@@ -128,3 +128,12 @@ pub(crate) fn check_linked_entry(entry: &LinkedEntry) -> Result<(), StoreError> 
     path_str(&entry.path)?;
     check_time(entry.added_at_ms)
 }
+
+/// A count of bytes or the like that SQLite's signed 64-bit integer holds.
+pub(crate) fn check_value(name: &'static str, value: u64) -> Result<(), StoreError> {
+    if value > MAX_STORED_SEQ {
+        Err(StoreError::ValueOutOfRange(name, value))
+    } else {
+        Ok(())
+    }
+}

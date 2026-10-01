@@ -17,6 +17,7 @@ pub mod manifest;
 pub mod record;
 pub mod secrets;
 pub mod share;
+pub mod space;
 pub mod stick_id;
 pub mod store;
 pub mod ticket;

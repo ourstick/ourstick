@@ -4,6 +4,37 @@
 `docs/gui-spec.md` ("The stick is a folder"). Builds on ADR 0007 and comes
 after it.
 
+## Notes from the implementation (step 6, 2026-10-01)
+
+**A space ledger for the whole device.** Since ADR 0009 several programs
+share at once, and downloads compete for the same disks, so §1's formula
+subtracts every claim, not one budget:
+
+```
+left on a disk = free − reserve (10 % of the disk, at most 20 GB)
+               − every live cache budget on that disk (held whole)
+               − every live download's bytes still to come on that disk
+```
+
+Claims are rows in `space_claims`, one per stick and kind, decided and
+written in one transaction. A claim counts only while its holder's lock is
+held (`share-<hex>.lock` for a cache, `download-<hex>.lock` for a download),
+so a program that ends or crashes holds nothing, with no timers. "Left" is
+computed on each call, never cached. A download also needs room for its
+batches (2 GB) on the data folder's disk. `copy_onto` takes no claim: a copy
+is short and the user watches it.
+
+**One cache budget per device** (amends ADR 0007 §2): 10 % of the cache
+disk's free space plus what live shares hold, 2–40 GB. A share starting gets
+what the others leave of it, but at least 2 GB while that much is free; a
+running share keeps what it took (keepers do not shrink). One share alone
+gets what it always got.
+
+Reviewed by two other models before; their findings shaped the order (linked
+entries before the ledger), the gone-root rules (a gone linked entry's files
+are carried as recorded, so the pass never publishes a version without
+them; the keeper backs off instead of spinning) and the claims' design.
+
 ## Context
 
 The app's stick is a folder of a size the user picks at first launch (5, 10 or

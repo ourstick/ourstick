@@ -12,6 +12,7 @@ use ourstick_core::device::{self, StickKeys};
 use ourstick_core::locks::{self, SharingLocks};
 use ourstick_core::secrets::check_secret_store;
 use ourstick_core::share::{keep_suitcases, latest_hint, publish_folder, serve_latest, Budget};
+use ourstick_core::space::SystemDisks;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
@@ -132,15 +133,15 @@ pub async fn start(app: AppHandle, data_dir: PathBuf, store: Arc<dyn Store>) -> 
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
     // Whatever fails from here stops the endpoint before the locks go: no
     // second start may bind this node key while it still runs.
-    let (current, link, read_again) = match first_publication(&app, &publisher, &store, &keys).await
-    {
-        Ok(first) => first,
-        Err(error) => {
-            publisher.clone().shutdown().await;
-            drop(lock);
-            return Err(error);
-        }
-    };
+    let (current, link, read_again) =
+        match first_publication(&app, &publisher, &store, &keys, &data_dir).await {
+            Ok(first) => first,
+            Err(error) => {
+                publisher.clone().shutdown().await;
+                drop(lock);
+                return Err(error);
+            }
+        };
     let activity = publisher.activity();
 
     let (stop, stopped) = oneshot::channel();
@@ -178,14 +179,27 @@ async fn first_publication(
     publisher: &IrohPublisher,
     store: &Arc<dyn Store>,
     keys: &StickKeys,
+    data_dir: &std::path::Path,
 ) -> Result<(Manifest, Option<String>, bool)> {
     let stick_id = keys.stick.stick_id;
     let cache_dir = publisher.cache_dir().to_path_buf();
     // ADR 0007: files are encrypted into suitcases as readers ask for them,
     // within a budget. With too little free space, sharing does not start
     // and the error says why.
-    let budget =
-        tauri::async_runtime::spawn_blocking(move || Budget::for_cache(&cache_dir)).await??;
+    let budget = {
+        let store = store.clone();
+        let data_dir = data_dir.to_path_buf();
+        tauri::async_runtime::spawn_blocking(move || {
+            Budget::claim(
+                &SystemDisks,
+                store.as_ref(),
+                &data_dir,
+                &stick_id,
+                &cache_dir,
+            )
+        })
+        .await??
+    };
     tauri::async_runtime::spawn({
         let keeper = keep_suitcases(
             publisher.clone(),

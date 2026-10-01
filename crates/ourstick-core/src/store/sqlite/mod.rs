@@ -6,6 +6,7 @@ mod linked;
 mod migrations;
 mod owned;
 mod rows;
+mod space;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -22,8 +23,9 @@ use rows::{
 };
 
 use super::{
-    check_device, check_owned_stick, path_str, Device, DownloadedFile, JoinedStick, LinkedEntry,
-    ManifestVersion, OwnedFile, OwnedStick, SecretBackend, Store, StoreError,
+    check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedStick,
+    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, SecretBackend, SpaceClaim, Store,
+    StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -243,6 +245,30 @@ impl Store for SqliteStore {
 
     fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
         linked::remove(&mut self.connection(), stick_id, name)
+    }
+
+    fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError> {
+        space::claims(&self.connection())
+    }
+
+    fn claim_space(
+        &self,
+        decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
+    ) -> Result<Option<SpaceClaim>, StoreError> {
+        space::claim(&mut self.connection(), decide)
+    }
+
+    fn update_space_claim(
+        &self,
+        stick_id: &StickId,
+        kind: ClaimKind,
+        bytes: u64,
+    ) -> Result<(), StoreError> {
+        space::update(&self.connection(), stick_id, kind, bytes)
+    }
+
+    fn remove_space_claim(&self, stick_id: &StickId, kind: ClaimKind) -> Result<(), StoreError> {
+        space::remove(&self.connection(), stick_id, kind)
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {

@@ -25,10 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 12
+## Version 13
 
-Version 12 (`0012_linked_entries.sql`, ADR 0008) added `linked_entries`,
-below. Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
+Version 13 (`0013_space_claims.sql`, ADR 0008's notes) added `space_claims`,
+below. Version 12 (`0012_linked_entries.sql`, ADR 0008) added
+`linked_entries`, below. Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
 `owned_sticks.node_id` (NULL for every stick made before) and
 `owned_sticks.kind` (`app` for the sticks that have a `drive_size`, `cli` for
 the others), and made `device.node_id` optional; the `device` table is made
@@ -195,6 +196,25 @@ Primary key `(stick_id, name)`; names that differ only in letter case are kept
 apart by `plan_link`, not by the database. Removing a row stops sharing the
 entry and removes its `owned_files` rows (`name` and `name/…`) in the same
 transaction; the user's files are never touched.
+
+### `space_claims`
+
+The space ledger: room a program holds on a disk for one stick, so that
+every OurStick program of the device counts what the others hold (ADR 0008's
+notes, `ourstick_core::space`).
+
+| Column     | Type    | Meaning                                                     |
+|------------|---------|-------------------------------------------------------------|
+| `stick_id` | BLOB 32 | The stick (owned for a cache, joined for a download; no foreign key) |
+| `kind`     | TEXT    | `cache`: a sharer's cache budget, held whole; `download`: a download's bytes still to come |
+| `disk`     | TEXT    | Which disk: `dev:<st_dev>` on Unix, `vol:<volume>` on Windows |
+| `bytes`    | INTEGER | How much it holds                                           |
+
+Primary key `(stick_id, kind)`: a new claim replaces the old one. A row
+counts only while its holder's lock is held (`share-<hex>.lock` for `cache`,
+`download-<hex>.lock` for `download`); otherwise it is stale, ignored, and
+replaced next time. Claims are decided and written in one transaction, so
+two programs never both take the same room.
 
 ## Not yet in the schema
 

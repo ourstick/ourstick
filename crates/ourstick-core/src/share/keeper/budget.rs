@@ -1,15 +1,15 @@
-//! The room the owner's suitcases may take (ADR 0007): one budget per
-//! program, shared by its sticks, taken from the free space on the cache's
-//! disk once, at start (suitcases shrink what is free).
+//! The room the owner's suitcases may take (ADR 0007): one budget for the
+//! device, split between the sticks shared at once and taken when each
+//! starts ([`crate::space::claim_cache`]); suitcases shrink what is free.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::share::ShareError;
+use crate::space::{claim_cache, Disks, SpaceError};
+use crate::stick_id::StickId;
+use crate::store::Store;
 
-/// The budget is this share of the free space…
-const SHARE_OF_FREE: u64 = 10;
-/// …at least this…
+/// The budget is at least this…
 pub const MIN_BUDGET: u64 = 2 << 30;
 /// …and at most this.
 pub const MAX_BUDGET: u64 = 40 << 30;
@@ -34,14 +34,19 @@ impl Budget {
         }
     }
 
-    /// 10 % of the free space on the disk of `cache_dir`, 2 to 40 GB. Fails
-    /// with [`ShareError::NoRoom`] with less than 2 GB free. Blocking.
-    pub fn for_cache(cache_dir: &Path) -> Result<Self, ShareError> {
-        let free = fs4::available_space(cache_dir).map_err(|source| ShareError::Io {
-            path: cache_dir.to_path_buf(),
-            source,
-        })?;
-        Ok(Self::new(budget_for_free_space(free)?))
+    /// The budget of the stick `stick_id`, whose lock this program holds,
+    /// with its suitcases in `cache_dir`: its part of the device's budget,
+    /// claimed in the space ledger while the lock is held. Blocking.
+    pub fn claim(
+        disks: &dyn Disks,
+        store: &dyn Store,
+        data_dir: &Path,
+        stick_id: &StickId,
+        cache_dir: &Path,
+    ) -> Result<Self, SpaceError> {
+        Ok(Self::new(claim_cache(
+            disks, store, data_dir, stick_id, cache_dir,
+        )?))
     }
 
     fn room(&self) -> MutexGuard<'_, Room> {
@@ -88,29 +93,9 @@ impl Budget {
     }
 }
 
-fn budget_for_free_space(free: u64) -> Result<u64, ShareError> {
-    if free < MIN_BUDGET {
-        return Err(ShareError::NoRoom { free });
-    }
-    Ok((free / SHARE_OF_FREE).clamp(MIN_BUDGET, MAX_BUDGET))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const GB: u64 = 1 << 30;
-
-    #[test]
-    fn the_budget_is_a_tenth_of_the_free_space_within_bounds() {
-        assert_eq!(budget_for_free_space(161 * GB).unwrap(), 161 * GB / 10);
-        assert_eq!(budget_for_free_space(5 * GB).unwrap(), MIN_BUDGET);
-        assert_eq!(budget_for_free_space(483 * GB).unwrap(), MAX_BUDGET);
-        assert!(matches!(
-            budget_for_free_space(GB),
-            Err(ShareError::NoRoom { free }) if free == GB
-        ));
-    }
 
     #[test]
     fn reservations_fit_or_wait() {
@@ -125,15 +110,5 @@ mod tests {
         assert_eq!(budget.available(), 0);
         budget.release(25);
         assert_eq!(budget.total(), 10);
-    }
-
-    #[test]
-    fn the_cache_disk_has_a_budget() {
-        let dir = tempfile::tempdir().unwrap();
-        match Budget::for_cache(dir.path()) {
-            Ok(budget) => assert!((MIN_BUDGET..=MAX_BUDGET).contains(&budget.total())),
-            Err(ShareError::NoRoom { .. }) => {}
-            Err(error) => panic!("{error}"),
-        }
     }
 }

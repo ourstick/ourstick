@@ -13,6 +13,9 @@
 //!   opens it until it ends. With a key file, one program at a time.
 //! - `setup.lock`: held briefly while the device or a stick is made, so two
 //!   programs never make the device twice or two sticks for one folder.
+//! - `download-<hex stick id>.lock`: one program downloads a stick at a
+//!   time; it also keeps that download's claim on room alive
+//!   (`crate::space`), as a stick's own lock keeps its cache's.
 //!
 //! All of them are tried, never waited for: no deadlock is possible, and
 //! each refusal says which lock and why.
@@ -21,7 +24,7 @@ use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 
 use crate::stick_id::StickId;
-use crate::store::{OwnedStick, Store, StoreError};
+use crate::store::{ClaimKind, OwnedStick, Store, StoreError};
 
 /// Why a lock could not be taken. The messages are meant for users.
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +37,8 @@ pub enum LockError {
     KeyFileInUse,
     #[error("another OurStick program is setting up; try again in a moment")]
     SetupInUse,
+    #[error("this stick is already being downloaded on this device (by another `ourstick get` or the app)")]
+    DownloadInUse,
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -71,6 +76,40 @@ fn try_take(path: PathBuf) -> Result<Option<Lock>, LockError> {
 fn stick_lock_path(data_dir: &Path, stick_id: &StickId) -> PathBuf {
     let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
     data_dir.join(format!("share-{hex}.lock"))
+}
+
+fn download_lock_path(data_dir: &Path, stick_id: &StickId) -> PathBuf {
+    let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
+    data_dir.join(format!("download-{hex}.lock"))
+}
+
+/// The lock of downloading `stick_id`, held for the whole download.
+pub fn download_lock(data_dir: &Path, stick_id: &StickId) -> Result<Lock, LockError> {
+    try_take(download_lock_path(data_dir, stick_id))?.ok_or(LockError::DownloadInUse)
+}
+
+/// Whether some program (this one included, through another handle) holds
+/// the lock that keeps a claim of `kind` on `stick_id` alive. A probe that
+/// gets the lock lets it go at once; a holder starting in that instant is
+/// refused and tries again ([`take_retrying`]).
+pub fn is_held(data_dir: &Path, kind: ClaimKind, stick_id: &StickId) -> Result<bool, LockError> {
+    let path = match kind {
+        ClaimKind::Cache => stick_lock_path(data_dir, stick_id),
+        ClaimKind::Download => download_lock_path(data_dir, stick_id),
+    };
+    Ok(try_take(path)?.is_none())
+}
+
+/// Takes a lock with `take`, once more after a moment if refused: another
+/// program's [`is_held`] probe may own it for an instant.
+pub fn take_retrying<T>(take: impl Fn() -> Result<T, LockError>) -> Result<T, LockError> {
+    match take() {
+        Err(LockError::StickInUse { .. } | LockError::DownloadInUse) => {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            take()
+        }
+        other => other,
+    }
 }
 
 /// The lock of one stick: held while it is shared, or changed.
@@ -151,7 +190,7 @@ pub fn lock_for_sharing(
     let seen = store
         .owned_stick(stick_id)?
         .ok_or(StoreError::StickNotFound)?;
-    let stick_lock = stick_lock(data_dir, &seen)?;
+    let stick_lock = take_retrying(|| stick_lock(data_dir, &seen))?;
     let stick = store
         .owned_stick(stick_id)?
         .ok_or(StoreError::StickNotFound)?;

@@ -163,3 +163,23 @@ pub struct LinkedEntry {
     pub disk: Option<u64>,
     pub added_at_ms: u64,
 }
+
+/// What a claim on a disk's room is for (the space ledger).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimKind {
+    /// A sharer's cache budget (ADR 0007), held whole.
+    Cache,
+    /// A download's bytes still to come.
+    Download,
+}
+
+/// Room a program holds on a disk, for one stick. Counts only while the
+/// program holds that stick's lock of the same kind (`crate::space`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceClaim {
+    pub stick_id: StickId,
+    pub kind: ClaimKind,
+    /// Which disk (`crate::space::Disks::key`).
+    pub disk: String,
+    pub bytes: u64,
+}

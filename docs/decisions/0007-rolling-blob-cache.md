@@ -40,6 +40,10 @@ and iroh-blobs 0.103; these points changed on the way:
   transport which blobs readers ask for (`Demand`); a file bigger than the
   budget gets a suitcase alone once all others can go.
 
+**Amended by ADR 0008's notes (step 6):** the budget is one per device, not
+per program, split between the sticks shared at once through the space
+ledger (`space_claims`); see there.
+
 ## Context
 
 A real case: a rescued disk to send to a relative, 913 GB in 146,297 files and

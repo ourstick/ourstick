@@ -101,3 +101,24 @@ fn the_refusal_names_no_stick_when_it_cannot_tell() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_held_lock_is_seen_from_another_handle_and_a_free_one_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let one = stick(&store, 1, "one", true);
+    assert!(!is_held(dir.path(), ClaimKind::Cache, &one.stick_id).unwrap());
+    let (sharing, _) = lock_for_sharing(dir.path(), &store, &one.stick_id).unwrap();
+    // This very program holds it: still held.
+    assert!(is_held(dir.path(), ClaimKind::Cache, &one.stick_id).unwrap());
+    assert!(!is_held(dir.path(), ClaimKind::Download, &one.stick_id).unwrap());
+    let download = download_lock(dir.path(), &one.stick_id).unwrap();
+    assert!(is_held(dir.path(), ClaimKind::Download, &one.stick_id).unwrap());
+    assert!(matches!(
+        download_lock(dir.path(), &one.stick_id),
+        Err(LockError::DownloadInUse)
+    ));
+    drop((sharing, download));
+    assert!(!is_held(dir.path(), ClaimKind::Cache, &one.stick_id).unwrap());
+    assert!(!is_held(dir.path(), ClaimKind::Download, &one.stick_id).unwrap());
+}

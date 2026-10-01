@@ -10,7 +10,7 @@ use std::sync::Arc;
 mod batches;
 mod entry;
 mod fetch_files;
-mod files;
+pub(crate) mod files;
 mod folder;
 mod follow;
 mod listing;

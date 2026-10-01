@@ -19,7 +19,7 @@ use crate::untrusted::escape;
 ///
 /// `windows` selects the Windows rules; it is a parameter so they are tested
 /// everywhere.
-fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
+pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
     let mut components = Path::new(component).components();
     let single_normal = matches!(
         (components.next(), components.next()),

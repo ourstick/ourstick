@@ -10,6 +10,7 @@ repository.workspace = true
 tokio.workspace = true
 futures.workspace = true
 fs4.workspace = true
+icu_normalizer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true

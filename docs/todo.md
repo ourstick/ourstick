@@ -129,3 +129,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   does not hide a file there). A user may delete it, and the stick then
   counts as ejected. Mark it hidden and system (`attrib +h +s`) when it is
   made, and on start for existing ones.
+- **Third-party licences in the packages.** Before the first public package,
+  ship a THIRD-PARTY notices file (e.g. made with `cargo about`), including
+  the Unicode-3.0 licence of the ICU crates (`icu_normalizer` for stick
+  names, already used by iroh through `url`/`idna`).

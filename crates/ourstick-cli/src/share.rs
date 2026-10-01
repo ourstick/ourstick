@@ -20,6 +20,7 @@ use ourstick_core::watcher::{
     follow_folder, FolderEvents, NotifyEvents, Owner, PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{cipher_for, ManifestHint, Ticket};
+use ourstick_core::stick_names::name_from_folder;
 use ourstick_core::{locks, StickId, StickKind};
 
 use crate::display::bytes;
@@ -53,10 +54,13 @@ fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
         }
         return Ok(stick.stick_id);
     }
-    let name = folder
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "stick".to_owned());
+    // Never refused: made fit (ADR 0009 §3), named after its folder.
+    let name = name_from_folder(
+        &folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    );
     let made = device::create_stick(
         setup.store.as_ref(),
         setup.secrets.as_ref(),

@@ -10,15 +10,13 @@ export interface AppState {
   first_launch: boolean;
 }
 
-export const STICK_SIZES_GB = [5, 10, 20, 50] as const;
-
 export function appState(): Promise<AppState> {
   return invoke("app_state");
 }
 
-/** Creates the keys and the stick of `sizeGb` GB. */
-export function plugIn(sizeGb: number): Promise<void> {
-  return invoke("plug_in", { sizeGb });
+/** Creates the keys and the stick (no size to choose, ADR 0008). */
+export function plugIn(): Promise<void> {
+  return invoke("plug_in");
 }
 
 export interface Entry {
@@ -39,8 +37,10 @@ export interface Sharing {
 
 export interface Stick {
   name: string;
-  size: number;
+  /** Bytes copied onto it. */
   used: number;
+  /** What can still be copied onto it: what the computer has room for. */
+  left: number;
   entries: Entry[];
   sharing: Sharing;
   /** Mounted (macOS) or in the sidebar (Linux); false after Eject. */

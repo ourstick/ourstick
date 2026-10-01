@@ -14,7 +14,7 @@ use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
 use crate::layout::StickLayout;
 use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};
-use crate::store::OwnedFile;
+use crate::store::{OwnedFile, StickKind};
 use crate::transport::Publisher;
 
 /// A part of the catalogue closes at this many files…
@@ -100,14 +100,12 @@ pub async fn run_pass(
     // list.
     let name = name_for_manifest(&owned.name);
     let root = owned.root_path.clone();
-    if let Some(size) = owned.drive_size {
-        // Never publish an ejected drive (an empty mount point) as an empty
-        // stick, nor a stick that does not fit.
+    // The app's stick is a drive: never publish an ejected one (an empty
+    // mount point) as an empty stick.
+    let is_drive = owned.kind == StickKind::App;
+    if is_drive {
         let root = root.clone();
-        let used = run_blocking(move || check_drive(&root, &stick_id)).await?;
-        if used > size {
-            return Err(ShareError::StickFull { size, used });
-        }
+        run_blocking(move || check_drive(&root, &stick_id)).await?;
     }
     let recorded: Vec<OwnedFile> = {
         let store = owner.store.clone();
@@ -155,7 +153,7 @@ pub async fn run_pass(
     let mut skipped = 0;
     let mut reused = 0;
     while !catalogue.is_finished() {
-        if owned.drive_size.is_some() {
+        if is_drive {
             let marker_root = root.clone();
             if !run_blocking(move || drive_present(&marker_root, &stick_id)).await {
                 return Err(ShareError::DriveMissing { path: root.clone() });

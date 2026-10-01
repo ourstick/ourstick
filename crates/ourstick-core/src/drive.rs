@@ -10,8 +10,8 @@ use crate::share::{folder_size, ShareError};
 /// Why a copy onto the stick or a removal failed. Messages are for users.
 #[derive(Debug, thiserror::Error)]
 pub enum DriveError {
-    #[error("the stick is full: {needed} bytes do not fit in the {free} left")]
-    Full { needed: u64, free: u64 },
+    #[error("does not fit: {needed} bytes, and {left} are left on the stick")]
+    DoesNotFit { needed: u64, left: u64 },
     #[error("{} cannot be copied: {reason}", .path.display())]
     NotCopyable { path: PathBuf, reason: &'static str },
     #[error("{name} is not on the stick")]
@@ -70,6 +70,7 @@ pub fn top_entries(root: &Path) -> Result<Vec<TopEntry>, DriveError> {
 
 /// A name for `name` on the stick that is not taken: `name`, else
 /// `stem (2).ext`, `stem (3).ext`, … as file managers do.
+#[cfg(test)]
 fn free_name(root: &Path, name: &str) -> String {
     free_name_where(name, |candidate| root.join(candidate).exists())
 }
@@ -128,10 +129,17 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), DriveError> {
 }
 
 /// Copies files and folders onto the stick, like onto a real USB stick; the
-/// originals are not touched. All or nothing about space: if they do not fit
-/// in `size` together with what is there, nothing is copied. Returns the
-/// names they got on the stick.
-pub fn copy_onto(root: &Path, size: u64, sources: &[PathBuf]) -> Result<Vec<String>, DriveError> {
+/// originals are not touched. All or nothing about space: if they need more
+/// than the `left` bytes (what its disk has room for, from the space ledger,
+/// ADR 0008), nothing is copied, as a real stick refuses. A name already on
+/// the stick, or a linked entry's (`linked_names`, ignoring case), gets
+/// " (2)", " (3)"…. Returns the names they got on the stick.
+pub fn copy_onto(
+    root: &Path,
+    left: u64,
+    linked_names: &[String],
+    sources: &[PathBuf],
+) -> Result<Vec<String>, DriveError> {
     let mut needed = 0;
     for source in sources {
         if source.starts_with(root) {
@@ -142,11 +150,13 @@ pub fn copy_onto(root: &Path, size: u64, sources: &[PathBuf]) -> Result<Vec<Stri
         }
         needed += source_size(source)?;
     }
-    let used = folder_size(root)?;
-    let free = size.saturating_sub(used);
-    if needed > free {
-        return Err(DriveError::Full { needed, free });
+    if needed > left {
+        return Err(DriveError::DoesNotFit { needed, left });
     }
+    let linked: Vec<String> = linked_names
+        .iter()
+        .map(|name| name.to_lowercase())
+        .collect();
     let mut names = Vec::new();
     for source in sources {
         let name = source
@@ -156,7 +166,9 @@ pub fn copy_onto(root: &Path, size: u64, sources: &[PathBuf]) -> Result<Vec<Stri
                 path: source.clone(),
                 reason: "its name is not valid text",
             })?;
-        let name = free_name(root, name);
+        let name = free_name_where(name, |candidate| {
+            root.join(candidate).exists() || linked.contains(&candidate.to_lowercase())
+        });
         copy_tree(source, &root.join(&name))?;
         names.push(name);
     }
@@ -228,9 +240,10 @@ mod tests {
             elsewhere.path().join("photos"),
         ];
 
-        let names = copy_onto(stick.path(), 100, &sources).unwrap();
+        let names = copy_onto(stick.path(), 100, &["PHOTOS".to_owned()], &sources).unwrap();
 
-        assert_eq!(names, vec!["notes (2).txt", "photos"]);
+        // A linked entry's name is taken too, whatever the case.
+        assert_eq!(names, vec!["notes (2).txt", "photos (2)"]);
         assert_eq!(
             std::fs::read(stick.path().join("notes.txt")).unwrap().len(),
             3
@@ -241,10 +254,10 @@ mod tests {
                 .len(),
             4
         );
-        assert!(stick.path().join("photos/a.jpg").exists());
-        assert!(!stick.path().join("photos/.DS_Store").exists());
+        assert!(stick.path().join("photos (2)/a.jpg").exists());
+        assert!(!stick.path().join("photos (2)/.DS_Store").exists());
         assert!(elsewhere.path().join("notes.txt").exists(), "original kept");
-        assert_eq!(free_name(stick.path(), "photos"), "photos (2)");
+        assert_eq!(free_name(stick.path(), "notes.txt"), "notes (3).txt");
     }
 
     #[test]
@@ -258,13 +271,14 @@ mod tests {
             elsewhere.path().join("small.bin"),
             elsewhere.path().join("big.bin"),
         ];
-        let result = copy_onto(stick.path(), 100, &sources);
+        // What its disk has room for, whatever is on the stick already.
+        let result = copy_onto(stick.path(), 40, &[], &sources);
         assert!(
             matches!(
                 result,
-                Err(DriveError::Full {
+                Err(DriveError::DoesNotFit {
                     needed: 50,
-                    free: 40
+                    left: 40
                 })
             ),
             "{result:?}"
@@ -276,7 +290,7 @@ mod tests {
     fn the_stick_cannot_be_copied_onto_itself() {
         let stick = tempfile::tempdir().unwrap();
         write(&stick.path().join("a.txt"), 1);
-        let result = copy_onto(stick.path(), 100, &[stick.path().join("a.txt")]);
+        let result = copy_onto(stick.path(), 100, &[], &[stick.path().join("a.txt")]);
         assert!(matches!(result, Err(DriveError::NotCopyable { .. })));
     }
 

@@ -41,17 +41,7 @@ pub(crate) fn check_drive_letter(letter: Option<char>) -> Result<(), StoreError>
 
 pub(crate) fn check_owned_stick(stick: &OwnedStick) -> Result<(), StoreError> {
     check_seq(stick.last_signed_seq)?;
-    if stick.drive_size.is_some() && stick.kind != StickKind::App {
-        return Err(StoreError::Inconsistent("a drive is the app's stick"));
-    }
     check_drive_letter(stick.drive_letter)?;
-    match stick.drive_size {
-        Some(0) => return Err(StoreError::Inconsistent("a drive of size 0")),
-        Some(size) if size > MAX_STORED_SEQ => {
-            return Err(StoreError::ValueOutOfRange("drive size", size))
-        }
-        _ => {}
-    }
     check_time(stick.created_at_ms)?;
     path_str(&stick.root_path)?;
     match &stick.latest_record {

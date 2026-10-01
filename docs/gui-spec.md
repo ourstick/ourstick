@@ -14,24 +14,28 @@ number of elements. No settings page in stage 1.
 
 The stick is one ordinary folder, like the contents of a real USB stick. Files
 dropped on the window are **copied** into it, as onto a real stick; the
-originals are not touched. Sharing, the watcher and the size limit all work on
-that folder. The app shows the folder as a drive, per platform:
+originals are not touched. Sharing and the watcher work on that folder. The
+stick has **no fixed size** (ADR 0008): what can still be copied onto it is
+what the computer has room for. The app shows the folder as a drive, per
+platform:
 
 - **macOS:** a sparse APFS disk image,
-  `hdiutil create -type SPARSE -fs APFS -size <size> -volname OurStick`, kept in
+  `hdiutil create -type SPARSE -fs APFS -size <its disk's size> -volname OurStick`, kept in
   `~/Library/Application Support/OurStick/` and attached with `hdiutil attach`.
   It appears in Finder's Locations as a drive with an eject button. The mounted
   volume is the stick folder. Ejecting in Finder is a real detach, and the app
-  notices. The image enforces the size limit.
+  notices. Sparse, it takes room only as it fills, so it never limits first;
+  an image made with a size before is grown at mount. What is left is
+  measured on the disk that holds the image, not on the mounted volume.
 - **Linux:** the folder `~/OurStick`, added as a bookmark to the file manager's
   sidebar (GTK bookmarks for Nautilus, `user-places.xbel` for Dolphin) with a
   USB drive icon where the file manager allows one. No loop device (it needs
-  root). The watcher enforces the size limit.
+  root).
 - **Windows:** the folder `%USERPROFILE%\OurStick`, shown as a drive letter
   with `subst` (no admin rights): the letter it had before (kept in the
   database), else `O:`, else `Z:` down to `D:`. A `subst` letter lasts until
-  logoff, so the app gives it again at every start. The watcher enforces the
-  size limit, as on Linux.
+  logoff, so the app gives it again at every start. What is left is measured
+  on the folder's disk, not by the letter.
 - **Mobile:** not in stage 1.
 
 **Eject** detaches the image (macOS), removes the bookmark (Linux) or takes
@@ -49,19 +53,21 @@ so Spotlight leaves it alone.
 
 ### 1 · Main window
 
-- Title: `OurStick (10 GB)` — the size chosen at first launch.
+- Title: `OurStick`, the stick's name; no size.
 - Right: pill `● Mounted ▾` (macOS, Linux; `○ Ejected ▾` after eject). Click
   opens a two-item menu: `Open in file manager`, `Eject (keeps sharing)` (or
   `Mount` when ejected).
 - Drop zone: "Drop files or folders here", below it `N files · size`.
   Dropping **copies** into the stick folder, like onto a real stick. A drop
-  that does not fit is refused with "Stick is full (10 GB)".
+  that does not fit in what is left is refused, as by a real stick: nothing
+  is copied, and the window says how big it is and how much is left.
 - File list: the top level of the stick folder, name and size, folders with
   trailing `/`. Removing is done in the file manager, or via right-click →
   Remove, which deletes the copy on the stick (never an original).
-- Capacity: `used / stick size`, bar. If the folder grows past the size anyway
-  (on Linux, e.g. by copying in the file manager), the stick is not published
-  and the window shows "Stick is full, remove N MB".
+- Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
+  used out of used + left. "Left" is what the computer has room for once its
+  reserve and every share's and download's claim are counted (the space
+  ledger, ADR 0008); several sticks on one disk share it.
 - Activity line (only while someone downloads):
   `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`.
   Readers have no names, and the owner cannot tell how much a reader still
@@ -101,11 +107,10 @@ so Spotlight leaves it alone.
 ### 5 · First launch
 
 - Title "Welcome to OurStick", three sentences (see image).
-- Stick size dropdown: 5 / 10 / 20 / 50 GB, default 10.
 - Button `Plug it in` → creates keys (Secret Service on Linux, Keychain on
   macOS), creates the stick folder (the disk image on macOS, `~/OurStick` on
   Linux), mounts it or adds the bookmark, and opens panel 1.
-- Shown once. Size can't be changed in stage 1 (documented limitation).
+- Shown once. There is no size to choose (ADR 0008).
 
 ## Semantics that must hold
 
@@ -130,9 +135,6 @@ so Spotlight leaves it alone.
   paths") and says how to allow OurStick in Windows Security; the same
   message appears on Linux and macOS. That message has not yet been seen
   with a real reader: it needs one that cannot come directly.
-- The stick size cannot be changed after first launch.
-- The encrypted cache is a second copy of the stick: a 10 GB stick can take up
-  to about 20 GB of disk.
 - macOS: a sparse image does not shrink when files are deleted; it gets
   smaller only after `hdiutil compact` while detached.
 - Linux: the bookmark's icon is up to the file manager; Nautilus and Thunar

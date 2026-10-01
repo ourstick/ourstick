@@ -246,8 +246,8 @@ pub fn load_stick(
     })
 }
 
-/// Makes a new stick for `root` with new keys, its own node key among them;
-/// `drive_size` for a drive (the app's stick). The keys are stored first: a
+/// Makes a new stick for `root` with new keys, its own node key among them,
+/// listed by the program `kind` (the app's is a drive). The keys are stored first: a
 /// stick in the database always has its keys, and keys left by a crash
 /// before the row belong to no stick and are never used. Take
 /// [`crate::locks::setup_lock`] first.
@@ -256,7 +256,7 @@ pub fn create_stick(
     secrets: &dyn SecretStore,
     root: &Path,
     name: &str,
-    drive_size: Option<u64>,
+    kind: StickKind,
 ) -> Result<StickKeys, DeviceError> {
     let signing_key = StickSigningKey::generate();
     let stick_key = StickKey::generate();
@@ -269,13 +269,7 @@ pub fn create_stick(
     secrets.put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
     secrets.put(&SecretName::StickNodeKey(stick_id), &node_key)?;
     let stick = OwnedStick {
-        drive_size,
-        // Only the app makes drives (until ADR 0008 and step 7 say more).
-        kind: if drive_size.is_some() {
-            StickKind::App
-        } else {
-            StickKind::Cli
-        },
+        kind,
         node_id: Some(IrohConfig::node_id_of(&node_key)),
         ..OwnedStick::new(stick_id, name, root, CIPHER, SystemClock.now_ms())
     };

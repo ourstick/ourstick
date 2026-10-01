@@ -63,13 +63,13 @@ impl Owner {
 
     /// Like [`Owner::new`], on the given network.
     pub async fn on(network: Network, files: &[(&str, &[u8])]) -> Self {
-        Self::with(network, files, None).await
+        Self::with(network, files, StickKind::Cli).await
     }
 
     /// Like [`Owner::new`], with no suitcases' keeper: nothing is served
     /// but the manifest, unless the test puts it in a suitcase itself.
     pub async fn bare(files: &[(&str, &[u8])]) -> Self {
-        Self::build(Network::LocalOnly, files, None).await
+        Self::build(Network::LocalOnly, files, StickKind::Cli).await
     }
 
     /// Keeps the suitcases of `publisher` (a restarted owner's) for this
@@ -84,21 +84,21 @@ impl Owner {
         ));
     }
 
-    /// A drive of `size` bytes (the app's stick), marked as such.
-    pub async fn drive(size: u64, files: &[(&str, &[u8])]) -> Self {
-        let owner = Self::with(Network::LocalOnly, files, Some(size)).await;
+    /// A drive (the app's stick), marked as such.
+    pub async fn drive(files: &[(&str, &[u8])]) -> Self {
+        let owner = Self::with(Network::LocalOnly, files, StickKind::App).await;
         ourstick_core::share::mark_drive(owner.folder.path(), &owner.signing_key.stick_id())
             .unwrap();
         owner
     }
 
-    async fn with(network: Network, files: &[(&str, &[u8])], drive_size: Option<u64>) -> Self {
-        let owner = Self::build(network, files, drive_size).await;
+    async fn with(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
+        let owner = Self::build(network, files, kind).await;
         owner.keep(&owner.publisher);
         owner
     }
 
-    async fn build(network: Network, files: &[(&str, &[u8])], drive_size: Option<u64>) -> Self {
+    async fn build(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
         let folder = tempfile::tempdir().unwrap();
         for (path, contents) in files {
             write_file(folder.path(), path, contents);
@@ -107,12 +107,7 @@ impl Owner {
         let store = Arc::new(MemoryStore::new());
         store
             .add_owned_stick(&OwnedStick {
-                drive_size,
-                kind: if drive_size.is_some() {
-                    StickKind::App
-                } else {
-                    StickKind::Cli
-                },
+                kind,
                 ..OwnedStick::new(
                     signing_key.stick_id(),
                     "test stick",

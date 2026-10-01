@@ -303,7 +303,6 @@ fn a_stick_keeps_its_node_id_and_kind(store: &dyn Store) {
     let stick = OwnedStick {
         node_id: Some(NodeId([5; 32])),
         kind: StickKind::App,
-        drive_size: Some(1 << 30),
         ..owned(1, 10)
     };
     store.add_owned_stick(&stick).unwrap();
@@ -323,18 +322,6 @@ fn a_stick_keeps_its_node_id_and_kind(store: &dyn Store) {
     // Older sticks all have none.
     store.add_owned_stick(&owned(3, 30)).unwrap();
     store.add_owned_stick(&owned(4, 40)).unwrap();
-}
-
-fn a_drive_is_the_apps_stick(store: &dyn Store) {
-    let drive_of_the_cli = OwnedStick {
-        drive_size: Some(1 << 30),
-        kind: StickKind::Cli,
-        ..owned(1, 10)
-    };
-    assert!(matches!(
-        store.add_owned_stick(&drive_of_the_cli),
-        Err(StoreError::Inconsistent(_))
-    ));
 }
 
 macro_rules! for_every_store {
@@ -361,7 +348,6 @@ macro_rules! for_every_store {
 for_every_store!(
     a_device_made_now_has_no_node_key,
     a_stick_keeps_its_node_id_and_kind,
-    a_drive_is_the_apps_stick,
     device_is_created_once,
     device_with_key_file_roundtrips,
     device_with_keychain_roundtrips,

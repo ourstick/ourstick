@@ -98,8 +98,6 @@ pub enum ShareError {
     CacheMismatch(PathBuf),
     #[error("the stick is not plugged in: {} is not its drive (ejected?)", .path.display())]
     DriveMissing { path: PathBuf },
-    #[error("the stick is full: it holds {used} bytes, more than its {size}")]
-    StickFull { size: u64, used: u64 },
     #[error(transparent)]
     Space(#[from] crate::space::SpaceError),
     #[error("{} is not there (unplugged, moved or renamed?); readers wait until it is back", .name.as_ref().map_or_else(|| "the stick's folder".to_owned(), |name| format!("\u{201c}{name}\u{201d}")))]
@@ -203,15 +201,16 @@ fn drive_present(root: &Path, stick_id: &StickId) -> bool {
     marker.trim() == drive_marker_text(stick_id)
 }
 
-/// Checks that `root` is the drive of `stick_id` (its marker is there and
-/// names this stick) and returns its size. Blocking.
-fn check_drive(root: &Path, stick_id: &StickId) -> Result<u64, ShareError> {
-    if !drive_present(root, stick_id) {
-        return Err(ShareError::DriveMissing {
+/// Checks that `root` is the drive of `stick_id`: its marker is there and
+/// names this stick. Blocking.
+fn check_drive(root: &Path, stick_id: &StickId) -> Result<(), ShareError> {
+    if drive_present(root, stick_id) {
+        Ok(())
+    } else {
+        Err(ShareError::DriveMissing {
             path: root.to_path_buf(),
-        });
+        })
     }
-    folder_size(root)
 }
 
 #[cfg(test)]

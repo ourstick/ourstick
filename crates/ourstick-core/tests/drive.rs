@@ -1,7 +1,6 @@
-//! The app's stick is a drive: a folder of a set size, marked as the stick's.
-//! An ejected drive (its folder gone, or an empty mount point) is never
-//! published as an empty stick, and a drive that holds too much is not
-//! published at all.
+//! The app's stick is a drive: a folder marked as the stick's, of no fixed
+//! size (ADR 0008). An ejected drive (its folder gone, or an empty mount
+//! point) is never published as an empty stick.
 
 mod common;
 
@@ -31,7 +30,7 @@ async fn try_publish(owner: &Owner) -> Result<ourstick_core::share::Publication,
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_drive_is_published_without_its_marker_in_the_manifest() {
-    let owner = Owner::drive(1_000, &[("a.txt", b"hello")]).await;
+    let owner = Owner::drive(&[("a.txt", b"hello")]).await;
     let publication = try_publish(&owner).await.unwrap();
     let paths: Vec<&str> = publication
         .manifest
@@ -46,7 +45,7 @@ async fn a_drive_is_published_without_its_marker_in_the_manifest() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ejected_drive_is_never_published_as_empty() {
-    let owner = Owner::drive(1_000, &[("a.txt", b"hello")]).await;
+    let owner = Owner::drive(&[("a.txt", b"hello")]).await;
     let first = try_publish(&owner).await.unwrap();
 
     // Ejected: the drive's contents are gone from the path, and an empty
@@ -79,7 +78,7 @@ async fn an_ejected_drive_is_never_published_as_empty() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn another_sticks_drive_is_not_this_stick() {
-    let owner = Owner::drive(1_000, &[("a.txt", b"hello")]).await;
+    let owner = Owner::drive(&[("a.txt", b"hello")]).await;
     std::fs::write(owner.folder.path().join(DRIVE_MARKER), "00".repeat(32)).unwrap();
     let result = try_publish(&owner).await;
     assert!(
@@ -90,21 +89,14 @@ async fn another_sticks_drive_is_not_this_stick() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_drive_that_holds_too_much_is_not_published() {
-    let owner = Owner::drive(10, &[("a.txt", b"hello")]).await;
+async fn a_drive_has_no_size_to_outgrow() {
+    // ADR 0008: whatever is on it is published.
+    let owner = Owner::drive(&[("a.txt", b"hello")]).await;
     try_publish(&owner).await.unwrap();
-
-    std::fs::write(owner.folder.path().join("b.txt"), b"is too much").unwrap();
+    std::fs::write(owner.folder.path().join("b.txt"), vec![7; 100_000]).unwrap();
     owner.clock.set(5_000);
-    let result = try_publish(&owner).await;
-    assert!(
-        matches!(result, Err(ShareError::StickFull { size: 10, used: 16 })),
-        "{result:?}"
-    );
-    // System files do not count.
-    std::fs::remove_file(owner.folder.path().join("b.txt")).unwrap();
-    std::fs::write(owner.folder.path().join(".DS_Store"), vec![0; 6_000]).unwrap();
-    assert!(try_publish(&owner).await.is_ok());
+    let publication = try_publish(&owner).await.unwrap();
+    assert_eq!(publication.manifest.entries.len(), 2);
     owner.publisher.shutdown().await;
 }
 
@@ -118,7 +110,7 @@ impl FolderEvents for Manual {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_watcher_says_ejected_once_and_picks_up_again() {
-    let owner = Owner::drive(1_000, &[("a.txt", b"hello")]).await;
+    let owner = Owner::drive(&[("a.txt", b"hello")]).await;
     let current = try_publish(&owner).await.unwrap().manifest;
     let (send, receive) = mpsc::unbounded_channel();
     let seen: Arc<Mutex<Vec<String>>> = Arc::default();

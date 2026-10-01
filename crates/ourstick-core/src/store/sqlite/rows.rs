@@ -54,7 +54,6 @@ pub(super) struct OwnedRow {
     last_signed_seq: i64,
     latest_record: Option<Vec<u8>>,
     created_at_ms: i64,
-    drive_size: Option<i64>,
     drive_letter: Option<String>,
     latest_partial: bool,
     node_id: Option<Vec<u8>>,
@@ -62,7 +61,7 @@ pub(super) struct OwnedRow {
 }
 
 pub(super) const OWNED_COLUMNS: &str = "stick_id, name, root_path, cipher, last_signed_seq, \
-     latest_record, created_at_ms, drive_size, drive_letter, latest_partial, node_id, kind";
+     latest_record, created_at_ms, drive_letter, latest_partial, node_id, kind";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -74,11 +73,10 @@ impl OwnedRow {
             last_signed_seq: row.get(4)?,
             latest_record: row.get(5)?,
             created_at_ms: row.get(6)?,
-            drive_size: row.get(7)?,
-            drive_letter: row.get(8)?,
-            latest_partial: row.get(9)?,
-            node_id: row.get(10)?,
-            kind: row.get(11)?,
+            drive_letter: row.get(7)?,
+            latest_partial: row.get(8)?,
+            node_id: row.get(9)?,
+            kind: row.get(10)?,
         })
     }
 
@@ -112,10 +110,6 @@ impl OwnedRow {
                 other => return Err(StoreError::Corrupt(format!("kind {other}"))),
             },
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
-            drive_size: self
-                .drive_size
-                .map(|size| to_u64(size, "drive_size"))
-                .transpose()?,
             drive_letter: self
                 .drive_letter
                 .map(|letter| {

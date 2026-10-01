@@ -34,7 +34,8 @@ pub struct Device {
 /// Which program lists a stick (ADR 0009).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StickKind {
-    /// The app's: a drive.
+    /// The app's: a drive, whose folder carries the drive marker and has
+    /// no fixed size (ADR 0008).
     App,
     /// Shared from the command line.
     Cli,
@@ -55,10 +56,6 @@ pub struct OwnedStick {
     /// complete version was published since.
     pub latest_partial: bool,
     pub created_at_ms: u64,
-    /// `Some(size in bytes)` for a drive (the app's stick): its folder must
-    /// carry the drive marker and may hold at most this much. `None` for a
-    /// plain shared folder.
-    pub drive_size: Option<u64>,
     /// Windows: the drive letter the stick was last given (`A`–`Z`), asked
     /// for again after a restart. `None` elsewhere.
     pub drive_letter: Option<char>,
@@ -86,7 +83,6 @@ impl OwnedStick {
             latest_record: None,
             latest_partial: false,
             created_at_ms,
-            drive_size: None,
             drive_letter: None,
             node_id: None,
             kind: StickKind::Cli,

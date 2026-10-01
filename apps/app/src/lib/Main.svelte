@@ -93,14 +93,16 @@
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });
 
-  let over = $derived(current ? Math.max(0, current.used - current.size) : 0);
-  let fraction = $derived(current && current.size > 0 ? Math.min(1, current.used / current.size) : 0);
+  // Like a real stick: what is on it out of what it could hold.
+  let fraction = $derived(
+    current && current.used + current.left > 0 ? current.used / (current.used + current.left) : 0,
+  );
   let count = $derived(current?.entries.length ?? 0);
 </script>
 
 <main class="card window">
   <header class="row spread">
-    <h1><span class="drive" aria-hidden="true">▭</span> {current?.name ?? "OurStick"}{current ? ` (${size(current.size)})` : ""}</h1>
+    <h1><span class="drive" aria-hidden="true">▭</span> {current?.name ?? "OurStick"}</h1>
     {#if current}
       <div class="pill-box">
         <button class="pill" onclick={() => (pillMenu = !pillMenu)}>
@@ -152,13 +154,9 @@
 
   <section class="capacity">
     <div class="row spread">
-      <span>Capacity</span>
-      <span>{size(current?.used ?? 0)} / {size(current?.size ?? 0)}</span>
+      <span>{size(current?.used ?? 0)} used · {size(current?.left ?? 0)} left</span>
     </div>
-    <div class="bar"><div class="fill" class:full={over > 0} style="width: {fraction * 100}%"></div></div>
-    {#if over > 0}
-      <p class="error">Stick is full, remove {size(over)}.</p>
-    {/if}
+    <div class="bar"><div class="fill" class:full={current?.left === 0} style="width: {fraction * 100}%"></div></div>
   </section>
 
   {#if activity.readers > 0}

@@ -20,6 +20,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0011_stick_node_keys.sql"),
     include_str!("../../../migrations/0012_linked_entries.sql"),
     include_str!("../../../migrations/0013_space_claims.sql"),
+    include_str!("../../../migrations/0014_no_drive_size.sql"),
 ];
 
 /// The schema version this code creates and understands.

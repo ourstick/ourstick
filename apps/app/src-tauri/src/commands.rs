@@ -9,14 +9,12 @@ use std::path::PathBuf;
 
 use ourstick_core::drive::{copy_onto, remove_from, top_entries};
 use ourstick_core::share::folder_size;
+use ourstick_core::space::{available, SystemDisks};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::drive;
 use crate::state::{start_sharing, AppState, Sharing};
-
-/// The stick sizes offered at first launch, in GB (docs/gui-spec.md).
-const STICK_SIZES_GB: [u64; 4] = [5, 10, 20, 50];
 
 /// An error as the UI shows it.
 fn shown(error: anyhow::Error) -> String {
@@ -48,17 +46,10 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     })
 }
 
-/// First launch: this device's keys (made once), and the stick's folder with
-/// the chosen size.
+/// First launch: this device's keys (made once), and the stick's folder. It
+/// has no size: what it holds is what the computer has room for (ADR 0008).
 #[tauri::command]
-pub async fn plug_in(
-    size_gb: u64,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    if !STICK_SIZES_GB.contains(&size_gb) {
-        return Err(format!("{size_gb} GB is not one of the stick sizes"));
-    }
+pub async fn plug_in(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     if state.drive_stick().map_err(shown)?.is_some() {
         return Ok(());
     }
@@ -76,13 +67,13 @@ pub async fn plug_in(
         if crate::state::app_stick(store.as_ref())?.is_some() {
             return Ok(());
         }
-        let root = drive::create(size_gb * 1_000_000_000)?;
+        let root = drive::create()?;
         let keys = device::create_stick(
             store.as_ref(),
             secrets.as_ref(),
             &root,
             "OurStick",
-            Some(size_gb * 1_000_000_000),
+            ourstick_core::StickKind::App,
         )?;
         mark_drive(&root, &keys.stick.stick_id).context("cannot mark the stick's folder")?;
         // Windows: the letter it got, to ask for it again after a restart.
@@ -95,6 +86,16 @@ pub async fn plug_in(
     let _ = app.emit("mount-changed", ());
     start_sharing(&app);
     Ok(())
+}
+
+/// What can still be copied onto the stick whose folder is `root`. Blocking.
+fn left_on(
+    root: &std::path::Path,
+    store: &dyn ourstick_core::Store,
+    data_dir: &std::path::Path,
+) -> Result<u64> {
+    let measure_at = drive::measure_at(root)?;
+    Ok(available(&SystemDisks, store, data_dir, &measure_at, None)?)
 }
 
 #[derive(Debug, Serialize)]
@@ -121,10 +122,11 @@ pub struct SharingView {
 #[derive(Debug, Serialize)]
 pub struct StickView {
     name: String,
-    /// The stick's size in bytes.
-    size: u64,
-    /// Bytes on it now.
+    /// Bytes on it now (copied onto it; linked entries take no room).
     used: u64,
+    /// What can still be copied onto it: what its disk has room for, every
+    /// share's and download's claim counted (the space ledger).
+    left: u64,
     entries: Vec<EntryView>,
     sharing: SharingView,
     /// Mounted (macOS) or in the sidebar (Linux); not after Eject.
@@ -138,15 +140,17 @@ pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
         .drive_stick()
         .map_err(shown)?
         .ok_or("there is no stick yet")?;
-    let size = stick.drive_size.unwrap_or_default();
     let root = stick.root_path.clone();
-    let (entries, used, mounted) = blocking(move || {
+    let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
+    let (entries, used, left, mounted) = blocking(move || {
         let mounted = drive::is_mounted(&root);
+        let left = left_on(&root, store.as_ref(), &data_dir)?;
         // An ejected image has no folder: show it empty, not as an error.
         if !drive::folder_is_there(&root) {
-            return Ok((Vec::new(), 0, mounted));
+            return Ok((Vec::new(), 0, left, mounted));
         }
-        Ok((top_entries(&root)?, folder_size(&root)?, mounted))
+        Ok((top_entries(&root)?, folder_size(&root)?, left, mounted))
     })
     .await?;
     let sharing = match &*state.sharing.lock().await {
@@ -162,8 +166,8 @@ pub async fn stick(state: State<'_, AppState>) -> Result<StickView, String> {
     };
     Ok(StickView {
         name: stick.name,
-        size,
         used,
+        left,
         entries: entries
             .into_iter()
             .map(|entry| EntryView {
@@ -205,13 +209,20 @@ pub async fn add_paths(
         .drive_stick()
         .map_err(shown)?
         .ok_or("there is no stick yet")?;
-    let size = stick.drive_size.unwrap_or_default();
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
     blocking(move || {
         if !drive::folder_is_there(&stick.root_path) {
             bail!("the stick is ejected; mount it first");
         }
-        Ok(copy_onto(&stick.root_path, size, &sources)?)
+        let left = left_on(&stick.root_path, store.as_ref(), &data_dir)?;
+        let linked: Vec<String> = store
+            .linked_entries(&stick.stick_id)?
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        Ok(copy_onto(&stick.root_path, left, &linked, &sources)?)
     })
     .await?;
     // The watcher publishes; the window can show the files at once.

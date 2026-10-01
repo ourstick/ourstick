@@ -6,7 +6,7 @@ use crate::store::StickKind;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 13);
+    assert_eq!(SCHEMA_VERSION, 14);
 }
 
 #[test]
@@ -166,14 +166,13 @@ fn schema_rejects_bad_rows_even_without_the_code() {
         "INSERT INTO device VALUES (1, zeroblob(32), 'keychain', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'credential-manager', '/k', 0)",
         "INSERT INTO device VALUES (1, zeroblob(32), 'key-file', NULL, 0)",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, NULL, 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, NULL, 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 0, NULL, 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'o', 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 'OO', 0, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 2, NULL, 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 0, zeroblob(31), 'cli')",
-        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 0, NULL, 'phone')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, -1, NULL, 0, NULL, 0, NULL, 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, zeroblob(10), 0, NULL, 0, NULL, 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'o', 0, NULL, 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, 'OO', 0, NULL, 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 2, NULL, 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, zeroblob(31), 'cli')",
+        "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'phone')",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 5, NULL, 0)",
         "INSERT INTO joined_sticks VALUES (zeroblob(32), '/', 'five', zeroblob(32), 0)",
         "INSERT INTO record_floors VALUES (zeroblob(32), NULL, zeroblob(32))",
@@ -184,7 +183,7 @@ fn schema_rejects_bad_rows_even_without_the_code() {
     ];
     connection
         .execute(
-            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, NULL, 0, NULL, 'cli')",
+            "INSERT INTO owned_sticks VALUES (zeroblob(32), 'n', '/', 1, 0, NULL, 0, NULL, 0, NULL, 'cli')",
             [],
         )
         .unwrap();
@@ -318,4 +317,43 @@ fn the_database_itself_refuses_bad_linked_entries() {
     assert!(insert(id.clone(), "a/b", "/x").is_err());
     assert!(insert(id.clone(), "", "/x").is_err());
     assert!(insert(id, "y", "").is_err());
+}
+
+#[test]
+fn migration_14_drops_the_size_and_keeps_the_sticks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let drive = crate::stick_id::StickSigningKey::from_bytes(&[1; 32]).stick_id();
+    {
+        // A database as version 13 left it, with the app's 5 GB drive.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..13] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 13).unwrap();
+        connection
+            .execute(
+                "INSERT INTO owned_sticks (stick_id, name, root_path, cipher, last_signed_seq,
+                     created_at_ms, drive_size, drive_letter, latest_partial, kind)
+                 VALUES (?1, 'OurStick', '/d', 1, 0, 3, 5000000000, 'O', 0, 'app')",
+                [drive.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 14);
+    let stick = store.owned_stick(&drive).unwrap().unwrap();
+    assert_eq!(
+        (stick.kind, stick.drive_letter, stick.root_path),
+        (StickKind::App, Some('O'), "/d".into())
+    );
+    let columns: Vec<String> = store
+        .connection()
+        .prepare("SELECT name FROM pragma_table_info('owned_sticks')")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(!columns.contains(&"drive_size".to_owned()), "{columns:?}");
 }

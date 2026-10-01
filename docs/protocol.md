@@ -139,11 +139,10 @@ carries only the key). Every file blob of that stick must use the same cipher.
   `desktop.ini`, `$RECYCLE.BIN`, `System Volume Information`, `.directory`,
   `.ourstick-drive`, `.ourstick-partial`, and names starting with `._` or
   `.Trash-`. The shared folder itself may have any name.
-- A **drive** (the app's stick, `owned_sticks.drive_size`) carries the file
+- A **drive** (the app's stick, `owned_sticks.kind = 'app'`) carries the file
   `.ourstick-drive`, holding its StickId in hex. Without it (an ejected disk
   image, an empty mount point, another stick's drive) the owner does not
-  publish, and keeps serving the last version. A drive whose files hold more
-  than its size is not published either.
+  publish, and keeps serving the last version.
 - A stick may have **linked entries** (ADR 0008): folders or files shared
   from where they are, each a top-level entry under its name (`Films/…`, or
   `notes.txt` for a file). Nothing about them is on the wire but the name;

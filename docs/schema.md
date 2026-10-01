@@ -25,10 +25,12 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 13
+## Version 14
 
-Version 13 (`0013_space_claims.sql`, ADR 0008's notes) added `space_claims`,
-below. Version 12 (`0012_linked_entries.sql`, ADR 0008) added
+Version 14 (`0014_no_drive_size.sql`, ADR 0008) dropped
+`owned_sticks.drive_size`: a stick has no fixed size, and the app's stick is
+told by `kind`. Version 13 (`0013_space_claims.sql`, ADR 0008's notes) added
+`space_claims`, below. Version 12 (`0012_linked_entries.sql`, ADR 0008) added
 `linked_entries`, below. Version 11 (`0011_stick_node_keys.sql`, ADR 0009) added
 `owned_sticks.node_id` (NULL for every stick made before) and
 `owned_sticks.kind` (`app` for the sticks that have a `drive_size`, `cli` for
@@ -88,7 +90,6 @@ Sticks this device owns. One row per stick.
 | `last_signed_seq` | INTEGER  | Highest `seq` ever signed; 0 if none. Only increases.      |
 | `latest_record`   | BLOB 137 | The latest signed manifest record, or NULL                 |
 | `created_at_ms`   | INTEGER  | When the stick was created                                 |
-| `drive_size`      | INTEGER  | Size in bytes of a drive (the app's stick); NULL for a plain shared folder. A drive's folder must carry `.ourstick-drive` and may not hold more than this. |
 | `drive_letter`    | TEXT     | Windows: the drive letter (`A`–`Z`) the stick was last shown at with `subst`, asked for again after a restart so that the stick stays where the user saw it. NULL elsewhere. |
 | `node_id`         | BLOB 32 or NULL | iroh NodeId of the stick's own node key (`stick/<hex>/node-key`, ADR 0009); unique. NULL for a stick made before version 11, which uses `device.node_id` |
 | `kind`            | TEXT     | `app` (the app's stick: a drive) or `cli` (shared from the command line); which program lists it |

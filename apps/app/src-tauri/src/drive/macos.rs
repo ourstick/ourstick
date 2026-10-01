@@ -74,8 +74,27 @@ pub mod platform {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Makes the disk image for a new stick of `size` bytes and attaches it.
-    pub fn create(size: u64) -> Result<PathBuf> {
+    /// The folder that holds the disk image: what is left for the stick is
+    /// measured there.
+    pub fn measure_at(_root: &Path) -> Result<PathBuf> {
+        Ok(image()?
+            .parent()
+            .expect("the image is in a folder")
+            .to_path_buf())
+    }
+
+    /// The size of the disk that holds the image: a sparse image takes room
+    /// only as it fills, so it never limits first (ADR 0008).
+    fn disk_size(image: &Path) -> Result<u64> {
+        use ourstick_core::space::{Disks, SystemDisks};
+        SystemDisks
+            .total(image)
+            .with_context(|| format!("cannot measure the disk of {}", image.display()))
+    }
+
+    /// Makes the disk image for a new stick, as large as its disk (sparse),
+    /// and attaches it.
+    pub fn create() -> Result<PathBuf> {
         let image = image()?;
         if image.exists() {
             bail!(
@@ -85,7 +104,7 @@ pub mod platform {
             );
         }
         std::fs::create_dir_all(image.parent().expect("the image is in a folder"))?;
-        let size = format!("{}b", sectors(size));
+        let size = format!("{}b", sectors(disk_size(&image)?));
         hdiutil(&[
             "create".as_ref(),
             "-type".as_ref(),
@@ -110,9 +129,36 @@ pub mod platform {
     }
 
     /// Attaches the image; returns where it is mounted (it may differ from
-    /// last time, e.g. `/Volumes/OurStick 1`).
+    /// last time, e.g. `/Volumes/OurStick 1`). A detached image made with a
+    /// size (before ADR 0008) is first grown to its disk's size; if that
+    /// fails it stays as it is (growing never touches what is on it).
     pub fn mount(_root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
-        attach(&image()?)
+        let image = image()?;
+        if let Err(error) = grow(&image) {
+            tracing::warn!(%error, "the stick's disk image could not be grown");
+        }
+        attach(&image)
+    }
+
+    /// Grows a detached image to its disk's size; nothing if it is attached
+    /// (`hdiutil` refuses then) or already that large.
+    fn grow(image: &Path) -> Result<()> {
+        let attached = {
+            let resolved = std::fs::canonicalize(image).unwrap_or_else(|_| image.to_path_buf());
+            let info = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;
+            device_of(&info, &resolved.to_string_lossy()).is_some()
+        };
+        if attached {
+            return Ok(());
+        }
+        let size = format!("{}b", sectors(disk_size(image)?));
+        hdiutil(&[
+            "resize".as_ref(),
+            "-size".as_ref(),
+            size.as_ref(),
+            image.as_os_str(),
+        ])?;
+        Ok(())
     }
 
     /// Detaches the stick's image by its device, not by the folder: the

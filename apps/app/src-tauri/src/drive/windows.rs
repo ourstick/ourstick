@@ -77,7 +77,7 @@ pub mod platform {
     /// Makes `%USERPROFILE%\OurStick` for a new stick and gives it a letter.
     /// An existing folder is used only if it is empty (system files aside)
     /// or already a stick's; anything else is the user's and is left alone.
-    pub fn create(_size: u64) -> Result<PathBuf> {
+    pub fn create() -> Result<PathBuf> {
         let root = home()?.join(NAME);
         if root.exists() {
             let has_own_files = std::fs::read_dir(&root)

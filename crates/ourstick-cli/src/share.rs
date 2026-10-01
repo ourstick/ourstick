@@ -62,7 +62,7 @@ fn stick_for(setup: &setup::Setup, folder: &Path) -> Result<StickId> {
         setup.secrets.as_ref(),
         folder,
         &name,
-        None,
+        StickKind::Cli,
     )?;
     Ok(made.stick.stick_id)
 }
@@ -366,7 +366,7 @@ mod tests {
             setup.secrets.as_ref(),
             Path::new("/drive"),
             "OurStick",
-            Some(1),
+            StickKind::App,
         )
         .unwrap();
         let refused = stick_for(&setup, Path::new("/drive")).unwrap_err();

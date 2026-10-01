@@ -46,7 +46,7 @@ mod platform {
     use super::*;
     use anyhow::bail;
 
-    pub fn create(_size: u64) -> Result<PathBuf> {
+    pub fn create() -> Result<PathBuf> {
         bail!("OurStick has no drive for this system yet")
     }
     pub fn mount(root: &Path, _preferred: Option<char>) -> Result<PathBuf> {
@@ -61,6 +61,16 @@ mod platform {
 }
 
 pub use platform::{create, eject, is_mounted, mount};
+
+/// Where to measure what is left for the stick (ADR 0008): the disk that
+/// really holds its files. On macOS that is the disk image's folder, not the
+/// mounted volume (which tells the image's own size).
+#[cfg(target_os = "macos")]
+pub use platform::measure_at;
+#[cfg(not(target_os = "macos"))]
+pub fn measure_at(root: &Path) -> Result<PathBuf> {
+    Ok(root.to_path_buf())
+}
 
 /// The drive letter that shows the stick now (Windows); `None` elsewhere.
 #[cfg(windows)]

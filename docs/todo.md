@@ -125,3 +125,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   Give the letter the name "OurStick" per user (HKCU `...\Explorer\
   DriveIcons\<letter>\DefaultLabel`, no admin rights), set with the letter
   and removed with it.
+- **Windows: the drive marker `.ourstick-drive` shows in Explorer** (a dot
+  does not hide a file there). A user may delete it, and the stick then
+  counts as ejected. Mark it hidden and system (`attrib +h +s`) when it is
+  made, and on start for existing ones.

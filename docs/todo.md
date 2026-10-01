@@ -115,3 +115,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **A pass running while a link is removed** may record the removed entry's
   files once more and publish them in its version; the next pass (nudged by
   the removal) drops them. Have the pass check its layout before each part.
+- **macOS asks for the keychain password once per key, again after every
+  unsigned build** (seen on the Mac: "many times", for the stick's three
+  keys). Sign the app with a Developer ID before the first release, so
+  updates keep the keychain's permission; and consider one keychain item per
+  stick (its keys together) so a new program asks once per stick.

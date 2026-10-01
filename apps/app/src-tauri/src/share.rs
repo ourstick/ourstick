@@ -18,14 +18,41 @@ const QR_IMAGE_SCALE: usize = 8;
 
 /// Shows the Share window of `stick_id`, making it if needed (one per
 /// stick, so two sticks' links are never confused).
+/// From the tray's event loop: the stick's name is a quick read there.
 pub fn open(app: &AppHandle, stick_id: &StickId) -> Result<()> {
-    let hex = stick_hex(stick_id);
-    let label = format!("share-{hex}");
-    if let Some(window) = app.get_webview_window(&label) {
-        crate::windows::bring_forward(&window);
+    if bring_forward(app, stick_id) {
         return Ok(());
     }
     let name = app.state::<AppState>().app_stick(stick_id)?.name;
+    open_named(app, stick_id, &name)
+}
+
+fn window_label(stick_id: &StickId) -> String {
+    format!("share-{}", stick_hex(stick_id))
+}
+
+/// Brings the Share window of `stick_id` forward, if there is one.
+fn bring_forward(app: &AppHandle, stick_id: &StickId) -> bool {
+    match app.get_webview_window(&window_label(stick_id)) {
+        Some(window) => {
+            crate::windows::bring_forward(&window);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Closes the Share window of `stick_id`, if there is one: after a new link
+/// or a removal it would wait for a link that never comes.
+pub fn close(app: &AppHandle, stick_id: &StickId) {
+    if let Some(window) = app.get_webview_window(&window_label(stick_id)) {
+        let _ = window.close();
+    }
+}
+
+fn open_named(app: &AppHandle, stick_id: &StickId, name: &str) -> Result<()> {
+    let hex = stick_hex(stick_id);
+    let label = window_label(stick_id);
     let page = format!("index.html#share/{hex}");
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title(format!("Share \u{201c}{name}\u{201d}"))
@@ -60,7 +87,18 @@ fn shown(error: impl std::fmt::Display) -> String {
 /// (WebView2 waits on the thread the command holds).
 #[tauri::command]
 pub async fn open_share(stick_id: String, app: AppHandle) -> Result<(), String> {
-    open(&app, &stick_id_of(&stick_id)?).map_err(|error| format!("{error:#}"))
+    let id = stick_id_of(&stick_id)?;
+    if bring_forward(&app, &id) {
+        return Ok(());
+    }
+    let shown = |error: anyhow::Error| format!("{error:#}");
+    let name = app
+        .state::<AppState>()
+        .stick_now(&id)
+        .await
+        .map_err(shown)?
+        .name;
+    open_named(&app, &id, &name).map_err(shown)
 }
 
 /// The link and its QR code as SVG, or nothing while there is no link yet.

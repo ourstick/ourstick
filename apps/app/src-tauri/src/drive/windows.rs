@@ -1,9 +1,9 @@
 //! Windows: each stick a folder in `%USERPROFILE%\OurStick`, shown as a
-//! drive letter with `subst`, named after the stick in Explorer (a label
-//! for that letter in the user's registry; `subst` has none of its own). A
-//! `subst` letter lasts until the user logs off, so the app gives it again
-//! at every start, asking for the letter it had before. Eject takes the
-//! letter and its label away; the folder stays.
+//! drive letter with `subst`. The letter shows the system disk's name (no
+//! label applies to a `subst` drive; see docs/gui-spec.md), the folder
+//! carries the stick's. A `subst` letter lasts until the user logs off, so
+//! the app gives it again at every start, asking for the letter it had
+//! before. Eject takes the letter away; the folder stays.
 //!
 //! Which letter shows the stick is found by the drive marker (it holds the
 //! StickId), not by reading `subst`'s output, whose code page would garble a
@@ -21,6 +21,19 @@ fn candidates(preferred: Option<char>) -> Vec<char> {
     letters
 }
 
+/// The letters in what `subst` prints, one `X:\: => path` per line.
+fn subst_letters_in(output: &[u8]) -> Vec<char> {
+    output
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| match line {
+            [letter, b':', ..] if letter.is_ascii_alphabetic() => {
+                Some(letter.to_ascii_uppercase() as char)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(windows)]
 pub mod platform {
     use super::*;
@@ -35,12 +48,25 @@ pub mod platform {
         PathBuf::from(format!("{letter}:\\"))
     }
 
-    /// The letters that show the stick at `root`: the same marker is there.
+    /// The letters `subst` gives out now. Only the letter of each line is
+    /// read (`X:\: => path`): the path is in a code page that would garble
+    /// a non-ASCII folder name.
+    fn subst_letters() -> Vec<char> {
+        let Ok(output) = Command::new("subst").output() else {
+            return Vec::new();
+        };
+        subst_letters_in(&output.stdout)
+    }
+
+    /// The letters that show the stick at `root`: `subst` letters (never
+    /// another drive: an empty card reader would ask for a disk) whose
+    /// marker is the same.
     fn letters_showing(root: &Path) -> Vec<char> {
         let Ok(marker) = std::fs::read(root.join(DRIVE_MARKER)) else {
             return Vec::new();
         };
-        ('A'..='Z')
+        subst_letters()
+            .into_iter()
             .filter(|letter| {
                 std::fs::read(drive_root(*letter).join(DRIVE_MARKER))
                     .is_ok_and(|seen| seen == marker)
@@ -76,42 +102,6 @@ pub mod platform {
         bail!("no drive letter is free for the stick")
     }
 
-    /// Where a letter's label lives in the user's registry.
-    fn label_key(letter: char) -> String {
-        format!(
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\{letter}\DefaultLabel"
-        )
-    }
-
-    fn reg(arguments: &[&str]) -> Result<()> {
-        let status = Command::new("reg")
-            .args(arguments)
-            .output()
-            .context("cannot run reg")?
-            .status;
-        if !status.success() {
-            bail!("reg failed");
-        }
-        Ok(())
-    }
-
-    /// Names `letter` `name` in Explorer. Best effort: without it the
-    /// letter shows the system disk's name.
-    fn set_label(letter: char, name: &str) {
-        let key = label_key(letter);
-        if let Err(error) = reg(&["add", &key, "/ve", "/d", name, "/f"]) {
-            tracing::warn!(%error, "the stick's letter keeps the disk's name");
-        }
-    }
-
-    /// Takes our label off `letter`, so that another drive given that
-    /// letter later does not show a stick's name.
-    fn remove_label(letter: char) {
-        let key =
-            format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\{letter}");
-        let _ = reg(&["delete", &key, "/f"]);
-    }
-
     /// The marker hidden and a system file, so Explorer does not show it.
     pub fn hide_marker(root: &Path) {
         let marker = root.join(DRIVE_MARKER);
@@ -127,10 +117,10 @@ pub mod platform {
     }
 
     /// Makes the folder of a new stick, `%USERPROFILE%\OurStick\<folder>`,
-    /// and gives it a letter named `name`. The folder must be new (the
+    /// and gives it a letter. The folder must be new (the
     /// caller picks a free name); the first stick of an older version,
     /// `%USERPROFILE%\OurStick` itself, must have moved into it first.
-    pub fn create(folder: &str, name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
+    pub fn create(folder: &str, _name: &str) -> Result<(PathBuf, Option<PathBuf>)> {
         let home = sticks_home()?;
         if folder_is_there(&home) {
             bail!(
@@ -142,41 +132,36 @@ pub mod platform {
             .with_context(|| format!("cannot create {}", home.display()))?;
         let root = home.join(folder);
         std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
-        let letter = give_letter(&root, None)?;
-        set_label(letter, name);
+        give_letter(&root, None)?;
         Ok((root, None))
     }
 
-    /// Gives the stick its letter again (the one it had, if free), named
-    /// after it. The folder itself never moves.
+    /// Gives the stick its letter again (the one it had, if free). The
+    /// folder itself never moves.
     pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
         let root = &stick.root_path;
-        let letter = match letters_showing(root).first() {
-            Some(letter) => *letter,
-            None => give_letter(root, stick.drive_letter)?,
-        };
-        set_label(letter, &stick.name);
+        if letters_showing(root).is_empty() {
+            give_letter(root, stick.drive_letter)?;
+        }
         hide_marker(root);
         Ok(root.clone())
     }
 
-    /// Takes the stick's letter and its label away. The folder stays, and
-    /// so does sharing.
+    /// Takes the stick's letter away. The folder stays, and so does
+    /// sharing.
     pub fn eject(stick: &OwnedStick) -> Result<()> {
         for letter in letters_showing(&stick.root_path) {
             let drive = format!("{letter}:");
             subst(&[drive.as_ref(), "/D".as_ref()])
                 .with_context(|| format!("cannot take the letter {letter}: away"))?;
-            remove_label(letter);
         }
         Ok(())
     }
 
     /// Renames the stick's folder to `folder` (in the same place): its
-    /// letter goes first (`subst` keeps the old path) and comes back after,
-    /// named `name`. Windows refuses while a file in it is open; the error
+    /// letter goes first (`subst` keeps the old path) and comes back after. Windows refuses while a file in it is open; the error
     /// says to close it. Returns where the folder is now.
-    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<PathBuf> {
+    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<PathBuf> {
         let root = &stick.root_path;
         let renamed = match root.parent() {
             Some(parent) if root.file_name() != Some(std::ffi::OsStr::new(folder)) => {
@@ -201,8 +186,7 @@ pub mod platform {
                 });
             }
         }
-        let letter = give_letter(&renamed, letter)?;
-        set_label(letter, name);
+        give_letter(&renamed, letter)?;
         Ok(renamed)
     }
 
@@ -224,6 +208,13 @@ pub mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subst_letters_are_read_whatever_the_paths_code_page() {
+        let output = b"O:\\: => C:\\Users\\\xc4\xf6\\OurStick\\F\xfc\r\nz:\\: => D:\\x\r\n\r\n";
+        assert_eq!(subst_letters_in(output), ['O', 'Z']);
+        assert!(subst_letters_in(b"").is_empty());
+    }
 
     #[test]
     fn the_stick_asks_for_its_old_letter_first() {

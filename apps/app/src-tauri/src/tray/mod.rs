@@ -91,11 +91,22 @@ pub fn show_main(app: &AppHandle) {
 fn toggle_mount(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let Some(stick) = first_stick(&app) else {
+        // The disk is read and `hdiutil`/`subst` run off the async runtime.
+        let handle = app.clone();
+        let ejected = tauri::async_runtime::spawn_blocking(move || {
+            let stick = first_stick(&handle)?;
+            if crate::drive::is_mounted(&stick) {
+                Some((stick.stick_id, Some(crate::drive::eject(&stick))))
+            } else {
+                Some((stick.stick_id, None))
+            }
+        })
+        .await;
+        let Ok(Some((stick_id, ejected))) = ejected else {
             return;
         };
-        if crate::drive::is_mounted(&stick) {
-            if let Err(error) = crate::drive::eject(&stick) {
+        if let Some(ejected) = ejected {
+            if let Err(error) = ejected {
                 tracing::warn!(error = %format!("{error:#}"), "eject failed");
                 let _ = tauri::Emitter::emit(
                     &app,
@@ -108,7 +119,7 @@ fn toggle_mount(app: &AppHandle) {
             set_mounted(&app, false);
             let _ = tauri::Emitter::emit(&app, "mount-changed", ());
         } else {
-            crate::sharing::mount_and_share(&app, stick.stick_id);
+            crate::sharing::mount_and_share(&app, stick_id);
         }
     });
 }

@@ -55,6 +55,25 @@ impl AppState {
         app_sticks(self.store.as_ref())
     }
 
+    /// [`AppState::app_sticks`] off the async runtime (CLAUDE.md rule 7).
+    pub async fn sticks_now(&self) -> Result<Vec<OwnedStick>> {
+        let store = self.store.clone();
+        tauri::async_runtime::spawn_blocking(move || app_sticks(store.as_ref())).await?
+    }
+
+    /// [`AppState::app_stick`] off the async runtime (CLAUDE.md rule 7).
+    pub async fn stick_now(&self, id: &StickId) -> Result<OwnedStick> {
+        let store = self.store.clone();
+        let id = *id;
+        tauri::async_runtime::spawn_blocking(move || {
+            store
+                .owned_stick(&id)?
+                .filter(|stick| stick.kind == StickKind::App)
+                .context("that stick is not on this device any more")
+        })
+        .await?
+    }
+
     /// The app's stick `id`.
     pub fn app_stick(&self, id: &StickId) -> Result<OwnedStick> {
         self.store

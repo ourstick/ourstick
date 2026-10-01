@@ -79,6 +79,7 @@ fn stick_for(setup: &setup::Setup, folder: &Path, name: Option<&str>) -> Result<
         folder,
         &name,
         StickKind::Cli,
+        None,
     )?;
     Ok(made.stick.stick_id)
 }

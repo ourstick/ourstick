@@ -141,13 +141,25 @@ pub mod platform {
     }
 
     /// A USB drive icon for the folder where the file manager honours it.
+    /// File managers keep it by path: it is set again whenever the stick is
+    /// plugged in or renamed, and taken off `~/OurStick`, which was the
+    /// first stick before it moved in.
     fn usb_icon(root: &Path) {
         let _ = std::process::Command::new("gio")
             .arg("set")
             .arg(root)
             .arg("metadata::custom-icon-name")
             .arg("drive-removable-media-usb")
-            .status();
+            .output();
+        if let Ok(home) = sticks_home() {
+            if root.parent() == Some(home.as_path()) {
+                let _ = std::process::Command::new("gio")
+                    .args(["set", "-t", "unset"])
+                    .arg(&home)
+                    .arg("metadata::custom-icon-name")
+                    .output();
+            }
+        }
     }
 
     fn add_bookmark(root: &Path, name: &str) -> Result<()> {
@@ -204,6 +216,7 @@ pub mod platform {
 
     /// Puts the stick in the sidebar; the folder itself is always there.
     pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
+        usb_icon(&stick.root_path);
         add_bookmark(&stick.root_path, &stick.name)?;
         Ok(stick.root_path.clone())
     }
@@ -230,6 +243,7 @@ pub mod platform {
                 format!("cannot rename {} to {}", root.display(), renamed.display())
             })?;
         }
+        usb_icon(&renamed);
         add_bookmark(&renamed, name)?;
         Ok(renamed)
     }

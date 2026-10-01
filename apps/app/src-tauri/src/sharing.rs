@@ -63,12 +63,19 @@ pub fn start_app(app: &AppHandle) {
                     backend,
                 )?;
             }
-            for stick in state.app_sticks()? {
-                if stick.image_path.is_none() {
-                    if let Some(image) = crate::drive::image_of(&stick) {
-                        state.store.set_image_path(&stick.stick_id, &image)?;
-                    }
+            let sticks = state.app_sticks()?;
+            // macOS: the first stick's image, from before images were
+            // recorded, goes to the oldest stick only, if it is there and no
+            // other stick has it.
+            if let (Some(oldest), Some(image)) = (sticks.first(), crate::drive::first_image()) {
+                let unclaimed = !sticks
+                    .iter()
+                    .any(|stick| stick.image_path.as_deref() == Some(image.as_path()));
+                if oldest.image_path.is_none() && unclaimed && image.exists() {
+                    state.store.set_image_path(&oldest.stick_id, &image)?;
                 }
+            }
+            for stick in sticks {
                 // A move of the first stick stopped halfway is finished.
                 let home = crate::drive::sticks_home()?;
                 let folder = ourstick_core::stick_names::folder_name(&stick.name, |candidate| {
@@ -137,7 +144,7 @@ async fn plug_in_off_thread(app: &AppHandle, stick_id: StickId) -> bool {
 /// after another, the cache budget split between them.
 async fn plug_in_all(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let sticks = match state.app_sticks() {
+    let sticks = match state.sticks_now().await {
         Ok(sticks) => sticks,
         Err(error) => return problem(app, format!("{error:#}")),
     };
@@ -161,21 +168,31 @@ async fn plug_in_all(app: &AppHandle) {
 pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        if is_busy(&app.state::<AppState>(), &stick_id).await {
+            problem(
+                &app,
+                "The stick is busy; mount it again in a moment.".to_owned(),
+            );
+            return;
+        }
         let restart = plug_in_off_thread(&app, stick_id).await;
         let handle = app.clone();
         let finished = tauri::async_runtime::spawn_blocking(move || {
             finish_pending(&handle.state::<AppState>())
         })
         .await;
-        if let Ok(Ok(failed)) = finished {
-            failed
+        match finished {
+            Ok(Ok(failed)) => failed
                 .into_iter()
-                .for_each(|message| problem(&app, message));
+                .for_each(|message| problem(&app, message)),
+            Ok(Err(error)) => problem(&app, format!("{error:#}")),
+            Err(error) => tracing::warn!(%error, "finishing what waited did not finish"),
         }
         let _ = app.emit("mount-changed", ());
         let state = app.state::<AppState>();
         let wanted = state
-            .app_stick(&stick_id)
+            .stick_now(&stick_id)
+            .await
             .is_ok_and(|stick| stick.sharing_wanted);
         if !wanted {
             return;
@@ -249,28 +266,56 @@ pub fn start_sharing_later(app: &AppHandle, stick_id: StickId) {
 }
 
 /// Stops serving `stick_id`, if it does, and waits until its endpoint is
-/// closed and its locks are released; it is then `Off`.
+/// closed and its locks are released; it is then `Off`. A busy stick is left
+/// to what keeps it busy.
 pub async fn stop_serving(state: &AppState, stick_id: &StickId) {
-    let previous = state.sticks.lock().await.insert(*stick_id, Sharing::Off);
+    let previous = {
+        let mut sticks = state.sticks.lock().await;
+        if matches!(sticks.get(stick_id), Some(Sharing::Busy(_))) {
+            return;
+        }
+        sticks.insert(*stick_id, Sharing::Off)
+    };
     if let Some(Sharing::On(serving)) = previous {
         serving.stop().await;
     }
 }
 
+/// Whether `stick_id` is busy (being renamed, given a new link, removed).
+pub async fn is_busy(state: &AppState, stick_id: &StickId) -> bool {
+    matches!(
+        state.sticks.lock().await.get(stick_id),
+        Some(Sharing::Busy(_))
+    )
+}
+
 /// Marks `stick_id` busy (nothing starts it meanwhile) and stops serving
-/// it. Refused if it is busy already.
-pub async fn make_busy(state: &AppState, stick_id: &StickId, doing: &'static str) -> bool {
+/// it, so its lock is free. Refused, saying why, if it is busy already or
+/// still starting (its share holds the lock and cannot be stopped yet).
+pub async fn make_busy(
+    state: &AppState,
+    stick_id: &StickId,
+    doing: &'static str,
+) -> Result<(), String> {
     let previous = {
         let mut sticks = state.sticks.lock().await;
-        if matches!(sticks.get(stick_id), Some(Sharing::Busy(_))) {
-            return false;
+        match sticks.get(stick_id) {
+            Some(Sharing::Busy(_)) => {
+                return Err("the stick is busy; try again in a moment".to_owned())
+            }
+            Some(Sharing::Starting) => {
+                return Err(
+                    "the stick is still getting ready to share; try again in a moment".to_owned(),
+                )
+            }
+            _ => {}
         }
         sticks.insert(*stick_id, Sharing::Busy(doing))
     };
     if let Some(Sharing::On(serving)) = previous {
         serving.stop().await;
     }
-    true
+    Ok(())
 }
 
 /// Stops every share (Quit).
@@ -310,7 +355,7 @@ pub fn watch_mount(app: &AppHandle) {
         let mut last: HashMap<StickId, bool> = HashMap::new();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let Ok(sticks) = app.state::<AppState>().app_sticks() else {
+            let Ok(sticks) = app.state::<AppState>().sticks_now().await else {
                 continue;
             };
             let mut any_mounted = false;

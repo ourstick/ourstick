@@ -29,7 +29,7 @@ pub struct StickEntry {
 /// The app's sticks, oldest first.
 #[tauri::command]
 pub async fn sticks(state: State<'_, AppState>) -> Result<Vec<StickEntry>, String> {
-    let sticks = state.app_sticks().map_err(shown)?;
+    let sticks = state.sticks_now().await.map_err(shown)?;
     let sharing = state.sticks.lock().await;
     Ok(sticks
         .into_iter()
@@ -61,10 +61,8 @@ pub async fn new_link(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let old = stick_id_of(&stick_id)?;
-    let stick = state.app_stick(&old).map_err(shown)?;
-    if !make_busy(&state, &old, "Giving it a new link…").await {
-        return Err("the stick is busy; try again in a moment".to_owned());
-    }
+    let stick = state.stick_now(&old).await.map_err(shown)?;
+    make_busy(&state, &old, "Giving it a new link…").await?;
     let _ = app.emit("sharing-changed", ());
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -93,6 +91,7 @@ pub async fn new_link(
             return Err(error);
         }
     };
+    crate::share::close(&app, &old);
     if stick.sharing_wanted {
         start_sharing(&app, new, 1).await;
     }
@@ -111,10 +110,8 @@ pub async fn remove(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let id = stick_id_of(&stick_id)?;
-    let stick = state.app_stick(&id).map_err(shown)?;
-    if !make_busy(&state, &id, "Removing…").await {
-        return Err("the stick is busy; try again in a moment".to_owned());
-    }
+    let stick = state.stick_now(&id).await.map_err(shown)?;
+    make_busy(&state, &id, "Removing…").await?;
     let _ = app.emit("sharing-changed", ());
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -133,6 +130,9 @@ pub async fn remove(
     })
     .await;
     state.sticks.lock().await.remove(&id);
+    if removed.is_ok() {
+        crate::share::close(&app, &id);
+    }
     refresh_tray(&app).await;
     let _ = app.emit("sharing-changed", ());
     let _ = app.emit("sticks-changed", ());
@@ -146,7 +146,8 @@ pub async fn remove(
 async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let home = blocking(crate::drive::sticks_home).await?;
     let first = state
-        .app_sticks()
+        .sticks_now()
+        .await
         .map_err(shown)?
         .into_iter()
         .find(|stick| stick.root_path == home);
@@ -154,9 +155,7 @@ async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), S
         return Ok(());
     };
     let id = first.stick_id;
-    if !make_busy(state, &id, "Moving into the OurStick folder…").await {
-        return Err("the first stick is busy; try again in a moment".to_owned());
-    }
+    make_busy(state, &id, "Moving into the OurStick folder…").await?;
     let _ = app.emit("sharing-changed", ());
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -202,6 +201,8 @@ pub async fn new_stick(
         let name = new_stick_name(&name, &others)?;
         let home = crate::drive::sticks_home()?;
         let folder = folder_name(&name, |candidate| home.join(candidate).exists());
+        // On macOS `home` is /Volumes and this only probes the volume name:
+        // app sticks there are told apart by their images.
         check_new_stick_folder(store.as_ref(), &data_dir, &home.join(&folder))?;
         let (root, image) = crate::drive::create(&folder, &name)?;
         let keys = device::create_stick(
@@ -210,13 +211,11 @@ pub async fn new_stick(
             &root,
             &name,
             StickKind::App,
+            image.as_deref(),
         )?;
         let id = keys.stick.stick_id;
         mark_drive(&root, &id)?;
         crate::drive::hide_marker(&root);
-        if let Some(image) = image {
-            store.set_image_path(&id, &image)?;
-        }
         if let Some(letter) = crate::drive::letter_of(&root) {
             store.set_drive_letter(&id, Some(letter))?;
         }
@@ -242,10 +241,8 @@ pub async fn rename(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let id = stick_id_of(&stick_id)?;
-    let stick = state.app_stick(&id).map_err(shown)?;
-    if !make_busy(&state, &id, "Renaming…").await {
-        return Err("the stick is busy; try again in a moment".to_owned());
-    }
+    let stick = state.stick_now(&id).await.map_err(shown)?;
+    make_busy(&state, &id, "Renaming…").await?;
     let _ = app.emit("sharing-changed", ());
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();

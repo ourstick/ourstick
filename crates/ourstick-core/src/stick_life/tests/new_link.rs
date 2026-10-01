@@ -287,6 +287,7 @@ fn a_command_line_stick_has_no_marker_to_wait_for() {
         &folder,
         "shared",
         StickKind::Cli,
+        None,
     )
     .unwrap();
     give_new_link(

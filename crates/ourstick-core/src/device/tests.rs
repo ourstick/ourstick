@@ -95,8 +95,24 @@ fn an_old_node_key_is_never_overwritten() {
 fn a_new_stick_has_its_own_node_key_and_loads_with_the_same_keys() {
     let store = MemoryStore::new();
     let secrets = MemorySecretStore::new();
-    let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", StickKind::App).unwrap();
-    let other = create_stick(&store, &secrets, Path::new("/tmp/t"), "t", StickKind::Cli).unwrap();
+    let made = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/s"),
+        "s",
+        StickKind::App,
+        None,
+    )
+    .unwrap();
+    let other = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/t"),
+        "t",
+        StickKind::Cli,
+        None,
+    )
+    .unwrap();
     assert_ne!(made.node_key, other.node_key);
     assert_eq!(made.stick.kind, StickKind::App);
     assert_eq!(other.stick.kind, StickKind::Cli);
@@ -129,7 +145,15 @@ fn a_new_stick_has_its_own_node_key_and_loads_with_the_same_keys() {
 fn an_older_stick_uses_the_device_node_key() {
     let store = MemoryStore::new();
     let secrets = MemorySecretStore::new();
-    let made = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", StickKind::Cli).unwrap();
+    let made = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/s"),
+        "s",
+        StickKind::Cli,
+        None,
+    )
+    .unwrap();
     // As a stick made before ADR 0009 is: no node key of its own.
     let older = OwnedStick {
         node_id: None,
@@ -186,14 +210,30 @@ fn an_older_stick_uses_the_device_node_key() {
 fn two_sticks_never_share_a_node_key() {
     let store = MemoryStore::new();
     let secrets = MemorySecretStore::new();
-    let first = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", StickKind::Cli).unwrap();
+    let first = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/s"),
+        "s",
+        StickKind::Cli,
+        None,
+    )
+    .unwrap();
     let mut clash = first.stick.clone();
     clash.stick_id = StickSigningKey::generate().stick_id();
     // The same node id for another stick: refused.
     store.add_owned_stick(&clash).unwrap_err();
     assert_eq!(store.owned_sticks().unwrap().len(), 1);
     // A new stick gets a node key of its own.
-    let next = create_stick(&store, &secrets, Path::new("/tmp/s"), "s", StickKind::Cli).unwrap();
+    let next = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/s"),
+        "s",
+        StickKind::Cli,
+        None,
+    )
+    .unwrap();
     assert_ne!(next.stick.stick_id, first.stick.stick_id);
     assert_ne!(next.node_key, first.node_key);
 }

@@ -247,7 +247,9 @@ pub fn load_stick(
 }
 
 /// Makes a new stick for `root` with new keys, its own node key among them,
-/// listed by the program `kind` (the app's is a drive). The keys are stored first: a
+/// listed by the program `kind` (the app's is a drive), and on macOS the
+/// disk image it lives in, recorded in the same write as its row (so no
+/// crash leaves a stick without its image). The keys are stored first: a
 /// stick in the database always has its keys, and keys left by a crash
 /// before the row belong to no stick and are never used. Take
 /// [`crate::locks::setup_lock`] first.
@@ -257,6 +259,7 @@ pub fn create_stick(
     root: &Path,
     name: &str,
     kind: StickKind,
+    image_path: Option<&Path>,
 ) -> Result<StickKeys, DeviceError> {
     let signing_key = StickSigningKey::generate();
     let stick_key = StickKey::generate();
@@ -271,6 +274,7 @@ pub fn create_stick(
     let stick = OwnedStick {
         kind,
         node_id: Some(IrohConfig::node_id_of(&node_key)),
+        image_path: image_path.map(Path::to_path_buf),
         ..OwnedStick::new(stick_id, name, root, CIPHER, SystemClock.now_ms())
     };
     store.add_owned_stick(&stick)?;

@@ -73,12 +73,14 @@ pub mod platform {
         Ok(images()?.join(format!("{NAME}.sparseimage")))
     }
 
-    /// A stick's disk image: as recorded, else the first stick's.
+    /// A stick's disk image, as recorded (with its row, or at start for
+    /// the first stick of an older version); never guessed, so no stick
+    /// can take another's.
     fn image_of(stick: &OwnedStick) -> Result<PathBuf> {
-        match &stick.image_path {
-            Some(image) => Ok(image.clone()),
-            None => image_path(),
-        }
+        stick
+            .image_path
+            .clone()
+            .context("the stick's disk image is not recorded; restart OurStick")
     }
 
     /// Where volumes appear: a new stick's volume name must not be taken

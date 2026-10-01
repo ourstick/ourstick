@@ -37,7 +37,15 @@ fn app_stick(world: &World, name: &str) -> OwnedStick {
     let root = world.data.parent().unwrap().join("OurStick").join(name);
     std::fs::create_dir_all(root.join("photos")).unwrap();
     std::fs::write(root.join("photos/a.jpg"), b"a").unwrap();
-    let keys = create_stick(&world.store, &world.secrets, &root, name, StickKind::App).unwrap();
+    let keys = create_stick(
+        &world.store,
+        &world.secrets,
+        &root,
+        name,
+        StickKind::App,
+        None,
+    )
+    .unwrap();
     mark_drive(&root, &keys.stick.stick_id).unwrap();
     world
         .store
@@ -97,6 +105,7 @@ fn a_command_line_sticks_folder_is_the_users_and_stays() {
         &folder,
         "shared",
         StickKind::Cli,
+        None,
     )
     .unwrap();
     remove_stick(

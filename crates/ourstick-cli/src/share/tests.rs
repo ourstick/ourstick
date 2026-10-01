@@ -33,6 +33,7 @@ fn a_folder_gets_one_stick_and_never_the_apps() {
         Path::new("/drive"),
         "OurStick",
         StickKind::App,
+        None,
     )
     .unwrap();
     let refused = stick_for(&setup, Path::new("/drive"), None).unwrap_err();

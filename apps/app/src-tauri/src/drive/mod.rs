@@ -79,20 +79,33 @@ pub use platform::{create, eject, is_mounted, mount, rename, sticks_home};
 /// move). macOS: images do not nest, nothing moves.
 #[cfg(not(target_os = "macos"))]
 pub fn move_first(stick: &OwnedStick, folder: &str) -> Result<PathBuf> {
-    use anyhow::Context;
     let home = sticks_home()?;
     if stick.root_path != home {
         return Ok(stick.root_path.clone());
     }
     eject(stick)?;
-    let moving = moving_place(&home);
-    std::fs::rename(&home, &moving).with_context(|| {
+    move_into(&home, folder)
+}
+
+/// Moves the folder `home` into itself as `home/<folder>`.
+#[cfg(not(target_os = "macos"))]
+fn move_into(home: &Path, folder: &str) -> Result<PathBuf> {
+    use anyhow::{bail, Context};
+    let moving = moving_place(home);
+    if moving.exists() {
+        bail!(
+            "cannot move {} into itself: {} is in the way; move it elsewhere and try again",
+            home.display(),
+            moving.display()
+        );
+    }
+    std::fs::rename(home, &moving).with_context(|| {
         format!(
             "cannot move {}: if a file in it is open, close it and try again",
             home.display()
         )
     })?;
-    finish_move(&home, &moving, folder)
+    finish_move(home, &moving, folder)
 }
 
 #[cfg(target_os = "macos")]
@@ -125,11 +138,16 @@ fn finish_move(home: &Path, moving: &Path, folder: &str) -> Result<PathBuf> {
 /// where it is recorded, or nowhere to be found (ejected, say).
 #[cfg(not(target_os = "macos"))]
 pub fn find_moved(stick: &OwnedStick, folder: &str) -> Result<Option<PathBuf>> {
+    find_moved_in(&sticks_home()?, stick, folder)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn find_moved_in(home: &Path, stick: &OwnedStick, folder: &str) -> Result<Option<PathBuf>> {
     use ourstick_core::share::drive_marked_by;
     if drive_marked_by(&stick.root_path, &stick.stick_id) {
         return Ok(None);
     }
-    let home = sticks_home()?;
+    let home = home.to_path_buf();
     let moving = moving_place(&home);
     if drive_marked_by(&moving, &stick.stick_id) {
         return finish_move(&home, &moving, folder).map(Some);
@@ -148,14 +166,14 @@ pub fn find_moved(_stick: &OwnedStick, _folder: &str) -> Result<Option<PathBuf>>
     Ok(None)
 }
 
-/// The disk image of a stick made before its image was recorded (macOS:
-/// the one image of the app's first stick); `None` elsewhere.
+/// The disk image of the first stick, made before images were recorded
+/// (macOS); `None` elsewhere.
 #[cfg(target_os = "macos")]
-pub fn image_of(_stick: &ourstick_core::OwnedStick) -> Option<PathBuf> {
+pub fn first_image() -> Option<PathBuf> {
     platform::image_path().ok()
 }
 #[cfg(not(target_os = "macos"))]
-pub fn image_of(_stick: &ourstick_core::OwnedStick) -> Option<PathBuf> {
+pub fn first_image() -> Option<PathBuf> {
     None
 }
 
@@ -211,3 +229,6 @@ pub use platform::shown_at;
 pub fn shown_at(root: &Path) -> PathBuf {
     root.to_path_buf()
 }
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod move_tests;

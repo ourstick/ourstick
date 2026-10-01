@@ -86,12 +86,16 @@ fn main() {
         .setup(|app| {
             tray::create(app.handle())?;
             // Sticks from an earlier run are plugged in and shared again at
-            // once, like USB sticks plugged back in.
-            let has_sticks = app
-                .state::<state::AppState>()
-                .app_sticks()
-                .is_ok_and(|sticks| !sticks.is_empty());
-            if has_sticks {
+            // once, like USB sticks plugged back in; a removal or a new link
+            // stopped halfway is finished even when no stick is left to see.
+            let state = app.state::<state::AppState>();
+            let store = state.store.as_ref();
+            let pending = state.app_sticks().is_ok_and(|sticks| !sticks.is_empty())
+                || store
+                    .removing_sticks()
+                    .is_ok_and(|sticks| !sticks.is_empty())
+                || store.retired_sticks().is_ok_and(|ids| !ids.is_empty());
+            if pending {
                 sharing::start_app(app.handle());
             }
             sharing::watch_mount(app.handle());

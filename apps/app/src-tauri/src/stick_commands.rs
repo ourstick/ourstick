@@ -115,7 +115,10 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
 /// The stick as the main window shows it.
 #[tauri::command]
 pub async fn stick(stick_id: String, state: State<'_, AppState>) -> Result<StickView, String> {
-    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
+    let stick = state
+        .stick_now(&stick_id_of(&stick_id)?)
+        .await
+        .map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let name = stick.name.clone();
@@ -195,7 +198,10 @@ pub async fn add_paths(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AddOutcome, String> {
-    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
+    let stick = state
+        .stick_now(&stick_id_of(&stick_id)?)
+        .await
+        .map_err(shown)?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -242,7 +248,10 @@ pub async fn link_paths(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
+    let stick = state
+        .stick_now(&stick_id_of(&stick_id)?)
+        .await
+        .map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     blocking(move || {
@@ -278,7 +287,10 @@ pub async fn remove_entry(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state.app_stick(&stick_id_of(&stick_id)?).map_err(shown)?;
+    let stick = state
+        .stick_now(&stick_id_of(&stick_id)?)
+        .await
+        .map_err(shown)?;
     let store = state.store.clone();
     let unlinked = blocking(move || {
         let linked = store

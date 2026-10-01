@@ -105,6 +105,8 @@ pub enum ShareError {
          at least 2 GB needed"
     )]
     NoRoom { free: u64 },
+    #[error("{} is not there (unplugged, moved or renamed?); readers wait until it is back", .name.as_ref().map_or_else(|| "the stick's folder".to_owned(), |name| format!("\u{201c}{name}\u{201d}")))]
+    SourceGone { name: Option<String> },
     #[error("the stick's suitcases already have a keeper")]
     KeeperRunning,
     #[error(transparent)]

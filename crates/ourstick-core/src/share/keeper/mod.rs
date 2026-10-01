@@ -14,7 +14,7 @@ mod state;
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,6 +29,7 @@ use super::ShareError;
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, StickKey};
+use crate::layout::StickLayout;
 use crate::manifest::Manifest;
 use crate::stick_id::StickId;
 use crate::store::Store;
@@ -64,7 +65,6 @@ pub async fn keep_suitcases<P: Publisher + 'static>(
         store,
         stick_id,
         cipher: cipher_for(owned.cipher, &stick_key),
-        root: owned.root_path,
         suitcase_bytes: SUITCASE_BYTES.min(budget.total() / 6).max(1),
     };
     let publisher = &publisher;
@@ -114,7 +114,6 @@ struct Context {
     store: Arc<dyn Store>,
     stick_id: StickId,
     cipher: Arc<dyn Cipher>,
-    root: PathBuf,
     suitcase_bytes: u64,
 }
 
@@ -219,10 +218,11 @@ async fn load_current(context: &Context) -> Result<Option<Current>, ShareError> 
     let store = context.store.clone();
     let cache_dir = context.cache_dir.clone();
     let cipher = context.cipher.clone();
-    let root = context.root.clone();
     let suitcase_bytes = context.suitcase_bytes;
     run_blocking(move || {
         let owned = store.owned_stick(&stick_id)?.ok_or(ShareError::NotOwned)?;
+        // Read again with each version: linked entries come and go.
+        let layout = StickLayout::load(store.as_ref(), &stick_id)?;
         let Some(record) = owned.latest_record else {
             return Ok(None);
         };
@@ -243,7 +243,8 @@ async fn load_current(context: &Context) -> Result<Option<Current>, ShareError> 
             .iter()
             .map(|entry| FileJob {
                 entry: entry.clone(),
-                on_disk: on_disk(&root, &entry.path),
+                on_disk: layout.on_disk(&entry.path),
+                root: layout.root_of(&entry.path).clone(),
                 plaintext_hash: recorded
                     .get(&entry.path)
                     .filter(|(blob_hash, _)| *blob_hash == entry.hash)
@@ -258,13 +259,6 @@ async fn load_current(context: &Context) -> Result<Option<Current>, ShareError> 
         }))
     })
     .await
-}
-
-/// Where a manifest path is under `root`.
-fn on_disk(root: &Path, relative: &str) -> PathBuf {
-    relative
-        .split('/')
-        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 #[cfg(test)]

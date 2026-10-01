@@ -12,6 +12,7 @@ use super::version::{Signed, Versions};
 use super::{check_drive, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
+use crate::layout::StickLayout;
 use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};
 use crate::store::OwnedFile;
 use crate::transport::Publisher;
@@ -61,6 +62,14 @@ pub enum PassEvent<'a> {
     Progress { done: usize, total: usize },
     /// A partial version was published.
     Published(&'a Publication),
+    /// At the start, if any: linked entries that are gone (their files are
+    /// offered as last published), and top-level names of the stick's own
+    /// folder left out because a linked entry has them (ADR 0008). Names
+    /// only, never paths.
+    Roots {
+        gone: &'a [String],
+        left_out: &'a [String],
+    },
 }
 
 /// What a pass came to.
@@ -104,15 +113,21 @@ pub async fn run_pass(
         let store = owner.store.clone();
         run_blocking(move || store.owned_files(&stick_id)).await?
     };
-    let known = if options.rescan {
-        Vec::new()
-    } else {
-        recorded.clone()
+    let layout = {
+        let store = owner.store.clone();
+        run_blocking(move || StickLayout::load(store.as_ref(), &stick_id)).await?
     };
     let mut catalogue = {
-        let root = root.clone();
-        run_blocking(move || Catalogue::start(&root, known)).await?
+        let recorded = recorded.clone();
+        let rescan = options.rescan;
+        run_blocking(move || Catalogue::start_layout(&layout, recorded, rescan)).await?
     };
+    if !catalogue.gone().is_empty() || !catalogue.left_out().is_empty() {
+        on_event(PassEvent::Roots {
+            gone: catalogue.gone(),
+            left_out: catalogue.left_out(),
+        });
+    }
     let mut previous = Previous::new(recorded, &catalogue.paths());
 
     let versions = Versions {

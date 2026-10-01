@@ -197,6 +197,8 @@ pub async fn run(folder: &Path, secrets: SecretsChoice, rescan: bool) -> Result<
                     println!("{line}");
                 }
             }
+            // `share <folder>` links nothing (linked entries are the app's).
+            PassEvent::Roots { .. } => {}
         };
         let outcome = tokio::select! {
             outcome = run_pass(&owner, options, &mut on_pass) => outcome?,

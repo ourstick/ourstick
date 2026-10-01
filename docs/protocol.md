@@ -144,6 +144,16 @@ carries only the key). Every file blob of that stick must use the same cipher.
   image, an empty mount point, another stick's drive) the owner does not
   publish, and keeps serving the last version. A drive whose files hold more
   than its size is not published either.
+- A stick may have **linked entries** (ADR 0008): folders or files shared
+  from where they are, each a top-level entry under its name (`Films/…`, or
+  `notes.txt` for a file). Nothing about them is on the wire but the name;
+  where they are never leaves the device. A top-level entry of the stick's
+  own folder with a linked entry's name (ignoring case) is left out. A linked
+  entry that is **gone** (missing, of another kind, or on another disk than
+  when linked: an empty mount point) keeps its files in the version as last
+  recorded, so the last version stays offered; readers asking for them are
+  told "not ready" until it is back, and the owner tries again later (from
+  1 s, doubling to a minute).
 - A version changes only when the folder does: if the new manifest hash equals
   the one in the last signed record, that record is served again and no new
   `seq` is signed.

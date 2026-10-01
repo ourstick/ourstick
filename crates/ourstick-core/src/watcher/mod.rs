@@ -105,6 +105,12 @@ pub enum WatchEvent<'a> {
     /// The stick's drive is not there (ejected): the last version is still
     /// served, and publishing resumes when it is back. Reported once.
     Ejected,
+    /// Linked entries that are gone, and own top-level names left out for
+    /// a linked one's, as a pass found them ([`PassEvent::Roots`]).
+    Roots {
+        gone: &'a [String],
+        left_out: &'a [String],
+    },
 }
 
 /// Every file's stamp under `root`, or `None` if the folder cannot be read
@@ -199,6 +205,7 @@ async fn follow(
         };
         let passed = run_pass(owner, options, &mut |event| match event {
             PassEvent::Progress { done, total } => on_event(WatchEvent::Reading { done, total }),
+            PassEvent::Roots { gone, left_out } => on_event(WatchEvent::Roots { gone, left_out }),
             PassEvent::Published(publication) => {
                 let changes = ChangeSummary::between(&current, &publication.manifest);
                 on_event(WatchEvent::Published {

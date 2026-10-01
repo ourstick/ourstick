@@ -13,6 +13,7 @@ use std::sync::Arc;
 use crate::blob::{encrypt_blob, encrypt_blob_hashed_before};
 use crate::blocking::run_blocking;
 use crate::cipher::{Cipher, CipherError};
+use crate::layout::Root;
 use crate::manifest::Entry;
 use crate::share::ShareError;
 use crate::transport::{BlobHash, Publisher, SuitcaseId};
@@ -22,6 +23,9 @@ use crate::transport::{BlobHash, Publisher, SuitcaseId};
 pub(super) struct FileJob {
     pub(super) entry: Entry,
     pub(super) on_disk: PathBuf,
+    /// The root it is under: if that is gone, the file is not "changed"
+    /// (its record stays) but out of reach for now.
+    pub(super) root: Root,
     /// The catalogue's plaintext hash of this version of the file (same
     /// blob hash), if it has one.
     pub(super) plaintext_hash: Option<[u8; 32]>,
@@ -45,6 +49,25 @@ pub(super) async fn prepare(
     files: Vec<FileJob>,
 ) -> Result<Prepared, ShareError> {
     let (id, folder) = publisher.open_suitcase().await?;
+    match fill(publisher, cipher, files, id, &folder).await {
+        Ok(prepared) => Ok(prepared),
+        Err(error) => {
+            // Half a suitcase is not kept: it is prepared again later.
+            if let Err(evicted) = publisher.evict(id).await {
+                tracing::warn!(error = %evicted, "a suitcase could not be removed");
+            }
+            Err(error)
+        }
+    }
+}
+
+async fn fill(
+    publisher: &impl Publisher,
+    cipher: &Arc<dyn Cipher>,
+    files: Vec<FileJob>,
+    id: SuitcaseId,
+    folder: &std::path::Path,
+) -> Result<Prepared, ShareError> {
     let mut prepared = Prepared {
         id,
         ready: HashSet::new(),
@@ -76,7 +99,8 @@ pub(super) async fn prepare(
 }
 
 /// Encrypts `file` into `blob_file`. False if the file is gone or changed
-/// since the catalogue: then nothing is left in `blob_file`. Blocking.
+/// since the catalogue: then nothing is left in `blob_file`. If its root is
+/// gone, [`ShareError::SourceGone`]. Blocking.
 fn write_blob(
     cipher: &dyn Cipher,
     file: &FileJob,
@@ -86,8 +110,12 @@ fn write_blob(
         let path = path.to_path_buf();
         move |source| ShareError::Io { path, source }
     };
+    let gone = || ShareError::SourceGone {
+        name: file.root.name.clone(),
+    };
     let plaintext = match File::open(&file.on_disk) {
         Ok(plaintext) => plaintext,
+        Err(_) if file.root.is_gone() => return Err(gone()),
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(io(&file.on_disk)(error)),
     };
@@ -112,6 +140,9 @@ fn write_blob(
         Err(CipherError::Io(source)) => {
             drop(out);
             let _ = std::fs::remove_file(blob_file);
+            if file.root.is_gone() {
+                return Err(gone());
+            }
             Err(io(&file.on_disk)(source))
         }
         Err(error) => {
@@ -145,8 +176,37 @@ mod tests {
                 hash: *blake3::hash(&blob).as_bytes(),
             },
             on_disk,
+            root: Root {
+                name: None,
+                path: dir.to_path_buf(),
+                is_dir: true,
+                disk: None,
+            },
             plaintext_hash: Some(*blake3::hash(hashed).as_bytes()),
         }
+    }
+
+    #[test]
+    fn a_file_whose_root_is_gone_is_out_of_reach_not_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = job(dir.path(), b"contents", None);
+        let blob_file = dir.path().join("blob");
+        // Deleted from a root that is there: changed (its record goes).
+        std::fs::remove_file(&file.on_disk).unwrap();
+        assert!(!write_blob(&cipher(), &file, &blob_file).unwrap());
+        // Its root gone (a linked disk unplugged): out of reach, kept.
+        file.root = Root {
+            name: Some("Films".to_owned()),
+            path: dir.path().join("Films"),
+            is_dir: true,
+            disk: None,
+        };
+        file.on_disk = dir.path().join("Films/file");
+        assert!(matches!(
+            write_blob(&cipher(), &file, &blob_file),
+            Err(ShareError::SourceGone { name }) if name.as_deref() == Some("Films")
+        ));
+        assert!(!blob_file.exists());
     }
 
     #[test]

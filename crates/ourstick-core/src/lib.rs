@@ -10,6 +10,7 @@ pub mod clock;
 pub mod device;
 pub mod download;
 pub mod drive;
+pub mod layout;
 pub mod linked;
 pub mod locks;
 pub mod manifest;

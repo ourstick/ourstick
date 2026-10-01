@@ -16,6 +16,7 @@ use std::time::UNIX_EPOCH;
 use super::build::{hash_file_telling_plaintext, regular_files, relative_path};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
+use crate::layout::StickLayout;
 use crate::store::OwnedFile;
 
 /// One file of the catalogue.
@@ -54,35 +55,101 @@ pub enum Catalogued {
     },
 }
 
-/// A pass over one folder, taken in parts.
+/// Where a file of the catalogue comes from.
+#[derive(Debug)]
+enum Source {
+    /// A file on disk.
+    Disk(PathBuf),
+    /// A file of a linked entry that is gone (ADR 0008): as recorded, so
+    /// the last version stays offered.
+    Carried(OwnedFile),
+}
+
+/// A pass over a stick's roots, taken in parts.
 #[derive(Debug)]
 pub struct Catalogue {
-    root: PathBuf,
     /// Every file, sorted by its path as in the manifest (not in walk
     /// order: "a-c" comes before "a/b"), so each part extends a prefix of
     /// the manifest.
-    files: Vec<(String, PathBuf)>,
+    files: Vec<(String, Source)>,
     next: usize,
     known: HashMap<String, OwnedFile>,
+    gone: Vec<String>,
+    left_out: Vec<String>,
 }
 
 impl Catalogue {
-    /// Walks `root`. `known` is what was recorded before. Blocking.
+    /// Walks the stick's own folder only. `known` is what was recorded
+    /// before. Blocking.
     pub fn start(root: &Path, known: Vec<OwnedFile>) -> Result<Self, ManifestError> {
-        let mut files = regular_files(root)?
-            .into_iter()
-            .map(|path| Ok((relative_path(root, &path)?, path)))
-            .collect::<Result<Vec<_>, ManifestError>>()?;
+        Self::start_layout(&StickLayout::new(root, &[]), known, false)
+    }
+
+    /// Walks every root of `layout`. `recorded` is what was recorded before;
+    /// with `rescan`, it is used only for linked entries that are gone (their
+    /// files are carried as recorded), never to skip reading. Blocking.
+    pub fn start_layout(
+        layout: &StickLayout,
+        recorded: Vec<OwnedFile>,
+        rescan: bool,
+    ) -> Result<Self, ManifestError> {
+        let own = &layout.own().path;
+        let mut files = Vec::new();
+        let mut left_out = std::collections::BTreeSet::new();
+        for path in regular_files(own)? {
+            let relative = relative_path(own, &path)?;
+            let top = relative.split('/').next().unwrap_or_default();
+            if layout.is_shadowed(top) {
+                left_out.insert(top.to_owned());
+                continue;
+            }
+            files.push((relative, Source::Disk(path)));
+        }
+        let mut gone = Vec::new();
+        for root in layout.linked() {
+            let name = root.name.clone().unwrap_or_default();
+            if root.is_gone() {
+                let prefix = format!("{name}/");
+                files.extend(
+                    recorded
+                        .iter()
+                        .filter(|file| file.path == name || file.path.starts_with(&prefix))
+                        .map(|file| (file.path.clone(), Source::Carried(file.clone()))),
+                );
+                gone.push(name);
+            } else if root.is_dir {
+                for path in regular_files(&root.path)? {
+                    let relative = format!("{name}/{}", relative_path(&root.path, &path)?);
+                    files.push((relative, Source::Disk(path)));
+                }
+            } else {
+                files.push((name, Source::Disk(root.path.clone())));
+            }
+        }
         files.sort_by(|a, b| a.0.cmp(&b.0));
+        let known = if rescan { Vec::new() } else { recorded };
         Ok(Self {
-            root: root.to_path_buf(),
             files,
             next: 0,
             known: known
                 .into_iter()
                 .map(|file| (file.path.clone(), file))
                 .collect(),
+            gone,
+            left_out: left_out.into_iter().collect(),
         })
+    }
+
+    /// The linked entries that are gone, by name: their files are carried
+    /// as recorded.
+    pub fn gone(&self) -> &[String] {
+        &self.gone
+    }
+
+    /// Top-level names of the own folder left out, because a linked entry
+    /// has that name (ignoring case).
+    pub fn left_out(&self) -> &[String] {
+        &self.left_out
     }
 
     /// How many files the walk found.
@@ -126,8 +193,11 @@ impl Catalogue {
         let mut part = Vec::new();
         let mut read = 0u64;
         while part.len() < max_files && read < max_bytes && !self.is_finished() {
-            let (relative, path) = &self.files[self.next];
-            let catalogued = self.catalogue(relative, path, cipher)?;
+            let (relative, source) = &self.files[self.next];
+            let catalogued = match source {
+                Source::Disk(path) => self.catalogue(relative, path, cipher)?,
+                Source::Carried(file) => Catalogued::File(carried(file)),
+            };
             if let Catalogued::File(file) = &catalogued {
                 if file.read {
                     read += file.entry.size;
@@ -178,7 +248,7 @@ impl Catalogue {
                 read: false,
             }));
         }
-        match hash_file_telling_plaintext(&self.root, path, cipher, None) {
+        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, None) {
             Ok((entry, _, plaintext_hash)) => Ok(Catalogued::File(CataloguedFile {
                 entry,
                 stamp,
@@ -197,6 +267,21 @@ impl Catalogue {
     }
 }
 
+/// A recorded file, unread, as the manifest had it.
+fn carried(file: &OwnedFile) -> CataloguedFile {
+    CataloguedFile {
+        entry: Entry {
+            path: file.path.clone(),
+            size: file.stamp.size,
+            mtime: file.stamp.mtime_ns / 1_000_000_000,
+            hash: file.blob_hash,
+        },
+        stamp: file.stamp,
+        plaintext_hash: file.plaintext_hash,
+        read: false,
+    }
+}
+
 /// The manifest's mtime: whole seconds, as `hash_file` records it.
 fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
     metadata
@@ -208,3 +293,6 @@ fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "catalogue/tests_linked.rs"]
+mod tests_linked;

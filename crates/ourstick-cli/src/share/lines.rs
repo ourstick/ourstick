@@ -99,8 +99,9 @@ pub(super) fn watch_lines(
 ) -> Vec<String> {
     let at = clock(elapsed);
     match event {
-        // Told by `catalogue_line`, now and then.
-        WatchEvent::Unchanged | WatchEvent::Reading { .. } => Vec::new(),
+        // Told by `catalogue_line`, now and then; `share <folder>` links
+        // nothing (linked entries are the app's).
+        WatchEvent::Unchanged | WatchEvent::Reading { .. } | WatchEvent::Roots { .. } => Vec::new(),
         WatchEvent::Ejected => vec![format!(
             "[{at}] The stick's drive is not there (ejected?); readers keep getting \
              the last version until it is back."

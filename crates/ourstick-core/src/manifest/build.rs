@@ -109,13 +109,14 @@ pub(crate) fn hash_file(
     cipher: &dyn Cipher,
     blob_dir: Option<&Path>,
 ) -> Result<(Entry, Option<PathBuf>), ManifestError> {
-    hash_file_telling_plaintext(root, path, cipher, blob_dir).map(|(entry, kept, _)| (entry, kept))
+    hash_file_telling_plaintext(relative_path(root, path)?, path, cipher, blob_dir)
+        .map(|(entry, kept, _)| (entry, kept))
 }
 
-/// [`hash_file`], also returning the plaintext hash (the nonce prefix's
-/// source, ADR 0003).
+/// [`hash_file`] for the file at `path` whose manifest path is `relative`,
+/// also returning the plaintext hash (the nonce prefix's source, ADR 0003).
 pub(crate) fn hash_file_telling_plaintext(
-    root: &Path,
+    relative: String,
     path: &Path,
     cipher: &dyn Cipher,
     blob_dir: Option<&Path>,
@@ -177,7 +178,7 @@ pub(crate) fn hash_file_telling_plaintext(
         .unwrap_or(0);
 
     let entry = Entry {
-        path: relative_path(root, path)?,
+        path: relative,
         size: info.plaintext_len,
         mtime,
         hash,

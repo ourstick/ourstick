@@ -60,6 +60,7 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
             partial.push(publication.manifest.entries.len());
         }
         PassEvent::Progress { done, total } => progress.push((done, total)),
+        PassEvent::Roots { .. } => panic!("nothing is linked"),
     })
     .await
     .unwrap();

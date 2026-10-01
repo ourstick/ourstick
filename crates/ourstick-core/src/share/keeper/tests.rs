@@ -19,6 +19,12 @@ fn state_of(entries: &[Entry], max_bytes: u64) -> State {
         .map(|entry| FileJob {
             entry: entry.clone(),
             on_disk: PathBuf::from(&entry.path),
+            root: crate::layout::Root {
+                name: None,
+                path: PathBuf::from("/"),
+                is_dir: true,
+                disk: None,
+            },
             plaintext_hash: None,
         })
         .collect();
@@ -182,4 +188,45 @@ fn identical_files_are_served_from_whichever_suitcase_has_them() {
     // Served from suitcase 0: the reader is placed there, not at the twin's.
     state.note(1, [9; 32], true, now);
     assert_eq!(state.readers[&1].0, (0, 0));
+}
+
+#[test]
+fn a_place_that_failed_waits_longer_each_time_and_never_spins() {
+    let (mut state, bytes) = state_with(3, 1_000);
+    let budget = Budget::new(bytes * 10);
+    let fail = |state: &mut State, job: Job| {
+        state.done(Done {
+            place: job.place,
+            bytes: job.bytes,
+            result: Err(ShareError::SourceGone {
+                name: Some("Films".to_owned()),
+            }),
+        })
+    };
+    let now = Instant::now();
+    state.note(1, [1; 32], false, now);
+    let Next::Job(job) = state.next_job(&budget, now) else {
+        panic!("a job");
+    };
+    assert!(!fail(&mut state, job));
+    // Asked again at once: no job, so no loop.
+    state.note(1, [1; 32], false, now);
+    assert!(matches!(state.next_job(&budget, now), Next::Nothing));
+    // After a second, tried again; failing again, it waits two.
+    let later = Instant::now() + Duration::from_millis(1_500);
+    state.note(1, [1; 32], false, later);
+    let Next::Job(job) = state.next_job(&budget, later) else {
+        panic!("tried again");
+    };
+    fail(&mut state, job);
+    state.note(1, [1; 32], false, later);
+    assert!(matches!(state.next_job(&budget, later), Next::Nothing));
+    let much_later = Instant::now() + Duration::from_millis(2_500);
+    state.note(1, [1; 32], false, much_later);
+    assert!(prepare_next(&mut state, &budget, much_later).is_some());
+    // Prepared at last: forgotten.
+    assert!(state.failed.is_empty());
+    // Other places were never held back.
+    state.note(2, [2; 32], false, now);
+    assert!(prepare_next(&mut state, &budget, now).is_some());
 }

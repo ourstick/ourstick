@@ -345,6 +345,12 @@ fn on_watch_event(app: &AppHandle, event: &WatchEvent<'_>) {
             ShareProblem::Cleared
         }
         WatchEvent::StillChanging | WatchEvent::Reading { .. } => return,
+        // The window lists linked entries that are gone and own entries
+        // left out from the stick itself; it only needs to look again.
+        WatchEvent::Roots { .. } => {
+            let _ = app.emit("stick-changed", ());
+            return;
+        }
         WatchEvent::Failed { error } => ShareProblem::Failed {
             message: error.to_string(),
         },

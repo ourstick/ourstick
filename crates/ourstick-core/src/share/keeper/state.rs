@@ -2,7 +2,7 @@
 //! and where each reader is; what to prepare next and what must leave for it.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{load_current, Budget, Context, Current, Done, Job, Next, Open, IN_USE, RELOAD_EVERY};
 use crate::transport::{BlobHash, Demand};
@@ -19,7 +19,15 @@ pub(super) struct State {
     /// Where each reader is (by connection), and when it last asked.
     pub(super) readers: HashMap<u64, (Place, Instant)>,
     pub(super) last_reload: Option<Instant>,
+    /// Places whose last preparation failed (e.g. a linked folder is gone):
+    /// not tried again before the time, and the wait grows.
+    pub(super) failed: HashMap<Place, (Instant, Duration)>,
 }
+
+/// The first wait after a failed preparation…
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+/// …doubled each time, up to this.
+const LONGEST_RETRY: Duration = Duration::from_secs(60);
 
 /// A suitcase's place: (generation of the version, number in it).
 pub(super) type Place = (u64, usize);
@@ -140,6 +148,10 @@ impl State {
                 return Next::Nothing;
             };
             let place = (generation, number);
+            // Failed lately: dropped from the queue; the reader asks again.
+            if self.failed.get(&place).is_some_and(|(at, _)| now < *at) {
+                continue;
+            }
             if number < current.plan.suitcases.len()
                 && self.preparing != Some(place)
                 && !self.open.iter().any(|open| open.place == place)
@@ -201,6 +213,7 @@ impl State {
         }
         match done.result {
             Ok(Some(prepared)) => {
+                self.failed.remove(&done.place);
                 if !prepared.changed.is_empty() {
                     tracing::info!(
                         files = prepared.changed.len(),
@@ -223,7 +236,13 @@ impl State {
                 true
             }
             Err(error) => {
-                tracing::warn!(%error, "a suitcase could not be prepared");
+                let wait = self
+                    .failed
+                    .get(&done.place)
+                    .map_or(FIRST_RETRY, |(_, wait)| (*wait * 2).min(LONGEST_RETRY));
+                tracing::warn!(%error, wait_s = wait.as_secs(), "a suitcase could not be prepared");
+                self.failed
+                    .insert(done.place, (Instant::now() + wait, wait));
                 false
             }
         }

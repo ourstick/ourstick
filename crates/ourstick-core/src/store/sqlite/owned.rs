@@ -52,7 +52,7 @@ pub(super) fn save_signed_record(
     let stick_id = content.stick_id.to_bytes();
     let updated = connection.execute(
         "UPDATE owned_sticks SET last_signed_seq = ?1, latest_record = ?2, latest_partial = ?4
-             WHERE stick_id = ?3 AND last_signed_seq < ?1",
+             WHERE stick_id = ?3 AND last_signed_seq < ?1 AND removing = 0",
         params![seq, record.to_bytes().to_vec(), stick_id, partial],
     )?;
     if updated == 1 {
@@ -60,7 +60,7 @@ pub(super) fn save_signed_record(
     }
     let stored: Option<i64> = connection
         .query_row(
-            "SELECT last_signed_seq FROM owned_sticks WHERE stick_id = ?1",
+            "SELECT last_signed_seq FROM owned_sticks WHERE stick_id = ?1 AND removing = 0",
             [stick_id],
             |row| row.get(0),
         )

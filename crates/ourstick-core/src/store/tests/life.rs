@@ -69,6 +69,19 @@ fn a_stick_being_removed_is_hidden_until_it_is_gone(store: &dyn Store) {
         store.rename_owned_stick(&going.stick_id, "x"),
         Err(StoreError::StickNotFound)
     ));
+    let signing = owner(2);
+    assert!(matches!(
+        store.save_signed_record(&signing.sign_record(1, [1; 32]), false),
+        Err(StoreError::StickNotFound)
+    ));
+    assert!(matches!(
+        store.record_owned_files(&going.stick_id, &[file("b.txt")]),
+        Err(StoreError::StickNotFound)
+    ));
+    assert!(matches!(
+        store.add_linked_entry(&going.stick_id, &linked("Music")),
+        Err(StoreError::StickNotFound)
+    ));
     assert!(matches!(
         store.mark_removing(&going.stick_id),
         Err(StoreError::StickNotFound)

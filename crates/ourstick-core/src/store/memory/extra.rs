@@ -14,7 +14,7 @@ pub(super) fn add_linked_entry(
     check_linked_entry(entry)?;
     let mut state = store.state();
     let key = stick_id.to_bytes();
-    if !state.owned.contains_key(&key) {
+    if !super::life::is_live(&state, &key) {
         return Err(StoreError::StickNotFound);
     }
     let entries = state.linked.entry(key).or_default();

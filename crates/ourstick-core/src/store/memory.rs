@@ -169,23 +169,7 @@ impl Store for MemoryStore {
         record: &SignedManifestRecord,
         partial: bool,
     ) -> Result<(), StoreError> {
-        let content = record.unverified_record();
-        check_seq(content.seq)?;
-        let mut state = self.state();
-        let stick = state
-            .owned
-            .get_mut(&content.stick_id.to_bytes())
-            .ok_or(StoreError::StickNotFound)?;
-        if content.seq <= stick.last_signed_seq {
-            return Err(StoreError::NotNewer {
-                seq: content.seq,
-                stored: stick.last_signed_seq,
-            });
-        }
-        stick.last_signed_seq = content.seq;
-        stick.latest_record = Some(record.clone());
-        stick.latest_partial = partial;
-        Ok(())
+        life::save_signed_record(self, record, partial)
     }
 
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError> {
@@ -207,7 +191,7 @@ impl Store for MemoryStore {
         }
         let mut state = self.state();
         let key = stick_id.to_bytes();
-        if !state.owned.contains_key(&key) {
+        if !life::is_live(&state, &key) {
             return Err(StoreError::StickNotFound);
         }
         let recorded = state.owned_files.entry(key).or_default();
@@ -220,7 +204,7 @@ impl Store for MemoryStore {
     fn forget_owned_files(&self, stick_id: &StickId, paths: &[String]) -> Result<(), StoreError> {
         let mut state = self.state();
         let key = stick_id.to_bytes();
-        if !state.owned.contains_key(&key) {
+        if !life::is_live(&state, &key) {
             return Err(StoreError::StickNotFound);
         }
         if let Some(recorded) = state.owned_files.get_mut(&key) {
@@ -238,7 +222,7 @@ impl Store for MemoryStore {
     ) -> Result<(), StoreError> {
         let mut state = self.state();
         let key = stick_id.to_bytes();
-        if !state.owned.contains_key(&key) {
+        if !life::is_live(&state, &key) {
             return Err(StoreError::StickNotFound);
         }
         let keep: std::collections::HashSet<&String> = paths.iter().collect();

@@ -44,11 +44,12 @@ pub(super) fn owned_files(
     .collect()
 }
 
-/// Fails with `StickNotFound` unless `stick_id` is an owned stick.
+/// Fails with `StickNotFound` unless `stick_id` is an owned stick, not
+/// being removed.
 fn check_owned(connection: &Connection, stick_id: &[u8; 32]) -> Result<(), StoreError> {
     let owned: Option<i64> = connection
         .query_row(
-            "SELECT 1 FROM owned_sticks WHERE stick_id = ?1",
+            "SELECT 1 FROM owned_sticks WHERE stick_id = ?1 AND removing = 0",
             [stick_id],
             |row| row.get(0),
         )

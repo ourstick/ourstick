@@ -16,6 +16,36 @@ pub(super) fn listed(store: &MemoryStore, removing: bool) -> Vec<OwnedStick> {
     )
 }
 
+/// Whether `key` is a stick of this store that is not being removed.
+pub(super) fn is_live(state: &super::State, key: &[u8; 32]) -> bool {
+    state.owned.contains_key(key) && !state.removing.contains(key)
+}
+
+pub(super) fn save_signed_record(
+    store: &MemoryStore,
+    record: &crate::record::SignedManifestRecord,
+    partial: bool,
+) -> Result<(), StoreError> {
+    let content = record.unverified_record();
+    crate::store::check_seq(content.seq)?;
+    let mut state = store.state();
+    let key = content.stick_id.to_bytes();
+    if !is_live(&state, &key) {
+        return Err(StoreError::StickNotFound);
+    }
+    let stick = state.owned.get_mut(&key).ok_or(StoreError::StickNotFound)?;
+    if content.seq <= stick.last_signed_seq {
+        return Err(StoreError::NotNewer {
+            seq: content.seq,
+            stored: stick.last_signed_seq,
+        });
+    }
+    stick.last_signed_seq = content.seq;
+    stick.latest_record = Some(record.clone());
+    stick.latest_partial = partial;
+    Ok(())
+}
+
 /// Changes the live (not removing) stick `stick_id`.
 pub(super) fn change(
     store: &MemoryStore,

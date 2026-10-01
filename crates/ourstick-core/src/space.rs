@@ -142,8 +142,7 @@ fn held_on(claims: &[&SpaceClaim], disk: &str) -> u64 {
     claims
         .iter()
         .filter(|claim| claim.disk == disk)
-        .map(|claim| claim.bytes)
-        .sum()
+        .fold(0u64, |held, claim| held.saturating_add(claim.bytes))
 }
 
 /// What is left on the disk of `path`, every live claim counted but
@@ -187,8 +186,7 @@ pub fn claim_cache(
             let held: u64 = live
                 .iter()
                 .filter(|claim| claim.kind == ClaimKind::Cache)
-                .map(|claim| claim.bytes)
-                .sum();
+                .fold(0u64, |held, claim| held.saturating_add(claim.bytes));
             cache_share(free, held, together)
         });
         let claim = match &decided {
@@ -210,7 +208,7 @@ pub fn claim_cache(
 /// free on the cache's disk, other live shares hold `held`, and `together`
 /// sticks start at once.
 pub fn cache_share(free: u64, held: u64, together: usize) -> Result<u64, SpaceError> {
-    let total = ((free + held) / BUDGET_SHARE).clamp(MIN_BUDGET, MAX_BUDGET);
+    let total = (free.saturating_add(held) / BUDGET_SHARE).clamp(MIN_BUDGET, MAX_BUDGET);
     let part = total / u64::try_from(together.max(1)).unwrap_or(u64::MAX);
     let mine = part.min(total.saturating_sub(held)).max(MIN_BUDGET);
     if free < mine {

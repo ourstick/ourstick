@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
-use ourstick_core::places::check_new_stick_folder;
+use ourstick_core::places::{check_new_stick_folder, comparable};
 use ourstick_core::share::{
     keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
     Publication, PARTIAL_TIMING,
@@ -47,7 +47,7 @@ fn stick_for(setup: &setup::Setup, folder: &Path, name: Option<&str>) -> Result<
         .store
         .owned_sticks()?
         .into_iter()
-        .find(|stick| stick.root_path == folder);
+        .find(|stick| comparable(&stick.root_path) == comparable(folder));
     if let Some(stick) = found {
         if stick.kind != StickKind::Cli {
             anyhow::bail!(

@@ -13,7 +13,7 @@ pub(super) fn add(
 ) -> Result<(), StoreError> {
     check_linked_entry(entry)?;
     let known: bool = connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM owned_sticks WHERE stick_id = ?1)",
+        "SELECT EXISTS (SELECT 1 FROM owned_sticks WHERE stick_id = ?1 AND removing = 0)",
         [stick_id.to_bytes()],
         |row| row.get(0),
     )?;

@@ -3,7 +3,7 @@
 //! record floor (ADR 0004). `get` goes on to the files; `ls` stops here.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::files::check_manifest_paths;
@@ -127,17 +127,20 @@ pub struct Preview {
     pub entries: Vec<TopEntry>,
     pub total: u64,
     pub to_write: u64,
+    /// Where it would be saved: as `choose` said, once it knew the name.
+    pub folder: PathBuf,
 }
 
-/// Fetches and verifies the stick's manifest and says what adding it into
-/// `folder` would bring; nothing is written. Like [`list`], it raises the
+/// Fetches and verifies the stick's manifest and says what adding it would
+/// bring into the folder `choose` gives for its name (once, with one
+/// connection); nothing is written. Like [`list`], it raises the
 /// stick's record floor. No deadline of its own: the caller bounds it (the
 /// sender may be away), and a folder holding an earlier copy is read.
 pub async fn preview(
     fetcher: &impl Fetcher,
     store: Arc<dyn Store>,
     ticket: &Ticket,
-    folder: &Path,
+    choose: impl FnOnce(&str) -> PathBuf + Send + 'static,
 ) -> Result<Preview, DownloadError> {
     let floor = {
         let store = store.clone();
@@ -152,15 +155,16 @@ pub async fn preview(
     let entries = top_entries(&manifest);
     // What the folder holds counts, as a download would find it (each file
     // not recorded there is read once: a big existing copy takes a while).
-    let to_write = {
+    let (to_write, folder) = {
         let store = store.clone();
         let stick_id = ticket.stick_id;
-        let folder = folder.to_path_buf();
         let manifest = manifest.clone();
-        run_blocking(move || -> Result<u64, DownloadError> {
+        run_blocking(move || -> Result<(u64, PathBuf), DownloadError> {
+            // Chosen here, off the async runtime: it may look at folders.
+            let folder = choose(&manifest.name);
             match std::fs::metadata(&folder) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok(manifest.total_size())
+                    return Ok((manifest.total_size(), folder))
                 }
                 Err(source) => {
                     return Err(DownloadError::Io {
@@ -184,7 +188,7 @@ pub async fn preview(
                 _ => Vec::new(),
             };
             let plan = plan_folder(&folder, &manifest, &recorded, cipher.as_ref())?;
-            Ok(plan.bytes_to_write(&manifest))
+            Ok((plan.bytes_to_write(&manifest), folder))
         })
         .await?
     };
@@ -195,6 +199,7 @@ pub async fn preview(
         entries,
         total,
         to_write,
+        folder,
     })
 }
 

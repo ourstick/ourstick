@@ -23,9 +23,11 @@ const NAMES: &[&str] = &[
     "System Volume Information",
     // Linux file managers
     ".directory",
-    // OurStick: the drive marker, and a reader's unfinished files
+    // OurStick: the drive marker, a reader's unfinished files, and the mark
+    // of a received stick's folder
     super::DRIVE_MARKER,
     ".ourstick-partial",
+    ".ourstick-received",
 ];
 
 /// Name prefixes: AppleDouble files (`._photo.jpg`) and per-user trash
@@ -45,6 +47,7 @@ mod tests {
     fn system_files_are_ignored_and_ordinary_ones_are_not() {
         for name in [
             ".DS_Store",
+            ".ourstick-received",
             "._photo.jpg",
             ".Spotlight-V100",
             ".Trash-1000",

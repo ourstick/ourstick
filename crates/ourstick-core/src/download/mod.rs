@@ -23,7 +23,6 @@ mod relay_watch;
 mod types;
 
 use fetch_files::{fetch_files, FileCounts};
-use files::prepare_partial_dir;
 use folder::plan_folder;
 use joined::record_downloaded;
 use listing::fetch_listing;
@@ -123,9 +122,8 @@ pub async fn download(
     .await
 }
 
-/// [`download`] for the program `kind`: the receiver window (`App`) takes
-/// over a stick `get` received; `get` (`Cli`) is refused the app's
-/// stick ([`DownloadError::ReceivedByApp`]).
+/// [`download`] for the program `kind`: the window (`App`) takes over a stick
+/// `get` received; `get` is refused the window's ([`DownloadError::ReceivedByApp`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn download_as(
     kind: StickKind,
@@ -335,7 +333,8 @@ async fn download_over(
 
     let partial = {
         let output_dir = output_dir.to_path_buf();
-        run_blocking(move || prepare_partial_dir(&output_dir)).await?
+        let marked = (joined.kind == StickKind::App).then_some(joined.stick_id);
+        run_blocking(move || receive::partial_for(&output_dir, marked)).await?
     };
     let mut receiving = ReceivingPath::new(reported_path, connected_usage, &mut carried.watch);
     let FileCounts {

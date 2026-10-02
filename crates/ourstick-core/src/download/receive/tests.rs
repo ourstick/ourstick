@@ -1,5 +1,6 @@
 use super::*;
 use crate::record::RecordError;
+use crate::space::SpaceError;
 
 fn io(kind: std::io::ErrorKind) -> DownloadError {
     DownloadError::Io {

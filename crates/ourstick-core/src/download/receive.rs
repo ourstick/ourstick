@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
-use super::{download_as, wait_for_newer, DownloadError, DownloadEvent, RelayPolicy, FOLLOW_EVERY};
+use super::{download_as, wait_for_newer, DownloadError, DownloadEvent, RelayPolicy};
 use crate::blocking::run_blocking;
 use crate::clock::Clock;
-use crate::space::{DownloadRoom, SpaceError};
+use crate::space::DownloadRoom;
 use crate::stick_id::StickId;
 use crate::store::{StickKind, Store};
 use crate::ticket::Ticket;
@@ -57,6 +57,25 @@ pub async fn take_stick(
     super::joined::prepare(store, stick_id, folder, kind, now_ms).await
 }
 
+/// The partial folder of a round into `output_dir`; for the window's stick
+/// (`marked`), only while the folder still bears its mark, checked right
+/// before: a disk unplugged since the round began leaves an empty mount
+/// point, which is never filled.
+pub(super) fn partial_for(
+    output_dir: &Path,
+    marked: Option<StickId>,
+) -> Result<std::path::PathBuf, DownloadError> {
+    if let Some(stick_id) = marked {
+        if !received_folder_there(output_dir, &stick_id) {
+            return Err(DownloadError::Io {
+                path: output_dir.to_path_buf(),
+                source: std::io::Error::from(std::io::ErrorKind::NotFound),
+            });
+        }
+    }
+    super::files::prepare_partial_dir(output_dir)
+}
+
 /// Tells a receive to stop: whatever it is doing (downloading, waiting for
 /// the owner, waiting before trying again) ends at once.
 #[derive(Debug, Default)]
@@ -91,31 +110,6 @@ impl Cancel {
     }
 }
 
-/// Why a receive waits before trying again.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Waiting {
-    /// The owner cannot be reached (off, OurStick closed there, no network).
-    Sender(String),
-    /// The owner no longer shares the stick with this link (it may again).
-    NoLongerShared,
-    /// What comes does not fit on this computer.
-    Room { needed: u64, available: u64 },
-    /// The disk the stick is written to is full.
-    DiskFull,
-    /// The folder is not there, or not the stick's (an unplugged disk).
-    Folder,
-    /// The owner's folder keeps changing while it is downloaded.
-    KeepsChanging,
-    /// The owner's copy, or what came of it, is damaged; a new version of
-    /// the stick may mend it.
-    Damaged(String),
-    /// This version cannot be taken here (a name this computer refuses, two
-    /// names for one file): the owner's next version may be.
-    CannotTake(String),
-    /// Something on this computer failed (its network, its storage).
-    ThisComputer(String),
-}
-
 /// What a receive tells, besides each download's own events.
 #[derive(Debug)]
 pub enum ReceiveEvent<'a> {
@@ -133,85 +127,6 @@ pub enum ReceiveEvent<'a> {
     },
 }
 
-/// What happens after a round of downloading failed.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Next {
-    Wait(Waiting, Duration),
-    Stop,
-}
-
-/// The first pause after a failure the owner can fix by coming back.
-const FIRST_WAIT: Duration = FOLLOW_EVERY;
-/// The longest pause between tries.
-const LONGEST_WAIT: Duration = Duration::from_secs(300);
-/// How long a cancelled round may take to stop at its next event and finish
-/// the file it is placing, before it is dropped.
-const GRACE: Duration = Duration::from_secs(10);
-
-/// What to do after `error`, the round's room refusal being `refused` and
-/// `waited` the last pause for the same reason: the one place that decides.
-/// Nothing is given up on that the owner or this computer can mend; only a
-/// record that must not be taken, the store and the programs' own refusals
-/// stop, saying why.
-pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: Duration) -> Next {
-    use std::io::ErrorKind;
-    let longer = (waited * 2).clamp(FIRST_WAIT, LONGEST_WAIT);
-    let said = || crate::untrusted::escape(&error.to_string());
-    let wait = |why| Next::Wait(why, longer);
-    match (error, refused) {
-        (_, Some(SpaceError::DoesNotFit { needed, available })) => Next::Wait(
-            Waiting::Room {
-                needed: *needed,
-                available: *available,
-            },
-            LONGEST_WAIT,
-        ),
-        // The ledger could not be read or written: said, and tried again.
-        (_, Some(other)) => wait(Waiting::ThisComputer(crate::untrusted::escape(
-            &other.to_string(),
-        ))),
-        (DownloadError::Transport(transport), _) => match transport {
-            TransportError::UnknownStick => Next::Wait(Waiting::NoLongerShared, LONGEST_WAIT),
-            TransportError::Unreachable(reason) | TransportError::Interrupted(reason) => {
-                wait(Waiting::Sender(crate::untrusted::escape(reason)))
-            }
-            TransportError::NoRecord | TransportError::NotReady | TransportError::Protocol(_) => {
-                wait(Waiting::Sender(said()))
-            }
-            TransportError::Refused => wait(Waiting::KeepsChanging),
-            TransportError::OwnerFailed | TransportError::Corrupt => {
-                Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
-            }
-            TransportError::Bind(_) | TransportError::Storage(_) | TransportError::Io(_) => {
-                wait(Waiting::ThisComputer(said()))
-            }
-            TransportError::Cancelled => Next::Stop,
-        },
-        (DownloadError::Io { source, .. }, _) => match source.kind() {
-            ErrorKind::StorageFull | ErrorKind::QuotaExceeded => {
-                Next::Wait(Waiting::DiskFull, LONGEST_WAIT)
-            }
-            ErrorKind::NotFound | ErrorKind::PermissionDenied => {
-                Next::Wait(Waiting::Folder, FIRST_WAIT)
-            }
-            _ => wait(Waiting::ThisComputer(said())),
-        },
-        (
-            DownloadError::UnsafePath { .. }
-            | DownloadError::PathCollision { .. }
-            | DownloadError::Manifest(_),
-            _,
-        ) => Next::Wait(Waiting::CannotTake(said()), LONGEST_WAIT),
-        (DownloadError::SizeMismatch { .. } | DownloadError::Cipher(_), _) => {
-            Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
-        }
-        // A record that must not be taken (older than this device has seen,
-        // a wrong signature), the store, a cancel from outside, and the
-        // programs' own refusals: they need the user.
-        _ => Next::Stop,
-    }
-}
-
 /// What a receive works with.
 pub struct Receiving<'a, F: Fetcher> {
     pub kind: StickKind,
@@ -222,7 +137,7 @@ pub struct Receiving<'a, F: Fetcher> {
     pub folder: &'a Path,
     pub policy: &'a RelayPolicy,
     pub room: &'a DownloadRoom,
-    /// How often the owner is asked for a newer version ([`FOLLOW_EVERY`]).
+    /// How often the owner is asked for a newer version (`FOLLOW_EVERY`).
     pub follow_every: Duration,
 }
 
@@ -392,6 +307,13 @@ async fn pause(after: Duration, cancel: &Cancel) -> bool {
         () = cancel.cancelled() => false,
     }
 }
+
+mod policy;
+
+#[cfg(test)]
+use policy::LONGEST_WAIT;
+pub use policy::{after_error, Next, Waiting};
+use policy::{FIRST_WAIT, GRACE};
 
 #[cfg(test)]
 mod tests;

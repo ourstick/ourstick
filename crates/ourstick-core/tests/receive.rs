@@ -204,9 +204,11 @@ async fn a_preview_groups_by_top_level_and_leaves_out_what_is_already_here() {
     let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
     let folder = tempfile::tempdir().unwrap();
     let new_folder = folder.path().join("not yet");
-    let seen = preview(&fetcher, store.clone(), &stick.ticket, &new_folder)
+    let chosen = new_folder.clone();
+    let seen = preview(&fetcher, store.clone(), &stick.ticket, move |_| chosen)
         .await
         .unwrap();
+    assert_eq!(seen.folder, new_folder);
     assert_eq!(
         seen.entries,
         [
@@ -229,7 +231,8 @@ async fn a_preview_groups_by_top_level_and_leaves_out_what_is_already_here() {
     assert!(!new_folder.exists(), "a preview writes nothing");
     // The same note is here already: only the photos are to come.
     std::fs::write(folder.path().join("note.txt"), b"note").unwrap();
-    let seen = preview(&fetcher, store, &stick.ticket, folder.path())
+    let here = folder.path().to_path_buf();
+    let seen = preview(&fetcher, store, &stick.ticket, move |_| here)
         .await
         .unwrap();
     assert_eq!(seen.to_write, 5);

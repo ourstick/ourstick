@@ -43,7 +43,7 @@ Nothing gives way to anyone outside OurStick.
 1. **OurStick times its own reads from the disk, and slows down when they
    get slower.** Only the time spent inside the file's `read` calls counts
    (a timing adapter around the file), not the encryption or the hashing
-   in between (about 195 MB/s on this machine, ADR 0007, so a part's whole
+   in between (about 195 MB/s on this machine, ADR 0007, so a window's whole
    time would hide half of a slowdown), nor recording or publishing. Only
    the first read of a file counts: the second read of `encrypt_blob` comes
    from the page cache for a file that fits in memory and from the disk for
@@ -58,8 +58,12 @@ Nothing gives way to anyone outside OurStick.
    per byte, windows of many small ones the cost per file). The recent best
    fades, by half over an hour of reading time (the sum of timed reads: no
    wall clock, so tests are exact), so a disk whose inner tracks are
-   slower, or a cache that made the first windows look fast, does not count
-   as "someone else" for long.
+   slower does not count as "someone else" for long. **A window faster
+   than any disk teaches nothing:** files just copied into the folder are
+   still in memory, and a window read from there (over 1 GB/s, or under
+   0.2 ms a file) would set a "best" no disk can keep, after which every
+   window from the disk looked slow. Such a window counts as fast (rule 3),
+   but is not a best.
 3. **Someone else is there** when two windows in a row took more than
    three times what they should have. Three, not two: the inner tracks of a
    disk are up to half as fast as its outer ones, and a second sequential
@@ -74,13 +78,22 @@ Nothing gives way to anyone outside OurStick.
    waits at most one window (64 MB, under a second on a spinning disk) for
    the disk.
 5. **One place decides per disk.** All of OurStick's reading from one disk
-   goes through that disk's `DiskShare` (the disk as `Root` already knows
-   it), whichever stick and whichever reader (a catalogue, a suitcase) it
-   is for. Only one of them reads a window at a time: they take turns, so
-   OurStick never mistakes itself for someone else. When readers wait for
-   a suitcase (today's "not ready"), the suitcase takes the next turn
-   first; this replaces the catalogue's pause for waiting readers
-   (`LONGEST_YIELD`). A suitcase gives way to the user as well: a reader who
+   goes through that disk's `DiskShare`, whichever stick and whichever
+   reader (a catalogue, a suitcase) it is for. A "disk" is a filesystem:
+   its device id on Linux and macOS, its volume (the path's prefix, `C:\`)
+   on Windows; one share for the whole process where neither is known.
+   Two partitions of one physical disk are two filesystems, so OurStick on
+   one may take OurStick on the other for someone else: rare, and it only
+   slows both. Only one reader reads a window at a time: they take turns in
+   the order they asked (a queue, not a lock, so a catalogue taking turn
+   after turn cannot shut out a suitcase or another stick), so OurStick
+   never mistakes itself for someone else. When readers wait for a suitcase
+   (today's "not ready"), the suitcase goes first, but for at most three
+   windows for each window of the catalogue, so new files still reach
+   someone (what `LONGEST_YIELD` bounds today); this replaces it. The pause
+   is the disk's, not the reader's: it is a time before which the next turn
+   does not start, waited for outside the turn, so no reader holds the
+   disk while it sleeps, and a stick that stops leaves the queue at once. A suitcase gives way to the user as well: a reader who
    waits longer because the sender's disk is busy is told nothing new ("the
    sender is getting it ready" is what they already see). Two programs of
    OurStick on one disk (the CLI and the app) do not know of each other;
@@ -108,17 +121,31 @@ Nothing gives way to anyone outside OurStick.
   Its time is what it is given (`took`), so tests drive it with numbers
   only, no `Clock`.
 - `share/disk_turns.rs` (new): one `DiskShare` per disk per process, behind
-  a turn (a lock taken per window, the waiting-readers' suitcase first), and
-  `Timed<R: Read>`, which times the first read of a file, closes windows,
-  and sleeps for the pause in the blocking thread it reads in. Both are
+  the queue of turns of rule 5, and `Timed<R: Read + Seek>`, which times the
+  first read of a file (the seek back to its start, as `encrypt_blob` does,
+  ends it), closes windows, and waits for the disk's pause in the blocking
+  thread it reads in. The catalogue opens files itself
+  (`hash_file_telling_plaintext`), so it is given a way to open a file as a
+  `Timed` reader, not only the `DiskShare`. A file bigger than memory is
+  read from the disk twice and only the first read is timed, so for such
+  files OurStick reads about two elevenths of the time, not a tenth: close
+  enough, and said here rather than guessed at run time. A drive found
+  missing between slices of a pause comes out of `read` as an error of its
+  own kind, which the catalogue passes on as `DriveMissing`, not as a file
+  gone. Both are
   given to the catalogue (`manifest/catalogue.rs`, through `next_part`) and
   to the keeper (`share/keeper/prepare.rs`) by the caller, not made inside.
+  `Timed` measures and sleeps through a small trait of its own (`Timer`:
+  elapsed time, sleep), real in the app and the CLI, a fake in tests, so the
+  bounds of the pause and the ejected-drive slices are tested without
+  waiting.
 - A trait for the judgement (`DiskLoad`), so a better source (the system's
   disk counters, see Consequences) can replace the timing later without
   changing the callers.
 - `PassEvent::GivingWay(bool)` and the keeper's matching event come from
-  the disk's one `DiskShare`, so a stick has one state; the CLI and the app
-  show it (rule 6).
+  the disks' `DiskShare`s, so a stick has one state (giving way if any of
+  its disks is: a stick with linked folders on two disks has two); the CLI
+  and the app show it (rule 6).
 - A drive ejected during a pause: the pause sleeps in slices of at most
   5 s and checks the drive's mark between them, as the pass does between
   parts, so `DriveMissing` is not a pause late.
@@ -151,11 +178,13 @@ Nothing gives way to anyone outside OurStick.
 1. `DiskShare` with tests: steady disk (never gives way), a busy stretch
    (gives way after two slow windows, back after one fast), one slow window
    alone (no change), small files and big ones mixed (no false alarm), a
-   window of unread files (ignored), fading (an early cached burst stops
-   counting), the bounds of the pause.
+   window of unread files (ignored), windows faster than any disk (fast,
+   but no best), fading, the bounds of the pause.
 2. `Timed` and the turns, with tests: windows inside one big file, the
-   first read only, the suitcase for a waiting reader first, the pause in
-   slices with an ejected drive.
+   first read only (through a seek back), the queue's order, the suitcase
+   for a waiting reader first but at most three to one, the pause outside
+   the turn, a stick leaving the queue, the pause in slices with an
+   ejected drive. If the turns grow past this, they get their own ADR.
 3. The catalogue and the keeper use them; `LONGEST_YIELD` goes; the
    owner's words (CLI, app). An integration test: a pass over a folder whose
    reads are made slow (a `Read` that sleeps) says it gives way, and stops
@@ -167,7 +196,7 @@ Nothing gives way to anyone outside OurStick.
    /proc/sys/vm/drop_caches`, run by Giorgos), and take the middle time. It
    passes if the copy takes at most 1.3 times as long as alone, OurStick
    keeps reading meanwhile (it does not stop), and it says "full speed"
-   again within a minute of the copy ending. If not, the constants of rule
-   3–4 are tuned with the logged numbers, and the ADR says so.
+   again within a minute of the copy ending. If not, the constants of rules
+   2–4 are tuned with the logged numbers, and the ADR says so.
 5. Docs: protocol.md (the owner's behaviour; nothing on the wire changes),
    gui-spec.md (the words), todo.md; status Accepted. Then Rescued_Disk.

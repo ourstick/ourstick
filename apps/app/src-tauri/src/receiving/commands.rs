@@ -185,18 +185,33 @@ pub async fn add_received(
             let data_dir = state.data_dir.clone();
             let made_folder = folder.clone();
             let undone = super::work(move || {
+                // First what needs no store (it may be what failed): without
+                // its mark the folder is never written to, now or at a later
+                // start.
+                ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
+                let _ = std::fs::remove_dir(&made_folder);
                 let secrets = open_system_keyring()?;
                 if let Some(lock) = &lock {
                     forget_received(store.as_ref(), secrets.as_ref(), &data_dir, &stick_id, lock)?;
                 }
-                ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
-                let _ = std::fs::remove_dir(&made_folder);
                 Ok(())
             })
             .await;
-            if let Err(error) = undone {
-                tracing::warn!(%error, "a stick whose choice could not be kept, half undone");
+            if let Err(why) = undone {
+                // Still listed: shown, saying so, for the user to forget it.
+                tracing::warn!(%why, "a stick whose choice could not be kept, half undone");
+                receivers
+                    .hold_again(
+                        &app,
+                        stick_id,
+                        None,
+                        "What not to get could not be saved. Nothing is being got: use Forget \
+                         this stick…, then add it again."
+                            .to_owned(),
+                    )
+                    .await;
             }
+            super::changed(&app);
             return Err(
                 "What not to get could not be saved, so the stick was not added. Try again in a \
                  moment."

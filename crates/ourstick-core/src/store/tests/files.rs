@@ -186,7 +186,10 @@ fn two_files_are_never_recorded_at_one_place(store: &dyn Store) {
         saved_as: "a_.jpg".to_owned(),
         ..downloaded("a?.jpg", 2)
     };
-    assert!(store.record_downloaded_file(&stick_id, &onto).is_err());
+    assert!(matches!(
+        store.record_downloaded_file(&stick_id, &onto),
+        Err(StoreError::Inconsistent(_))
+    ));
     assert_eq!(
         store.downloaded_files(&stick_id).unwrap(),
         vec![downloaded("a_.jpg", 1)]

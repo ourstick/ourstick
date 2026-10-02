@@ -225,8 +225,10 @@ mod tests {
 
     #[tokio::test]
     async fn periodic_events_come_every_interval() {
-        let mut events = PeriodicEvents::new(Duration::from_millis(100));
+        // Measured from before the interval starts: its ticks count from
+        // there, and a busy machine may take a while to come back.
         let started = tokio::time::Instant::now();
+        let mut events = PeriodicEvents::new(Duration::from_millis(100));
         events.changed().await;
         events.changed().await;
         let elapsed = started.elapsed();

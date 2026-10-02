@@ -187,8 +187,9 @@ pub(super) fn record_downloaded_file(
     if joined.is_none() {
         return Err(StoreError::StickNotFound);
     }
-    // Checked above: every value fits in i64.
-    connection.execute(
+    // Checked above: every value fits in i64. Another file at its place is
+    // refused by the unique index on `saved_as`, in this one statement.
+    let recorded = connection.execute(
         "INSERT INTO downloaded_files
              (stick_id, path, saved_as, size, mtime_ns, ctime_ns, blob_hash)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -204,8 +205,16 @@ pub(super) fn record_downloaded_file(
             file.stamp.ctime_ns as i64,
             file.blob_hash.to_vec(),
         ],
-    )?;
-    Ok(())
+    );
+    match recorded {
+        Ok(_) => Ok(()),
+        // The values and the stick are checked above: only another file at
+        // this place is left. The error MemoryStore gives too.
+        Err(error) if super::is_constraint_violation(&error) => {
+            Err(StoreError::Inconsistent("two files recorded at one place"))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(super) fn forget_downloaded_file(

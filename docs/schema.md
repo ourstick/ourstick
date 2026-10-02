@@ -28,7 +28,9 @@ no column for them. It only records *which* secret store this device uses.
 ## Version 18
 
 Version 18 (`0018_saved_as.sql`, ADR 0010) added `downloaded_files.saved_as`,
-equal to `path` for every row before, and its unique index. Version 17 (`0017_received_sticks.sql`, step 7b) added `joined_sticks.kind`
+equal to `path` for every row before, and its unique index.
+
+Version 17 (`0017_received_sticks.sql`, step 7b) added `joined_sticks.kind`
 (`cli` for every row before), `name`, `paused` and `forgetting`, below.
 Version 16 (`0016_scratch_claims.sql`, step 7b) lets `space_claims.kind` be
 `scratch`: a download's room for its batches on the data folder's disk, held
@@ -194,9 +196,9 @@ fetches only what changed and never overwrites a file changed in the folder.
 | `blob_hash` | BLOB 32 | The blob it was decrypted from                             |
 
 Primary key `(stick_id, path)`; unique `(stick_id, saved_as)`: two files of a
-stick are never recorded at one place. A row of a file that left the stick
-keeps its place taken while its file is there; once the file is gone the
-row is forgotten, before a round chooses its places. A row is written after each file is in place,
+stick are never recorded at one place. From ADR 0010's step 4, a row of a
+file that left the stick keeps its place taken while its file is there; once
+the file is gone the row is forgotten, before a round chooses its places. A row is written after each file is in place,
 so an interrupted `get` keeps what it finished. Moving the stick to another
 folder deletes its rows (in the same transaction as the move). Rows of files
 that left the stick stay, so their files are known as `get`'s own.

@@ -136,3 +136,18 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **The GUI mockup shows one stick.** `docs/gui-mockup.html` and its image
   predate the stick list and the `⋯` menu (step 7a-iii); redraw them once
   the manual round has settled the layout.
+- **Receiver (step 7b), left open after three review rounds (minor):**
+  - One mutex holds every received stick's changes: stopping one (up to its
+    10 s grace) makes Pause, Resume or Forget of another wait. A mutex per
+    stick would not.
+  - No unit tests yet for the receiver's pause/resume order, a start during
+    Quit or a forget that fails: `Receivers` needs an `AppHandle`; a seam
+    (a trait for the app side) would make them testable.
+  - `forget_received(.., &Lock)` documents the lock it needs but cannot tell
+    it is that stick's lock; a `DownloadLock { stick_id }` type would.
+  - `get --follow` still has its own loop; move it onto `download::receive`
+    once the window has proved it.
+  - Choosing which folders of a received stick to get is step 7b-iv.
+- **Windows VM disk:** a full debug build of the workspace with its tests
+  takes about 75 GB in `target\debug`; it filled the VM's disk once
+  (`LNK1180`). Clean it now and then.

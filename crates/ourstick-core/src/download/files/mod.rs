@@ -19,6 +19,9 @@ use crate::untrusted::escape;
 ///
 /// `windows` selects the Windows rules; it is a parameter so they are tested
 /// everywhere.
+/// The longest file or folder name the systems OurStick runs on take.
+const MAX_NAME: usize = 255;
+
 pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
     let mut components = Path::new(component).components();
     let single_normal = matches!(
@@ -33,6 +36,16 @@ pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'stat
     let bytes = component.as_bytes();
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         return Some("it looks like a Windows drive");
+    }
+    // Longer than the system takes (255 UTF-16 units on Windows, 255 bytes
+    // elsewhere): refused up front, not as a failed write half way.
+    let length = if windows {
+        component.encode_utf16().count()
+    } else {
+        component.len()
+    };
+    if length > MAX_NAME {
+        return Some("the name is too long for this computer");
     }
     if windows {
         if component.contains(['<', '>', ':', '"', '|', '?', '*'])
@@ -79,6 +92,14 @@ fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
     }
 }
 
+/// A path as a file system that ignores letter case or Unicode
+/// normalization (macOS: `é` and `e` + accent are one name) sees it.
+fn folded(path: &str) -> String {
+    icu_normalizer::ComposingNormalizerBorrowed::new_nfc()
+        .normalize(&path.to_lowercase())
+        .into_owned()
+}
+
 /// Checks every path of a manifest before anything is downloaded: each
 /// component must be safe here, nothing may go into our partial directory (in
 /// any letter case), and no two paths may land on the same file on a file
@@ -87,14 +108,17 @@ pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
     let mut by_folded_path: HashMap<String, &str> = HashMap::new();
     for entry in &manifest.entries {
         let path = entry.path.as_str();
-        if path
-            .split('/')
-            .next()
-            .is_some_and(|first| first.eq_ignore_ascii_case(PARTIAL_DIR))
-        {
+        let first = path.split('/').next().unwrap_or_default();
+        if first.eq_ignore_ascii_case(PARTIAL_DIR) {
             return Err(unsafe_path(
                 path,
                 "that name is used by OurStick for unfinished files",
+            ));
+        }
+        if first.eq_ignore_ascii_case(super::receive::RECEIVED_MARKER) {
+            return Err(unsafe_path(
+                path,
+                "that name is used by OurStick to mark the folder",
             ));
         }
         for component in path.split('/') {
@@ -102,7 +126,7 @@ pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
                 return Err(unsafe_path(path, reason));
             }
         }
-        if let Some(earlier) = by_folded_path.insert(path.to_lowercase(), path) {
+        if let Some(earlier) = by_folded_path.insert(folded(path), path) {
             return Err(DownloadError::PathCollision {
                 first: escape(earlier),
                 second: escape(path),
@@ -111,7 +135,7 @@ pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
     }
     // A file may not also be a folder of another entry, in any letter case.
     for entry in &manifest.entries {
-        let folded = entry.path.to_lowercase();
+        let folded = folded(&entry.path);
         let mut ancestor = folded.as_str();
         while let Some((parent, _)) = ancestor.rsplit_once('/') {
             if let Some(file) = by_folded_path.get(parent) {

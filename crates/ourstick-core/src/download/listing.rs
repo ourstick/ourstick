@@ -2,9 +2,12 @@
 //! fetch and decrypt the manifest it names, check every path, and raise the
 //! record floor (ADR 0004). `get` goes on to the files; `ls` stops here.
 
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::files::check_manifest_paths;
+use super::folder::plan_folder;
 use super::{cancelled, DownloadError};
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
@@ -101,4 +104,100 @@ pub async fn list(
 fn cipher_of(manifest_blob: &[u8], ticket: &Ticket) -> Result<Arc<dyn Cipher>, DownloadError> {
     let byte = *manifest_blob.get(1).ok_or(CipherError::Truncated)?;
     Ok(cipher_for(CipherId::from_byte(byte)?, &ticket.stick_key))
+}
+
+/// One top-level file or folder of a stick, as a preview lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub files: u64,
+    pub bytes: u64,
+}
+
+/// What adding a stick would bring (the receiver window, step 7b): its
+/// name, its top-level entries with their sizes, and how much would be
+/// written into `folder` (what is there already left out). A stick whose
+/// owner is still reading its folder (`partial`) has more to come.
+#[derive(Debug, Clone)]
+pub struct Preview {
+    pub version: ManifestVersion,
+    pub name: String,
+    pub partial: bool,
+    pub entries: Vec<TopEntry>,
+    pub total: u64,
+    pub to_write: u64,
+}
+
+/// Fetches and verifies the stick's manifest and says what adding it into
+/// `folder` would bring; nothing is written. Like [`list`], it raises the
+/// stick's record floor.
+pub async fn preview(
+    fetcher: &impl Fetcher,
+    store: Arc<dyn Store>,
+    ticket: &Ticket,
+    folder: &Path,
+) -> Result<Preview, DownloadError> {
+    let floor = {
+        let store = store.clone();
+        let stick_id = ticket.stick_id;
+        run_blocking(move || store.record_floor(&stick_id)).await?
+    };
+    let connection = fetcher.connect(ticket).await?;
+    let fetched = fetch_listing(fetcher, &connection, &store, ticket, floor).await;
+    connection.close().await;
+    let (Listing { version, manifest }, cipher) = fetched?;
+    let total = manifest.total_size();
+    let entries = top_entries(&manifest);
+    let to_write = if folder.is_dir() {
+        // What the folder holds counts, as a download would find it.
+        let recorded = {
+            let store = store.clone();
+            let stick_id = ticket.stick_id;
+            let folder = folder.to_path_buf();
+            run_blocking(move || match store.joined_stick(&stick_id)? {
+                Some(joined) if joined.output_dir == folder => store.downloaded_files(&stick_id),
+                _ => Ok(Vec::new()),
+            })
+            .await?
+        };
+        let folder = folder.to_path_buf();
+        let manifest = manifest.clone();
+        run_blocking(move || {
+            plan_folder(&folder, &manifest, &recorded, cipher.as_ref())
+                .map(|plan| plan.bytes_to_write(&manifest))
+        })
+        .await?
+    } else {
+        total
+    };
+    Ok(Preview {
+        version,
+        name: manifest.name.clone(),
+        partial: manifest.partial,
+        entries,
+        total,
+        to_write,
+    })
+}
+
+/// The manifest's files grouped by their first component, in name order.
+fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
+    let mut entries: BTreeMap<&str, TopEntry> = BTreeMap::new();
+    for file in &manifest.entries {
+        let (first, deeper) = match file.path.split_once('/') {
+            Some((first, _)) => (first, true),
+            None => (file.path.as_str(), false),
+        };
+        let entry = entries.entry(first).or_insert_with(|| TopEntry {
+            name: first.to_owned(),
+            is_dir: deeper,
+            files: 0,
+            bytes: 0,
+        });
+        entry.is_dir |= deeper;
+        entry.files += 1;
+        entry.bytes = entry.bytes.saturating_add(file.size);
+    }
+    entries.into_values().collect()
 }

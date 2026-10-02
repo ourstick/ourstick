@@ -17,6 +17,7 @@ mod joined;
 mod listing;
 mod not_ready;
 mod path;
+mod receive;
 mod relay;
 mod relay_watch;
 mod types;
@@ -31,7 +32,8 @@ use relay::RelayLimiter;
 
 pub use batches::SCRATCH_BYTES;
 pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
-pub use listing::{list, Listing};
+pub use listing::{list, preview, Listing, Preview, TopEntry};
+pub use receive::*;
 pub use relay::RelayPolicy;
 pub use types::{DownloadError, DownloadEvent, DownloadReport};
 

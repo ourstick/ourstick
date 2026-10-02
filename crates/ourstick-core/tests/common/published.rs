@@ -174,10 +174,17 @@ pub async fn publish_versions(versions: &[&[(&str, &[u8])]]) -> Versions {
     let mut first = None;
     for (index, files) in versions.iter().enumerate() {
         for entry in std::fs::read_dir(folder.path()).unwrap() {
-            std::fs::remove_file(entry.unwrap().path()).unwrap();
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(path).unwrap();
+            } else {
+                std::fs::remove_file(path).unwrap();
+            }
         }
         for (path, content) in *files {
-            std::fs::write(folder.path().join(path), content).unwrap();
+            let path = folder.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
         }
         let publication = publish_folder(
             &publisher,

@@ -134,6 +134,31 @@ fn partial_directory_is_refused_in_any_case() {
     check_manifest_paths(&manifest(&["sub/.ourstick-partial/x"])).unwrap();
 }
 
+#[test]
+fn the_received_folders_mark_is_refused_in_any_case() {
+    for path in [".ourstick-received", ".OurStick-Received/x"] {
+        assert!(
+            matches!(refused(&[path]), DownloadError::UnsafePath { .. }),
+            "{path:?}"
+        );
+    }
+}
+
+#[test]
+fn a_name_too_long_for_the_system_is_refused_up_front() {
+    let long = "a".repeat(256);
+    assert!(matches!(
+        refused(&[&format!("x/{long}")]),
+        DownloadError::UnsafePath { .. }
+    ));
+    check_manifest_paths(&manifest(&[&"a".repeat(255)])).unwrap();
+    // 200 Greek letters: 400 bytes, too long on Linux and macOS, not in
+    // Windows' units.
+    let greek = "α".repeat(200);
+    assert!(component_problem(&greek, false).is_some());
+    assert!(component_problem(&greek, true).is_none());
+}
+
 // 3: paths that land on one file when letter case is ignored.
 
 #[test]
@@ -144,6 +169,18 @@ fn case_collisions_are_refused() {
     ));
     assert!(matches!(
         refused(&["Photos/cat.jpg", "photos/cat.jpg"]),
+        DownloadError::PathCollision { .. }
+    ));
+    // One name on macOS: composed and decomposed é.
+    assert!(matches!(
+        refused(&["caf\u{e9}.txt", "cafe\u{301}.txt"]),
+        DownloadError::PathCollision { .. }
+    ));
+    assert!(matches!(
+        refused(&[
+            "\u{3a6}\u{3c9}\u{3c4}\u{3bf}/a",
+            "\u{3c6}\u{3c9}\u{3c4}\u{3bf}/a"
+        ]),
         DownloadError::PathCollision { .. }
     ));
 }

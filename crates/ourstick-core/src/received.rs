@@ -150,6 +150,11 @@ fn finish(
     data_dir: &Path,
     stick_id: &StickId,
 ) -> Result<(), ReceivedError> {
+    let folder = store
+        .forgetting_joined_sticks()?
+        .into_iter()
+        .find(|stick| stick.stick_id == *stick_id)
+        .map(|stick| stick.output_dir);
     secrets.delete(&SecretName::Ticket(*stick_id))?;
     let blobs = received_store_dir(data_dir, stick_id);
     match std::fs::remove_dir_all(&blobs) {
@@ -163,6 +168,11 @@ fn finish(
         }
     }
     store.forget_joined_stick(stick_id)?;
+    // Last, and only tried: the files are the user's now, without OurStick's
+    // mark among them.
+    if let Some(folder) = folder {
+        crate::download::unmark_received_folder(&folder, stick_id);
+    }
     Ok(())
 }
 

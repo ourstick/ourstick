@@ -100,6 +100,7 @@ fn world() -> (MemoryStore, MemorySecretStore, tempfile::TempDir, PathBuf) {
     let output = dir.path().join("Holiday");
     std::fs::create_dir_all(&output).unwrap();
     std::fs::write(output.join("beach.jpg"), b"sand").unwrap();
+    crate::download::mark_received_folder(&output, &stick_id(6)).unwrap();
     received(&store, 6, StickKind::App, &output);
     secrets
         .put(&SecretName::Ticket(stick_id(6)), b"ticket")
@@ -132,6 +133,8 @@ fn forgetting_keeps_the_files_and_the_floor_and_drops_the_rest() {
         .is_none());
     assert!(!received_store_dir(&data, &stick_id(6)).exists());
     assert_eq!(std::fs::read(output.join("beach.jpg")).unwrap(), b"sand");
+    // Its mark is gone with it: the folder is only the user's files.
+    assert!(!output.join(crate::download::RECEIVED_MARKER).exists());
     assert_eq!(store.record_floor(&stick_id(6)).unwrap().unwrap().seq, 7);
     // Forgotten: added again from its link, it is a new received stick.
     assert!(check_link(&store, &stick_id(6), StickKind::App).is_ok());
@@ -173,4 +176,19 @@ fn every_program_finds_a_received_sticks_blobs_in_one_place() {
     let dir = received_store_dir(Path::new("/data"), &stick_id(1));
     assert!(dir.starts_with("/data/joined"));
     assert_eq!(dir.file_name().unwrap().len(), 64);
+}
+
+#[test]
+fn only_its_own_mark_is_taken_out() {
+    let dir = tempfile::tempdir().unwrap();
+    crate::download::mark_received_folder(dir.path(), &stick_id(1)).unwrap();
+    crate::download::unmark_received_folder(dir.path(), &stick_id(2));
+    assert!(crate::download::received_folder_there(
+        dir.path(),
+        &stick_id(1)
+    ));
+    crate::download::unmark_received_folder(dir.path(), &stick_id(1));
+    assert!(!dir.path().join(crate::download::RECEIVED_MARKER).exists());
+    // A folder that is not there (an unplugged disk): nothing happens.
+    crate::download::unmark_received_folder(&dir.path().join("gone"), &stick_id(1));
 }

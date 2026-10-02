@@ -134,8 +134,7 @@ pub async fn add_received(
         // saved sharing link go.
         let made_folder = folder.clone();
         let _ = super::work(move || {
-            let _ =
-                std::fs::remove_file(made_folder.join(ourstick_core::download::RECEIVED_MARKER));
+            ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
             let _ = std::fs::remove_dir(&made_folder);
             let secrets = open_system_keyring()?;
             secrets.delete(&ourstick_core::secrets::SecretName::Ticket(stick_id))?;

@@ -32,6 +32,18 @@ pub fn mark_received_folder(folder: &Path, stick_id: &StickId) -> std::io::Resul
     std::fs::write(folder.join(RECEIVED_MARKER), hex)
 }
 
+/// Takes `stick_id`'s mark out of `folder` (a forgotten stick, or one that
+/// could not be added), leaving any other mark. Only tried: a folder on an
+/// unplugged or read-only disk keeps it, which harms nothing. Blocking.
+pub fn unmark_received_folder(folder: &Path, stick_id: &StickId) {
+    if !received_folder_there(folder, stick_id) {
+        return;
+    }
+    if let Err(error) = std::fs::remove_file(folder.join(RECEIVED_MARKER)) {
+        tracing::debug!(%error, "a received folder's mark stays");
+    }
+}
+
 /// Whether `folder` is there and marked as `stick_id`'s (reading no more
 /// of the mark than an id takes). Blocking.
 pub fn received_folder_there(folder: &Path, stick_id: &StickId) -> bool {

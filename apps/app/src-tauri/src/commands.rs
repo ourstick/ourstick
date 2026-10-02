@@ -35,7 +35,16 @@ pub struct AppStateView {
 
 #[tauri::command]
 pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, String> {
-    let first_launch = state.sticks_now().await.map_err(shown)?.is_empty();
+    // Neither a stick of one's own nor one received in the window.
+    let store = state.store.clone();
+    let receives = blocking(move || {
+        Ok(store
+            .joined_sticks()?
+            .iter()
+            .any(|stick| stick.kind == ourstick_core::StickKind::App))
+    })
+    .await?;
+    let first_launch = state.sticks_now().await.map_err(shown)?.is_empty() && !receives;
     Ok(AppStateView {
         platform: std::env::consts::OS,
         first_launch,

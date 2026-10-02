@@ -71,6 +71,8 @@ pub struct ConfirmView {
     /// downloads from now.
     shared: Vec<String>,
     downloading: Vec<String>,
+    /// For Quit: the received sticks coming in now (they go on next time).
+    receiving: Vec<String>,
 }
 
 /// What the dialog says: about `stick_id`, or (none) about every stick.
@@ -78,13 +80,30 @@ pub struct ConfirmView {
 pub async fn confirm_view(
     stick_id: Option<String>,
     state: State<'_, AppState>,
+    receivers: State<'_, crate::receiving::Receivers>,
 ) -> Result<ConfirmView, String> {
     let all = state
         .sticks_now()
         .await
         .map_err(|error| format!("{error:#}"))?;
     let stick_id = stick_id.as_deref().map(stick_id_of).transpose()?;
-    Ok(confirm_of(&all, &*state.sticks.lock().await, stick_id))
+    let mut view = confirm_of(&all, &*state.sticks.lock().await, stick_id);
+    if stick_id.is_none() {
+        let coming = receivers.downloading();
+        let store = state.store.clone();
+        view.receiving = crate::commands::blocking(move || {
+            Ok(store
+                .joined_sticks()?
+                .into_iter()
+                .filter(|joined| coming.contains(&joined.stick_id))
+                .map(|joined| {
+                    ourstick_core::received::display_name(joined.name.as_deref(), &joined.stick_id)
+                })
+                .collect())
+        })
+        .await?;
+    }
+    Ok(view)
 }
 
 /// What the dialog says about `stick_id` (or, with none, every stick).
@@ -114,6 +133,7 @@ fn confirm_of(
                 .map(|stick| stick.name.clone()),
             shared: Vec::new(),
             downloading: Vec::new(),
+            receiving: Vec::new(),
         },
         None => ConfirmView {
             sharing: sharing.values().any(Sharing::is_on),
@@ -121,6 +141,7 @@ fn confirm_of(
             name: None,
             shared: names(&shared_now),
             downloading: names(&|id| readers_of(id) > 0),
+            receiving: Vec::new(),
         },
     }
 }

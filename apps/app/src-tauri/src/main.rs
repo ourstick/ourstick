@@ -14,12 +14,15 @@ mod making;
 mod menu;
 mod problems;
 mod qr;
+mod receiving;
 mod serving;
 mod share;
 mod sharing;
 mod state;
 mod stick_commands;
 mod stick_life_commands;
+#[cfg(test)]
+mod testing;
 mod tray;
 mod windows;
 
@@ -73,6 +76,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .manage(problems::Problems::default())
+        .manage(receiving::Receivers::default())
         // Closing the main window keeps the app in the tray: sharing goes
         // on until "Stop sharing" or Quit. Linux minimizes it instead of
         // hiding it, so that the tray can bring it back (see windows).
@@ -99,7 +103,15 @@ fn main() {
                 || store
                     .removing_sticks()
                     .is_ok_and(|sticks| !sticks.is_empty())
-                || store.retired_sticks().is_ok_and(|ids| !ids.is_empty());
+                || store.retired_sticks().is_ok_and(|ids| !ids.is_empty())
+                || store.joined_sticks().is_ok_and(|sticks| {
+                    sticks
+                        .iter()
+                        .any(|stick| stick.kind == ourstick_core::StickKind::App)
+                })
+                || store
+                    .forgetting_joined_sticks()
+                    .is_ok_and(|sticks| !sticks.is_empty());
             if pending {
                 sharing::start_app(app.handle());
             }
@@ -115,6 +127,14 @@ fn main() {
             stick_life_commands::new_stick,
             stick_life_commands::rename,
             problems::app_problem,
+            receiving::commands::received,
+            receiving::preview::preview_link,
+            receiving::commands::choose_folder,
+            receiving::commands::add_received,
+            receiving::commands::pause_received,
+            receiving::commands::resume_received,
+            receiving::commands::forget_received_stick,
+            receiving::commands::open_received_folder,
             problems::dismiss_app_problem,
             stick_life_commands::remove,
             stick_commands::add_paths,
@@ -149,6 +169,9 @@ fn main() {
                 // Close the suitcases cleanly and release the stick's locks.
                 let state = app.state::<state::AppState>();
                 tauri::async_runtime::block_on(sharing::stop_all(&state));
+                // What came so far stays; each goes on where it was.
+                let receivers = app.state::<receiving::Receivers>();
+                tauri::async_runtime::block_on(receivers.stop_all());
             }
         });
 }

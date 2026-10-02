@@ -48,6 +48,13 @@ fn finish_pending(state: &AppState) -> Result<Vec<String>> {
             "Changing the sharing link of \u{201c}{name}\u{201d} is not finished: {error}"
         ));
     }
+    for (name, error) in
+        ourstick_core::received::finish_forgetting(store, secrets.as_ref(), &state.data_dir)?
+    {
+        failed.push(format!(
+            "Forgetting \u{201c}{name}\u{201d} is not finished: {error}"
+        ));
+    }
     Ok(failed)
 }
 
@@ -74,6 +81,8 @@ pub fn start_app(app: &AppHandle) {
         let handle = app.clone();
         let prepared = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>> {
             let state = handle.state::<AppState>();
+            // What a preview left behind (it keeps nothing).
+            let _ = std::fs::remove_dir_all(state.data_dir.join("previews"));
             let sticks = state.app_sticks()?;
             // macOS: the first stick's image, from before images were
             // recorded, goes to the oldest stick only, if it is there and no
@@ -118,6 +127,8 @@ pub fn start_app(app: &AppHandle) {
             Err(error) => tracing::warn!(%error, "the start did not finish"),
         }
         plug_in_all(&app).await;
+        // The sticks it receives, kept up to date again.
+        crate::receiving::start_all(&app).await;
     });
 }
 

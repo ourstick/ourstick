@@ -37,17 +37,9 @@ pub struct ReceivedEntry {
     saved_as: super::words::SavedAsList,
     /// What the user chose not to get, escaped, and whether files of it
     /// are already here (ADR 0012).
-    left_out: Vec<LeftOutView>,
+    left_out: Vec<super::choice::LeftOutView>,
     #[serde(flatten)]
     shown: Shown,
-}
-
-/// A top-level name left out, as the list says it: "Not getting: Films",
-/// or "Not updating" for one whose files are already here.
-#[derive(Debug, Serialize)]
-pub struct LeftOutView {
-    shown: String,
-    here: bool,
 }
 
 /// The sticks the window receives, oldest first.
@@ -73,13 +65,7 @@ pub async fn received(
                     &store.saved_elsewhere(&joined.stick_id)?,
                 )),
             };
-            let mut left_out = Vec::new();
-            for name in store.left_out(&joined.stick_id)? {
-                left_out.push(LeftOutView {
-                    shown: ourstick_core::untrusted::escape(&name),
-                    here: store.has_files_under(&joined.stick_id, &name)?,
-                });
-            }
+            let left_out = super::choice::left_out_views(store.as_ref(), &joined.stick_id)?;
             sticks.push((joined, saved_as, left_out));
         }
         Ok(sticks)
@@ -186,23 +172,36 @@ pub async fn add_received(
         return Err(words.to_owned());
     }
     // What the user un-ticked in the preview, before its first round
-    // (ADR 0012). If it cannot be kept, nothing is got that was not wanted:
-    // the stick stays paused (its Resume would get everything), saying why.
+    // (ADR 0012). If it cannot be kept, the stick is not added at all (as if
+    // it could not be recorded): nothing is got that was not wanted, then or
+    // at a later start.
     if !left_out.is_empty() {
         let store = state.store.clone();
-        let chosen = super::work(move || {
-            if let Err(error) = store.set_left_out(&stick_id, &left_out) {
-                let _ = store.change_joined_stick(&stick_id, &JoinedChange::Paused(true));
-                return Err(error.into());
+        let names = left_out.clone();
+        let chosen = super::work(move || Ok(store.set_left_out(&stick_id, &names)?)).await;
+        if chosen.is_err() {
+            let lock = receivers.release(&stick_id).await;
+            let store = state.store.clone();
+            let data_dir = state.data_dir.clone();
+            let made_folder = folder.clone();
+            let undone = super::work(move || {
+                let secrets = open_system_keyring()?;
+                if let Some(lock) = &lock {
+                    forget_received(store.as_ref(), secrets.as_ref(), &data_dir, &stick_id, lock)?;
+                }
+                ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
+                let _ = std::fs::remove_dir(&made_folder);
+                Ok(())
+            })
+            .await;
+            if let Err(error) = undone {
+                tracing::warn!(%error, "a stick whose choice could not be kept, half undone");
             }
-            Ok(())
-        })
-        .await;
-        if let Err(why) = chosen {
-            let words =
-                format!("{why} Nothing is being got yet: use Choose what to get…, then Resume.");
-            super::stopped(&app, stick_id, words.clone());
-            return Err(words);
+            return Err(
+                "What not to get could not be saved, so the stick was not added. Try again in a \
+                 moment."
+                    .to_owned(),
+            );
         }
     }
     // Its name as the preview showed it, if it is a name a manifest may

@@ -256,8 +256,11 @@ pub(super) fn has_files_under(
     name: &str,
 ) -> Result<bool, StoreError> {
     let any: bool = connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM downloaded_files WHERE stick_id = ?1
-             AND (path = ?2 OR (path >= ?3 AND path < ?4)))",
+        // Two lookups, each on the primary key: one OR in one WHERE is read
+        // as a scan of the stick's rows by SQLite without statistics.
+        "SELECT EXISTS (SELECT 1 FROM downloaded_files WHERE stick_id = ?1 AND path = ?2)
+             OR EXISTS (SELECT 1 FROM downloaded_files WHERE stick_id = ?1
+                 AND path >= ?3 AND path < ?4)",
         params![
             stick_id.to_bytes(),
             name,

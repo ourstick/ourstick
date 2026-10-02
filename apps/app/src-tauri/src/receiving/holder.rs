@@ -171,13 +171,20 @@ impl Receivers {
     /// had it.
     pub async fn release(&self, stick_id: &StickId) -> Option<Lock> {
         let mut held = self.held.lock().await;
-        // What the window showed of it goes, held or not.
+        let entry = held.remove(stick_id);
+        let taken = match entry {
+            Some(mut entry) => {
+                entry.stop().await;
+                entry.lock
+            }
+            None => None,
+        };
+        // What the window showed of it goes, held or not, once it stopped (a
+        // round ending meanwhile tells no more).
+        lock(&self.shown).remove(stick_id);
         lock(&self.saved_as).remove(stick_id);
         lock(&self.contents).remove(stick_id);
-        let mut entry = held.remove(stick_id)?;
-        entry.stop().await;
-        lock(&self.shown).remove(stick_id);
-        entry.lock
+        taken
     }
 
     /// Stops every receive (Quit): each keeps what it received, and goes on

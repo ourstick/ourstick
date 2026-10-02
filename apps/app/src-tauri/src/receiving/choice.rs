@@ -70,6 +70,47 @@ pub fn choice_entries(
     Ok(entries)
 }
 
+/// A top-level name left out, as the list says it: "Not getting: Films",
+/// or "Not updating" for one whose files are already here.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct LeftOutView {
+    shown: String,
+    here: bool,
+}
+
+/// What a received stick leaves out, as its line in the list says it.
+pub fn left_out_views(store: &dyn Store, stick_id: &StickId) -> anyhow::Result<Vec<LeftOutView>> {
+    let mut views = Vec::new();
+    for name in store.left_out(stick_id)? {
+        views.push(LeftOutView {
+            shown: escape(&name),
+            here: store.has_files_under(stick_id, &name)?,
+        });
+    }
+    Ok(views)
+}
+
+/// Saves a choice: the top-level names not to get (each a plain name; the
+/// whole set replaces the last). The folder to receive the stick into again
+/// if it is not paused (paused, the choice counts when it goes on).
+pub fn save_choice(
+    store: &dyn Store,
+    stick_id: &StickId,
+    left_out: &[String],
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if left_out
+        .iter()
+        .any(|name| name.is_empty() || name.contains('/'))
+    {
+        anyhow::bail!("That choice cannot be saved. Choose again.");
+    }
+    store.set_left_out(stick_id, left_out)?;
+    let joined = store
+        .joined_stick(stick_id)?
+        .ok_or_else(|| anyhow::anyhow!("This stick is not received here any more."))?;
+    Ok((!joined.paused).then_some(joined.output_dir))
+}
+
 /// What the choice window lists for a received stick.
 #[derive(Debug, Serialize)]
 pub struct ChoiceView {
@@ -112,18 +153,11 @@ pub async fn choose_what_to_get(
     }
     let store = state.store.clone();
     let again = super::work(move || {
-        store.set_left_out(&stick_id, &left_out)?;
-        let joined = store
-            .joined_stick(&stick_id)?
-            .ok_or_else(|| anyhow::anyhow!("This stick is not received here any more."))?;
-        if joined.paused {
+        let Some(folder) = save_choice(store.as_ref(), &stick_id, &left_out)? else {
             return Ok(None);
-        }
+        };
         let secrets = open_system_keyring()?;
-        Ok(Some((
-            read_ticket(secrets.as_ref(), &stick_id)?,
-            joined.output_dir,
-        )))
+        Ok(Some((read_ticket(secrets.as_ref(), &stick_id)?, folder)))
     })
     .await?;
     if let Some((ticket, folder)) = again {
@@ -146,6 +180,72 @@ mod tests {
             bytes,
             to_write: bytes,
         }
+    }
+
+    fn received(store: &MemoryStore, seed: u8) -> StickId {
+        let id = ourstick_core::StickSigningKey::from_bytes(&[seed; 32]).stick_id();
+        store
+            .add_joined_stick(&JoinedStick::new(id, "/d/x", 1))
+            .unwrap();
+        id
+    }
+
+    #[test]
+    fn a_choice_is_saved_whole_and_the_stick_goes_on_unless_paused() {
+        let store = MemoryStore::new();
+        let id = received(&store, 5);
+        let folder = save_choice(&store, &id, &["Films".to_owned()]).unwrap();
+        assert_eq!(folder.as_deref(), Some(std::path::Path::new("/d/x")));
+        assert_eq!(store.left_out(&id).unwrap(), ["Films"]);
+        // Paused: saved, and nothing starts.
+        store
+            .change_joined_stick(&id, &ourstick_core::store::JoinedChange::Paused(true))
+            .unwrap();
+        assert_eq!(save_choice(&store, &id, &[]).unwrap(), None);
+        assert!(store.left_out(&id).unwrap().is_empty());
+        // Not plain names: refused, the last choice kept.
+        store.set_left_out(&id, &["Music".to_owned()]).unwrap();
+        for bad in ["", "a/b"] {
+            assert!(save_choice(&store, &id, &[bad.to_owned()]).is_err());
+        }
+        assert_eq!(store.left_out(&id).unwrap(), ["Music"]);
+        // A stick not received here: refused.
+        let other = ourstick_core::StickSigningKey::from_bytes(&[6; 32]).stick_id();
+        assert!(save_choice(&store, &other, &[]).is_err());
+    }
+
+    #[test]
+    fn the_list_says_what_is_left_out_and_whether_it_is_here() {
+        let store = MemoryStore::new();
+        let id = received(&store, 7);
+        assert!(left_out_views(&store, &id).unwrap().is_empty());
+        store
+            .set_left_out(&id, &["Films".to_owned(), "a\u{1b}".to_owned()])
+            .unwrap();
+        let file = DownloadedFile {
+            path: "Films/x".to_owned(),
+            saved_as: "Films/x".to_owned(),
+            stamp: ourstick_core::manifest::FileStamp {
+                size: 1,
+                mtime_ns: 1,
+                ctime_ns: 1,
+            },
+            blob_hash: [1; 32],
+        };
+        store.record_downloaded_file(&id, &file).unwrap();
+        assert_eq!(
+            left_out_views(&store, &id).unwrap(),
+            [
+                LeftOutView {
+                    shown: "Films".to_owned(),
+                    here: true
+                },
+                LeftOutView {
+                    shown: "a\\u{1b}".to_owned(),
+                    here: false
+                },
+            ]
+        );
     }
 
     #[test]

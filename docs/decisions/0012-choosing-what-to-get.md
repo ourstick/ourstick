@@ -114,6 +114,12 @@ things on it (a few music folders, some documents). The receiver window
   something the user did not want. Acceptable: the "no room" wait names it,
   the user un-ticks it again, and nothing is lost or overwritten.
 
+- Known gap: the stick is recorded, then its choice is stored, in two
+  writes. If the app stops between them (a crash, a power cut), the next
+  start receives the stick with everything ticked. A choice that fails to
+  be stored while the app runs undoes the whole add instead. Closing the gap
+  would need one store write for both.
+
 ## Order of work
 
 1. Store: migration 0019, `left_out` / `set_left_out`, both stores; tests

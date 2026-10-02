@@ -114,3 +114,26 @@ async fn a_released_stick_keeps_no_names_of_its_last_round() {
     receivers.release(&stick(2)).await;
     assert!(receivers.saved_as().is_empty());
 }
+
+#[test]
+fn a_round_s_contents_are_kept_until_the_stick_is_let_go() {
+    let receivers = Receivers::default();
+    assert!(receivers.contents(&stick(3)).is_none());
+    let entry = ourstick_core::download::TopEntry {
+        name: "Films".to_owned(),
+        is_dir: true,
+        files: 2,
+        bytes: 9,
+        to_write: 9,
+    };
+    receivers.contents_now(stick(3), std::slice::from_ref(&entry));
+    assert_eq!(receivers.contents(&stick(3)), Some(vec![entry]));
+}
+
+#[tokio::test]
+async fn a_released_stick_keeps_no_contents() {
+    let receivers = Receivers::default();
+    receivers.contents_now(stick(4), &[]);
+    receivers.release(&stick(4)).await;
+    assert!(receivers.contents(&stick(4)).is_none());
+}

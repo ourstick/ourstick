@@ -16,7 +16,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use super::{keep_ticket, read_ticket, start, Receivers, Shown};
-use crate::commands::{blocking, shown};
+use crate::commands::shown;
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState};
 
 /// The pasted text as a sharing link. The error never repeats it.
@@ -44,7 +44,7 @@ pub async fn received(
     receivers: State<'_, Receivers>,
 ) -> Result<Vec<ReceivedEntry>, String> {
     let store = state.store.clone();
-    let joined = blocking(move || Ok(store.joined_sticks()?)).await?;
+    let joined = super::work(move || Ok(store.joined_sticks()?)).await?;
     Ok(joined
         .into_iter()
         .filter(|joined| joined.kind == StickKind::App)
@@ -97,13 +97,13 @@ pub async fn add_received(
     let made = {
         let ticket = ticket.clone();
         let folder = folder.clone();
-        blocking(move || {
+        super::work(move || {
             check_link(store.as_ref(), &stick_id, StickKind::App)?;
             // Its lock first: nothing else receives it while it is added.
             let lock = match take_retrying(|| download_lock(&data_dir, &stick_id)) {
                 Err(LockError::DownloadInUse) => anyhow::bail!(
-                    "OurStick's command line (`ourstick get`) is receiving this stick right \
-                     now; stop it first"
+                    "Another OurStick program on this computer is getting this stick right now. \
+                     Close it, then try again."
                 ),
                 lock => lock?,
             };
@@ -123,24 +123,29 @@ pub async fn add_received(
     let now = SystemClock.now_ms();
     if let Err(error) = take_stick(&state.store, stick_id, &folder, StickKind::App, now).await {
         receivers.release(&stick_id).await;
-        // Nothing of it left: its mark and its saved sharing link go.
-        let marked = folder.join(ourstick_core::download::RECEIVED_MARKER);
-        let _ = blocking(move || {
-            let _ = std::fs::remove_file(marked);
+        tracing::warn!(%error, "a received stick could not be recorded");
+        // Nothing of it left: its mark, its folder if still empty, and its
+        // saved sharing link go.
+        let made_folder = folder.clone();
+        let _ = super::work(move || {
+            let _ =
+                std::fs::remove_file(made_folder.join(ourstick_core::download::RECEIVED_MARKER));
+            let _ = std::fs::remove_dir(&made_folder);
             let secrets = open_system_keyring()?;
             secrets.delete(&ourstick_core::secrets::SecretName::Ticket(stick_id))?;
             Ok(())
         })
         .await;
-        return Err(crate::receiving::stopped_words(&error));
+        return Err("It could not be added. Try again in a moment.".to_owned());
     }
     // Its name as the preview showed it, if it is a name a manifest may
     // carry; the first round keeps it as the sender gives it anyway.
     if ourstick_core::manifest::validate_name(&name).is_ok() {
         let store = state.store.clone();
-        let named =
-            blocking(move || Ok(store.change_joined_stick(&stick_id, &JoinedChange::Name(name))?))
-                .await;
+        let named = super::work(move || {
+            Ok(store.change_joined_stick(&stick_id, &JoinedChange::Name(name))?)
+        })
+        .await;
         if let Err(error) = named {
             tracing::warn!(%error, "a received stick's name waits for its first round");
         }
@@ -176,7 +181,7 @@ pub async fn resume_received(
         return Err("this stick is not received here any more".to_owned());
     }
     let store = state.store.clone();
-    let (ticket, folder) = blocking(move || {
+    let (ticket, folder) = super::work(move || {
         let joined = store
             .joined_stick(&stick_id)?
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))?;
@@ -201,7 +206,7 @@ pub async fn forget_received_stick(
     let held = receivers.release(&stick_id).await;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
-    let forgotten = blocking(move || {
+    let forgotten = super::work(move || {
         let lock = match held {
             Some(lock) => lock,
             None => take_retrying(|| download_lock(&data_dir, &stick_id))?,
@@ -217,15 +222,29 @@ pub async fn forget_received_stick(
     })
     .await;
     if let Err(why) = &forgotten {
-        // Still received here (its row stays): held again, saying why.
-        receivers
-            .hold_again(
+        // Still listed (the forget stopped before it was marked): held
+        // again, saying why. Already marked: hidden, and finished at the
+        // next start; said for the whole app.
+        let store = state.store.clone();
+        let listed = super::work(move || Ok(store.joined_stick(&stick_id)?.is_some()))
+            .await
+            .unwrap_or(false);
+        if listed {
+            receivers
+                .hold_again(
+                    &app,
+                    stick_id,
+                    None,
+                    format!("Forgetting it did not finish. {why}"),
+                )
+                .await;
+        } else {
+            crate::problems::failed(
                 &app,
-                stick_id,
                 None,
-                format!("Forgetting it did not finish: {why}"),
-            )
-            .await;
+                format!("Forgetting a stick did not finish; OurStick finishes it at its next start. {why}"),
+            );
+        }
     }
     let _ = app.emit("received-changed", ());
     forgotten
@@ -241,7 +260,7 @@ pub async fn open_received_folder(
     use tauri_plugin_opener::OpenerExt;
     let stick_id = stick_id_of(&stick_id)?;
     let store = state.store.clone();
-    let joined = blocking(move || {
+    let joined = super::work(move || {
         store
             .joined_stick(&stick_id)?
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))

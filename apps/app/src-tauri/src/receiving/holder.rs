@@ -81,18 +81,22 @@ impl Receivers {
     pub async fn pause(&self, app: &AppHandle, stick_id: &StickId) -> Result<(), String> {
         let mut held = self.held.lock().await;
         let Some(entry) = held.get_mut(stick_id) else {
-            return Err("this stick is not received here any more".to_owned());
+            return Err("This stick is not received here any more.".to_owned());
         };
         entry.stop().await;
         let store = app.state::<AppState>().store.clone();
         let id = *stick_id;
-        crate::commands::blocking(move || {
-            Ok(
-                store
-                    .change_joined_stick(&id, &ourstick_core::store::JoinedChange::Paused(true))?,
-            )
-        })
-        .await?;
+        let recorded =
+            super::work(move || {
+                Ok(store
+                    .change_joined_stick(&id, &ourstick_core::store::JoinedChange::Paused(true))?)
+            })
+            .await;
+        if let Err(why) = recorded {
+            // Stopped all the same: said, rather than shown as running.
+            stopped(app, *stick_id, why.clone());
+            return Err(why);
+        }
         self.show(*stick_id, |shown| {
             *shown = Shown {
                 state: "paused",

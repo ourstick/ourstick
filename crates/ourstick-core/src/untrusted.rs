@@ -3,9 +3,10 @@
 //! codes, e.g. an escape sequence hidden in a file name.
 
 /// Shows every control character (including ESC and the C1 range) and
-/// every character that turns the writing direction around (U+202A–202E,
-/// U+2066–2069, U+200E/200F, U+061C) as `\u{..}`, leaving all other text as
-/// it is (emoji joiners and Persian ZWNJ too).
+/// every character that overrides or isolates the writing direction
+/// (U+202A–202E, U+2066–2069) as `\u{..}`, leaving all other text as it is:
+/// emoji joiners, Persian ZWNJ, and the direction marks Hebrew and Arabic
+/// names carry (U+200E, U+200F, U+061C), which cannot reorder text.
 pub fn escape(text: &str) -> String {
     text.chars()
         .map(|character| {
@@ -22,7 +23,7 @@ pub fn escape(text: &str) -> String {
 fn turns_direction(character: char) -> bool {
     matches!(
         character,
-        '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}'
+        '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
     )
 }
 
@@ -43,6 +44,9 @@ mod tests {
     fn a_name_cannot_turn_the_text_around() {
         assert_eq!(escape("photo\u{202e}gpj.exe"), "photo\\u{202e}gpj.exe");
         assert_eq!(escape("a\u{2066}b"), "a\\u{2066}b");
+        assert_eq!(escape("\u{202a}x\u{2069}"), "\\u{202a}x\\u{2069}");
+        // Direction marks stay: Hebrew and Arabic names carry them.
+        assert_eq!(escape("\u{5e9}\u{200f}.txt"), "\u{5e9}\u{200f}.txt");
         // Joiners stay: they are part of words and emoji.
         assert_eq!(
             escape("\u{1f469}\u{200d}\u{1f4bb}"),

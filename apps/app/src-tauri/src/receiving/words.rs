@@ -64,6 +64,62 @@ pub fn waiting_words(why: &Waiting) -> String {
     }
 }
 
+/// Any error of the receiver's work, as the window says it: plain words for
+/// the user (the details go to the log). Sentences OurStick wrote itself
+/// are kept; what came from the keyring, the store, a lock or the disk is
+/// said in words for everyone.
+pub fn said(error: &anyhow::Error) -> String {
+    use ourstick_core::received::ReceivedError;
+    use ourstick_core::{SecretError, StoreError};
+    tracing::warn!(error = %format!("{error:#}"), "told in the window in words");
+    const SECRETS: &str = "OurStick could not reach the passwords this computer keeps for it. \
+        Unlock them, or allow OurStick, then try again.";
+    const RECORDS: &str =
+        "OurStick's own records on this computer could not be read or written. Try again in a moment.";
+    const DISK: &str = "Something on this computer failed (a folder or a file). Try again.";
+    if error.downcast_ref::<SecretError>().is_some() {
+        return SECRETS.to_owned();
+    }
+    if error.downcast_ref::<StoreError>().is_some() {
+        return RECORDS.to_owned();
+    }
+    if let Some(locked) = error.downcast_ref::<ourstick_core::locks::LockError>() {
+        return super::lock_words(locked);
+    }
+    if let Some(received) = error.downcast_ref::<ReceivedError>() {
+        return match received {
+            ReceivedError::Secret(_) => SECRETS.to_owned(),
+            ReceivedError::Store(_) => RECORDS.to_owned(),
+            ReceivedError::Lock(locked) => super::lock_words(locked),
+            ReceivedError::Io { .. } => DISK.to_owned(),
+            other => sentence(&other.to_string()),
+        };
+    }
+    if error
+        .downcast_ref::<ourstick_core::places::PlaceError>()
+        .is_some()
+    {
+        return sentence(&ourstick_core::untrusted::escape(&error.to_string()));
+    }
+    if error.downcast_ref::<std::io::Error>().is_some() {
+        return DISK.to_owned();
+    }
+    sentence(&error.to_string())
+}
+
+/// `text` as a sentence: a capital first letter and a full stop.
+fn sentence(text: &str) -> String {
+    let mut characters = text.chars();
+    let mut said: String = match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => return String::new(),
+    };
+    if !said.ends_with(['.', '!', '?']) {
+        said.push('.');
+    }
+    said
+}
+
 /// Why a received stick stopped, and what to do.
 pub fn stopped_words(error: &DownloadError) -> String {
     match error {
@@ -101,6 +157,23 @@ pub fn stopped_words(error: &DownloadError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn errors_are_said_in_words_for_everyone() {
+        let keyring = anyhow::Error::from(ourstick_core::SecretError::AccessDenied {
+            store: "keyring".to_owned(),
+            reason: "locked".to_owned(),
+        });
+        assert!(said(&keyring).starts_with("OurStick could not reach the passwords"));
+        let store = anyhow::Error::from(ourstick_core::StoreError::StickNotFound);
+        assert!(said(&store).starts_with("OurStick's own records"));
+        let disk = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::Other));
+        assert!(said(&disk).starts_with("Something on this computer"));
+        let ours = anyhow::anyhow!("this stick is not received here any more");
+        assert_eq!(said(&ours), "This stick is not received here any more.");
+        let stopped = stopped_words(&DownloadError::Cancelled);
+        assert_eq!(stopped, "It stopped. Use Try again.");
+    }
 
     #[test]
     fn sizes_are_written_as_the_window_writes_them() {

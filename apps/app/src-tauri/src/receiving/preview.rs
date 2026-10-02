@@ -16,7 +16,6 @@ use serde::Serialize;
 use tauri::State;
 
 use super::commands::ticket_of;
-use crate::commands::blocking;
 use crate::state::AppState;
 
 /// How long a preview waits for the sender.
@@ -94,7 +93,7 @@ pub async fn preview_link(
     let ticket = ticket_of(&text)?;
     let store = state.store.clone();
     let stick_id = ticket.stick_id;
-    let earlier = blocking(move || {
+    let earlier = super::work(move || {
         check_link(store.as_ref(), &stick_id, StickKind::App)?;
         Ok(store
             .joined_stick(&stick_id)?
@@ -108,9 +107,10 @@ pub async fn preview_link(
         .collect();
     let blobs = state.data_dir.join("previews").join(hex);
     let config = IrohConfig::new(random_key(), Network::Public);
-    let fetcher = IrohFetcher::start(&config, &blobs)
-        .await
-        .map_err(|error| format!("cannot start networking: {error}"))?;
+    let fetcher = IrohFetcher::start(&config, &blobs).await.map_err(|error| {
+        tracing::warn!(%error, "a preview's networking");
+        "This computer's network could not be started. Check it, then try again.".to_owned()
+    })?;
     let chosen_earlier = earlier.clone();
     let chosen = parent.is_some();
     let parent = parent_folder(parent.as_deref())?;
@@ -138,7 +138,7 @@ pub async fn preview_link(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let folder = previewed.folder.clone();
-    let left = blocking(move || {
+    let left = super::work(move || {
         let measured = existing(&folder);
         Ok(available(
             &SystemDisks,

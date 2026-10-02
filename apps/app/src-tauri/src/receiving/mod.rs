@@ -31,7 +31,18 @@ mod words;
 pub use holder::Receivers;
 use told::Told;
 
-pub use words::{stopped_words, waiting_words};
+pub use words::{said, stopped_words, waiting_words};
+
+/// `work` off the async runtime; its error in words for everyone.
+pub(crate) async fn work<T: Send + 'static>(
+    work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(said(&error)),
+        Err(error) => Err(said(&anyhow::Error::from(error))),
+    }
+}
 
 /// What a received stick is doing, as the window shows it.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -60,7 +71,7 @@ fn changed(app: &AppHandle) {
 }
 
 /// Why this program could not take a received stick's lock, in words.
-fn lock_words(error: &LockError) -> String {
+pub(super) fn lock_words(error: &LockError) -> String {
     match error {
         LockError::DownloadInUse => "Another OurStick program on this computer is getting this \
              stick right now. Close it, then use Try again."
@@ -111,7 +122,7 @@ pub async fn start(
     entry.stop().await;
     if resume {
         let store = state.store.clone();
-        let lifted = crate::commands::blocking(move || {
+        let lifted = work(move || {
             Ok(store.change_joined_stick(
                 &stick_id,
                 &ourstick_core::store::JoinedChange::Paused(false),
@@ -278,7 +289,11 @@ pub async fn start_all(app: &AppHandle) {
     let found = match found {
         Ok(Ok(found)) => found,
         Ok(Err(error)) => {
-            return crate::problems::failed(app, None, format!("Received sticks: {error:#}"))
+            return crate::problems::failed(
+                app,
+                None,
+                format!("The sticks you receive: {}", words::said(&error)),
+            )
         }
         Err(error) => return tracing::warn!(%error, "received sticks were not read"),
     };

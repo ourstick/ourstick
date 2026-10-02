@@ -96,11 +96,12 @@ fn a_cut_name_follows_the_end_rules_again() {
 
 #[test]
 fn numbered_names_fit() {
-    assert_eq!(numbered("photo.jpg", 2, WINDOWS), "photo (2).jpg");
-    assert_eq!(numbered("Trip", 3, ELSEWHERE), "Trip (3)");
-    assert_eq!(numbered(".profile", 2, ELSEWHERE), ".profile (2)");
+    assert_eq!(numbered("photo.jpg", 2, false, WINDOWS), "photo (2).jpg");
+    assert_eq!(numbered("Trip", 3, true, ELSEWHERE), "Trip (3)");
+    assert_eq!(numbered("v1.2", 2, true, ELSEWHERE), "v1.2 (2)");
+    assert_eq!(numbered(".profile", 2, false, ELSEWHERE), ".profile (2)");
     let long = format!("{}.jpg", "a".repeat(250));
-    let numbered = numbered(&long, 12, ELSEWHERE);
+    let numbered = numbered(&long, 12, false, ELSEWHERE);
     assert!(numbered.ends_with(" (12).jpg") && numbered.len() <= MAX_NAME);
 }
 
@@ -150,8 +151,29 @@ fn any_name_becomes_savable_and_stays_so() {
                 saved,
                 "not idempotent: {name:?}"
             );
-            let again = numbered(&saved, 7, windows);
+            let again = numbered(&saved, 7, false, windows);
             assert!(component_problem(&again, windows).is_none(), "{again:?}");
         }
     }
+}
+
+#[test]
+fn a_reserved_stem_at_the_length_limit_is_kept() {
+    let name = format!("CON.{}", "x".repeat(251));
+    let saved = safe_name(&name, WINDOWS);
+    assert!(saved.starts_with("CON_."), "{saved}");
+    assert!(component_problem(&saved, WINDOWS).is_none());
+}
+
+#[test]
+fn names_in_any_script_are_changed_only_where_needed() {
+    assert_eq!(safe_name("Μαρία?.txt", WINDOWS), "Μαρία_.txt");
+    assert_eq!(safe_name("😀?", WINDOWS), "😀_");
+    assert_eq!(safe_name("שלום?.doc", WINDOWS), "שלום_.doc");
+    // Emoji count two UTF-16 units on Windows: the cut keeps whole ones.
+    let emoji = format!("{}.png", "😀".repeat(200));
+    let saved = safe_name(&emoji, WINDOWS);
+    assert!(saved.ends_with(".png"));
+    assert!(saved.encode_utf16().count() <= MAX_NAME - NUMBER_ROOM);
+    assert!(saved.trim_end_matches(".png").chars().all(|c| c == '😀'));
 }

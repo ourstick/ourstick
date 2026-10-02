@@ -4,6 +4,7 @@
 //! Greek name). Each sample is tried whole and cut at every length.
 
 use crate::download::files::{check_manifest_paths, component_problem, is_reserved_device};
+use crate::download::saved_names::safe_name;
 use crate::manifest::{name_for_manifest, validate_name, Entry, Manifest};
 use crate::places::comparable;
 use crate::stick_names::{folder_name, name_from_folder, new_stick_name, normal_form, same_name};
@@ -79,16 +80,17 @@ fn names_and_paths_in_every_script_never_panic() {
             let _ = check_manifest_paths(&manifest);
             if !text.is_empty() {
                 for windows in [true, false] {
-                    let saved = crate::download::saved_names::safe_name(&text, windows);
+                    let saved = safe_name(&text, windows);
                     assert!(
                         component_problem(&saved, windows).is_none(),
                         "{text:?} saved as {saved:?}"
                     );
+                    assert_eq!(safe_name(&saved, windows), saved, "{text:?}");
                 }
                 let path = format!("{text}/{text}");
-                for fold_case in [true, false] {
+                for (windows, fold_case) in [(true, true), (false, false), (false, true)] {
                     let rules = crate::download::saved_paths::Rules {
-                        windows: true,
+                        windows,
                         fold_case,
                         fold_normal: true,
                     };
@@ -99,6 +101,11 @@ fn names_and_paths_in_every_script_never_panic() {
                         rules,
                     );
                     assert_eq!(saved.saved.len(), 2);
+                    for place in &saved.saved {
+                        for name in place.split('/') {
+                            assert!(component_problem(name, windows).is_none(), "{place:?}");
+                        }
+                    }
                 }
             }
         }

@@ -83,33 +83,53 @@ pub(crate) struct SavedPaths {
     pub(crate) moved: Vec<(String, String)>,
 }
 
-/// The places taken this round, as the disk sees them: files, and every
-/// folder they are in.
+/// The places taken this round, as the disk sees them (folded): files, and
+/// every folder they are in, with the stick's folder each one holds (two
+/// folders of the stick are never one folder here).
 #[derive(Default)]
 struct Taken {
     files: HashSet<String>,
-    folders: HashSet<String>,
+    folders: HashMap<String, String>,
 }
 
 impl Taken {
-    /// Whether a file may go at `place` (folded).
-    fn file_free(&self, place: &str) -> bool {
-        !self.files.contains(place) && !self.folders.contains(place)
-    }
-
-    /// Whether a folder may be at `place` (folded): no file is there.
-    fn folder_free(&self, place: &str) -> bool {
+    /// Whether a folder may be at `place` (folded) for the stick's `folder`:
+    /// no file there, and no other stick folder.
+    fn folder_free(&self, place: &str, folder: &str) -> bool {
         !self.files.contains(place)
+            && self
+                .folders
+                .get(place)
+                .is_none_or(|holder| holder == folder)
     }
 
-    fn take(&mut self, place: &str) {
-        let mut parent = place;
-        while let Some((up, _)) = parent.rsplit_once('/') {
-            self.folders.insert(up.to_owned());
-            parent = up;
-        }
-        self.files.insert(place.to_owned());
+    /// Whether the file `path` of the stick may be saved at `saved_as`: its
+    /// place free, and each of its folders free for the stick's folder.
+    fn file_free(&self, saved_as: &str, path: &str, rules: Rules) -> bool {
+        let place = rules.fold(saved_as);
+        !self.files.contains(&place)
+            && !self.folders.contains_key(&place)
+            && folder_pairs(path, saved_as)
+                .iter()
+                .all(|(stick, here)| self.folder_free(&rules.fold(here), stick))
     }
+
+    fn take(&mut self, saved_as: &str, path: &str, rules: Rules) {
+        for (stick, here) in folder_pairs(path, saved_as) {
+            self.folders.entry(rules.fold(&here)).or_insert(stick);
+        }
+        self.files.insert(rules.fold(saved_as));
+    }
+}
+
+/// Each folder of `path` with the folder of `saved_as` it is saved as,
+/// outermost first (the two have as many names).
+fn folder_pairs(path: &str, saved_as: &str) -> Vec<(String, String)> {
+    let stick: Vec<&str> = path.split('/').collect();
+    let here: Vec<&str> = saved_as.split('/').collect();
+    (1..stick.len().min(here.len()))
+        .map(|depth| (stick[..depth].join("/"), here[..depth].join("/")))
+        .collect()
 }
 
 /// The names OurStick uses itself at the top of a received folder.
@@ -136,18 +156,21 @@ pub(crate) fn saved_paths(
     let mut rows: Vec<&Recorded<'_>> = recorded.iter().collect();
     rows.sort_by(|a, b| a.saved_as.cmp(b.saved_as));
     for row in rows {
-        let place = rules.fold(row.saved_as);
-        let parts = row.path.split('/').count();
-        if parts != row.saved_as.split('/').count() || !taken.file_free(&place) {
-            // Made one by this round's folding, or not a place of this path:
-            // chosen again below.
-            if parts != row.saved_as.split('/').count() {
-                tracing::warn!("a recorded place does not match its path; chosen again");
-            }
+        if row.path.split('/').count() != row.saved_as.split('/').count() {
+            tracing::warn!("a recorded place does not match its path; chosen again");
             moved.push(row.path);
             continue;
         }
-        taken.take(&place);
+        // Its folders as other rows chose them, and its place not made one
+        // with another by this round's folding.
+        let agrees = folder_pairs(row.path, row.saved_as)
+            .iter()
+            .all(|(stick, here)| folders.get(stick).is_none_or(|chosen| chosen == here));
+        if !agrees || !taken.file_free(row.saved_as, row.path, rules) {
+            moved.push(row.path);
+            continue;
+        }
+        taken.take(row.saved_as, row.path, rules);
         remember_folders(&mut folders, row.path, row.saved_as);
         by_path.insert(row.path, row.saved_as.to_owned());
     }
@@ -159,10 +182,10 @@ pub(crate) fn saved_paths(
     // Unchanged: every name savable as it is, its folders not moved, and
     // nothing in the way.
     for (index, path) in paths.iter().enumerate() {
-        if saved[index].is_some() || !unchanged(path, &folders, &taken, &on_disk, rules) {
+        if saved[index].is_some() || !unchanged(path, index, &folders, &taken, &on_disk, rules) {
             continue;
         }
-        taken.take(&rules.fold(path));
+        taken.take(path, path, rules);
         remember_folders(&mut folders, path, path);
         saved[index] = Some((*path).to_owned());
     }
@@ -209,6 +232,7 @@ fn remember_folders(folders: &mut HashMap<String, String>, path: &str, saved_as:
 /// go, and its own place free.
 fn unchanged(
     path: &str,
+    index: usize,
     folders: &HashMap<String, String>,
     taken: &Taken,
     on_disk: &impl Fn(&str, Option<usize>) -> OnDisk,
@@ -234,7 +258,7 @@ fn unchanged(
             Some(chosen) if chosen != &folder => return false,
             Some(_) => {}
             None => {
-                if !taken.folder_free(&rules.fold(&folder))
+                if !taken.folder_free(&rules.fold(&folder), &folder)
                     || on_disk(&folder, None) == OnDisk::File
                 {
                     return false;
@@ -242,7 +266,8 @@ fn unchanged(
             }
         }
     }
-    taken.file_free(&rules.fold(path))
+    // A folder where the file must go is in the way, as for a renamed one.
+    taken.file_free(path, path, rules) && on_disk(path, Some(index)) != OnDisk::Folder
 }
 
 /// The place for `path`: each folder as chosen before, or chosen now
@@ -280,23 +305,28 @@ fn choose(
             }
         };
         let free = |candidate: &str| {
-            let folded = rules.fold(candidate);
             if last {
-                taken.file_free(&folded) && on_disk(candidate, Some(entry)) == OnDisk::Nothing
+                taken.file_free(candidate, path, rules)
+                    && on_disk(candidate, Some(entry)) == OnDisk::Nothing
             } else {
-                taken.folder_free(&folded) && on_disk(candidate, None) != OnDisk::File
+                taken.folder_free(&rules.fold(candidate), &stick)
+                    && on_disk(candidate, None) != OnDisk::File
             }
         };
         let mut candidate = join(&base);
         let mut number = 2;
         while !free(&candidate) {
-            candidate = join(&numbered(&base, number, rules.windows));
+            candidate = join(&numbered(&base, number, !last, rules.windows));
             number += 1;
         }
         if last {
-            taken.take(&rules.fold(&candidate));
+            taken.take(&candidate, path, rules);
             return candidate;
         }
+        taken
+            .folders
+            .entry(rules.fold(&candidate))
+            .or_insert_with(|| stick.clone());
         folders.insert(stick.clone(), candidate.clone());
         here = candidate;
     }

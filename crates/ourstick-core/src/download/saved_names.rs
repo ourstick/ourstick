@@ -43,11 +43,16 @@ pub(crate) fn safe_name(name: &str, windows: bool) -> Cow<'_, str> {
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         changed.replace_range(1..2, "_");
     }
-    if length(&changed, windows) > MAX_NAME {
-        changed = cut(&changed, MAX_NAME - NUMBER_ROOM, windows);
-    }
     if windows {
         windows_ends(&mut changed);
+    }
+    // Cut after the ends' rules (a `_` after a reserved stem may make it too
+    // long), then those rules again on the cut name.
+    if length(&changed, windows) > MAX_NAME {
+        changed = cut(&changed, MAX_NAME - NUMBER_ROOM, windows);
+        if windows {
+            windows_ends(&mut changed);
+        }
     }
     if component_problem(&changed, windows).is_some() {
         // No rule above made it savable (it should not happen): the plainest
@@ -74,10 +79,15 @@ fn windows_ends(name: &mut String) {
     }
 }
 
-/// `name` numbered for a second, third… file at one place: "photo (2).jpg",
-/// the folder "Trip (2)"; its stem cut if the number would make it too long.
-pub(crate) fn numbered(name: &str, number: u32, windows: bool) -> String {
-    let (stem, extension) = split_extension(name);
+/// `name` numbered for a second, third… file or folder at one place:
+/// "photo (2).jpg", the folder "v1.2 (2)" (a folder has no extension); its
+/// stem cut if the number would make it too long.
+pub(crate) fn numbered(name: &str, number: u32, folder: bool, windows: bool) -> String {
+    let (stem, extension) = if folder {
+        (name, "")
+    } else {
+        split_extension(name)
+    };
     let suffix = format!(" ({number}){extension}");
     let room = MAX_NAME.saturating_sub(length(&suffix, windows));
     let stem = if length(stem, windows) > room {
@@ -109,7 +119,7 @@ fn length(name: &str, windows: bool) -> usize {
 }
 
 /// `name` cut to at most `max`, keeping its extension unless the extension
-/// alone takes half the room.
+/// alone takes more than half the room (then it is cut with the rest).
 fn cut(name: &str, max: usize, windows: bool) -> String {
     let (stem, extension) = split_extension(name);
     let extension_length = length(extension, windows);
@@ -125,18 +135,18 @@ fn cut(name: &str, max: usize, windows: bool) -> String {
 /// The longest start of `text` of at most `max`, on a character boundary,
 /// not ending inside an emoji's joined sequence.
 fn cut_to(text: &str, max: usize, windows: bool) -> String {
-    let mut kept = String::new();
-    for c in text.chars() {
-        let mut next = kept.clone();
-        next.push(c);
-        if length(&next, windows) > max {
+    let mut used = 0;
+    let mut end = 0;
+    for (at, c) in text.char_indices() {
+        used += if windows { c.len_utf16() } else { c.len_utf8() };
+        if used > max {
             break;
         }
-        kept = next;
+        end = at + c.len_utf8();
     }
-    let whole = kept.trim_end_matches(['\u{200d}', '\u{fe0f}']).len();
-    kept.truncate(whole);
-    kept
+    text[..end]
+        .trim_end_matches(['\u{200d}', '\u{fe0f}'])
+        .to_owned()
 }
 
 /// The first name of a path, if OurStick uses it itself in a received

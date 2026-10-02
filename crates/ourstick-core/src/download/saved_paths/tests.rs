@@ -182,3 +182,135 @@ fn every_place_is_savable_and_no_two_are_one() {
         }
     }
 }
+
+#[test]
+fn two_folders_of_the_stick_are_never_one_here() {
+    let saved = plan(&["Trip?/a", "Trip_/a"], WINDOWS);
+    assert_eq!(saved.saved, ["Trip_ (2)/a", "Trip_/a"]);
+    let saved = plan(&["Trip?/a", "Trip*/a"], WINDOWS);
+    assert_eq!(saved.saved, ["Trip_/a", "Trip_ (2)/a"]);
+    let saved = plan(&[".ourstick-partial/x", "_.ourstick-partial/y"], LINUX);
+    assert_eq!(
+        saved.saved,
+        ["_.ourstick-partial (2)/x", "_.ourstick-partial/y"]
+    );
+    // A genuine folder arriving after a renamed one was recorded there.
+    let recorded = [Recorded {
+        path: "Trip?/x",
+        saved_as: "Trip_/x",
+    }];
+    let saved = saved_paths(&["Trip?/x", "Trip_/y"], &recorded, empty, WINDOWS);
+    assert_eq!(saved.saved, ["Trip_/x", "Trip_ (2)/y"]);
+}
+
+#[test]
+fn a_file_and_a_folder_of_one_name_in_either_order() {
+    // Manifest order decides (manifests are byte-sorted: `A/b` comes first).
+    assert_eq!(plan(&["a", "A/b"], WINDOWS).saved, ["a", "A (2)/b"]);
+    assert_eq!(plan(&["A/b", "a"], WINDOWS).saved, ["A/b", "a (2)"]);
+    // Two names on a case-sensitive disk.
+    assert_eq!(plan(&["a", "A/b"], LINUX).saved, ["a", "A/b"]);
+}
+
+#[test]
+fn recorded_places_are_checked_in_both_directions() {
+    let recorded = [
+        Recorded {
+            path: "A",
+            saved_as: "A",
+        },
+        Recorded {
+            path: "a/b",
+            saved_as: "a/b",
+        },
+    ];
+    let saved = saved_paths(&["A", "a/b"], &recorded, empty, WINDOWS);
+    assert_eq!(saved.saved, ["A", "a (2)/b"]);
+    assert_eq!(saved.moved, [("a/b".to_owned(), "a (2)/b".to_owned())]);
+    // Rows that disagree on a folder: the byte-first (`Trip_ (2)/y`) keeps
+    // it, and the other follows its folder.
+    let recorded = [
+        Recorded {
+            path: "Trip?/x",
+            saved_as: "Trip_/x",
+        },
+        Recorded {
+            path: "Trip?/y",
+            saved_as: "Trip_ (2)/y",
+        },
+    ];
+    let saved = saved_paths(&["Trip?/x", "Trip?/y"], &recorded, empty, WINDOWS);
+    assert_eq!(saved.saved, ["Trip_ (2)/x", "Trip_ (2)/y"]);
+    // A row whose places do not match its path is chosen again.
+    let recorded = [Recorded {
+        path: "a/b",
+        saved_as: "b",
+    }];
+    let saved = saved_paths(&["a/b"], &recorded, empty, WINDOWS);
+    assert_eq!(saved.saved, ["a/b"]);
+}
+
+#[test]
+fn a_folder_in_the_way_of_a_file() {
+    let on_disk = |place: &str, _: Option<usize>| {
+        if place == "a" {
+            OnDisk::Folder
+        } else {
+            OnDisk::Nothing
+        }
+    };
+    assert_eq!(saved_paths(&["a"], &[], on_disk, LINUX).saved, ["a (2)"]);
+}
+
+#[test]
+fn nested_renamed_folders_are_one_line_each() {
+    let saved = plan(&["A?/B?/c", "A?/B?/d", "A?/e?"], WINDOWS);
+    assert_eq!(saved.saved, ["A_/B_/c", "A_/B_/d", "A_/e_"]);
+    assert_eq!(
+        saved.renamed,
+        [SavedAs {
+            path: "A?".into(),
+            saved_as: "A_".into(),
+            files: 3
+        }]
+    );
+    // Renamed only deeper: the line names that folder.
+    let saved = plan(&["A/B?/c", "A/B?/d"], WINDOWS);
+    assert_eq!(saved.renamed[0].path, "A/B?");
+    assert_eq!(saved.renamed[0].saved_as, "A/B_");
+    assert_eq!(saved.renamed[0].files, 2);
+}
+
+#[test]
+fn unicode_forms_are_one_name_only_where_the_system_says_so() {
+    let composed = "Μαρία.txt";
+    let decomposed = "Μαρι\u{301}α.txt";
+    let mac = Rules {
+        windows: false,
+        fold_case: true,
+        fold_normal: true,
+    };
+    assert_eq!(
+        plan(&[composed, decomposed], mac).saved,
+        [composed, "Μαρι\u{301}α (2).txt"]
+    );
+    assert_eq!(
+        plan(&[composed, decomposed], LINUX).saved,
+        [composed, decomposed]
+    );
+    assert_eq!(mac.fold("ΜΑΡΊΑ"), mac.fold("μαρία"));
+    assert!(!Rules::here(false).fold_case);
+    assert_eq!(Rules::here(true).windows, cfg!(windows));
+}
+
+#[test]
+fn a_renamed_name_at_the_length_limit_still_fits() {
+    let long = format!("{}?", "a".repeat(260));
+    let paths = [format!("{long}/x"), format!("{long}/y"), "b".into()];
+    let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+    for place in plan(&paths, WINDOWS).saved {
+        for name in place.split('/') {
+            assert!(name.encode_utf16().count() <= 255, "{name}");
+        }
+    }
+}

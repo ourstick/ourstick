@@ -44,6 +44,7 @@ pub(super) async fn fetch_files(
     cipher: &Arc<dyn Cipher>,
     manifest: &Manifest,
     files: &[FilePlan],
+    saved: &[String],
     output_dir: &Path,
     partial: &Path,
     receiving: &mut ReceivingPath<'_>,
@@ -77,7 +78,15 @@ pub(super) async fn fetch_files(
                 fetcher.use_batch(&batch.name).await?;
             }
             for index in batch.entries.clone() {
-                let entry = &manifest.entries[index];
+                // The entry as it is saved here: its place in the folder for
+                // everything on disk (and the events), its path in the stick
+                // for its record.
+                let stick_path = manifest.entries[index].path.as_str();
+                let placed = Entry {
+                    path: saved[index].clone(),
+                    ..manifest.entries[index].clone()
+                };
+                let entry = &placed;
                 let event = match files[index] {
                     FilePlan::AlreadyHere => {
                         done.counts.already_here += 1;
@@ -113,7 +122,7 @@ pub(super) async fn fetch_files(
                             .await?;
                         }
                         match copied {
-                            Some(written) => done.record(entry, written).await?,
+                            Some(written) => done.record(stick_path, entry, written).await?,
                             None => {
                                 let received = receive_file(
                                     fetcher,
@@ -132,6 +141,7 @@ pub(super) async fn fetch_files(
                                 placing = Some(start_placing(
                                     cipher,
                                     entry,
+                                    stick_path,
                                     received,
                                     output_dir,
                                     replaceable,
@@ -183,13 +193,16 @@ impl Done<'_> {
             return Ok(());
         };
         let entry = placing.entry().clone();
+        let stick_path = placing.stick_path().to_owned();
         let written = finish_placing(placing, on_event).await?;
-        self.record(&entry, written).await
+        self.record(&stick_path, &entry, written).await
     }
 
-    /// Records `entry` as written with `stamp`, or as left changed (`None`).
+    /// Records the stick's `stick_path`, saved as `entry` (its place here),
+    /// as written with `stamp`, or as left changed (`None`).
     async fn record(
         &mut self,
+        stick_path: &str,
         entry: &Entry,
         stamp: Option<FileStamp>,
     ) -> Result<(), DownloadError> {
@@ -198,7 +211,7 @@ impl Done<'_> {
                 self.written_here
                     .insert(entry.hash, (place_of(self.output_dir, &entry.path), stamp));
                 let file = DownloadedFile {
-                    path: entry.path.clone(),
+                    path: stick_path.to_owned(),
                     saved_as: entry.path.clone(),
                     stamp,
                     blob_hash: entry.hash,

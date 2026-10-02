@@ -129,6 +129,8 @@ pub struct Preview {
     pub to_write: u64,
     /// Where it would be saved: as `choose` said, once it knew the name.
     pub folder: PathBuf,
+    /// What would be saved under another name there (ADR 0010).
+    pub saved_as: Vec<super::SavedAs>,
 }
 
 /// Fetches and verifies the stick's manifest and says what adding it would
@@ -155,41 +157,49 @@ pub async fn preview(
     let entries = top_entries(&manifest);
     // What the folder holds counts, as a download would find it (each file
     // not recorded there is read once: a big existing copy takes a while).
-    let (to_write, folder) = {
+    let (to_write, folder, saved_as) = {
         let store = store.clone();
         let stick_id = ticket.stick_id;
         let manifest = manifest.clone();
-        run_blocking(move || -> Result<(u64, PathBuf), DownloadError> {
-            // Chosen here, off the async runtime: it may look at folders.
-            let folder = choose(&manifest.name);
-            match std::fs::metadata(&folder) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok((manifest.total_size(), folder))
+        run_blocking(
+            move || -> Result<(u64, PathBuf, Vec<super::SavedAs>), DownloadError> {
+                // Chosen here, off the async runtime: it may look at folders.
+                let folder = choose(&manifest.name);
+                // The names it would change are the same as a download's.
+                let planned = |recorded: &[crate::store::DownloadedFile]| {
+                    plan_folder(&folder, &manifest, recorded, cipher.as_ref())
+                };
+                match std::fs::metadata(&folder) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        let plan = planned(&[])?;
+                        return Ok((manifest.total_size(), folder.clone(), plan.renamed));
+                    }
+                    Err(source) => {
+                        return Err(DownloadError::Io {
+                            path: folder,
+                            source,
+                        })
+                    }
+                    Ok(metadata) if !metadata.is_dir() => {
+                        return Err(DownloadError::Io {
+                            path: folder,
+                            source: std::io::Error::from(std::io::ErrorKind::NotADirectory),
+                        })
+                    }
+                    Ok(_) => {}
                 }
-                Err(source) => {
-                    return Err(DownloadError::Io {
-                        path: folder,
-                        source,
-                    })
-                }
-                Ok(metadata) if !metadata.is_dir() => {
-                    return Err(DownloadError::Io {
-                        path: folder,
-                        source: std::io::Error::from(std::io::ErrorKind::NotADirectory),
-                    })
-                }
-                Ok(_) => {}
-            }
-            let same = |joined: &crate::store::JoinedStick| {
-                crate::places::comparable(&joined.output_dir) == crate::places::comparable(&folder)
-            };
-            let recorded = match store.joined_stick(&stick_id)? {
-                Some(joined) if same(&joined) => store.downloaded_files(&stick_id)?,
-                _ => Vec::new(),
-            };
-            let plan = plan_folder(&folder, &manifest, &recorded, cipher.as_ref())?;
-            Ok((plan.bytes_to_write(&manifest), folder))
-        })
+                let same = |joined: &crate::store::JoinedStick| {
+                    crate::places::comparable(&joined.output_dir)
+                        == crate::places::comparable(&folder)
+                };
+                let recorded = match store.joined_stick(&stick_id)? {
+                    Some(joined) if same(&joined) => store.downloaded_files(&stick_id)?,
+                    _ => Vec::new(),
+                };
+                let plan = planned(&recorded)?;
+                Ok((plan.bytes_to_write(&manifest), folder.clone(), plan.renamed))
+            },
+        )
         .await?
     };
     Ok(Preview {
@@ -200,6 +210,7 @@ pub async fn preview(
         total,
         to_write,
         folder,
+        saved_as,
     })
 }
 

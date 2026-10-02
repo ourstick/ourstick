@@ -23,10 +23,16 @@ fn refused(paths: &[&str]) -> DownloadError {
     check_manifest_paths(&manifest(paths)).unwrap_err()
 }
 
-// 1: names that would leave the output folder or be misread on Windows.
+fn passes(paths: &[&str]) {
+    check_manifest_paths(&manifest(paths)).unwrap();
+}
+
+// 1: names a system refuses: not an error of the stick any more, saved
+// under a changed name (saved_paths, ADR 0010); `component_problem` stays
+// the final check of every name written.
 
 #[test]
-fn drive_like_names_are_refused_on_every_platform() {
+fn drive_like_names_are_refused_by_the_final_check_on_every_platform() {
     for windows in [false, true] {
         for name in ["c:evil", "C:", "z:x", "c:"] {
             assert!(
@@ -35,12 +41,7 @@ fn drive_like_names_are_refused_on_every_platform() {
             );
         }
     }
-    for path in ["c:evil", "sub/c:evil", "C:/Users/victim/evil.exe"] {
-        assert!(
-            matches!(refused(&[path]), DownloadError::UnsafePath { .. }),
-            "{path:?}"
-        );
-    }
+    passes(&["c:evil", "sub/c:evil", "C:/Users/victim/evil.exe"]);
 }
 
 #[test]
@@ -105,53 +106,32 @@ fn windows_rules_refuse_invalid_and_reserved_names() {
 
 #[test]
 fn ordinary_paths_pass() {
-    check_manifest_paths(&manifest(&[
+    passes(&[
         "a.txt",
         "photos/2024/cat.jpg",
         "photos/2024/Dog.jpg",
         ".hidden/file",
         "ünïcödé/ok",
-    ]))
-    .unwrap();
+    ]);
 }
 
-// 5: our partial directory, in any letter case.
-
 #[test]
-fn partial_directory_is_refused_in_any_case() {
-    for path in [
+fn names_this_computer_refuses_and_names_one_file_here_pass_the_check() {
+    passes(&[
         ".ourstick-partial/x",
-        ".OURSTICK-PARTIAL/x",
-        ".OurStick-Partial/deep/x",
-        ".ourstick-partial",
-    ] {
-        assert!(
-            matches!(refused(&[path]), DownloadError::UnsafePath { .. }),
-            "{path:?}"
-        );
-    }
-    // Only as the first component; deeper it is an ordinary name.
-    check_manifest_paths(&manifest(&["sub/.ourstick-partial/x"])).unwrap();
+        ".OurStick-Received/x",
+        "a?.jpg",
+        "CON.txt",
+    ]);
+    passes(&["A.txt", "a.txt", "caf\u{e9}.txt", "cafe\u{301}.txt"]);
+    passes(&["a", "a/b"]);
+    passes(&[&"a".repeat(256)]);
 }
 
 #[test]
-fn the_received_folders_mark_is_refused_in_any_case() {
-    for path in [".ourstick-received", ".OurStick-Received/x"] {
-        assert!(
-            matches!(refused(&[path]), DownloadError::UnsafePath { .. }),
-            "{path:?}"
-        );
-    }
-}
-
-#[test]
-fn a_name_too_long_for_the_system_is_refused_up_front() {
-    let long = "a".repeat(256);
-    assert!(matches!(
-        refused(&[&format!("x/{long}")]),
-        DownloadError::UnsafePath { .. }
-    ));
-    check_manifest_paths(&manifest(&[&"a".repeat(255)])).unwrap();
+fn a_name_too_long_for_the_system_is_refused_by_the_final_check() {
+    assert!(component_problem(&"a".repeat(256), false).is_some());
+    assert!(component_problem(&"a".repeat(255), false).is_none());
     // 200 Greek letters: 400 bytes, too long on Linux and macOS, not in
     // Windows' units.
     let greek = "α".repeat(200);
@@ -159,58 +139,17 @@ fn a_name_too_long_for_the_system_is_refused_up_front() {
     assert!(component_problem(&greek, true).is_none());
 }
 
-// 3: paths that land on one file when letter case is ignored.
-
 #[test]
-fn case_collisions_are_refused() {
-    assert!(matches!(
-        refused(&["A.txt", "a.txt"]),
-        DownloadError::PathCollision { .. }
-    ));
-    assert!(matches!(
-        refused(&["Photos/cat.jpg", "photos/cat.jpg"]),
-        DownloadError::PathCollision { .. }
-    ));
-    // One name on macOS: composed and decomposed é.
-    assert!(matches!(
-        refused(&["caf\u{e9}.txt", "cafe\u{301}.txt"]),
-        DownloadError::PathCollision { .. }
-    ));
-    assert!(matches!(
-        refused(&[
-            "\u{3a6}\u{3c9}\u{3c4}\u{3bf}/a",
-            "\u{3c6}\u{3c9}\u{3c4}\u{3bf}/a"
-        ]),
-        DownloadError::PathCollision { .. }
-    ));
-}
-
-#[test]
-fn a_file_that_is_also_a_folder_is_refused() {
-    for paths in [
-        &["a", "a/b"][..],
-        &["A", "a/b"],
-        &["x/y", "x/y/z"],
-        &["X/Y", "x/y/z"],
-    ] {
+fn a_name_that_is_not_plain_is_refused_and_escaped() {
+    for path in ["a/../b", "./x", "a/./b"] {
         assert!(
-            matches!(refused(paths), DownloadError::PathCollision { .. }),
-            "{paths:?}"
+            matches!(refused(&[path]), DownloadError::UnsafePath { .. }),
+            "{path:?}"
         );
     }
-    // A shared folder is fine.
-    check_manifest_paths(&manifest(&["a/b", "a/c"])).unwrap();
-}
-
-#[test]
-fn paths_in_errors_are_escaped() {
-    let nasty = "\u{1b}[2J/c:evil";
-    let message = refused(&[nasty]).to_string();
+    let message = refused(&["\u{1b}[2J/../x"]).to_string();
     assert!(!message.contains('\u{1b}'), "{message:?}");
     assert!(message.contains("\\u{1b}"), "{message:?}");
-
-    let message = refused(&["A\u{1b}", "a\u{1b}"]).to_string();
-    assert!(!message.contains('\u{1b}'), "{message:?}");
 }
 
 // 2: symbolic links, at the start and again right before the move.

@@ -1,6 +1,5 @@
 //! Writing downloaded files: where they go, and how they get there safely.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
@@ -92,59 +91,26 @@ fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
     }
 }
 
-/// A path as a file system that ignores letter case or Unicode
-/// normalization (macOS: `é` and `e` + accent are one name) sees it.
-fn folded(path: &str) -> String {
-    icu_normalizer::ComposingNormalizerBorrowed::new_nfc()
-        .normalize(&path.to_lowercase())
-        .into_owned()
-}
-
-/// Checks every path of a manifest before anything is downloaded: each
-/// component must be safe here, nothing may go into our partial directory (in
-/// any letter case), and no two paths may land on the same file on a file
-/// system that ignores letter case, or be both a file and a folder.
+/// Checks every path of a manifest before anything is downloaded: each name
+/// must be a plain file or folder name (decoding refuses the rest already;
+/// checked again here, as nothing else stands between a path and the
+/// folder). Names this computer cannot save, and names that would be one
+/// file here, are not errors: they are saved under a changed name
+/// (`saved_paths`, ADR 0010).
 pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {
-    let mut by_folded_path: HashMap<String, &str> = HashMap::new();
     for entry in &manifest.entries {
-        let path = entry.path.as_str();
-        let first = path.split('/').next().unwrap_or_default();
-        if first.eq_ignore_ascii_case(PARTIAL_DIR) {
+        let plain = entry.path.split('/').all(|name| {
+            let mut components = Path::new(name).components();
+            matches!(
+                (components.next(), components.next()),
+                (Some(Component::Normal(normal)), None) if normal == name
+            )
+        });
+        if !plain {
             return Err(unsafe_path(
-                path,
-                "that name is used by OurStick for unfinished files",
+                &entry.path,
+                "it is not a plain file or folder name here",
             ));
-        }
-        if first.eq_ignore_ascii_case(super::receive::RECEIVED_MARKER) {
-            return Err(unsafe_path(
-                path,
-                "that name is used by OurStick to mark the folder",
-            ));
-        }
-        for component in path.split('/') {
-            if let Some(reason) = component_problem(component, cfg!(windows)) {
-                return Err(unsafe_path(path, reason));
-            }
-        }
-        if let Some(earlier) = by_folded_path.insert(folded(path), path) {
-            return Err(DownloadError::PathCollision {
-                first: escape(earlier),
-                second: escape(path),
-            });
-        }
-    }
-    // A file may not also be a folder of another entry, in any letter case.
-    for entry in &manifest.entries {
-        let folded = folded(&entry.path);
-        let mut ancestor = folded.as_str();
-        while let Some((parent, _)) = ancestor.rsplit_once('/') {
-            if let Some(file) = by_folded_path.get(parent) {
-                return Err(DownloadError::PathCollision {
-                    first: escape(file),
-                    second: escape(&entry.path),
-                });
-            }
-            ancestor = parent;
         }
     }
     Ok(())

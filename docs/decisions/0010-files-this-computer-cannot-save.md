@@ -137,11 +137,14 @@ when written (an error of the round, as today); paths longer than Windows'
   `place`, `copy_file`, `record` (partial files are keyed on the blob hash
   and need no change). An entry's own place holding a file of its content is "already
   here", so a crash between placing and recording does not rename it again.
-- Events keep the stick path (`path`) and add the saved path where a file
-  is written (`saved_as`, equal when unchanged); `DownloadEvent::SavedAs {
-  path, saved_as, files }` once per renamed name (a folder once).
-  `DownloadReport.saved_as` counts the files. The round is complete as
-  before.
+- The file events name each file where it is saved here (its place in
+  the folder); `DownloadEvent::SavedAs { path, saved_as, files }`, once per
+  renamed name (a folder once) before the files come, links the stick's
+  names to them. `DownloadReport.saved_as` counts the files. The round is
+  complete as before. The records keep the stick path.
+- Windows' own rules are not forced in the integration tests (the reader
+  takes this system's); they are unit-tested in `saved_names` and
+  `saved_paths`, and met for real when the tests run on Windows.
 - `Preview.saved_as` from the same `saved_paths` call, with the rows of
   that folder (none for a new folder; a CLI `--out` to another folder
   starts from none there too).

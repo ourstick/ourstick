@@ -74,6 +74,43 @@ pub(super) async fn remember_name(
 }
 
 /// Records that `file` is in the stick's folder as written.
+/// What a round does once its folder is planned, before any file comes:
+/// rows of files gone, or saved at a new place, are forgotten (their places
+/// are free for this round, ADR 0010); then `Planned`, a `SavedAs` per name
+/// saved under another, and the files found in place recorded.
+pub(super) async fn take_plan(
+    store: &Arc<dyn Store>,
+    ticket: &Ticket,
+    plan: &super::folder::FolderPlan,
+    manifest: &crate::manifest::Manifest,
+    on_event: &mut (dyn FnMut(super::DownloadEvent<'_>) -> std::ops::ControlFlow<()> + Send),
+) -> Result<(), DownloadError> {
+    use super::DownloadEvent;
+    for path in plan.forget.clone() {
+        let store = store.clone();
+        let stick_id = ticket.stick_id;
+        run_blocking(move || store.forget_downloaded_file(&stick_id, &path)).await?;
+    }
+    let bytes = plan.bytes_to_write(manifest);
+    if on_event(DownloadEvent::Planned { bytes }).is_break() {
+        return Err(DownloadError::Cancelled);
+    }
+    for renamed in &plan.renamed {
+        let event = DownloadEvent::SavedAs {
+            path: &renamed.path,
+            saved_as: &renamed.saved_as,
+            files: renamed.files,
+        };
+        if on_event(event).is_break() {
+            return Err(DownloadError::Cancelled);
+        }
+    }
+    for found in plan.found.clone() {
+        record_downloaded(store, ticket, found).await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn record_downloaded(
     store: &Arc<dyn Store>,
     ticket: &Ticket,

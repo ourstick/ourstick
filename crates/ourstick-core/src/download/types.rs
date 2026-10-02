@@ -52,6 +52,15 @@ pub enum DownloadEvent<'a> {
     Planned {
         bytes: u64,
     },
+    /// A name this computer cannot save, or that would be one file with
+    /// another here, is saved under the smallest change of it (ADR 0010):
+    /// a file, or a folder for its `files`. Told once per name, before the
+    /// files come; the file events name the files where they are saved.
+    SavedAs {
+        path: &'a str,
+        saved_as: &'a str,
+        files: usize,
+    },
     /// Every file of a partial version is here; waiting for the owner's next
     /// version.
     WaitingForMore {
@@ -134,6 +143,9 @@ pub struct DownloadReport {
     pub already_here: usize,
     /// Files changed in the folder and left as they were.
     pub changed_here: usize,
+    /// Files saved under another name than theirs, as this computer cannot
+    /// save theirs (ADR 0010).
+    pub saved_as: usize,
     /// Bytes that arrived over direct and over relay paths, over all
     /// connections of this download.
     pub usage: PathUsage,
@@ -158,8 +170,6 @@ pub enum DownloadError {
     },
     #[error("refusing to write {path}: {reason}")]
     UnsafePath { path: String, reason: &'static str },
-    #[error("{first} and {second} would be the same file on a disk that ignores letter case, or one is a file and the other needs it as a folder")]
-    PathCollision { first: String, second: String },
     #[error(transparent)]
     Transport(#[from] TransportError),
     #[error(transparent)]

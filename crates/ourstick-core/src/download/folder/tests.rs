@@ -143,7 +143,7 @@ fn a_file_not_written_by_get_counts_only_if_its_content_matches() {
 }
 
 #[test]
-fn a_folder_in_the_way_is_left_alone() {
+fn a_folder_in_the_way_is_left_alone_and_the_file_saved_beside_it() {
     let out = tempfile::tempdir().unwrap();
     std::fs::create_dir(out.path().join("a")).unwrap();
     let plan = plan_folder(
@@ -153,7 +153,9 @@ fn a_folder_in_the_way_is_left_alone() {
         &cipher(),
     )
     .unwrap();
-    assert_eq!(plan.files, vec![FilePlan::ChangedHere]);
+    assert_eq!(plan.files, vec![FilePlan::Download { replaceable: None }]);
+    assert_eq!(plan.saved, ["a (2)"]);
+    assert!(out.path().join("a").is_dir());
 }
 
 #[test]

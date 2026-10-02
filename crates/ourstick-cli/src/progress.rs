@@ -231,6 +231,24 @@ impl Progress {
                 "[{at}]   {}: the sender is still preparing it; waiting.",
                 untrusted(path)
             )],
+            // Told once per name, before the files come (ADR 0010).
+            DownloadEvent::SavedAs {
+                path,
+                saved_as,
+                files,
+            } => {
+                let held = if files > 1 {
+                    format!(" (a folder of {})", count(files))
+                } else {
+                    String::new()
+                };
+                vec![format!(
+                    "[{at}] \u{201c}{}\u{201d}{held} is saved here as \u{201c}{}\u{201d}: this \
+                     computer does not take its name as it is.",
+                    untrusted(path),
+                    untrusted(saved_as)
+                )]
+            }
             DownloadEvent::NoLongerInStick { count: files } => vec![format!(
                 "[{at}] {} no longer in the stick; kept in this folder.",
                 count(files)
@@ -293,6 +311,12 @@ impl Progress {
         }
         if !kept.is_empty() {
             lines.push(format!("        Not downloaded: {}.", kept.join("; ")));
+        }
+        if report.saved_as > 0 {
+            lines.push(format!(
+                "        Saved under slightly different names: {} (listed above).",
+                count(report.saved_as)
+            ));
         }
         lines
     }

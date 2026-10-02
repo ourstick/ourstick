@@ -68,10 +68,6 @@ fn what_the_owner_or_this_computer_can_fix_is_waited_for() {
             path: "x".to_owned(),
             reason: "no",
         },
-        DownloadError::PathCollision {
-            first: "a".to_owned(),
-            second: "A".to_owned(),
-        },
         DownloadError::Transport(TransportError::Protocol("odd".to_owned())),
         DownloadError::Transport(TransportError::Storage("full".to_owned())),
         io(std::io::ErrorKind::TimedOut),

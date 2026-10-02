@@ -55,8 +55,8 @@ pub fn waiting_words(why: &Waiting) -> String {
             "What came from the sender was damaged; trying again in a few minutes.".to_owned()
         }
         Waiting::CannotTake(what) => format!(
-            "This version of the stick cannot be saved on this computer ({what}). It goes on \
-             when the sender changes it."
+            "This version of the stick cannot be saved in this folder ({what}). It goes on when \
+             the sender or the folder changes."
         ),
         Waiting::ThisComputer(what) => {
             format!("Something on this computer failed ({what}); trying again in a moment.")
@@ -151,17 +151,10 @@ pub fn stopped_words(error: &DownloadError) -> String {
         DownloadError::Io { .. } => {
             "Saving it on this computer failed. Use Try again.".to_owned()
         }
-        // A name the sender's computer allows and this one does not.
+        // A symbolic link in the folder, or a name that is not a plain one.
         DownloadError::UnsafePath { path, reason } => format!(
-            "\u{201c}{}\u{201d} cannot be saved on this computer: {reason}. Ask the sender to \
-             rename it.",
+            "\u{201c}{}\u{201d} cannot be saved in this folder: {reason}.",
             ourstick_core::untrusted::escape(path)
-        ),
-        DownloadError::PathCollision { first, second } => format!(
-            "\u{201c}{}\u{201d} and \u{201c}{}\u{201d} would be the same file on this computer. \
-             Ask the sender to rename one of them.",
-            ourstick_core::untrusted::escape(first),
-            ourstick_core::untrusted::escape(second)
         ),
         DownloadError::Manifest(_) | DownloadError::Cipher(_) => {
             "What came from the sender could not be read. Use Try again; if it goes on, ask the \
@@ -204,13 +197,13 @@ mod tests {
         let ours = anyhow::anyhow!("this stick is not received here any more");
         assert_eq!(said(&ours), "This stick is not received here any more.");
         let refused = stopped_words(&DownloadError::UnsafePath {
-            path: "Photos/a?.png".to_owned(),
-            reason: "it contains a character Windows does not allow in names",
+            path: "Photos/a.png".to_owned(),
+            reason: "it would pass through a symbolic link",
         });
         assert_eq!(
             refused,
-            "\u{201c}Photos/a?.png\u{201d} cannot be saved on this computer: it contains a \
-             character Windows does not allow in names. Ask the sender to rename it."
+            "\u{201c}Photos/a.png\u{201d} cannot be saved in this folder: it would pass through \
+             a symbolic link."
         );
         let stopped = stopped_words(&DownloadError::Cancelled);
         assert_eq!(stopped, "It stopped. Use Try again.");

@@ -164,7 +164,10 @@ pub(super) async fn receive_file(
 
 /// A file being decrypted into place on the blocking pool.
 pub(super) struct Placing {
+    /// The entry as it is saved here (its place in the folder).
     entry: Entry,
+    /// Its path in the stick, for its record.
+    stick_path: String,
     already_local: u64,
     received: u64,
     task: tokio::task::JoinHandle<Result<Option<FileStamp>, DownloadError>>,
@@ -179,12 +182,17 @@ impl Placing {
     pub(super) fn entry(&self) -> &Entry {
         &self.entry
     }
+
+    pub(super) fn stick_path(&self) -> &str {
+        &self.stick_path
+    }
 }
 
 /// Starts decrypting `received` into place; see [`finish_placing`].
 pub(super) fn start_placing(
     cipher: &Arc<dyn Cipher>,
     entry: &Entry,
+    stick_path: &str,
     received: Received,
     output_dir: &Path,
     replaceable: Option<FileStamp>,
@@ -206,6 +214,7 @@ pub(super) fn start_placing(
     };
     Placing {
         entry: entry.clone(),
+        stick_path: stick_path.to_owned(),
         already_local: received.already_local,
         received: received.received,
         task,

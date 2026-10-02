@@ -25,8 +25,10 @@ pub enum Waiting {
     /// The owner's copy, or what came of it, is damaged; a new version of
     /// the stick may mend it.
     Damaged(String),
-    /// This version cannot be taken here (a name this computer refuses, two
-    /// names for one file): the owner's next version may be.
+    /// This version cannot be taken here (its manifest cannot be read, or a
+    /// symbolic link in the folder is in the way): the owner's next version,
+    /// or the folder, may change. Names this computer refuses are not this:
+    /// they are saved under a changed name (ADR 0010).
     CannotTake(String),
     /// Something on this computer failed (its network, its storage).
     ThisComputer(String),
@@ -95,12 +97,9 @@ pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: 
             }
             _ => wait(Waiting::ThisComputer(said())),
         },
-        (
-            DownloadError::UnsafePath { .. }
-            | DownloadError::PathCollision { .. }
-            | DownloadError::Manifest(_),
-            _,
-        ) => Next::Wait(Waiting::CannotTake(said()), LONGEST_WAIT),
+        (DownloadError::UnsafePath { .. } | DownloadError::Manifest(_), _) => {
+            Next::Wait(Waiting::CannotTake(said()), LONGEST_WAIT)
+        }
         (DownloadError::SizeMismatch { .. } | DownloadError::Cipher(_), _) => {
             Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
         }

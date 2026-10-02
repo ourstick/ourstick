@@ -20,10 +20,7 @@ mod path;
 mod receive;
 mod relay;
 mod relay_watch;
-// Until the reader uses them (ADR 0010, step 4).
-#[allow(dead_code)]
 pub(crate) mod saved_names;
-#[allow(dead_code)]
 pub(crate) mod saved_paths;
 mod types;
 
@@ -39,6 +36,7 @@ pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use listing::{list, preview, Listing, Preview, TopEntry};
 pub use receive::*;
 pub use relay::RelayPolicy;
+pub use saved_paths::SavedAs;
 pub use types::{DownloadError, DownloadEvent, DownloadReport};
 
 /// How many new versions a download follows after a refusal before giving up;
@@ -316,13 +314,7 @@ async fn download_over(
         run_blocking(move || plan_folder(&output_dir, &manifest, &recorded, cipher.as_ref()))
             .await?
     };
-    let bytes = plan.bytes_to_write(&manifest);
-    if on_event(DownloadEvent::Planned { bytes }).is_break() {
-        return Err(DownloadError::Cancelled);
-    }
-    for found in plan.found.clone() {
-        record_downloaded(&store, ticket, found).await?;
-    }
+    joined::take_plan(&store, ticket, &plan, &manifest, on_event).await?;
     if plan.no_longer_in_stick > 0
         && on_event(DownloadEvent::NoLongerInStick {
             count: plan.no_longer_in_stick,
@@ -353,6 +345,7 @@ async fn download_over(
         &cipher,
         &manifest,
         &plan.files,
+        &plan.saved,
         output_dir,
         &partial,
         &mut receiving,
@@ -382,6 +375,7 @@ async fn download_over(
         received: 0,
         already_here,
         changed_here,
+        saved_as: plan.renamed.iter().map(|renamed| renamed.files).sum(),
         usage: PathUsage::default(),
     }))
 }

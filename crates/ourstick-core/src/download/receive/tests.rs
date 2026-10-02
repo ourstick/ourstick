@@ -196,7 +196,21 @@ fn the_received_folders_mark_is_hidden_and_written_again() {
         let mark = std::fs::metadata(dir.path().join(super::RECEIVED_MARKER)).unwrap();
         assert_ne!(mark.file_attributes() & 0x2, 0, "the mark is not hidden");
     }
-    // An older, visible mark stays readable when it is hidden again.
-    super::keep_mark_hidden(dir.path());
-    assert!(super::received_folder_there(dir.path(), &stick_id));
+    // An older, visible mark (written plainly) is hidden, and still reads.
+    let older = tempfile::tempdir().unwrap();
+    let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
+    std::fs::write(older.path().join(super::RECEIVED_MARKER), &hex).unwrap();
+    super::keep_mark_hidden(older.path());
+    assert!(super::received_folder_there(older.path(), &stick_id));
+    assert!(!older.path().join(".ourstick-received.new").exists());
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let mark = std::fs::metadata(older.path().join(super::RECEIVED_MARKER)).unwrap();
+        assert_ne!(
+            mark.file_attributes() & 0x2,
+            0,
+            "the older mark is not hidden"
+        );
+    }
 }

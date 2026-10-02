@@ -35,26 +35,33 @@ pub fn mark_received_folder(folder: &Path, stick_id: &StickId) -> std::io::Resul
 }
 
 /// Writes `contents` to `path`, as a hidden file on Windows (elsewhere a
-/// name starting with a dot hides it). A hidden file is written again with
-/// the same attribute, which Windows asks for.
+/// name starting with a dot hides it): whole or not at all, written beside
+/// it first and then moved over it, so a stop half way never leaves an
+/// empty mark.
 pub(crate) fn write_hidden(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut beside = path.as_os_str().to_owned();
+    beside.push(".new");
+    let beside = std::path::PathBuf::from(beside);
     #[cfg(windows)]
     {
         use std::io::Write;
         use std::os::windows::fs::OpenOptionsExt;
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-        std::fs::OpenOptions::new()
+        // Written with the attribute: a hidden file is replaced only so.
+        let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .attributes(FILE_ATTRIBUTE_HIDDEN)
-            .open(path)?
-            .write_all(contents)
+            .open(&beside)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
     }
     #[cfg(not(windows))]
     {
-        std::fs::write(path, contents)
+        std::fs::write(&beside, contents)?;
     }
+    std::fs::rename(&beside, path)
 }
 
 /// A mark written before marks were hidden on Windows, hidden now: written

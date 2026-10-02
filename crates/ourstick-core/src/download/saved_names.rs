@@ -150,10 +150,12 @@ fn cut_to(text: &str, max: usize, windows: bool) -> String {
 }
 
 /// The first name of a path, if OurStick uses it itself in a received
-/// folder, given a `_` in front (`.ourstick-partial` → `_.ourstick-partial`).
+/// folder, given a `_` in front (`.ourstick-partial` → `_.ourstick-partial`):
+/// `ours`, and any name starting with `.ourstick-` (its files written beside
+/// a mark, and any it may use later), in any letter case.
 pub(crate) fn not_ours(first: &str, ours: &[&str]) -> Option<String> {
-    ours.iter()
-        .any(|name| first.eq_ignore_ascii_case(name))
+    let lower = first.to_ascii_lowercase();
+    (ours.iter().any(|name| lower == name.to_ascii_lowercase()) || lower.starts_with(".ourstick-"))
         .then(|| format!("_{first}"))
 }
 

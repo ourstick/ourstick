@@ -113,6 +113,12 @@ fn ourstick_names_get_a_mark_in_front() {
         Some("_.OurStick-Partial")
     );
     assert_eq!(not_ours("photos", &ours), None);
+    // Every name OurStick may write beside its own, too.
+    assert_eq!(
+        not_ours(".ourstick-received.new", &ours).as_deref(),
+        Some("_.ourstick-received.new")
+    );
+    assert_eq!(not_ours(".ourstick", &ours), None);
 }
 
 #[test]

@@ -177,7 +177,28 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
         return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
     }
     super::receive::write_hidden(&partial.join(PARTIAL_MARK), b"").map_err(io_error(&partial))?;
+    hide_folder(&partial);
     Ok(partial)
+}
+
+/// Hides `folder` on Windows (a dot hides it elsewhere), so the files coming
+/// in are not seen, or deleted, half way: with Windows' own `attrib`, which
+/// needs no unsafe code. Only tried.
+fn hide_folder(folder: &Path) {
+    #[cfg(windows)]
+    {
+        let hidden = std::process::Command::new("attrib")
+            .arg("+h")
+            .arg(folder)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if !hidden.is_ok_and(|status| status.success()) {
+            tracing::debug!("the partial folder stays visible");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = folder;
 }
 
 /// Decrypts `ciphertext` into `plaintext`, checks the size, sets the modification

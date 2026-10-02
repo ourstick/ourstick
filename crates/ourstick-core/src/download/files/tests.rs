@@ -229,6 +229,12 @@ fn partial_directory_is_created_and_reused() {
     let second = prepare_partial_dir(output.path()).unwrap();
     assert_eq!(first, second);
     assert!(first.is_dir());
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let attributes = std::fs::metadata(&first).unwrap().file_attributes();
+        assert_ne!(attributes & 0x2, 0, "the partial folder is not hidden");
+    }
 }
 
 #[test]

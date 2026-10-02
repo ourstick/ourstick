@@ -191,3 +191,14 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   file: 100 MB for a million files, at each change). If the scale test shows
   it matters: send only what changed since the reader's version (a protocol
   change; its own ADR).
+- **Next, in this order (agreed 2026-10-02):**
+  1. ADR 0012, choosing what to get (proposed; implement).
+  2. ADR 0013 (to write), giving way to the user's disk: the catalogue and
+     the suitcases measure their own read speed and, when it drops (someone
+     else is using the disk), pause between parts, speeding up again when
+     it recovers. No OS priority: on this Linux machine the HDD's scheduler
+     (`mq-deadline`) ignores `ionice` classes, and Windows' and macOS's
+     background I/O modes need unsafe calls.
+  3. Send `Rescued_Disk` (980 GB, 146 297 files, 10 levels deep,
+     no name Windows refuses, 1 579 paths over 260 characters in a Windows
+     Downloads folder) as the first real scale test.

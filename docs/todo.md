@@ -177,3 +177,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   (started with a log); cause unknown. If it comes back, start the app
   with `RUST_LOG=debug` and stderr to a file (a scheduled task with `/it`
   runs it on the VM's desktop).
+- **Files this computer cannot save (decided 2026-10-02, to plan next):**
+  today one file whose name the receiver's system refuses (`?` `*` `"` `<`
+  `>` `:` on Windows, a reserved name, too long, two names for one file)
+  stops the whole stick. Decision: the other files come; the window lists
+  the ones that could not be saved, each with its path in the stick and
+  why, as plain text the user can copy into a message or email to the
+  sender ("rename these"). Needs a plan, an ADR and reviews before code.

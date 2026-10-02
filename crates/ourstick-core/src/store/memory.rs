@@ -327,11 +327,22 @@ impl Store for MemoryStore {
         if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
             return Err(StoreError::StickNotFound);
         }
-        state
-            .downloaded_files
-            .entry(key)
-            .or_default()
-            .insert(file.path.clone(), file.clone());
+        let files = state.downloaded_files.entry(key).or_default();
+        // As the database's unique index: one file at one place.
+        if files
+            .values()
+            .any(|other| other.path != file.path && other.saved_as == file.saved_as)
+        {
+            return Err(StoreError::Inconsistent("two files recorded at one place"));
+        }
+        files.insert(file.path.clone(), file.clone());
+        Ok(())
+    }
+
+    fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError> {
+        if let Some(files) = self.state().downloaded_files.get_mut(&stick_id.to_bytes()) {
+            files.remove(path);
+        }
         Ok(())
     }
 

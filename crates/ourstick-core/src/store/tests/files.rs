@@ -103,6 +103,7 @@ fn owned_file_values_beyond_i64_are_refused(store: &dyn Store) {
 fn downloaded(path: &str, hash: u8) -> DownloadedFile {
     DownloadedFile {
         path: path.to_owned(),
+        saved_as: path.to_owned(),
         stamp: file(path, 1, hash).stamp,
         blob_hash: [hash; 32],
     }
@@ -147,7 +148,63 @@ fn moving_the_folder_forgets_the_downloaded_files(store: &dyn Store) {
     assert_eq!(store.downloaded_files(&stick_id).unwrap(), vec![]);
 }
 
+fn a_file_saved_under_another_name_is_recorded_so(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    store.add_joined_stick(&joined(1, 10)).unwrap();
+    let renamed = DownloadedFile {
+        saved_as: "a_.jpg".to_owned(),
+        ..downloaded("a?.jpg", 1)
+    };
+    store.record_downloaded_file(&stick_id, &renamed).unwrap();
+    store
+        .record_downloaded_file(&stick_id, &downloaded("b", 2))
+        .unwrap();
+    assert_eq!(
+        store.downloaded_files(&stick_id).unwrap(),
+        vec![renamed.clone(), downloaded("b", 2)]
+    );
+    assert_eq!(
+        store.saved_elsewhere(&stick_id).unwrap(),
+        vec![renamed.clone()]
+    );
+    // A later version of it records its place again (here, a new one).
+    let moved = DownloadedFile {
+        saved_as: "a_ (2).jpg".to_owned(),
+        ..renamed.clone()
+    };
+    store.record_downloaded_file(&stick_id, &moved).unwrap();
+    assert_eq!(store.saved_elsewhere(&stick_id).unwrap(), vec![moved]);
+}
+
+fn two_files_are_never_recorded_at_one_place(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    store.add_joined_stick(&joined(1, 10)).unwrap();
+    store
+        .record_downloaded_file(&stick_id, &downloaded("a_.jpg", 1))
+        .unwrap();
+    let onto = DownloadedFile {
+        saved_as: "a_.jpg".to_owned(),
+        ..downloaded("a?.jpg", 2)
+    };
+    assert!(store.record_downloaded_file(&stick_id, &onto).is_err());
+    assert_eq!(
+        store.downloaded_files(&stick_id).unwrap(),
+        vec![downloaded("a_.jpg", 1)]
+    );
+    // Once the other is forgotten, the place is free.
+    store.forget_downloaded_file(&stick_id, "a_.jpg").unwrap();
+    store.record_downloaded_file(&stick_id, &onto).unwrap();
+    // Forgetting what is not recorded does nothing.
+    store.forget_downloaded_file(&stick_id, "never").unwrap();
+    store
+        .forget_downloaded_file(&owner(5).stick_id(), "a?.jpg")
+        .unwrap();
+    assert_eq!(store.downloaded_files(&stick_id).unwrap(), vec![onto]);
+}
+
 for_every_store!(
+    a_file_saved_under_another_name_is_recorded_so,
+    two_files_are_never_recorded_at_one_place,
     downloaded_files_are_recorded_one_by_one,
     moving_the_folder_forgets_the_downloaded_files,
     owned_files_are_recorded_in_parts_and_pruned_at_the_end,

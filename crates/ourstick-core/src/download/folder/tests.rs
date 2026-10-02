@@ -31,6 +31,7 @@ fn written(dir: &Path, path: &str, content: &[u8]) -> DownloadedFile {
     std::fs::write(&target, content).unwrap();
     DownloadedFile {
         path: path.to_owned(),
+        saved_as: path.to_owned(),
         stamp: FileStamp::of(&std::fs::metadata(&target).unwrap()),
         blob_hash: entry(path, content).hash,
     }

@@ -45,6 +45,7 @@ fn a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays(store: &dyn St
     store.accept_record(&record(2, 5, 1)).unwrap();
     let file = DownloadedFile {
         path: "a.jpg".to_owned(),
+        saved_as: "a.jpg".to_owned(),
         stamp: FileStamp {
             size: 1,
             mtime_ns: 2,

@@ -171,8 +171,11 @@ pub struct OwnedFile {
 /// longer this was changed locally and is not overwritten.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DownloadedFile {
-    /// Path relative to the folder, as in the manifest.
+    /// Its path in the stick, as in the manifest.
     pub path: String,
+    /// Where it was saved, relative to the folder: `path`, or the smallest
+    /// change of it this computer can save (ADR 0010).
+    pub saved_as: String,
     pub stamp: FileStamp,
     pub blob_hash: [u8; 32],
 }

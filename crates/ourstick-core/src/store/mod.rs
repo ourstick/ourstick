@@ -188,11 +188,26 @@ pub trait Store: Send + Sync {
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError>;
 
     /// Records (or replaces) one file `get` wrote into the stick's folder.
+    /// Two files of a stick are never recorded at one place (`saved_as`).
     fn record_downloaded_file(
         &self,
         stick_id: &StickId,
         file: &DownloadedFile,
     ) -> Result<(), StoreError>;
+
+    /// Forgets one recorded file of a received stick (its file is gone, or it
+    /// is to be saved at another place); nothing if there is none.
+    fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError>;
+
+    /// The recorded files saved under another name than their path in the
+    /// stick (ADR 0010), by path.
+    fn saved_elsewhere(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
+        Ok(self
+            .downloaded_files(stick_id)?
+            .into_iter()
+            .filter(|file| file.saved_as != file.path)
+            .collect())
+    }
 
     /// The highest record accepted for a stick (the `last_seen` of ADR 0004),
     /// whether or not it was joined.

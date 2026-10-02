@@ -97,3 +97,37 @@ fn migration_17_keeps_what_get_received_as_get_s() {
     assert!(!read.paused);
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
 }
+
+#[test]
+fn migration_18_saves_every_received_file_at_its_own_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    {
+        // A database as version 17 left it, with two received files.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..17] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 17).unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks (stick_id, output_dir, joined_at_ms) VALUES (?1, '/d/x', 4)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+        for file in ["Trip/a.jpg", "b.txt"] {
+            connection
+                .execute(
+                    "INSERT INTO downloaded_files VALUES (?1, ?2, 1, 2, 3, zeroblob(32))",
+                    rusqlite::params![stick.to_bytes(), file],
+                )
+                .unwrap();
+        }
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    let files = store.downloaded_files(&stick).unwrap();
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().all(|file| file.saved_as == file.path));
+    assert!(store.saved_elsewhere(&stick).unwrap().is_empty());
+}

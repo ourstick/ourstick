@@ -142,22 +142,24 @@ pub(super) fn downloaded_files(
     stick_id: &StickId,
 ) -> Result<Vec<DownloadedFile>, StoreError> {
     let mut statement = connection.prepare(
-        "SELECT path, size, mtime_ns, ctime_ns, blob_hash FROM downloaded_files
+        "SELECT path, saved_as, size, mtime_ns, ctime_ns, blob_hash FROM downloaded_files
          WHERE stick_id = ?1 ORDER BY path",
     )?;
     let rows = statement.query_map([stick_id.to_bytes()], |row| {
         Ok((
             row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
+            row.get::<_, String>(1)?,
             row.get::<_, i64>(2)?,
             row.get::<_, i64>(3)?,
-            row.get::<_, Vec<u8>>(4)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, Vec<u8>>(5)?,
         ))
     })?;
     rows.map(|row| {
-        let (path, size, mtime_ns, ctime_ns, hash) = row?;
+        let (path, saved_as, size, mtime_ns, ctime_ns, hash) = row?;
         Ok(DownloadedFile {
             path,
+            saved_as,
             stamp: FileStamp {
                 size: to_u64(size, "size")?,
                 mtime_ns: to_u64(mtime_ns, "mtime_ns")?,
@@ -187,19 +189,33 @@ pub(super) fn record_downloaded_file(
     }
     // Checked above: every value fits in i64.
     connection.execute(
-        "INSERT INTO downloaded_files (stick_id, path, size, mtime_ns, ctime_ns, blob_hash)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT (stick_id, path) DO UPDATE SET size = excluded.size,
-             mtime_ns = excluded.mtime_ns, ctime_ns = excluded.ctime_ns,
-             blob_hash = excluded.blob_hash",
+        "INSERT INTO downloaded_files
+             (stick_id, path, saved_as, size, mtime_ns, ctime_ns, blob_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT (stick_id, path) DO UPDATE SET saved_as = excluded.saved_as,
+             size = excluded.size, mtime_ns = excluded.mtime_ns,
+             ctime_ns = excluded.ctime_ns, blob_hash = excluded.blob_hash",
         params![
             stick_id.to_bytes(),
             file.path,
+            file.saved_as,
             file.stamp.size as i64,
             file.stamp.mtime_ns as i64,
             file.stamp.ctime_ns as i64,
             file.blob_hash.to_vec(),
         ],
+    )?;
+    Ok(())
+}
+
+pub(super) fn forget_downloaded_file(
+    connection: &Connection,
+    stick_id: &StickId,
+    path: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM downloaded_files WHERE stick_id = ?1 AND path = ?2",
+        params![stick_id.to_bytes(), path],
     )?;
     Ok(())
 }

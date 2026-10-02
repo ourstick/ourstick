@@ -41,7 +41,7 @@ why nothing comes, and should not have to ask anyone to rename anything.
      receiver; any other `:` only on Windows, where it is not allowed.)
    - a name too long (255 UTF-16 units on Windows, 255 bytes elsewhere) is
      cut on a character boundary, keeping its extension (unless the
-     extension alone is too long), with room left for a ` (n)`; after the
+     extension takes more than half the room), with room left for a ` (n)`; after the
      cut the rules above run again.
    `safe_name` is idempotent and its result always passes
    `component_problem`; if no rule can make it so, the name is `_`.
@@ -127,7 +127,8 @@ when written (an error of the round, as today); paths longer than Windows'
   (`ADD COLUMN saved_as TEXT NOT NULL DEFAULT ''`, `UPDATE … SET saved_as =
   path`, `CREATE UNIQUE INDEX …`; the table is `STRICT, WITHOUT ROWID`);
   `ON CONFLICT … DO UPDATE` sets it too. New: `forget_downloaded_file`
-  (one row) and `move_saved_as` (a re-numbered row). `docs/schema.md` says what each
+  (one row; a re-numbered row is forgotten and recorded again once its file
+  is at the new place) and `saved_elsewhere`. `docs/schema.md` says what each
   path is.
 - Every place that touches the disk uses the saved path, every place that
   names the stick's entry uses the stick path: `plan_folder` (target, stamp,
@@ -185,7 +186,7 @@ when written (an error of the round, as today); paths longer than Windows'
    `every_script`.
 3. Store: migration 0018 (an upgrade from 0017 with rows), `saved_as` in
    `DownloadedFile`, `SqliteStore`, `MemoryStore`, `saved_elsewhere`,
-   `forget_downloaded_file`, `move_saved_as`; tests.
+   `forget_downloaded_file`; tests.
 4. Core: plan / preview / fetch / place / copy / record / partial / events /
    report with saved paths. Integration tests with two peers, rules forced
    to Windows: `a?.jpg`, `CON.txt`, `Trip?/x` and a genuine `a_.jpg` all

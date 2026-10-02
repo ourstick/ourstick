@@ -328,6 +328,10 @@ impl Store for SqliteStore {
         joined::complete_download(&mut self.connection(), stick_id, version)
     }
 
+    fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError> {
+        files::forget_downloaded_file(&self.connection(), stick_id, path)
+    }
+
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
         files::downloaded_files(&self.connection(), stick_id)
     }

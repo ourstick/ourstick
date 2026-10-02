@@ -100,6 +100,7 @@ pub(super) fn plan_folder(
                 Some(local) if local == entry.hash => {
                     found.push(DownloadedFile {
                         path: entry.path.clone(),
+                        saved_as: entry.path.clone(),
                         stamp,
                         blob_hash: entry.hash,
                     });

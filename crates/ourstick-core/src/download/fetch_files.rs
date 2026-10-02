@@ -199,6 +199,7 @@ impl Done<'_> {
                     .insert(entry.hash, (place_of(self.output_dir, &entry.path), stamp));
                 let file = DownloadedFile {
                     path: entry.path.clone(),
+                    saved_as: entry.path.clone(),
                     stamp,
                     blob_hash: entry.hash,
                 };

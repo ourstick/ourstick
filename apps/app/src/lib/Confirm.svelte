@@ -18,10 +18,16 @@
       .catch((error) => (failure = String(error)));
   });
 
-  /** The window as tall as what it says (long names, two paragraphs). */
+  let card: HTMLElement | undefined = $state();
+
+  /** The window as tall as what it says (long names, two paragraphs). The
+   * page is as tall as the window and hides the rest: the card's content is
+   * measured, with the page's padding around it. */
   async function fit() {
     await tick();
-    const height = Math.ceil(document.documentElement.scrollHeight);
+    if (!card) return;
+    const around = card.getBoundingClientRect().top * 2;
+    const height = Math.ceil(card.scrollHeight + around + 2);
     const window = getCurrentWindow();
     const now = await window.innerSize();
     const scale = await window.scaleFactor();
@@ -59,7 +65,7 @@
   }
 </script>
 
-<main class="card dialog">
+<main class="card dialog" bind:this={card}>
   {#if failure}
     <p class="error">{failure}</p>
     {#if !view}

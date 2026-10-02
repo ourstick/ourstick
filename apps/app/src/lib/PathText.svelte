@@ -3,8 +3,9 @@
   // gives way first ("/Users/me/Downl…/Holiday 2026"), whatever the width.
   let { path, label = "" }: { path: string; label?: string } = $props();
   let cut = $derived(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
-  let start = $derived(cut >= 0 ? path.slice(0, cut + 1) : "");
-  let last = $derived(cut >= 0 ? path.slice(cut + 1) : path);
+  // The separator goes with the name, so it shows as "…/Holiday 2026".
+  let start = $derived(cut >= 0 ? path.slice(0, cut) : "");
+  let last = $derived(cut >= 0 ? path.slice(cut) : path);
 </script>
 
 <span class="path" title={path}>

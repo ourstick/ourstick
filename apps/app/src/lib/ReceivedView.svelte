@@ -9,6 +9,7 @@
   import { since, size } from "./format";
   import PathText from "./PathText.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
+  import ChooseWhat from "./ChooseWhat.svelte";
 
   let {
     entry,
@@ -20,6 +21,7 @@
 
   let menu = $state(false);
   let forgetting = $state(false);
+  let choosing = $state(false);
   let busy = $state(false);
   let failure = $state<string | null>(null);
 
@@ -76,6 +78,13 @@
         <div class="menu" role="menu">
           <button
             role="menuitem"
+            onclick={() => {
+              menu = false;
+              choosing = true;
+            }}>Choose what to get…</button
+          >
+          <button
+            role="menuitem"
             class="danger-text"
             onclick={() => {
               menu = false;
@@ -86,6 +95,10 @@
       {/if}
     </div>
   </header>
+
+  {#if choosing}
+    <ChooseWhat stickId={entry.id} onDone={() => (choosing = false)} />
+  {/if}
 
   {#if forgetting}
     <section class="ask">
@@ -116,6 +129,24 @@
     <p><button onclick={() => act(() => pauseReceived(entry.id))} disabled={busy}>Pause</button></p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
+  {#if entry.left_out.length > 0}
+    {@const getting = entry.left_out.filter((name) => !name.here)}
+    {@const updating = entry.left_out.filter((name) => name.here)}
+    {#if getting.length > 0}
+      <p class="muted">
+        Not getting: {#each getting.slice(0, 3) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name.shown}</bdi
+          >{/each}{getting.length > 3 ? ` and ${getting.length - 3} more` : ""}.
+      </p>
+    {/if}
+    {#if updating.length > 0}
+      <p class="muted">
+        Not updating: {#each updating.slice(0, 3) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name.shown}</bdi
+          >{/each}{updating.length > 3 ? ` and ${updating.length - 3} more` : ""} ({updating.length === 1
+          ? "it stays"
+          : "they stay"} in the folder).
+      </p>
+    {/if}
+  {/if}
   <SavedAsNote list={entry.saved_as} />
 </section>
 

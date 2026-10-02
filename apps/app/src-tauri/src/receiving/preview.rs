@@ -21,15 +21,21 @@ use crate::state::AppState;
 /// How long a preview waits for the sender.
 const PREVIEW_WAIT: Duration = Duration::from_secs(30);
 /// How many top-level entries a preview lists; the rest are counted.
-const LISTED: usize = 200;
+/// Every top-level entry is listed: each must be choosable (ADR 0012).
+const LISTED: usize = usize::MAX;
 
 /// A top-level entry of a previewed stick.
 #[derive(Debug, Serialize)]
 pub struct EntryView {
+    /// Exactly as the stick names it: what a choice is made with (shown
+    /// isolated; the window escapes nothing, Svelte writes text only).
     name: String,
     is_dir: bool,
     files: u64,
     bytes: u64,
+    /// What it would write into the folder (ADR 0012): the window sums the
+    /// ticked ones.
+    to_write: u64,
 }
 
 /// What adding a pasted sharing link would bring.
@@ -164,6 +170,7 @@ pub async fn preview_link(
                 is_dir: entry.is_dir,
                 files: entry.files,
                 bytes: entry.bytes,
+                to_write: entry.to_write,
             })
             .collect(),
         more,

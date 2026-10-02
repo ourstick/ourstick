@@ -17,6 +17,8 @@
   let looked = "";
   let parent = $state<string | null>(null);
   let preview = $state<PreviewView | null>(null);
+  /** The top-level names un-ticked (ADR 0012), exactly as the stick names them. */
+  let unticked = $state<Set<string>>(new Set());
   let looking = $state(false);
   let adding = $state(false);
   let failure = $state<string | null>(null);
@@ -27,7 +29,10 @@
     failure = null;
     const asked = text;
     try {
-      preview = await previewLink(asked, parent);
+      const seen = await previewLink(asked, parent);
+      // Another link starts with everything ticked; another folder keeps the ticks.
+      if (asked !== looked) unticked = new Set();
+      preview = seen;
       looked = asked;
     } catch (error) {
       // A new link that fails shows nothing of the old one; a new folder
@@ -63,7 +68,7 @@
     adding = true;
     failure = null;
     try {
-      onAdded(await addReceived(looked, preview.folder, preview.name));
+      onAdded(await addReceived(looked, preview.folder, preview.name, [...unticked]));
     } catch (error) {
       failure = String(error);
     } finally {
@@ -71,7 +76,18 @@
     }
   }
 
-  let fits = $derived(preview !== null && (preview.partial || preview.to_write <= preview.left));
+  /** Largest first: size is why the list is opened. */
+  let entries = $derived(preview ? [...preview.entries].sort((a, b) => b.bytes - a.bytes) : []);
+  let chosen = $derived(entries.filter((entry) => !unticked.has(entry.name)));
+  let needs = $derived(chosen.reduce((sum, entry) => sum + entry.to_write, 0));
+  let fits = $derived(preview !== null && (preview.partial || needs <= preview.left));
+
+  function tick(name: string, on: boolean) {
+    const next = new Set(unticked);
+    if (on) next.delete(name);
+    else next.add(name);
+    unticked = next;
+  }
 </script>
 
 <section class="add">
@@ -99,17 +115,33 @@
 
   {#if preview && !looking}
     <h2><bdi>{preview.name}</bdi></h2>
+    <p class="row spread">
+      <strong>What to get:</strong>
+      <span class="row">
+        <button onclick={() => (unticked = new Set())} disabled={adding || unticked.size === 0}>All</button>
+        <button
+          onclick={() => (unticked = new Set(entries.map((entry) => entry.name)))}
+          disabled={adding || chosen.length === 0}>None</button
+        >
+      </span>
+    </p>
     <ul class="entries">
-      {#each preview.entries as entry (entry.name)}
+      {#each entries as entry (entry.name)}
         <li>
-          <bdi class="name">{entry.name}{entry.is_dir ? "/" : ""}</bdi>
+          <label class="tick">
+            <input
+              type="checkbox"
+              checked={!unticked.has(entry.name)}
+              onchange={(event) => tick(entry.name, event.currentTarget.checked)}
+              disabled={adding}
+            />
+            <bdi class="name">{entry.name}{entry.is_dir ? "/" : ""}</bdi>
+          </label>
           <span class="muted size">{size(entry.bytes)}</span>
         </li>
       {/each}
-      {#if preview.more > 0}
-        <li class="muted">and {preview.more} more</li>
-      {/if}
     </ul>
+    <p class="muted">New things the sender adds will come too.</p>
     <p class="row spread">
       <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
       <button onclick={choose} disabled={adding}>Choose…</button>
@@ -125,17 +157,19 @@
     <SavedAsNote list={preview.saved_as} coming />
     {#if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
+    {:else if chosen.length === 0}
+      <p class="error">Tick at least one thing.</p>
     {:else if fits}
-      <p class="muted">Needs up to {size(preview.to_write)} · fits</p>
+      <p class="muted">Needs up to {size(needs)} · fits</p>
     {:else}
       <p class="error">
-        Needs up to {size(preview.to_write)}, and only {size(preview.left)} are left where it would be saved. Choose
-        another place, or free some room.
+        Needs up to {size(needs)}, and only {size(preview.left)} are left where it would be saved. Un-tick something,
+        choose another place, or free some room.
       </p>
     {/if}
     {#if adding}<p class="muted">Adding… please wait.</p>{/if}
     <div class="row end">
-      <button class="primary" onclick={getIt} disabled={adding || !fits}>Get it</button>
+      <button class="primary" onclick={getIt} disabled={adding || !fits || chosen.length === 0}>Get it</button>
     </div>
   {/if}
 </section>
@@ -186,6 +220,12 @@
     padding: 4px 8px;
     border: 1px solid var(--border);
     border-radius: var(--button-radius);
+  }
+  .tick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
   .size {
     flex-shrink: 0;

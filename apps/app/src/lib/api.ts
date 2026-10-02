@@ -269,6 +269,8 @@ export interface PreviewEntry {
   is_dir: boolean;
   files: number;
   bytes: number;
+  /** What it would write into the folder (files already there left out). */
+  to_write: number;
 }
 
 /** What adding a pasted sharing link would bring. */

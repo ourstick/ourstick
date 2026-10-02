@@ -106,3 +106,11 @@ fn a_round_s_names_saved_elsewhere_replace_the_last_round_s() {
     receivers.saved_as_too(stick(1), line("c?"));
     assert_eq!(receivers.saved_as()[&stick(1)], [line("c?")]);
 }
+
+#[tokio::test]
+async fn a_released_stick_keeps_no_names_of_its_last_round() {
+    let receivers = Receivers::default();
+    receivers.round_planned(stick(2));
+    receivers.release(&stick(2)).await;
+    assert!(receivers.saved_as().is_empty());
+}

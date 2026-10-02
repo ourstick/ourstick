@@ -142,6 +142,8 @@ impl Receivers {
     /// had it.
     pub async fn release(&self, stick_id: &StickId) -> Option<Lock> {
         let mut held = self.held.lock().await;
+        // What the window showed of it goes, held or not.
+        lock(&self.saved_as).remove(stick_id);
         let mut entry = held.remove(stick_id)?;
         entry.stop().await;
         lock(&self.shown).remove(stick_id);

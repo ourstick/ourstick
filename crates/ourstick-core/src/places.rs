@@ -130,6 +130,13 @@ pub enum PlaceError {
         relation: Relation,
         what: String,
     },
+    #[error("{} {} {}: {}", .path.display(), .relation.words(), .what, .why)]
+    Shared {
+        path: PathBuf,
+        relation: Relation,
+        what: String,
+        why: &'static str,
+    },
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -152,6 +159,74 @@ pub fn check_new_stick_folder(
         }),
         None => Ok(()),
     }
+}
+
+/// Whether `path` may be the folder of the received stick `stick_id`: as
+/// for any new stick ([`check_new_stick_folder`]), and also not, nor around,
+/// nor inside another received stick's folder (their unfinished files would
+/// meet), a folder this device shares (a stick of the command line) or a
+/// folder linked to one of its sticks (what it receives would be shared
+/// onward).
+pub fn check_received_folder(
+    store: &dyn Store,
+    data_dir: &Path,
+    path: &Path,
+    stick_id: &StickId,
+) -> Result<(), PlaceError> {
+    check_new_stick_folder(store, data_dir, path)?;
+    let mut shared = Vec::new();
+    for stick in store
+        .owned_sticks()?
+        .into_iter()
+        .chain(store.removing_sticks()?)
+    {
+        if stick.kind != StickKind::App {
+            shared.push(Taken {
+                place: comparable(&stick.root_path),
+                what: format!("the folder of your stick \u{201c}{}\u{201d}", stick.name),
+            });
+        }
+        for linked in store.linked_entries(&stick.stick_id)? {
+            shared.push(Taken {
+                place: comparable(&linked.path),
+                what: format!(
+                    "{}, shared on \u{201c}{}\u{201d}",
+                    linked.path.display(),
+                    stick.name
+                ),
+            });
+        }
+    }
+    if let Some((relation, taken)) = clash(path, &shared) {
+        return Err(PlaceError::Shared {
+            path: path.to_path_buf(),
+            relation,
+            what: taken.what.clone(),
+            why: "what you receive there would be shared onward; choose another folder",
+        });
+    }
+    let others: Vec<Taken> = store
+        .joined_sticks()?
+        .into_iter()
+        .chain(store.forgetting_joined_sticks()?)
+        .filter(|joined| joined.stick_id != *stick_id)
+        .map(|joined| Taken {
+            place: comparable(&joined.output_dir),
+            what: format!(
+                "the folder of the received stick \u{201c}{}\u{201d}",
+                crate::received::display_name(joined.name.as_deref(), &joined.stick_id)
+            ),
+        })
+        .collect();
+    if let Some((relation, taken)) = clash(path, &others) {
+        return Err(PlaceError::Shared {
+            path: path.to_path_buf(),
+            relation,
+            what: taken.what.clone(),
+            why: "each received stick needs a folder of its own; choose another folder",
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

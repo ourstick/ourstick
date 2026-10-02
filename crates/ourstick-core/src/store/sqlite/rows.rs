@@ -109,11 +109,7 @@ impl OwnedRow {
                 .node_id
                 .map(|node_id| blob32(node_id, "node_id").map(NodeId))
                 .transpose()?,
-            kind: match self.kind.as_str() {
-                "app" => StickKind::App,
-                "cli" => StickKind::Cli,
-                other => return Err(StoreError::Corrupt(format!("kind {other}"))),
-            },
+            kind: kind_from(&self.kind)?,
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
             image_path: self.image_path.map(PathBuf::from),
             sharing_wanted: self.sharing_wanted,
@@ -137,10 +133,13 @@ pub(super) struct JoinedRow {
     completed_seq: Option<i64>,
     completed_manifest_hash: Option<Vec<u8>>,
     joined_at_ms: i64,
+    kind: String,
+    name: Option<String>,
+    paused: bool,
 }
 
 pub(super) const JOINED_COLUMNS: &str =
-    "stick_id, output_dir, completed_seq, completed_manifest_hash, joined_at_ms";
+    "stick_id, output_dir, completed_seq, completed_manifest_hash, joined_at_ms, kind, name, paused";
 
 impl JoinedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -150,6 +149,9 @@ impl JoinedRow {
             completed_seq: row.get(2)?,
             completed_manifest_hash: row.get(3)?,
             joined_at_ms: row.get(4)?,
+            kind: row.get(5)?,
+            name: row.get(6)?,
+            paused: row.get(7)?,
         })
     }
 
@@ -171,7 +173,19 @@ impl JoinedRow {
             output_dir: PathBuf::from(self.output_dir),
             completed,
             joined_at_ms: to_u64(self.joined_at_ms, "joined_at_ms")?,
+            kind: kind_from(&self.kind)?,
+            name: self.name,
+            paused: self.paused,
         })
+    }
+}
+
+/// A stored [`StickKind`].
+pub(super) fn kind_from(text: &str) -> Result<StickKind, StoreError> {
+    match text {
+        "app" => Ok(StickKind::App),
+        "cli" => Ok(StickKind::Cli),
+        other => Err(StoreError::Corrupt(format!("kind {other}"))),
     }
 }
 

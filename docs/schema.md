@@ -25,8 +25,10 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 16
+## Version 17
 
+Version 17 (`0017_received_sticks.sql`, step 7b) added `joined_sticks.kind`
+(`cli` for every row before), `name`, `paused` and `forgetting`, below.
 Version 16 (`0016_scratch_claims.sql`, step 7b) lets `space_claims.kind` be
 `scratch`: a download's room for its batches on the data folder's disk, held
 as its own row, so that several downloads at once each hold theirs; the
@@ -120,9 +122,17 @@ created by the first `get`.
 | `completed_seq`           | INTEGER | `seq` of the record whose files are all in `output_dir`; NULL until a `get` finishes there |
 | `completed_manifest_hash` | BLOB 32 | Manifest hash of that record; NULL together with `completed_seq` |
 | `joined_at_ms`            | INTEGER | When the stick was first downloaded                           |
+| `kind`                    | TEXT    | The program that receives it: `cli` (`ourstick get`) or `app` (the receiver window) |
+| `name`                    | TEXT    | Its name as the last verified manifest gave it; NULL before one |
+| `paused`                  | INTEGER | 1 if the user paused it in the receiver window                |
+| `forgetting`              | INTEGER | 1 while it is being forgotten: hidden, finished at the next start |
 
 The latest folder wins: a `get` into another folder sets `output_dir` to it and
-clears `completed_*`, because the new folder holds nothing yet. The old folder
+clears `completed_*`, because the new folder holds nothing yet; but `get` never
+moves an `app` stick (it may only resume it in its folder), and the receiver
+window takes over a `cli` one. Forgetting deletes the row, its
+`downloaded_files` and its space claims, never its `record_floors` row (ADR
+0004) nor the files received. The old folder
 is left as it is. `completed_*` is set only after every file is in place, and
 only for a record at or below the floor in `record_floors`. A `get` reports
 "no changes" only when `completed_*` names the record it just verified.

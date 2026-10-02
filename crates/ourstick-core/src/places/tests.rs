@@ -154,3 +154,70 @@ fn a_macos_sticks_image_is_ourstick_s_too() {
         "it holds the image"
     );
 }
+
+fn received_into(device: &Device, seed: u8, output: &Path) -> StickId {
+    let stick_id = StickSigningKey::from_bytes(&[seed; 32]).stick_id();
+    device
+        .store
+        .add_joined_stick(&crate::store::JoinedStick {
+            name: Some("Holiday".to_owned()),
+            ..crate::store::JoinedStick::new(stick_id, output, 1)
+        })
+        .unwrap();
+    stick_id
+}
+
+fn check_received(device: &Device, path: &Path, seed: u8) -> Result<(), PlaceError> {
+    let stick_id = StickSigningKey::from_bytes(&[seed; 32]).stick_id();
+    check_received_folder(&device.store, &device.data, path, &stick_id)
+}
+
+#[test]
+fn a_received_stick_never_lands_where_it_would_be_shared_onward() {
+    let device = device();
+    // Inside a folder a command-line stick shares, or a linked folder.
+    let inside_shared = device.disk.join("Downloads/Holiday");
+    assert!(matches!(
+        check_received(&device, &inside_shared, 9),
+        Err(PlaceError::Shared { what, .. }) if what.contains("Rescued_Disk")
+    ));
+    assert!(check_received(&device, &device.documentaries.join("x"), 9).is_err());
+    // Around a shared folder too.
+    assert!(check_received(&device, device.disk.parent().unwrap(), 9).is_err());
+    // An app stick's folder stays OurStick's alone.
+    assert!(matches!(
+        check_received(&device, &device.app.join("x"), 9),
+        Err(PlaceError::Taken { .. })
+    ));
+    // Somewhere of its own is fine.
+    let downloads = device.data.parent().unwrap().join("Downloads/Holiday");
+    assert!(check_received(&device, &downloads, 9).is_ok());
+}
+
+#[test]
+fn each_received_stick_has_a_folder_of_its_own() {
+    let device = device();
+    let downloads = device.data.parent().unwrap().join("Downloads");
+    let first = received_into(&device, 9, &downloads.join("Holiday"));
+    // Another stick may not share it, nor go inside or around it.
+    for path in [
+        downloads.join("Holiday"),
+        downloads.join("Holiday/more"),
+        downloads.clone(),
+    ] {
+        assert!(matches!(
+            check_received(&device, &path, 10),
+            Err(PlaceError::Shared { what, .. }) if what.contains("Holiday")
+        ));
+    }
+    // The stick itself may keep its folder.
+    let stick_id = first;
+    assert!(check_received_folder(
+        &device.store,
+        &device.data,
+        &downloads.join("Holiday"),
+        &stick_id
+    )
+    .is_ok());
+    assert!(check_received(&device, &downloads.join("Films"), 10).is_ok());
+}

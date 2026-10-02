@@ -115,18 +115,42 @@ pub struct JoinedStick {
     /// download finishes there.
     pub completed: Option<ManifestVersion>,
     pub joined_at_ms: u64,
+    /// The program that receives it: `get` (`Cli`) or the receiver window
+    /// (`App`), which `get` never moves to another folder.
+    pub kind: StickKind,
+    /// Its name as the last verified manifest gave it; `None` before one.
+    pub name: Option<String>,
+    /// The user paused it (the receiver window).
+    pub paused: bool,
 }
 
 impl JoinedStick {
-    /// A stick joined from a ticket, before any record was accepted.
+    /// A stick joined from a ticket by `get`, before any record was
+    /// accepted.
     pub fn new(stick_id: StickId, output_dir: impl Into<PathBuf>, joined_at_ms: u64) -> Self {
         Self {
             stick_id,
             output_dir: output_dir.into(),
             completed: None,
             joined_at_ms,
+            kind: StickKind::Cli,
+            name: None,
+            paused: false,
         }
     }
+}
+
+/// A change to a received stick's row ([`crate::store::Store::change_joined_stick`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JoinedChange {
+    /// Its name, from a verified manifest.
+    Name(String),
+    /// The program that receives it from now on.
+    Kind(StickKind),
+    Paused(bool),
+    /// Being forgotten: hidden from then on, finished by
+    /// `received::forget_received` or at the next start.
+    Forgetting,
 }
 
 /// What the owner last encrypted for one file of a stick: the file's stamp

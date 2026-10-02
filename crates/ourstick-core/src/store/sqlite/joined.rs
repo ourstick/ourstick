@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use super::super::{check_joined_stick, path_str, JoinedStick, ManifestVersion, StoreError};
 use super::is_constraint_violation;
-use super::rows::{seq_i64, time_i64, JoinedRow, JOINED_COLUMNS};
+use super::rows::{kind_str, seq_i64, time_i64, JoinedRow, JOINED_COLUMNS};
 use crate::stick_id::StickId;
 
 pub(super) fn add_joined_stick(
@@ -19,13 +19,18 @@ pub(super) fn add_joined_stick(
         None => (None, None),
     };
     let inserted = connection.execute(
-        &format!("INSERT INTO joined_sticks ({JOINED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5)"),
+        &format!(
+            "INSERT INTO joined_sticks ({JOINED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+        ),
         params![
             stick.stick_id.to_bytes(),
             path_str(&stick.output_dir)?,
             seq,
             hash,
             time_i64(stick.joined_at_ms)?,
+            kind_str(stick.kind),
+            stick.name,
+            stick.paused,
         ],
     );
     match inserted {
@@ -41,7 +46,9 @@ pub(super) fn joined_stick(
 ) -> Result<Option<JoinedStick>, StoreError> {
     connection
         .query_row(
-            &format!("SELECT {JOINED_COLUMNS} FROM joined_sticks WHERE stick_id = ?1"),
+            &format!(
+                "SELECT {JOINED_COLUMNS} FROM joined_sticks WHERE stick_id = ?1 AND forgetting = 0"
+            ),
             [stick_id.to_bytes()],
             JoinedRow::read,
         )
@@ -52,7 +59,8 @@ pub(super) fn joined_stick(
 
 pub(super) fn joined_sticks(connection: &Connection) -> Result<Vec<JoinedStick>, StoreError> {
     let mut statement = connection.prepare(&format!(
-        "SELECT {JOINED_COLUMNS} FROM joined_sticks ORDER BY joined_at_ms, stick_id"
+        "SELECT {JOINED_COLUMNS} FROM joined_sticks WHERE forgetting = 0
+         ORDER BY joined_at_ms, stick_id"
     ))?;
     let rows = statement.query_map([], JoinedRow::read)?;
     rows.map(|row| row?.into_stick()).collect()
@@ -67,7 +75,7 @@ pub(super) fn move_joined_stick(
     let updated = transaction.execute(
         "UPDATE joined_sticks
          SET output_dir = ?1, completed_seq = NULL, completed_manifest_hash = NULL
-         WHERE stick_id = ?2",
+         WHERE stick_id = ?2 AND forgetting = 0",
         params![path_str(output_dir)?, stick_id.to_bytes()],
     )?;
     if updated != 1 {
@@ -103,7 +111,7 @@ pub(super) fn complete_download(
     }
     let updated = transaction.execute(
         "UPDATE joined_sticks SET completed_seq = ?1, completed_manifest_hash = ?2
-         WHERE stick_id = ?3",
+         WHERE stick_id = ?3 AND forgetting = 0",
         params![seq, version.hash.to_vec(), stick_id],
     )?;
     if updated != 1 {

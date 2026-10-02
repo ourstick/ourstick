@@ -99,6 +99,8 @@ impl DownloadRoom {
                 ControlFlow::Continue(())
             }
             Err(error) => {
+                // The download stops: what an earlier round claimed goes too.
+                self.release();
                 *lock(&self.refused) = Some(error);
                 ControlFlow::Break(())
             }
@@ -115,7 +117,8 @@ impl DownloadRoom {
             let mut to_come = lock(&self.to_come);
             let (left, claimed) = &mut *to_come;
             *left = left.saturating_sub(size);
-            if *claimed - *left < UPDATE_STEP && *left > 0 {
+            // Nothing claimed (released, or nothing to write): nothing to tell.
+            if *claimed == 0 || (claimed.saturating_sub(*left) < UPDATE_STEP && *left > 0) {
                 return;
             }
             *claimed = *left;

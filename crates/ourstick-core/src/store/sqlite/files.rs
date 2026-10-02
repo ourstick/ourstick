@@ -177,7 +177,7 @@ pub(super) fn record_downloaded_file(
     check_stamp(&file.stamp)?;
     let joined: Option<i64> = connection
         .query_row(
-            "SELECT 1 FROM joined_sticks WHERE stick_id = ?1",
+            "SELECT 1 FROM joined_sticks WHERE stick_id = ?1 AND forgetting = 0",
             [stick_id.to_bytes()],
             |row| row.get(0),
         )

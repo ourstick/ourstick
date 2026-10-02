@@ -70,3 +70,30 @@ fn migration_16_keeps_every_claim_and_takes_scratch() {
     store.claim_space(&mut |_| vec![scratch.clone()]).unwrap();
     assert_eq!(store.space_claims().unwrap().len(), 2);
 }
+
+#[test]
+fn migration_17_keeps_what_get_received_as_get_s() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    {
+        // A database as version 16 left it, with a stick `get` received.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..16] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 16).unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks (stick_id, output_dir, joined_at_ms) VALUES (?1, '/d/x', 4)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    let read = store.joined_stick(&stick).unwrap().unwrap();
+    assert_eq!(read.kind, StickKind::Cli);
+    assert_eq!(read.name, None);
+    assert!(!read.paused);
+    assert!(store.forgetting_joined_sticks().unwrap().is_empty());
+}

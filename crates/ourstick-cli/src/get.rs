@@ -14,7 +14,8 @@ use ourstick_core::download::{
     download, wait_for_newer, DownloadError, DownloadEvent, DownloadReport, FollowEvent,
     RelayPolicy, FOLLOW_EVERY,
 };
-use ourstick_core::places::check_new_stick_folder;
+use ourstick_core::places::check_received_folder;
+use ourstick_core::received::received_store_dir;
 use ourstick_core::space::{DownloadRoom, SpaceError};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
@@ -64,9 +65,16 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
     // downloads) nor OurStick's data folder; checked before it is made.
     let output = std::path::absolute(&output)
         .with_context(|| format!("cannot resolve {}", output.display()))?;
-    check_new_stick_folder(setup.store.as_ref(), &setup.data_dir, &output).context(
-        "a download may not go into, or into a folder holding, a stick of this device or \
-         OurStick's data (what a sender names could land there); choose another folder with --out",
+    check_received_folder(
+        setup.store.as_ref(),
+        &setup.data_dir,
+        &output,
+        &ticket.stick_id,
+    )
+    .context(
+        "a download may not go into, or into a folder holding, a stick of this device, a folder \
+         it shares, another received stick's folder or OurStick's data; choose another folder \
+         with --out",
     )?;
     std::fs::create_dir_all(&output)
         .with_context(|| format!("cannot create {}", output.display()))?;
@@ -81,7 +89,7 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
         output.clone(),
     );
 
-    let store_dir = setup.data_dir.join("joined").join(&stick_hex);
+    let store_dir = received_store_dir(&setup.data_dir, &ticket.stick_id);
     // A reader needs no lasting identity, and must not reuse the node key: a
     // `share` running on this device at the same time uses it.
     let config = IrohConfig::new(random_key(), Network::Public);

@@ -13,6 +13,7 @@ mod fetch_files;
 pub(crate) mod files;
 mod folder;
 mod follow;
+mod joined;
 mod listing;
 mod not_ready;
 mod path;
@@ -23,6 +24,7 @@ mod types;
 use fetch_files::{fetch_files, FileCounts};
 use files::prepare_partial_dir;
 use folder::plan_folder;
+use joined::record_downloaded;
 use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::RelayLimiter;
@@ -71,7 +73,7 @@ const MAX_LOST_IN_A_ROW: u32 = 5;
 
 use crate::blocking::run_blocking;
 use crate::clock::Clock;
-use crate::store::{DownloadedFile, JoinedStick, ManifestVersion, Store, StoreError};
+use crate::store::{JoinedStick, ManifestVersion, StickKind, Store, StoreError};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PathUsage, PeerConnection, TransportError};
 
@@ -112,19 +114,29 @@ pub async fn download(
     policy: &RelayPolicy,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
 ) -> Result<DownloadReport, DownloadError> {
+    let kind = StickKind::Cli;
+    download_as(
+        kind, fetcher, store, clock, ticket, output_dir, policy, on_event,
+    )
+    .await
+}
+
+/// [`download`] for the program `kind`: the receiver window (`App`) takes
+/// over a stick `get` received; `get` (`Cli`) is refused moving the app's
+/// stick to another folder ([`DownloadError::ReceivedByApp`]).
+#[allow(clippy::too_many_arguments)]
+pub async fn download_as(
+    kind: StickKind,
+    fetcher: &impl Fetcher,
+    store: Arc<dyn Store>,
+    clock: &dyn Clock,
+    ticket: &Ticket,
+    output_dir: &Path,
+    policy: &RelayPolicy,
+    on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
+) -> Result<DownloadReport, DownloadError> {
     let stick_id = ticket.stick_id;
-    {
-        let store = store.clone();
-        let output_dir = output_dir.to_path_buf();
-        let now = clock.now_ms();
-        run_blocking(move || match store.joined_stick(&stick_id)? {
-            Some(joined) if joined.output_dir == output_dir => Ok(()),
-            // Another folder holds nothing yet: it replaces the old one.
-            Some(_) => store.move_joined_stick(&stick_id, &output_dir),
-            None => store.add_joined_stick(&JoinedStick::new(stick_id, output_dir, now)),
-        })
-        .await?;
-    }
+    joined::prepare(&store, stick_id, output_dir, kind, clock.now_ms()).await?;
 
     let mut total = PathUsage::default();
     let mut carried = Carried::default();
@@ -260,6 +272,7 @@ async fn download_over(
 
     let (Listing { version, manifest }, cipher) =
         fetch_listing(fetcher, connection, &store, ticket, floor).await?;
+    joined::remember_name(&store, joined, &manifest.name).await?;
     if let Some((refused_seq, error)) = carried.refused.take() {
         if refused_seq.is_some_and(|refused| version.seq <= refused) {
             // Still the same version: the refusal was real.
@@ -365,17 +378,6 @@ async fn download_over(
         changed_here,
         usage: PathUsage::default(),
     }))
-}
-
-async fn record_downloaded(
-    store: &Arc<dyn Store>,
-    ticket: &Ticket,
-    file: DownloadedFile,
-) -> Result<(), DownloadError> {
-    let store = store.clone();
-    let stick_id = ticket.stick_id;
-    run_blocking(move || store.record_downloaded_file(&stick_id, &file)).await?;
-    Ok(())
 }
 
 #[cfg(test)]

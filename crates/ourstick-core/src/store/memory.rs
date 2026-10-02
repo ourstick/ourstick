@@ -8,11 +8,12 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 mod extra;
+mod joined;
 mod life;
 
 use super::{
-    check_device, check_drive_letter, check_joined_stick, check_owned_file, check_owned_stick,
-    check_seq, check_stamp, path_str, ClaimKind, Device, DownloadedFile, JoinedStick, LinkedEntry,
+    check_device, check_drive_letter, check_owned_file, check_owned_stick, check_seq, check_stamp,
+    path_str, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry,
     ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
@@ -30,6 +31,8 @@ struct State {
     claims: BTreeMap<([u8; 32], u8), SpaceClaim>,
     /// Owned sticks being removed: hidden from the usual reads.
     removing: std::collections::BTreeSet<[u8; 32]>,
+    /// Received sticks being forgotten: hidden from the usual reads.
+    forgetting: std::collections::BTreeSet<[u8; 32]>,
     /// Ids retired by a new link, with when.
     retired: BTreeMap<[u8; 32], (u64, StickId)>,
 }
@@ -269,38 +272,31 @@ impl Store for MemoryStore {
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {
-        check_joined_stick(stick)?;
-        let mut state = self.state();
-        let key = stick.stick_id.to_bytes();
-        if state.joined.contains_key(&key) {
-            return Err(StoreError::StickExists);
-        }
-        state.joined.insert(key, stick.clone());
-        Ok(())
+        joined::add(self, stick)
     }
 
     fn joined_stick(&self, stick_id: &StickId) -> Result<Option<JoinedStick>, StoreError> {
-        Ok(self.state().joined.get(&stick_id.to_bytes()).cloned())
+        joined::get(self, stick_id)
     }
 
     fn joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError> {
-        let state = self.state();
-        Ok(sorted(state.joined.iter().map(|(key, stick)| {
-            (stick.joined_at_ms, *key, stick.clone())
-        })))
+        joined::list(self, false)
     }
 
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
-        path_str(output_dir)?;
-        let mut state = self.state();
-        let stick = state
-            .joined
-            .get_mut(&stick_id.to_bytes())
-            .ok_or(StoreError::StickNotFound)?;
-        stick.output_dir = output_dir.to_path_buf();
-        stick.completed = None;
-        state.downloaded_files.remove(&stick_id.to_bytes());
-        Ok(())
+        joined::move_to(self, stick_id, output_dir)
+    }
+
+    fn change_joined_stick(&self, id: &StickId, change: &JoinedChange) -> Result<(), StoreError> {
+        joined::change(self, id, change)
+    }
+
+    fn forgetting_joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError> {
+        joined::list(self, true)
+    }
+
+    fn forget_joined_stick(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        joined::forget(self, stick_id)
     }
 
     fn complete_download(
@@ -308,24 +304,7 @@ impl Store for MemoryStore {
         stick_id: &StickId,
         version: ManifestVersion,
     ) -> Result<(), StoreError> {
-        check_seq(version.seq)?;
-        let mut state = self.state();
-        let key = stick_id.to_bytes();
-        if state
-            .floors
-            .get(&key)
-            .is_none_or(|floor| floor.seq < version.seq)
-        {
-            return Err(StoreError::Inconsistent(
-                "a download completed for a record that was never accepted",
-            ));
-        }
-        let stick = state
-            .joined
-            .get_mut(&key)
-            .ok_or(StoreError::StickNotFound)?;
-        stick.completed = Some(version);
-        Ok(())
+        joined::complete(self, stick_id, version)
     }
 
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
@@ -345,7 +324,7 @@ impl Store for MemoryStore {
         check_stamp(&file.stamp)?;
         let mut state = self.state();
         let key = stick_id.to_bytes();
-        if !state.joined.contains_key(&key) {
+        if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
             return Err(StoreError::StickNotFound);
         }
         state

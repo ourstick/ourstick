@@ -162,6 +162,19 @@ pub trait Store: Send + Sync {
     /// clears `completed` and the downloaded files.
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError>;
 
+    /// Changes a received stick's name, program or pause, or marks it as
+    /// being forgotten (hidden from the reads above from then on).
+    /// [`StoreError::StickNotFound`] if there is no such live stick.
+    fn change_joined_stick(&self, id: &StickId, change: &JoinedChange) -> Result<(), StoreError>;
+
+    /// The received sticks being forgotten, oldest first.
+    fn forgetting_joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError>;
+
+    /// Deletes a received stick being forgotten: its row, what its folder
+    /// was recorded to hold, and its download's claims. Its record floor
+    /// stays (ADR 0004).
+    fn forget_joined_stick(&self, stick_id: &StickId) -> Result<(), StoreError>;
+
     /// Records that every file of `version` is in the stick's folder. Fails
     /// with [`StoreError::Inconsistent`] unless a record of at least that
     /// `seq` was accepted.

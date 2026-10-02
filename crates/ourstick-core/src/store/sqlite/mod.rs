@@ -6,6 +6,7 @@ mod life;
 mod linked;
 mod migrations;
 mod owned;
+mod received;
 mod rows;
 mod space;
 
@@ -22,9 +23,9 @@ use migrations::{migrate, user_version};
 use rows::{blob32, is_constraint_violation, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS};
 
 use super::{
-    check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedStick,
-    LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SecretBackend, SpaceClaim,
-    Store, StoreError,
+    check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedChange,
+    JoinedStick, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SecretBackend,
+    SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -305,6 +306,18 @@ impl Store for SqliteStore {
 
     fn move_joined_stick(&self, stick_id: &StickId, output_dir: &Path) -> Result<(), StoreError> {
         joined::move_joined_stick(&mut self.connection(), stick_id, output_dir)
+    }
+
+    fn change_joined_stick(&self, id: &StickId, change: &JoinedChange) -> Result<(), StoreError> {
+        received::change(&self.connection(), id, change)
+    }
+
+    fn forgetting_joined_sticks(&self) -> Result<Vec<JoinedStick>, StoreError> {
+        received::forgetting(&self.connection())
+    }
+
+    fn forget_joined_stick(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        received::forget(&mut self.connection(), stick_id)
     }
 
     fn complete_download(

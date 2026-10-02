@@ -62,6 +62,9 @@
     {:else}
       <p>No stick is being shared.</p>
     {/if}
+    {#if view.receiving.length > 0}
+      <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
+    {/if}
     <div class="actions">
       <button onclick={close} disabled={busy}>{view.sharing ? "Keep sharing" : "Cancel"}</button>
       <button class={view.sharing ? "danger" : "primary"} onclick={stop} disabled={busy}>Quit</button>

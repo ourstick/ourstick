@@ -10,6 +10,8 @@
   const [page, pageStick] = location.hash.split("/");
 
   let app = $state<AppState | null>(null);
+  /** First launch, "I got a sharing link": straight to adding it. */
+  let receiving = $state(false);
   let failure = $state<string | null>(null);
 
   async function load() {
@@ -32,8 +34,8 @@
   <Confirm quitting={true} stickId={null} />
 {:else if failure}
   <main class="card"><p class="error">{failure}</p></main>
-{:else if app?.first_launch}
-  <FirstLaunch onDone={load} />
+{:else if app?.first_launch && !receiving}
+  <FirstLaunch onDone={load} onReceive={() => (receiving = true)} />
 {:else if app}
-  <Main />
+  <Main startAdding={receiving} />
 {/if}

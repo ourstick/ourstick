@@ -56,7 +56,8 @@
   }
 </script>
 
-<nav class="sticks" aria-label="Your sticks">
+<section class="sticks" aria-label="Your sticks">
+  <h2>My sticks</h2>
   <ul>
     {#each entries as entry (entry.id)}
       <li>
@@ -88,18 +89,22 @@
   {:else}
     <button class="new" onclick={() => (creating = true)}>+ New stick…</button>
   {/if}
-</nav>
+</section>
 
 <style>
   .sticks {
-    width: 190px;
-    flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     min-height: 0;
-    padding-right: 12px;
-    border-right: 1px solid var(--border);
+  }
+  h2 {
+    margin: 0;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
   ul {
     list-style: none;
@@ -147,7 +152,7 @@
     color: #2a9d4b;
   }
   .new {
-    margin-top: auto;
+    align-self: stretch;
   }
   form,
   label {
@@ -155,9 +160,7 @@
     flex-direction: column;
     gap: 6px;
   }
-  form {
-    margin-top: auto;
-  }
+
   form p {
     margin: 0;
   }

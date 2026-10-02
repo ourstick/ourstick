@@ -139,6 +139,8 @@ export interface ConfirmView {
   /** Quit: the sticks being shared, and those someone downloads from now. */
   shared: string[];
   downloading: string[];
+  /** Quit: received sticks coming in now (they go on next time). */
+  receiving: string[];
 }
 
 /** About one stick, or (null, for Quit) about every stick. */
@@ -211,4 +213,79 @@ export function newStick(name: string): Promise<string> {
 /** "Rename…": its folder and drive follow; people see the new name. */
 export function renameStick(stickId: string, name: string): Promise<void> {
   return invoke("rename", { stickId, name });
+}
+
+/** A stick this device receives in the window (step 7b). */
+export interface ReceivedEntry {
+  id: string;
+  /** Its name from the sender (show it isolated: it is the sender's text). */
+  name: string;
+  folder: string;
+  paused: boolean;
+  /** "starting", "downloading", "getting_more", "up_to_date", "waiting", "paused", "stopped". */
+  state: string;
+  /** Why it waits or stopped, in words for everyone. */
+  message: string | null;
+  done: number;
+  total: number;
+  /** When it began waiting (ms since 1970), for "since 14:30". */
+  since_ms: number | null;
+}
+
+export function received(): Promise<ReceivedEntry[]> {
+  return invoke("received");
+}
+
+export interface PreviewEntry {
+  name: string;
+  is_dir: boolean;
+  files: number;
+  bytes: number;
+}
+
+/** What adding a pasted sharing link would bring. */
+export interface PreviewView {
+  name: string;
+  /** The sender is still counting its files. */
+  partial: boolean;
+  entries: PreviewEntry[];
+  /** Entries not listed. */
+  more: number;
+  total: number;
+  to_write: number;
+  folder: string;
+  /** What is left on this computer where it would go. */
+  left: number;
+}
+
+/** Looks at a pasted sharing link: `parent` is where it would be saved (else Downloads). */
+export function previewLink(text: string, parent: string | null): Promise<PreviewView> {
+  return invoke("preview_link", { text, parent });
+}
+
+/** The system's folder picker; null if cancelled. */
+export function chooseFolder(): Promise<string | null> {
+  return invoke("choose_folder");
+}
+
+/** "Get it": received into `folder` and kept up to date. Returns its id. */
+export function addReceived(text: string, folder: string, name: string): Promise<string> {
+  return invoke("add_received", { text, folder, name });
+}
+
+export function pauseReceived(stickId: string): Promise<void> {
+  return invoke("pause_received", { stickId });
+}
+
+export function resumeReceived(stickId: string): Promise<void> {
+  return invoke("resume_received", { stickId });
+}
+
+/** "Forget this stick": no longer kept up to date; its files stay. */
+export function forgetReceived(stickId: string): Promise<void> {
+  return invoke("forget_received_stick", { stickId });
+}
+
+export function openReceivedFolder(stickId: string): Promise<void> {
+  return invoke("open_received_folder", { stickId });
 }

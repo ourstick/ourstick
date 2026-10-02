@@ -4,19 +4,34 @@
   import {
     appProblem,
     dismissAppProblem,
+    received,
     sticks,
     type About,
     type Activity,
+    type ReceivedEntry,
     type ShareProblem,
     type StickEntry,
   } from "./api";
+  import AddLink from "./AddLink.svelte";
+  import ReceivedList from "./ReceivedList.svelte";
+  import ReceivedView from "./ReceivedView.svelte";
   import StickList from "./StickList.svelte";
   import StickView from "./StickView.svelte";
   import type { Outcome } from "./StickAsk.svelte";
 
-  /** The app's sticks (ADR 0009), oldest first; one is shown. */
+  let { startAdding = false }: { startAdding?: boolean } = $props();
+
+  /** The app's sticks (ADR 0009), oldest first, and those it receives. */
   let entries = $state<StickEntry[]>([]);
-  let selected = $state<string | null>(null);
+  let receivedEntries = $state<ReceivedEntry[]>([]);
+  /** What the right pane shows. */
+  type Shown = { kind: "own"; id: string } | { kind: "received"; id: string } | { kind: "add" } | null;
+  // The window opened to receive (first launch, "I got a sharing link").
+  // svelte-ignore state_referenced_locally
+  let shown = $state<Shown>(startAdding ? { kind: "add" } : null);
+  let selected = $derived(shown?.kind === "own" ? shown.id : null);
+  let selectedReceived = $derived(shown?.kind === "received" ? shown.id : null);
+  let receivedShown = $derived(receivedEntries.find((entry) => entry.id === selectedReceived) ?? null);
   let creating = $state(false);
   let failure = $state<string | null>(null);
   /** A problem of the whole app, not of one stick. */
@@ -27,14 +42,22 @@
   async function refresh() {
     const look = ++looks;
     try {
-      const [loaded, appWide] = await Promise.all([sticks(), appProblem()]);
+      const [loaded, coming, appWide] = await Promise.all([sticks(), received(), appProblem()]);
       if (look !== looks) return;
       entries = loaded;
+      receivedEntries = coming;
       problem = appWide;
       failure = null;
-      // The one shown stays, if it is still there; else the first.
-      if (!entries.some((entry) => entry.id === selected)) {
-        selected = entries[0]?.id ?? null;
+      // What is shown stays, if it is still there; else the first stick.
+      const now = shown;
+      const there =
+        now?.kind === "add" ||
+        (now?.kind === "own" && entries.some((entry) => entry.id === now.id)) ||
+        (now?.kind === "received" && receivedEntries.some((entry) => entry.id === now.id));
+      if (!there) {
+        const first = entries[0]?.id ?? null;
+        const firstReceived = receivedEntries[0]?.id ?? null;
+        shown = first ? { kind: "own", id: first } : firstReceived ? { kind: "received", id: firstReceived } : null;
       }
     } catch (error) {
       if (look === looks) failure = String(error);
@@ -47,13 +70,18 @@
   }
 
   async function select(stickId: string) {
-    selected = stickId;
+    shown = { kind: "own", id: stickId };
+    await refresh();
+  }
+
+  async function selectReceived(stickId: string) {
+    shown = { kind: "received", id: stickId };
     await refresh();
   }
 
   function followed(outcome: Outcome) {
     // A new link is a new stick id: the view follows it.
-    if (outcome?.kind === "new-link") selected = outcome.id;
+    if (outcome?.kind === "new-link") shown = { kind: "own", id: outcome.id };
     refresh();
   }
 
@@ -64,6 +92,7 @@
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
       listen("problems-changed", refresh),
+      listen("received-changed", refresh),
       // The list shows who downloads, not how fast: only a new count matters.
       listen<About<Activity>>("activity", (event) => {
         const shown = entries.find((entry) => entry.id === event.payload.stick_id);
@@ -84,15 +113,30 @@
     </p>
   {/if}
   <div class="panes">
-    <StickList {entries} {selected} bind:creating onSelect={select} />
-    {#if selected}
-      {#key selected}
-        <StickView stickId={selected} onOutcome={followed} />
+    <div class="side">
+      <StickList {entries} {selected} bind:creating onSelect={select} />
+      <ReceivedList
+        entries={receivedEntries}
+        selected={selectedReceived}
+        adding={shown?.kind === "add"}
+        onSelect={selectReceived}
+        onAdd={() => (shown = { kind: "add" })}
+      />
+    </div>
+    {#if shown?.kind === "own"}
+      {#key shown.id}
+        <StickView stickId={shown.id} onOutcome={followed} />
       {/key}
+    {:else if shown?.kind === "received" && receivedShown}
+      {#key shown.id}
+        <ReceivedView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
+      {/key}
+    {:else if shown?.kind === "add"}
+      <AddLink onAdded={selectReceived} onCancel={() => ((shown = null), refresh())} />
     {:else if failure}
       <p class="error">{failure}</p>
     {:else}
-      <p class="muted empty">No stick yet: make one with “New stick…”.</p>
+      <p class="muted empty">No stick yet: make one with “New stick…”, or add a sharing link someone sent you.</p>
     {/if}
   </div>
 </main>
@@ -106,6 +150,17 @@
     gap: 16px;
     flex: 1 1 auto;
     min-height: 0;
+  }
+  .side {
+    width: 190px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding-right: 12px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
   }
   .app-problem {
     display: flex;

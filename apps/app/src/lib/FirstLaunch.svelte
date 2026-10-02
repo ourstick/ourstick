@@ -1,7 +1,7 @@
 <script lang="ts">
   import { plugIn } from "./api";
 
-  let { onDone }: { onDone: () => void } = $props();
+  let { onDone, onReceive }: { onDone: () => void; onReceive: () => void } = $props();
   let name = $state("OurStick");
   let busy = $state(false);
   let failure = $state<string | null>(null);
@@ -38,6 +38,10 @@
       <button class="primary" type="submit" disabled={busy || !name.trim()}>Plug it in</button>
     </div>
   </form>
+  <p class="receive">
+    Someone sent you a sharing link?
+    <button type="button" onclick={onReceive} disabled={busy}>I got a sharing link</button>
+  </p>
 </main>
 
 <style>
@@ -50,6 +54,14 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .receive {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    color: var(--muted);
   }
   /* Centred with the text, not pushed to the bottom. */
   .actions.plug {

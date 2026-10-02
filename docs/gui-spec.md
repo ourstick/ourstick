@@ -249,8 +249,44 @@ Rules:
 
 ## Receiver side
 
-Not in stage 1. Receivers use `ourstick get` (CLI) until the receiver window
-and mobile apps exist. The link page at ourstick.com/s/ says how to install.
+The window's left column has a second group, **Received** (step 7b): the
+sticks someone sent this device, each with its name (the sender's, shown
+isolated so its writing direction never spills over) and what it is doing
+in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
+`Stopped`. Below it, `+ Add a sharing link…`.
+
+- **Add a sharing link:** a field to paste the link (never shown back,
+  logged or put in a message: it holds the stick's key) → `Look at it` →
+  "Looking for the sender… please wait." (at most half a minute) → the
+  stick's name, its top-level folders and files with their sizes (at most
+  200, then "and N more"), `Save to <folder>` (Downloads/<stick name> at
+  first) with `Choose…` (the system's folder picker), and `Needs up to X ·
+  fits`, or "Needs up to X, and only Y are left on this computer there",
+  or "The sender is still counting its files: more is coming." → `Get it`.
+  If the sender cannot be reached: "The sender's computer is off, or
+  OurStick is not open there. Try again when it is." A link to one of this
+  device's own sticks, or one it already receives, is refused, saying so.
+- **A received stick:** its name, `Saved in <folder>` with `Open folder`,
+  and what it is doing in a sentence: "Downloading: 1.2 GB of 2.6 GB" with
+  a bar; "Up to date. New files from the sender come by themselves while
+  OurStick is open."; "Waiting since 14:30. The sender's computer is off,
+  or OurStick is not open there. It goes on by itself when they are back."
+  (or why else it waits: no room, its folder's disk unplugged, the sender
+  no longer sharing it with this link); "Paused: …"; or, in red, why it
+  stopped, with `Try again`. Its `⋯` menu: `Pause` / `Resume`, `Forget
+  this stick…` (red): "It is no longer kept up to date. Its files stay in
+  <folder>."
+- Received sticks are kept up to date in the background while the app
+  runs, each going on where it was after a restart; files the sender
+  removes stay here; a folder whose disk is unplugged is never filled on
+  another disk. Quit names the sticks coming in: "Getting “Holiday” stops;
+  it goes on where it was next time."
+- **First launch** has a second way in: "Someone sent you a sharing link?
+  `I got a sharing link`", straight to adding it, with no stick of one's
+  own.
+- Not yet: choosing which folders of a stick to get (step 7b-iv), and
+  receiving without the app (a web receiver is out of v1). `ourstick get`
+  still works, but never touches a stick the window receives.
 
 ## Before the first public release
 

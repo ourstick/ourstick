@@ -112,3 +112,30 @@ fn what_is_not_chosen_takes_no_new_place_and_keeps_its_recorded_ones() {
         .all(|line| !line.path.starts_with("Films?")));
     assert!(saved.left_out.is_empty());
 }
+
+#[test]
+fn a_file_and_a_folder_of_one_name_with_one_not_chosen() {
+    // The file `a` not got: the folder `a` of `a/b` takes the place.
+    let not_file: std::collections::HashSet<usize> = [0].into();
+    let saved = saved_paths(
+        &["a", "a/b"],
+        &[],
+        &not_file,
+        |_, _| OnDisk::Nothing,
+        WINDOWS,
+    );
+    assert_eq!(saved.saved, ["a", "a/b"]);
+    // Ticked again later, with `a/b` recorded: the file is numbered.
+    let recorded = [Recorded {
+        path: "a/b",
+        saved_as: "a/b",
+    }];
+    let saved = saved_paths(
+        &["a", "a/b"],
+        &recorded,
+        &Default::default(),
+        |_, _| OnDisk::Nothing,
+        WINDOWS,
+    );
+    assert_eq!(saved.saved, ["a (2)", "a/b"]);
+}

@@ -48,3 +48,20 @@ fn an_empty_choice_gets_everything() {
     assert_eq!(plan.files, [FilePlan::Download { replaceable: None }]);
     assert!(plan.not_chosen.is_empty());
 }
+
+#[test]
+fn a_previews_bytes_per_entry_leave_out_what_is_already_here() {
+    let out = tempfile::tempdir().unwrap();
+    std::fs::create_dir(out.path().join("Music")).unwrap();
+    std::fs::write(out.path().join("Music/c.mp3"), b"c").unwrap();
+    let entries = vec![
+        entry("Films/a.mkv", b"aaaa"),
+        entry("Music/c.mp3", b"c"),
+        entry("Music/d.mp3", b"dd"),
+    ];
+    let plan = plan_folder(out.path(), &manifest(entries.clone()), &[], &[], &cipher()).unwrap();
+    let by_top = plan.bytes_by_top(&manifest(entries));
+    assert_eq!(by_top.get("Films"), Some(&4));
+    // `c.mp3` is already here with this content: only `d.mp3` is written.
+    assert_eq!(by_top.get("Music"), Some(&2));
+}

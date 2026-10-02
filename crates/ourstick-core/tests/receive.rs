@@ -42,16 +42,18 @@ enum Told {
 }
 
 /// Runs a receive of `stick` into `folder` until `until` says it has seen
-/// enough (then cancels), doing `then` the first time `trigger` is told.
+/// enough (then cancels), doing `then` (with the receiver's store) the first
+/// time `trigger` is told.
 async fn run_receive(
     stick: &Versions,
     folder: &std::path::Path,
     until: impl Fn(&[Told]) -> bool + Send + Sync + 'static,
     trigger: Told,
-    then: impl Fn() + Send + Sync + 'static,
+    then: impl Fn(&Arc<dyn Store>) + Send + Sync + 'static,
 ) -> Vec<Told> {
     let data = tempfile::tempdir().unwrap();
     let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    let store_then = store.clone();
     let _lock = download_lock(data.path(), &stick.ticket.stick_id).unwrap();
     let room = DownloadRoom::with_disks(
         Box::new(RoomyDisk),
@@ -98,7 +100,7 @@ async fn run_receive(
             let mut told = told.lock().unwrap();
             if !triggered && item == trigger {
                 triggered = true;
-                then();
+                then(&store_then);
             }
             told.push(item);
             if until(&told) {
@@ -134,7 +136,7 @@ async fn a_stick_is_received_and_kept_up_to_date_until_cancelled() {
         folder.path(),
         |told| told.contains(&Told::UpToDate(2000)),
         Told::UpToDate(1000),
-        move || publisher.publish(1),
+        move |_| publisher.publish(1),
     )
     .await;
     assert_eq!(std::fs::read(folder.path().join("a.txt")).unwrap(), b"one");
@@ -155,7 +157,7 @@ async fn a_folder_without_its_mark_is_waited_for_and_never_filled() {
         folder.path(),
         |told| told.contains(&Told::Waiting(Waiting::Folder)),
         Told::UpToDate(0),
-        || {},
+        |_| {},
     )
     .await;
     assert_eq!(told, [Told::Waiting(Waiting::Folder)]);
@@ -173,7 +175,7 @@ async fn an_owner_who_is_away_is_waited_for_and_says_why() {
         folder.path(),
         |told| !told.is_empty(),
         Told::UpToDate(0),
-        || {},
+        |_| {},
     )
     .await;
     assert!(
@@ -256,7 +258,7 @@ async fn an_owner_who_goes_away_while_up_to_date_is_told_and_back_again() {
                 >= 2
         },
         Told::UpToDate(1000),
-        move || {
+        move |_| {
             // Away, then back a moment later.
             let back = away.clone();
             let served = away.served.lock().unwrap().clone();
@@ -298,7 +300,7 @@ async fn a_cancel_in_the_middle_of_a_download_stops_it_soon() {
         folder.path(),
         |told| told.iter().any(|told| matches!(told, Told::File(_))),
         Told::UpToDate(0),
-        || {},
+        |_| {},
     )
     .await;
     assert!(started.elapsed() < Duration::from_secs(15));
@@ -329,4 +331,42 @@ async fn the_window_records_a_stick_before_its_first_round() {
         (joined.kind, joined.output_dir.as_path()),
         (StickKind::App, folder)
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_choice_saved_while_it_follows_counts_at_the_next_version() {
+    let stick = Arc::new(
+        publish_versions(&[
+            &[("Films/a.mkv", b"film"), ("b.txt", b"two")],
+            &[
+                ("Films/a.mkv", b"film"),
+                ("Films/c.mkv", b"more"),
+                ("b.txt", b"two"),
+                ("d.txt", b"new"),
+            ],
+        ])
+        .await,
+    );
+    let folder = tempfile::tempdir().unwrap();
+    mark_received_folder(folder.path(), &stick.ticket.stick_id).unwrap();
+    let publisher = stick.clone();
+    let stick_id = stick.ticket.stick_id;
+    run_receive(
+        &stick,
+        folder.path(),
+        |told| told.contains(&Told::UpToDate(2000)),
+        Told::UpToDate(1000),
+        move |store| {
+            // Un-ticked while it is up to date and following.
+            store
+                .set_left_out(&stick_id, &["Films".to_owned()])
+                .unwrap();
+            publisher.publish(1);
+        },
+    )
+    .await;
+    assert_eq!(std::fs::read(folder.path().join("d.txt")).unwrap(), b"new");
+    // What came before stays; what the sender added under it does not come.
+    assert!(folder.path().join("Films/a.mkv").exists());
+    assert!(!folder.path().join("Films/c.mkv").exists());
 }

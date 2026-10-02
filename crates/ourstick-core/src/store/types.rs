@@ -172,8 +172,11 @@ pub struct LinkedEntry {
 pub enum ClaimKind {
     /// A sharer's cache budget (ADR 0007), held whole.
     Cache,
-    /// A download's bytes still to come.
+    /// A download's bytes still to come, on its folder's disk.
     Download,
+    /// A download's room for its batches, on the data folder's disk
+    /// (`download::SCRATCH_BYTES`), held while it runs.
+    Scratch,
 }
 
 /// Room a program holds on a disk, for one stick. Counts only while the

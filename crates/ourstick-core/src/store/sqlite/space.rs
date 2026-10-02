@@ -10,6 +10,7 @@ fn kind_str(kind: ClaimKind) -> &'static str {
     match kind {
         ClaimKind::Cache => "cache",
         ClaimKind::Download => "download",
+        ClaimKind::Scratch => "scratch",
     }
 }
 
@@ -31,6 +32,7 @@ fn read_all(connection: &Connection) -> Result<Vec<SpaceClaim>, StoreError> {
         let kind = match kind.as_str() {
             "cache" => ClaimKind::Cache,
             "download" => ClaimKind::Download,
+            "scratch" => ClaimKind::Scratch,
             other => return Err(StoreError::Corrupt(format!("claim kind {other}"))),
         };
         Ok(SpaceClaim {
@@ -67,12 +69,12 @@ fn upsert(connection: &Connection, claim: &SpaceClaim) -> Result<(), StoreError>
 
 pub(super) fn claim(
     connection: &mut Connection,
-    decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
-) -> Result<Option<SpaceClaim>, StoreError> {
+    decide: &mut dyn FnMut(&[SpaceClaim]) -> Vec<SpaceClaim>,
+) -> Result<Vec<SpaceClaim>, StoreError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let all = read_all(&transaction)?;
     let decided = decide(&all);
-    if let Some(claim) = &decided {
+    for claim in &decided {
         upsert(&transaction, claim)?;
     }
     transaction.commit()?;

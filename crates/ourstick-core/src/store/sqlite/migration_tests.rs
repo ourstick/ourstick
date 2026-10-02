@@ -30,3 +30,43 @@ fn migration_15_keeps_every_stick_shared_and_live() {
     assert!(store.removing_sticks().unwrap().is_empty());
     assert!(store.retired_sticks().unwrap().is_empty());
 }
+
+#[test]
+fn migration_16_keeps_every_claim_and_takes_scratch() {
+    use crate::store::{ClaimKind, SpaceClaim};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[2; 32]).stick_id();
+    {
+        // A database as version 15 left it, with a download's claim.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..15] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 15).unwrap();
+        connection
+            .execute(
+                "INSERT INTO space_claims VALUES (?1, 'download', 'dev:7', 42)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    let download = SpaceClaim {
+        stick_id: stick,
+        kind: ClaimKind::Download,
+        disk: "dev:7".to_owned(),
+        bytes: 42,
+    };
+    assert_eq!(
+        store.space_claims().unwrap(),
+        std::slice::from_ref(&download)
+    );
+    let scratch = SpaceClaim {
+        kind: ClaimKind::Scratch,
+        bytes: 9,
+        ..download
+    };
+    store.claim_space(&mut |_| vec![scratch.clone()]).unwrap();
+    assert_eq!(store.space_claims().unwrap().len(), 2);
+}

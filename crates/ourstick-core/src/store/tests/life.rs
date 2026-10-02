@@ -45,7 +45,7 @@ fn busy_stick(store: &dyn Store, seed: u8) -> OwnedStick {
     store
         .add_linked_entry(&stick.stick_id, &linked("Films"))
         .unwrap();
-    store.claim_space(&mut |_| Some(claim(&stick))).unwrap();
+    store.claim_space(&mut |_| vec![claim(&stick)]).unwrap();
     stick
 }
 

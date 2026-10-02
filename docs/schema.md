@@ -25,9 +25,13 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 15
+## Version 16
 
-Version 15 (`0015_stick_life.sql`, ADR 0009 §5) added `owned_sticks.image_path`,
+Version 16 (`0016_scratch_claims.sql`, step 7b) lets `space_claims.kind` be
+`scratch`: a download's room for its batches on the data folder's disk, held
+as its own row, so that several downloads at once each hold theirs; the
+table is made again with the same rows, since SQLite cannot change a CHECK
+constraint. Version 15 (`0015_stick_life.sql`, ADR 0009 §5) added `owned_sticks.image_path`,
 `sharing_wanted` and `removing`, and `retired_sticks`, below. Version 14 (`0014_no_drive_size.sql`, ADR 0008) dropped
 `owned_sticks.drive_size`: a stick has no fixed size, and the app's stick is
 told by `kind`. Version 13 (`0013_space_claims.sql`, ADR 0008's notes) added
@@ -211,15 +215,18 @@ notes, `ourstick_core::space`).
 | Column     | Type    | Meaning                                                     |
 |------------|---------|-------------------------------------------------------------|
 | `stick_id` | BLOB 32 | The stick (owned for a cache, joined for a download; no foreign key) |
-| `kind`     | TEXT    | `cache`: a sharer's cache budget, held whole; `download`: a download's bytes still to come |
+| `kind`     | TEXT    | `cache`: a sharer's cache budget, held whole; `download`: a download's bytes still to come, on its folder's disk; `scratch`: a download's room for its batches, on the data folder's disk |
 | `disk`     | TEXT    | Which disk: `dev:<st_dev>` on Unix, `vol:<volume>` on Windows |
 | `bytes`    | INTEGER | How much it holds                                           |
 
 Primary key `(stick_id, kind)`: a new claim replaces the old one. A row
 counts only while its holder's lock is held (`share-<hex>.lock` for `cache`,
-`download-<hex>.lock` for `download`); otherwise it is stale, ignored, and
-replaced next time. Claims are decided and written in one transaction, so
-two programs never both take the same room.
+`download-<hex>.lock` for `download` and `scratch`); otherwise it is stale,
+ignored, and replaced next time. Claims are decided and written in one
+transaction (a download's two at once), so two programs never both take the
+same room. A download gives its rows back when it returns: a stick that is up
+to date holds none. A cache's budget leaves out the room downloads hold on
+its disk.
 
 ### `retired_sticks`
 

@@ -130,14 +130,14 @@ pub trait Store: Send + Sync {
     /// apart).
     fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError>;
 
-    /// Decides and records a claim at once, so two programs never both take
-    /// the same room: `decide` gets every claim and returns the one to
-    /// record (replacing the stick's claim of that kind), or `None` to
-    /// record nothing. One transaction.
+    /// Decides and records claims at once, so two programs never both take
+    /// the same room: `decide` gets every claim and returns those to record
+    /// (each replacing the stick's claim of its kind), or none. One
+    /// transaction: all are recorded, or none.
     fn claim_space(
         &self,
-        decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
-    ) -> Result<Option<SpaceClaim>, StoreError>;
+        decide: &mut dyn FnMut(&[SpaceClaim]) -> Vec<SpaceClaim>,
+    ) -> Result<Vec<SpaceClaim>, StoreError>;
 
     /// Changes how much a claim holds; nothing if there is none.
     fn update_space_claim(

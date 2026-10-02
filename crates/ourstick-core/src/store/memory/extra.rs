@@ -64,16 +64,19 @@ pub(super) fn space_claims(store: &MemoryStore) -> Result<Vec<SpaceClaim>, Store
 
 pub(super) fn claim_space(
     store: &MemoryStore,
-    decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
-) -> Result<Option<SpaceClaim>, StoreError> {
+    decide: &mut dyn FnMut(&[SpaceClaim]) -> Vec<SpaceClaim>,
+) -> Result<Vec<SpaceClaim>, StoreError> {
     let mut state = store.state();
     let all: Vec<SpaceClaim> = state.claims.values().cloned().collect();
     let decided = decide(&all);
-    if let Some(claim) = &decided {
+    // All or nothing, as the SQLite transaction.
+    for claim in &decided {
         check_value("bytes", claim.bytes)?;
         if claim.disk.is_empty() {
             return Err(StoreError::Inconsistent("a claim names its disk"));
         }
+    }
+    for claim in &decided {
         state
             .claims
             .insert(claim_key(&claim.stick_id, claim.kind), claim.clone());

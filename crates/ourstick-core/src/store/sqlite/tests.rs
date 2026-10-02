@@ -6,7 +6,7 @@ use crate::store::StickKind;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 15);
+    assert_eq!(SCHEMA_VERSION, 16);
 }
 
 #[test]

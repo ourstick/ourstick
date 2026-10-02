@@ -202,3 +202,65 @@ fn sticks_started_together_get_equal_parts() {
     // Many on a small disk: each still gets the floor while it is free.
     assert_eq!(cache_share(30 * GB, 0, 10).unwrap(), MIN_BUDGET);
 }
+
+/// Fake disks where the real temporary data folder's disk has `free` of
+/// `total` bytes.
+fn data_disk(data_dir: &Path, free: u64, total: u64) -> FakeDisks {
+    let real = FakeDisks::name(data_dir);
+    FakeDisks(HashMap::from([
+        ("out", (500 * GB, 1000 * GB)),
+        (&*Box::leak(real.into_boxed_str()), (free, total)),
+    ]))
+}
+
+#[test]
+fn each_download_holds_its_own_batch_room() {
+    let (store, data) = setup(3);
+    let data_dir = data.path();
+    // 10 GB left on the data disk after its reserve.
+    let disks = data_disk(data_dir, 20 * GB, 100 * GB);
+    let out = Path::new("/out/x");
+    let _one = download_lock(data_dir, &stick_id(1)).unwrap();
+    claim_download(&disks, &store, data_dir, &stick_id(1), out, GB, 4 * GB).unwrap();
+    let _two = download_lock(data_dir, &stick_id(2)).unwrap();
+    claim_download(&disks, &store, data_dir, &stick_id(2), out, GB, 4 * GB).unwrap();
+    let _three = download_lock(data_dir, &stick_id(3)).unwrap();
+    match claim_download(&disks, &store, data_dir, &stick_id(3), out, GB, 4 * GB) {
+        Err(SpaceError::DoesNotFit { needed, available }) => {
+            assert_eq!((needed, available), (4 * GB, 2 * GB));
+        }
+        other => panic!("{other:?}"),
+    }
+    // Each holds two rows: its bytes on the folder's disk, its batches on
+    // the data folder's.
+    let rows = store.space_claims().unwrap();
+    assert_eq!(rows.len(), 4);
+    assert!(rows
+        .iter()
+        .any(|claim| claim.kind == ClaimKind::Scratch && claim.bytes == 4 * GB));
+}
+
+#[test]
+fn a_cache_leaves_out_what_downloads_hold_on_its_disk() {
+    let (store, data) = setup(2);
+    let data_dir = data.path();
+    let disks = data_disk(data_dir, 100 * GB, 500 * GB);
+    let cache = data_dir.join("cache");
+    // A download into a folder on the same disk holds 60 GB and 2 GB of
+    // batches there.
+    let _download = download_lock(data_dir, &stick_id(2)).unwrap();
+    let out = data_dir.join("out");
+    claim_download(
+        &disks,
+        &store,
+        data_dir,
+        &stick_id(2),
+        &out,
+        60 * GB,
+        2 * GB,
+    )
+    .unwrap();
+    let (_share, _) = lock_for_sharing(data_dir, &store, &stick_id(1)).unwrap();
+    let mine = claim_cache(&disks, &store, data_dir, &stick_id(1), &cache, 1).unwrap();
+    assert_eq!(mine, (100 * GB - 62 * GB) / 10);
+}

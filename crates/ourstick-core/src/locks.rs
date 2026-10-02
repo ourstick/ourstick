@@ -95,7 +95,7 @@ pub fn download_lock(data_dir: &Path, stick_id: &StickId) -> Result<Lock, LockEr
 pub fn is_held(data_dir: &Path, kind: ClaimKind, stick_id: &StickId) -> Result<bool, LockError> {
     let path = match kind {
         ClaimKind::Cache => stick_lock_path(data_dir, stick_id),
-        ClaimKind::Download => download_lock_path(data_dir, stick_id),
+        ClaimKind::Download | ClaimKind::Scratch => download_lock_path(data_dir, stick_id),
     };
     Ok(try_take(path)?.is_none())
 }

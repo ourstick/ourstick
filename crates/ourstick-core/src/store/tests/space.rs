@@ -16,23 +16,23 @@ fn claims_are_decided_and_recorded_at_once(store: &dyn Store) {
     let decided = store
         .claim_space(&mut |all| {
             assert!(all.is_empty());
-            Some(cache.clone())
+            vec![cache.clone()]
         })
         .unwrap();
-    assert_eq!(decided, Some(cache.clone()));
+    assert_eq!(decided, std::slice::from_ref(&cache));
     // The decision sees what is there, and may record nothing.
     let none = store
         .claim_space(&mut |all| {
             assert_eq!(all, std::slice::from_ref(&cache));
-            None
+            Vec::new()
         })
         .unwrap();
-    assert_eq!(none, None);
+    assert!(none.is_empty());
     // One claim per stick and kind: a new one replaces it.
     let download = claim(1, ClaimKind::Download, "dev:2", 5);
-    store.claim_space(&mut |_| Some(download.clone())).unwrap();
+    store.claim_space(&mut |_| vec![download.clone()]).unwrap();
     let bigger = claim(1, ClaimKind::Cache, "dev:1", 20);
-    store.claim_space(&mut |_| Some(bigger.clone())).unwrap();
+    store.claim_space(&mut |_| vec![bigger.clone()]).unwrap();
     let mut all = store.space_claims().unwrap();
     all.sort_by_key(|claim| claim.kind == ClaimKind::Download);
     assert_eq!(all, [bigger, download.clone()]);
@@ -66,14 +66,31 @@ fn a_claim_must_name_its_disk_and_fit(store: &dyn Store) {
         claim(1, ClaimKind::Cache, "dev:1", u64::MAX),
     ] {
         assert!(
-            store.claim_space(&mut |_| Some(bad.clone())).is_err(),
+            store.claim_space(&mut |_| vec![bad.clone()]).is_err(),
             "{bad:?}"
         );
     }
     assert!(store.space_claims().unwrap().is_empty());
 }
 
+fn several_claims_are_recorded_together_or_not_at_all(store: &dyn Store) {
+    let download = claim(1, ClaimKind::Download, "dev:2", 5);
+    let scratch = claim(1, ClaimKind::Scratch, "dev:1", 2);
+    let bad = claim(1, ClaimKind::Scratch, "", 2);
+    assert!(store
+        .claim_space(&mut |_| vec![download.clone(), bad.clone()])
+        .is_err());
+    assert!(store.space_claims().unwrap().is_empty());
+    store
+        .claim_space(&mut |_| vec![download.clone(), scratch.clone()])
+        .unwrap();
+    let mut all = store.space_claims().unwrap();
+    all.sort_by_key(|claim| claim.kind == ClaimKind::Scratch);
+    assert_eq!(all, [download, scratch]);
+}
+
 for_every_store!(
     claims_are_decided_and_recorded_at_once,
     a_claim_must_name_its_disk_and_fit,
+    several_claims_are_recorded_together_or_not_at_all,
 );

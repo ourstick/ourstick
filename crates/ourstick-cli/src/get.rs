@@ -15,14 +15,14 @@ use ourstick_core::download::{
     RelayPolicy, FOLLOW_EVERY,
 };
 use ourstick_core::places::check_new_stick_folder;
+use ourstick_core::space::{DownloadRoom, SpaceError};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::{describe_network, relay_reasons, Fetcher, PathKind};
 use ourstick_core::Store;
 use ourstick_core::Ticket;
 
-use crate::display::untrusted;
+use crate::display::{bytes, untrusted};
 use crate::progress::{clock, Progress};
-use crate::room::Room;
 use crate::setup::{self, hex};
 use ourstick_core::device::random_key;
 
@@ -74,7 +74,7 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
     // One `get` of a stick at a time; it also keeps this download's room in
     // the space ledger alive (ADR 0008).
     let _download_lock = ourstick_core::locks::download_lock(&setup.data_dir, &ticket.stick_id)?;
-    let room = Room::new(
+    let room = DownloadRoom::new(
         setup.store.clone(),
         setup.data_dir.clone(),
         ticket.stick_id,
@@ -107,7 +107,7 @@ pub async fn run(ticket_text: &str, output: Option<PathBuf>, follow: bool) -> Re
     room.release();
     if let (Some(Err(_)), Some(refusal)) = (&outcome, room.refusal()) {
         fetcher.shutdown(true).await?;
-        anyhow::bail!("not downloading: {refusal}");
+        anyhow::bail!("not downloading: {}", refusal_words(&refusal));
     }
 
     match outcome {
@@ -149,7 +149,7 @@ struct Getter<'a> {
     started: Instant,
     /// Set once the reasons for the relay have been printed.
     explained: std::sync::atomic::AtomicBool,
-    room: &'a Room,
+    room: &'a DownloadRoom,
 }
 
 impl Getter<'_> {
@@ -195,14 +195,8 @@ impl Getter<'_> {
     async fn download_once(&self) -> Result<DownloadReport, DownloadError> {
         let mut progress = Progress::default();
         let mut on_event = |event: DownloadEvent<'_>| {
-            match &event {
-                DownloadEvent::Planned { bytes } => {
-                    if self.room.planned(*bytes).is_break() {
-                        return ControlFlow::Break(());
-                    }
-                }
-                DownloadEvent::FileReceived { size, .. } => self.room.landed(*size),
-                _ => {}
+            if self.room.on_event(&event).is_break() {
+                return ControlFlow::Break(());
             }
             let elapsed = self.started.elapsed();
             for line in progress.on_event(event, elapsed) {
@@ -231,13 +225,31 @@ impl Getter<'_> {
             &RelayPolicy::default(),
             &mut on_event,
         )
-        .await?;
+        .await;
+        // Up to date, or stopped: it holds no room until the next version.
+        self.room.release();
+        let report = report?;
         let output = self.output.display().to_string();
         let took = self.started.elapsed().saturating_sub(begun);
         for line in Progress::summary(&report, &output, self.started.elapsed(), took) {
             println!("{line}");
         }
         Ok(report)
+    }
+}
+
+/// Why a download did not start, in the command line's words.
+fn refusal_words(refusal: &SpaceError) -> String {
+    match refusal {
+        SpaceError::DoesNotFit { needed, available } => format!(
+            "it does not fit: it needs {}, and {} are left on that disk \
+             (OurStick leaves some room for the system and counts what other \
+             shares and downloads hold). Free some room, or choose another \
+             folder with --out.",
+            bytes(*needed),
+            bytes(*available)
+        ),
+        other => other.to_string(),
     }
 }
 
@@ -257,6 +269,16 @@ fn follow_lines(event: &FollowEvent<'_>, elapsed: Duration) -> Vec<String> {
 mod tests {
     use super::*;
     use ourstick_core::transport::TransportError;
+
+    #[test]
+    fn a_download_that_does_not_fit_says_how_much_and_what_to_do() {
+        let words = refusal_words(&SpaceError::DoesNotFit {
+            needed: 3_000_000_000,
+            available: 1_000_000_000,
+        });
+        assert!(words.starts_with("it does not fit: it needs 3"), "{words}");
+        assert!(words.contains("--out"), "{words}");
+    }
 
     #[test]
     fn follow_lines_say_what_happens() {

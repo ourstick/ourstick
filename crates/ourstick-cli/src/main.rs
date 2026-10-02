@@ -5,7 +5,6 @@ mod get;
 mod ls;
 mod progress;
 mod qr;
-mod room;
 mod secrets;
 mod setup;
 mod share;

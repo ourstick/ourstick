@@ -273,8 +273,8 @@ impl Store for SqliteStore {
 
     fn claim_space(
         &self,
-        decide: &mut dyn FnMut(&[SpaceClaim]) -> Option<SpaceClaim>,
-    ) -> Result<Option<SpaceClaim>, StoreError> {
+        decide: &mut dyn FnMut(&[SpaceClaim]) -> Vec<SpaceClaim>,
+    ) -> Result<Vec<SpaceClaim>, StoreError> {
         space::claim(&mut self.connection(), decide)
     }
 

@@ -120,15 +120,17 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> SpaceError + '_ {
     }
 }
 
-/// The live claims among `all`, but `except`'s own.
+/// The live claims among `all`, but `except`'s own of those kinds.
 fn live<'a>(
     data_dir: &Path,
     all: &'a [SpaceClaim],
-    except: Option<(StickId, ClaimKind)>,
+    except: Option<(StickId, &[ClaimKind])>,
 ) -> Result<Vec<&'a SpaceClaim>, LockError> {
     let mut live = Vec::new();
     for claim in all {
-        if except == Some((claim.stick_id, claim.kind)) {
+        if except.is_some_and(|(stick_id, kinds)| {
+            stick_id == claim.stick_id && kinds.contains(&claim.kind)
+        }) {
             continue;
         }
         if is_held(data_dir, claim.kind, &claim.stick_id)? {
@@ -158,13 +160,21 @@ pub fn available(
     let free = disks.free(path).map_err(io(path))?;
     let total = disks.total(path).map_err(io(path))?;
     let all = store.space_claims()?;
-    let live = live(data_dir, &all, except)?;
+    let except = except.map(|(stick_id, kind)| (stick_id, vec![kind]));
+    let live = live(
+        data_dir,
+        &all,
+        except
+            .as_ref()
+            .map(|(stick_id, kinds)| (*stick_id, kinds.as_slice())),
+    )?;
     Ok(room_left(free, total, held_on(&live, &disk)))
 }
 
 /// The cache budget of the stick `stick_id` about to be shared, whose lock
 /// this program holds: one budget for the whole device (10 % of the cache
-/// disk's free space plus what other shares hold, 2 to 40 GB), split
+/// disk's free space plus what other shares hold, 2 to 40 GB; the room that
+/// running downloads hold there is not free), split
 /// equally between the `together` sticks started at once (this one
 /// included; 1 for one): this sharer gets its part, or what the others
 /// leave if that is less, but at least 2 GB while that much is free.
@@ -182,21 +192,25 @@ pub fn claim_cache(
     let free = disks.free(cache_dir).map_err(io(cache_dir))?;
     let mut outcome = None;
     store.claim_space(&mut |all| {
-        let decided = live(data_dir, all, Some((*stick_id, ClaimKind::Cache))).map(|live| {
-            let held: u64 = live
-                .iter()
-                .filter(|claim| claim.kind == ClaimKind::Cache)
-                .fold(0u64, |held, claim| held.saturating_add(claim.bytes));
-            cache_share(free, held, together)
+        let decided = live(data_dir, all, Some((*stick_id, &[ClaimKind::Cache]))).map(|live| {
+            let sum = |of: &dyn Fn(ClaimKind) -> bool| {
+                live.iter()
+                    .filter(|claim| claim.disk == disk && of(claim.kind))
+                    .fold(0u64, |held, claim| held.saturating_add(claim.bytes))
+            };
+            let held = sum(&|kind| kind == ClaimKind::Cache);
+            // Promised to downloads: not free for a cache.
+            let downloads = sum(&|kind| kind != ClaimKind::Cache);
+            cache_share(free.saturating_sub(downloads), held, together)
         });
         let claim = match &decided {
-            Ok(Ok(bytes)) => Some(SpaceClaim {
+            Ok(Ok(bytes)) => vec![SpaceClaim {
                 stick_id: *stick_id,
                 kind: ClaimKind::Cache,
                 disk: disk.clone(),
                 bytes: *bytes,
-            }),
-            _ => None,
+            }],
+            _ => Vec::new(),
         };
         outcome = Some(decided);
         claim
@@ -218,11 +232,12 @@ pub fn cache_share(free: u64, held: u64, together: usize) -> Result<u64, SpaceEr
 }
 
 /// Claims room for a download of `stick_id` into `out_dir` that still
-/// needs `needed` bytes there, and `scratch` bytes on the disk of
-/// `data_dir` while it runs (its batches). Refused with
-/// [`SpaceError::DoesNotFit`] if either disk has not that much left. This
-/// program must hold the stick's download lock. Update it as files land
-/// ([`Store::update_space_claim`]); it ends with the lock.
+/// needs `needed` bytes there (a `Download` claim), and `scratch` bytes on
+/// the disk of `data_dir` while it runs (its batches; a `Scratch` claim),
+/// both in one transaction. Refused with [`SpaceError::DoesNotFit`] if
+/// either disk has not that much left. This program must hold the stick's
+/// download lock. Update it as files land ([`Store::update_space_claim`]);
+/// it ends with the lock, or when released (`DownloadRoom`).
 pub fn claim_download(
     disks: &dyn Disks,
     store: &dyn Store,
@@ -234,6 +249,20 @@ pub fn claim_download(
 ) -> Result<(), SpaceError> {
     let out_disk = disks.key(out_dir).map_err(io(out_dir))?;
     let data_disk = disks.key(data_dir).map_err(io(data_dir))?;
+    let claims = [
+        SpaceClaim {
+            stick_id: *stick_id,
+            kind: ClaimKind::Download,
+            disk: out_disk.clone(),
+            bytes: needed,
+        },
+        SpaceClaim {
+            stick_id: *stick_id,
+            kind: ClaimKind::Scratch,
+            disk: data_disk.clone(),
+            bytes: scratch,
+        },
+    ];
     let mut wants = vec![(out_disk.clone(), out_dir, needed)];
     if data_disk == out_disk {
         wants[0].2 += scratch;
@@ -248,7 +277,8 @@ pub fn claim_download(
     }
     let mut outcome = None;
     store.claim_space(&mut |all| {
-        let checked = live(data_dir, all, Some((*stick_id, ClaimKind::Download))).map(|live| {
+        let own = [ClaimKind::Download, ClaimKind::Scratch];
+        let checked = live(data_dir, all, Some((*stick_id, &own))).map(|live| {
             for (disk, free, total, want) in &rooms {
                 let available = room_left(*free, *total, held_on(&live, disk));
                 if *want > available {
@@ -260,17 +290,20 @@ pub fn claim_download(
             }
             Ok(())
         });
-        let claim = matches!(checked, Ok(Ok(()))).then(|| SpaceClaim {
-            stick_id: *stick_id,
-            kind: ClaimKind::Download,
-            disk: out_disk.clone(),
-            bytes: needed,
-        });
+        let recorded = if matches!(checked, Ok(Ok(()))) {
+            claims.to_vec()
+        } else {
+            Vec::new()
+        };
         outcome = Some(checked);
-        claim
+        recorded
     })?;
     outcome.expect("decided")?
 }
+
+mod room;
+
+pub use room::DownloadRoom;
 
 #[cfg(test)]
 mod tests;

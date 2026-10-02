@@ -14,7 +14,7 @@ use crate::state::{stick_id as stick_id_of, AppState};
 
 /// An error as the UI shows it.
 pub(crate) fn shown(error: anyhow::Error) -> String {
-    format!("{error:#}")
+    crate::words::told(&error)
 }
 
 /// Runs blocking core work off the async runtime (CLAUDE.md rule 7).

@@ -72,10 +72,7 @@ pub fn said(error: &anyhow::Error) -> String {
     use ourstick_core::received::ReceivedError;
     use ourstick_core::{SecretError, StoreError};
     tracing::warn!(error = %format!("{error:#}"), "told in the window in words");
-    const SECRETS: &str = "OurStick could not reach the passwords this computer keeps for it. \
-        Unlock them, or allow OurStick, then try again.";
-    const RECORDS: &str =
-        "OurStick's own records on this computer could not be read or written. Try again in a moment.";
+    use crate::words::{RECORDS, SECRETS};
     const DISK: &str = "Something on this computer failed (a folder or a file). Try again.";
     if error.downcast_ref::<SecretError>().is_some() {
         return SECRETS.to_owned();

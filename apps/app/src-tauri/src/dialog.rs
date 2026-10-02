@@ -85,7 +85,7 @@ pub async fn confirm_view(
     let all = state
         .sticks_now()
         .await
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(|error| crate::words::told(&error))?;
     let stick_id = stick_id.as_deref().map(stick_id_of).transpose()?;
     let mut view = confirm_of(&all, &*state.sticks.lock().await, stick_id);
     if stick_id.is_none() {
@@ -159,7 +159,7 @@ pub async fn open_dialog(
         (false, Some(hex)) => Mode::StopSharing(stick_id_of(&hex)?),
         (false, None) => return Err("which stick?".to_owned()),
     };
-    open(&app, mode).map_err(|error| format!("{error:#}"))
+    open(&app, mode).map_err(|error| crate::words::told(&error))
 }
 
 /// Stops serving a stick, until the user starts it again (even after a
@@ -174,7 +174,7 @@ pub async fn stop_sharing(
     state
         .set_sharing_wanted(&stick_id, false)
         .await
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(|error| crate::words::told(&error))?;
     stop_serving(&state, &stick_id).await;
     refresh_tray(&app).await;
     let _ = tauri::Emitter::emit(&app, "sharing-changed", ());
@@ -191,7 +191,7 @@ pub async fn start_sharing_again(
     state
         .set_sharing_wanted(&stick_id, true)
         .await
-        .map_err(|error| format!("{error:#}"))?;
+        .map_err(|error| crate::words::told(&error))?;
     // A busy stick is shared again, if wanted, when what keeps it busy ends.
     start_sharing_later(&app, stick_id);
     Ok(())

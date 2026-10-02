@@ -59,7 +59,7 @@ pub fn make_stick(
     }
     let unplugged = match plug_in(store, &keys.stick) {
         Ok(()) => None,
-        Err(error) => Some(format!("{error:#}")),
+        Err(error) => Some(crate::words::told(&error)),
     };
     Ok(Made {
         stick_id,

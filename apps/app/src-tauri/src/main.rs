@@ -15,6 +15,7 @@ mod menu;
 mod problems;
 mod qr;
 mod receiving;
+mod refresh;
 mod serving;
 mod share;
 mod sharing;
@@ -25,6 +26,7 @@ mod stick_life_commands;
 mod testing;
 mod tray;
 mod windows;
+mod words;
 
 use tauri::Manager;
 

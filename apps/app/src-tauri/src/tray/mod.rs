@@ -214,7 +214,7 @@ fn toggle_mount(app: &AppHandle, stick_id: StickId) {
         }
         let stick = match state.stick_now(&stick_id).await {
             Ok(stick) => stick,
-            Err(error) => return problem(&app, stick_id, format!("{error:#}")),
+            Err(error) => return problem(&app, stick_id, crate::words::told(&error)),
         };
         // The disk is read and `hdiutil`/`subst` run off the async runtime.
         let Ok(ejected) = tauri::async_runtime::spawn_blocking(move || {
@@ -228,7 +228,7 @@ fn toggle_mount(app: &AppHandle, stick_id: StickId) {
             Some(ejected) => {
                 if let Err(error) = ejected {
                     tracing::warn!(error = %format!("{error:#}"), "eject failed");
-                    problem(&app, stick_id, format!("{error:#}"));
+                    problem(&app, stick_id, crate::words::told(&error));
                 }
                 let _ = app.emit("mount-changed", ());
                 crate::sharing::refresh_tray(&app).await;
@@ -253,7 +253,7 @@ fn start(app: &AppHandle, stick_id: StickId) {
         }
         match state.set_sharing_wanted(&stick_id, true).await {
             Ok(()) => crate::sharing::start_sharing(&app, stick_id, 1).await,
-            Err(error) => problem(&app, stick_id, format!("{error:#}")),
+            Err(error) => problem(&app, stick_id, crate::words::told(&error)),
         }
     });
 }

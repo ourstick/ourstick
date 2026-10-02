@@ -183,7 +183,7 @@ pub mod platform {
         }
         let unplugged = give_letter(&renamed, letter)
             .err()
-            .map(|error| format!("{error:#}"));
+            .map(|error| crate::words::told(&error));
         Ok(Renamed {
             root: renamed,
             unplugged,

@@ -91,7 +91,7 @@ pub async fn open_share(stick_id: String, app: AppHandle) -> Result<(), String> 
     if bring_forward(&app, &id) {
         return Ok(());
     }
-    let shown = |error: anyhow::Error| format!("{error:#}");
+    let shown = |error: anyhow::Error| crate::words::told(&error);
     let name = app
         .state::<AppState>()
         .stick_now(&id)
@@ -155,7 +155,7 @@ pub async fn send_by_email(
     app.opener()
         .open_url(url, None::<&str>)
         .context("no mail program to open")
-        .map_err(|error| format!("{error:#}"))
+        .map_err(|error| crate::words::told(&error))
 }
 
 /// A `mailto:` URL with a subject and the link as the body.

@@ -251,7 +251,7 @@ pub mod platform {
         usb_icon(&renamed);
         let unplugged = add_bookmark(&renamed, name)
             .err()
-            .map(|error| format!("{error:#}"));
+            .map(|error| crate::words::told(&error));
         Ok(Renamed {
             root: renamed,
             unplugged,

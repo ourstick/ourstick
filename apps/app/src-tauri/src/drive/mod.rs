@@ -229,7 +229,7 @@ pub struct AppDrive;
 
 impl ourstick_core::stick_life::DriveOps for AppDrive {
     fn take_away(&self, stick: &ourstick_core::OwnedStick) -> Result<(), String> {
-        eject(stick).map_err(|error| format!("{error:#}"))?;
+        eject(stick).map_err(|error| crate::words::told(&error))?;
         if let Some(image) = &stick.image_path {
             match std::fs::remove_file(image) {
                 Ok(()) => {}

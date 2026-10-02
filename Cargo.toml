@@ -67,6 +67,7 @@ tauri-build = "2.7"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-clipboard-manager = "2.4"
 tauri-plugin-opener = "2.6"
+tauri-plugin-dialog = "2.8"
 # The app keeps Linux awake while someone downloads (logind's Inhibit).
 zbus = "5"
 # Linux tray: a StatusNotifierItem of our own, which receives the XDG

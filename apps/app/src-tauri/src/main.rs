@@ -70,6 +70,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .manage(problems::Problems::default())
         // Closing the main window keeps the app in the tray: sharing goes

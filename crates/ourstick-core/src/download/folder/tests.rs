@@ -187,3 +187,102 @@ fn a_file_may_be_replaced_only_as_planned() {
     std::fs::write(&target, b"edited meanwhile").unwrap();
     assert!(!may_replace(&target, Some(row.stamp)));
 }
+
+const WINDOWS: Rules = Rules {
+    windows: true,
+    fold_case: true,
+    fold_normal: false,
+};
+
+/// The plan with Windows' rules, as a Windows receiver makes it.
+fn windows_plan(dir: &Path, entries: Vec<Entry>, recorded: &[DownloadedFile]) -> FolderPlan {
+    plan_folder_by(dir, &manifest(entries), recorded, &cipher(), WINDOWS).unwrap()
+}
+
+#[test]
+fn a_windows_receiver_saves_every_file_under_a_name_it_can() {
+    let out = tempfile::tempdir().unwrap();
+    let plan = windows_plan(
+        out.path(),
+        vec![
+            entry("CON.txt", b"c"),
+            entry("Trip?/x", b"x"),
+            entry("a?.jpg", b"q"),
+            entry("a_.jpg", b"genuine"),
+        ],
+        &[],
+    );
+    assert_eq!(plan.saved, ["CON_.txt", "Trip_/x", "a_ (2).jpg", "a_.jpg"]);
+    assert!(plan
+        .files
+        .iter()
+        .all(|file| *file == FilePlan::Download { replaceable: None }));
+    assert_eq!(plan.renamed.len(), 3);
+    assert!(plan.forget.is_empty());
+}
+
+#[test]
+fn later_versions_keep_the_places_and_a_renamed_folder_takes_new_files() {
+    let out = tempfile::tempdir().unwrap();
+    std::fs::create_dir(out.path().join("Trip_")).unwrap();
+    let mut x = written(out.path(), "Trip_/x", b"x");
+    x.path = "Trip?/x".to_owned();
+    let mut q = written(out.path(), "a_.jpg", b"q");
+    q.path = "a?.jpg".to_owned();
+    // The sender changes `a?.jpg`, adds `Trip?/y` and a genuine `a_.jpg`.
+    let plan = windows_plan(
+        out.path(),
+        vec![
+            entry("Trip?/x", b"x"),
+            entry("Trip?/y", b"y"),
+            entry("a?.jpg", b"changed"),
+            entry("a_.jpg", b"genuine"),
+        ],
+        &[x, q],
+    );
+    assert_eq!(plan.saved, ["Trip_/x", "Trip_/y", "a_.jpg", "a_ (2).jpg"]);
+    assert_eq!(plan.files[0], FilePlan::AlreadyHere);
+    assert!(matches!(
+        plan.files[2],
+        FilePlan::Download {
+            replaceable: Some(_)
+        }
+    ));
+}
+
+#[test]
+fn a_renamed_file_that_left_the_stick_is_counted_and_its_place_kept() {
+    let out = tempfile::tempdir().unwrap();
+    let mut q = written(out.path(), "a_.jpg", b"q");
+    q.path = "a?.jpg".to_owned();
+    let gone = DownloadedFile {
+        path: "old?.txt".to_owned(),
+        saved_as: "old_.txt".to_owned(),
+        ..q.clone()
+    };
+    let plan = windows_plan(out.path(), vec![entry("a_.jpg", b"genuine")], &[q, gone]);
+    // The renamed copy is still there: counted, and its place stays its.
+    assert_eq!(plan.no_longer_in_stick, 1);
+    assert_eq!(plan.saved, ["a_ (2).jpg"]);
+    // The row of the file that is gone is forgotten.
+    assert_eq!(plan.forget, ["old?.txt"]);
+}
+
+#[test]
+fn the_disk_is_asked_inside_the_folder_whether_it_folds_case() {
+    let out = tempfile::tempdir().unwrap();
+    std::fs::write(out.path().join("Notes.txt"), b"n").unwrap();
+    let folds = out.path().join("notes.txt").exists() || out.path().join("NOTES.TXT").exists();
+    assert_eq!(case_folded(out.path()), folds || cfg!(windows));
+    // A folder not made yet is asked through the nearest one above it.
+    assert_eq!(
+        case_folded(&out.path().join("not/yet")),
+        folds || cfg!(windows)
+    );
+    // Nothing to ask with: folded, the careful answer.
+    let empty = tempfile::tempdir().unwrap();
+    let digits = empty.path().join("123");
+    std::fs::create_dir(&digits).unwrap();
+    std::fs::create_dir(digits.join("456")).unwrap();
+    assert!(case_folded(&digits.join("456")));
+}

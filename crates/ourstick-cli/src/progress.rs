@@ -243,8 +243,8 @@ impl Progress {
                     String::new()
                 };
                 vec![format!(
-                    "[{at}] \u{201c}{}\u{201d}{held} is saved here as \u{201c}{}\u{201d}: this \
-                     computer does not take its name as it is.",
+                    "[{at}] \u{201c}{}\u{201d}{held} is saved here as \u{201c}{}\u{201d} (its \
+                     name cannot be saved here as it is).",
                     untrusted(path),
                     untrusted(saved_as)
                 )]
@@ -324,3 +324,6 @@ impl Progress {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod saved_as_tests;

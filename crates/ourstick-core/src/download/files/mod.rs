@@ -93,8 +93,7 @@ fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
 
 /// Checks every path of a manifest before anything is downloaded: each name
 /// must be a plain file or folder name (decoding refuses the rest already;
-/// checked again here, as nothing else stands between a path and the
-/// folder). Names this computer cannot save, and names that would be one
+/// checked again here, before any place is chosen). Names this computer cannot save, and names that would be one
 /// file here, are not errors: they are saved under a changed name
 /// (`saved_paths`, ADR 0010).
 pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {

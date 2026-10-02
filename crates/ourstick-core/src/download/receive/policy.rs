@@ -25,9 +25,10 @@ pub enum Waiting {
     /// The owner's copy, or what came of it, is damaged; a new version of
     /// the stick may mend it.
     Damaged(String),
-    /// This version cannot be taken here (its manifest cannot be read, or a
-    /// symbolic link in the folder is in the way): the owner's next version,
-    /// or the folder, may change. Names this computer refuses are not this:
+    /// This version cannot be taken here (its manifest cannot be read, or
+    /// the folder's own partial folder is a symbolic link): the owner's next
+    /// version, or the folder, may change. A symbolic link deeper in the
+    /// folder is in the way like a file: the stick's file goes beside it. Names this computer refuses are not this:
     /// they are saved under a changed name (ADR 0010).
     CannotTake(String),
     /// Something on this computer failed (its network, its storage).

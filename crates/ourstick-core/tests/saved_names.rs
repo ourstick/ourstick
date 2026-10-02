@@ -155,6 +155,15 @@ async fn a_stopped_round_goes_on_without_renaming_again() {
         .await
         .unwrap();
     assert!(!reader.exists("_.OurStick-Received (2)"));
+    // Recorded again at its place.
+    assert_eq!(
+        reader
+            .store
+            .saved_elsewhere(&ticket.stick_id)
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(
         events.into_inner().unwrap(),
         [(

@@ -73,7 +73,6 @@ pub(super) async fn remember_name(
         .map_err(DownloadError::from)
 }
 
-/// Records that `file` is in the stick's folder as written.
 /// What a round does once its folder is planned, before any file comes:
 /// rows of files gone, or saved at a new place, are forgotten (their places
 /// are free for this round, ADR 0010); then `Planned`, a `SavedAs` per name
@@ -111,6 +110,7 @@ pub(super) async fn take_plan(
     Ok(())
 }
 
+/// Records that `file` is in the stick's folder as written.
 pub(super) async fn record_downloaded(
     store: &Arc<dyn Store>,
     ticket: &Ticket,

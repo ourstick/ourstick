@@ -2,8 +2,9 @@
 //! fetched: a file that is already there is skipped, and a file changed there
 //! since `get` wrote it (or not written by `get` at all) is never overwritten.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 
 use super::files::{component_problem, target_path};
 use super::saved_paths::{saved_paths, OnDisk, Recorded, Rules, SavedAs};
@@ -65,41 +66,51 @@ fn content_hash(output_dir: &Path, path: &Path, cipher: &dyn Cipher) -> Option<[
 }
 
 /// Whether the disk of `folder` takes two names that differ only in letter
-/// case for one: always on Windows; elsewhere asked of the disk, with the
-/// folder (or the nearest folder above it that is there) and the same name
-/// in another case. Where nothing tells, as the system usually does (macOS
-/// yes, Linux no). Blocking.
+/// case for one: always on Windows; elsewhere asked of the disk itself,
+/// with a name inside the folder (or inside the nearest folder above it
+/// that is there, where the folder will be made) and the same name in the
+/// other case: the folder's own name would be looked up on its parent's
+/// disk, wrong for a disk mounted there. Where nothing tells, yes: a
+/// needless " (2)" is better than two files written at one place. Reads
+/// only. Blocking.
 pub(super) fn case_folded(folder: &Path) -> bool {
     if cfg!(windows) {
         return true;
     }
-    for place in folder.ancestors() {
-        let Some(name) = place.file_name().and_then(|name| name.to_str()) else {
+    let Some(inside) = folder.ancestors().find(|place| place.is_dir()) else {
+        return true;
+    };
+    let Ok(children) = std::fs::read_dir(inside) else {
+        return true;
+    };
+    for child in children.flatten().take(64) {
+        let name = child.file_name();
+        let Some(name) = name.to_str() else {
             continue;
         };
+        // ASCII letters only: their other case is one letter, always.
+        if !name.chars().any(|c| c.is_ascii_alphabetic()) {
+            continue;
+        }
         let swapped: String = name
             .chars()
             .map(|c| {
-                if c.is_lowercase() {
-                    c.to_uppercase().next().unwrap_or(c)
+                if c.is_ascii_lowercase() {
+                    c.to_ascii_uppercase()
                 } else {
-                    c.to_lowercase().next().unwrap_or(c)
+                    c.to_ascii_lowercase()
                 }
             })
             .collect();
-        if swapped == name {
-            continue;
-        }
-        let Ok(here) = std::fs::metadata(place) else {
+        let Ok(here) = std::fs::symlink_metadata(child.path()) else {
             continue;
         };
-        let other = place.with_file_name(&swapped);
-        return match std::fs::metadata(&other) {
+        return match std::fs::symlink_metadata(inside.join(&swapped)) {
             Ok(there) => same_file(&here, &there),
             Err(_) => false,
         };
     }
-    cfg!(target_os = "macos")
+    true
 }
 
 /// Whether two metadata are of one file.
@@ -136,6 +147,17 @@ pub(super) fn plan_folder(
     cipher: &dyn Cipher,
 ) -> Result<FolderPlan, DownloadError> {
     let rules = Rules::here(case_folded(output_dir));
+    plan_folder_by(output_dir, manifest, recorded, cipher, rules)
+}
+
+/// [`plan_folder`] with the given rules (tests force Windows' anywhere).
+pub(super) fn plan_folder_by(
+    output_dir: &Path,
+    manifest: &Manifest,
+    recorded: &[DownloadedFile],
+    cipher: &dyn Cipher,
+    rules: Rules,
+) -> Result<FolderPlan, DownloadError> {
     let in_stick: BTreeSet<&str> = manifest
         .entries
         .iter()
@@ -160,6 +182,15 @@ pub(super) fn plan_folder(
         .iter()
         .map(|entry| entry.path.as_str())
         .collect();
+    // Each file here is read at most once (its content hash), by the
+    // choice of places and by the plan below.
+    let hashes: RefCell<HashMap<PathBuf, Option<[u8; 32]>>> = RefCell::default();
+    let hash_of = |target: &Path| {
+        *hashes
+            .borrow_mut()
+            .entry(target.to_path_buf())
+            .or_insert_with(|| content_hash(output_dir, target, cipher))
+    };
     let places = saved_paths(
         &paths,
         &rows,
@@ -169,7 +200,7 @@ pub(super) fn plan_folder(
             if let (OnDisk::File, Some(index)) = (there, entry) {
                 let ours = target_path(output_dir, place)
                     .ok()
-                    .and_then(|target| content_hash(output_dir, &target, cipher));
+                    .and_then(|target| hash_of(&target));
                 if ours == Some(manifest.entries[index].hash) {
                     return OnDisk::Nothing;
                 }
@@ -178,7 +209,10 @@ pub(super) fn plan_folder(
         },
         rules,
     );
-    let moved: BTreeSet<&str> = places.moved.iter().map(|(path, _)| path.as_str()).collect();
+    // Displaced rows (their place made one with another's, or not this
+    // path's), in the stick or not: forgotten, and recorded again at their
+    // new place once there.
+    let moved: BTreeSet<&str> = places.displaced.iter().map(String::as_str).collect();
     forget.extend(
         kept.iter()
             .filter(|file| moved.contains(file.path.as_str())),
@@ -228,7 +262,7 @@ pub(super) fn plan_folder(
                 }
             }
             // Touched here, or never written by `get`: the content decides.
-            _ => match content_hash(output_dir, &target, cipher) {
+            _ => match hash_of(&target) {
                 Some(local) if local == entry.hash => {
                     found.push(DownloadedFile {
                         path: entry.path.clone(),

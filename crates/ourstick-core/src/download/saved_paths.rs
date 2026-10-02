@@ -81,6 +81,9 @@ pub(crate) struct SavedPaths {
     /// Recorded places this round's folding makes one: moved to a new place
     /// (stick path, new place).
     pub(crate) moved: Vec<(String, String)>,
+    /// Every recorded row not kept at its place (in the stick or not), by
+    /// stick path: its row is to be forgotten.
+    pub(crate) displaced: Vec<String>,
 }
 
 /// The places taken this round, as the disk sees them (folded): files, and
@@ -197,6 +200,7 @@ pub(crate) fn saved_paths(
         }
     }
     let saved: Vec<String> = saved.into_iter().flatten().collect();
+    let displaced = moved.iter().map(|path| (*path).to_owned()).collect();
     let moved = moved
         .into_iter()
         .filter_map(|path| {
@@ -208,6 +212,7 @@ pub(crate) fn saved_paths(
         renamed: renamed(paths, &saved),
         saved,
         moved,
+        displaced,
     }
 }
 

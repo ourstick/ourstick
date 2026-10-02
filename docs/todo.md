@@ -182,3 +182,12 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   the test sticks on Linux, the Mac and the VM (each one's key goes with it,
   so its links stop for good), or start from a clean install (database and
   OurStick's keyring entries deleted).
+- **A scale test (asked 2026-10-02):** a stick of 100 000 small files, 20
+  folders deep, Linux → Windows (and → Mac): time and memory on both sides,
+  the window's responsiveness, and paths over Windows' 260 characters. Today
+  there is no limit on size, number of files or depth, but none of this was
+  measured at that size.
+- **The manifest is sent whole at every new version** (about 100 bytes a
+  file: 100 MB for a million files, at each change). If the scale test shows
+  it matters: send only what changed since the reader's version (a protocol
+  change; its own ADR).

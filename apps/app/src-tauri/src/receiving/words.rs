@@ -79,7 +79,10 @@ pub fn stopped_words(error: &DownloadError) -> String {
             "What came does not belong to this sharing link. Ask the sender for a new one."
                 .to_owned()
         }
-        other => format!("Stopped: {other}. Use Resume to try again."),
+        other => format!(
+            "Stopped: {}. Use Try again.",
+            ourstick_core::untrusted::escape(&other.to_string())
+        ),
     }
 }
 

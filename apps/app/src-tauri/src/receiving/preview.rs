@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ourstick_core::device::random_key;
-use ourstick_core::download::{preview, Preview};
+use ourstick_core::download::preview;
 use ourstick_core::received::check_link;
 use ourstick_core::space::{available, SystemDisks};
 use ourstick_core::stick_names::folder_name;
@@ -46,6 +46,8 @@ pub struct PreviewView {
     to_write: u64,
     /// Where it would be saved.
     folder: String,
+    /// Received there earlier with the command line: it goes on there.
+    earlier: bool,
     /// What is left there for it.
     left: u64,
 }
@@ -74,7 +76,8 @@ fn existing(path: &Path) -> PathBuf {
 }
 
 /// "Add a sharing link…": what the stick holds, where it would go and
-/// whether it fits. Waits for the sender at most half a minute.
+/// whether it fits. Waits for the sender at most half a minute. A stick
+/// received earlier with the command line goes on in the folder it is in.
 #[tauri::command]
 pub async fn preview_link(
     text: String,
@@ -84,7 +87,13 @@ pub async fn preview_link(
     let ticket = ticket_of(&text)?;
     let store = state.store.clone();
     let stick_id = ticket.stick_id;
-    blocking(move || Ok(check_link(store.as_ref(), &stick_id, StickKind::App)?)).await?;
+    let earlier = blocking(move || {
+        check_link(store.as_ref(), &stick_id, StickKind::App)?;
+        Ok(store
+            .joined_stick(&stick_id)?
+            .map(|joined| joined.output_dir))
+    })
+    .await?;
     // A throwaway blob store: a preview keeps nothing.
     let hex: String = random_key()[..8]
         .iter()
@@ -95,44 +104,33 @@ pub async fn preview_link(
     let fetcher = IrohFetcher::start(&config, &blobs)
         .await
         .map_err(|error| format!("cannot start networking: {error}"))?;
-    // The folder is decided once the name is known: preview into the
-    // default first, then measured where it really goes.
-    let named = tokio::time::timeout(
+    let chosen_earlier = earlier.clone();
+    let choose = move |name: &str| match chosen_earlier {
+        Some(folder) if parent.is_none() => folder,
+        _ => folder_for(name, parent.as_deref()).unwrap_or_else(|_| PathBuf::from(name)),
+    };
+    let looked = tokio::time::timeout(
         PREVIEW_WAIT,
-        preview(&fetcher, state.store.clone(), &ticket, Path::new("")),
+        preview(&fetcher, state.store.clone(), &ticket, choose),
     )
     .await;
-    let previewed: Result<Preview, String> = match named {
-        Err(_) => Err(
-            "The sender's computer is off, or OurStick is not open there. Try again when it is."
-                .to_owned(),
-        ),
-        Ok(Err(error)) => Err(crate::receiving::stopped_words(&error)),
-        Ok(Ok(previewed)) => Ok(previewed),
-    };
-    let previewed = match previewed {
-        Ok(previewed) => {
-            let folder = folder_for(&previewed.name, parent.as_deref())?;
-            match tokio::time::timeout(
-                PREVIEW_WAIT,
-                preview(&fetcher, state.store.clone(), &ticket, &folder),
-            )
-            .await
-            {
-                Ok(Ok(here)) => Ok((here, folder)),
-                Ok(Err(error)) => Err(crate::receiving::stopped_words(&error)),
-                Err(_) => Ok((previewed, folder)),
-            }
-        }
-        Err(error) => Err(error),
-    };
     let _ = fetcher.shutdown(false).await;
-    let _ = std::fs::remove_dir_all(&blobs);
-    let (previewed, folder) = previewed?;
+    let _ = tauri::async_runtime::spawn_blocking(move || std::fs::remove_dir_all(&blobs)).await;
+    let previewed =
+        match looked {
+            Err(_) => return Err(
+                "The sender's computer is off, or OurStick is not open there. Try again when it \
+                 is."
+                .to_owned(),
+            ),
+            Ok(Err(error)) => return Err(crate::receiving::stopped_words(&error)),
+            Ok(Ok(previewed)) => previewed,
+        };
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
-    let measured = existing(&folder);
+    let folder = previewed.folder.clone();
     let left = blocking(move || {
+        let measured = existing(&folder);
         Ok(available(
             &SystemDisks,
             store.as_ref(),
@@ -160,7 +158,8 @@ pub async fn preview_link(
         more,
         total: previewed.total,
         to_write: previewed.to_write,
-        folder: folder.display().to_string(),
+        earlier: earlier.is_some_and(|earlier| earlier == previewed.folder),
+        folder: previewed.folder.display().to_string(),
         left,
     })
 }

@@ -10,7 +10,7 @@ async fn a_stick_is_held_with_its_lock_until_it_is_let_go() {
     let data = crate::testing::TempFolder::new();
     let receivers = Receivers::default();
     let lock = download_lock(data.path(), &stick(1)).unwrap();
-    receivers.hold(stick(1), lock).await;
+    receivers.hold(stick(1), Some(lock)).await;
     assert!(receivers.is_held(&stick(1)).await);
     // Held: no other program takes it meanwhile.
     assert!(download_lock(data.path(), &stick(1)).is_err());
@@ -19,8 +19,12 @@ async fn a_stick_is_held_with_its_lock_until_it_is_let_go() {
     drop(lock);
     assert!(!receivers.is_held(&stick(1)).await);
     assert!(download_lock(data.path(), &stick(1)).is_ok());
-    // Stopping one that runs nothing is harmless.
-    receivers.stop(&stick(2)).await;
+    // Stopping one that runs nothing, or one not held, is harmless.
+    receivers.stop(&stick(2), None).await;
+    // Held without its lock (another program had it): let go all the same.
+    receivers.hold(stick(3), None).await;
+    assert!(receivers.release(&stick(3)).await.is_none());
+    assert!(!receivers.is_held(&stick(3)).await);
 }
 
 #[test]

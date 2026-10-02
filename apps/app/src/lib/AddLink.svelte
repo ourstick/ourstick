@@ -91,6 +91,9 @@
       <span class="muted path" title={preview.folder}>Save to {preview.folder}</span>
       <button onclick={choose} disabled={adding}>Choose…</button>
     </p>
+    {#if preview.earlier}
+      <p class="muted">You received it here before with the command line: it goes on in the same folder.</p>
+    {/if}
     {#if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
     {:else if fits}

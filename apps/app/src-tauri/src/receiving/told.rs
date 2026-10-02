@@ -77,7 +77,7 @@ impl Told {
         });
         let state = receivers.shown(&self.stick_id).state;
         self.downloading
-            .send_replace(matches!(state, "downloading"));
+            .send_replace(matches!(state, "downloading" | "getting_more"));
         let due = self
             .last
             .is_none_or(|last| last.elapsed() >= Duration::from_millis(250));

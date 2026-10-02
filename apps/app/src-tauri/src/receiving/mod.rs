@@ -12,7 +12,7 @@ use ourstick_core::device::random_key;
 use ourstick_core::download::{
     receive, Cancel, ReceiveEvent, Receiving, RelayPolicy, FOLLOW_EVERY,
 };
-use ourstick_core::locks::Lock;
+use ourstick_core::locks::{download_lock, take_retrying, Lock, LockError};
 use ourstick_core::received::received_store_dir;
 use ourstick_core::secrets::SecretName;
 use ourstick_core::space::DownloadRoom;
@@ -50,13 +50,26 @@ pub struct Shown {
 
 /// One received stick the app holds.
 struct Held {
-    /// Its download lock: no other program receives it meanwhile.
-    lock: Lock,
+    /// Its download lock, once this program has it (another program may
+    /// hold it for a while: then it is taken again at the next start).
+    lock: Option<Lock>,
     /// Its receive, while one runs.
     running: Option<(Arc<Cancel>, tauri::async_runtime::JoinHandle<()>)>,
 }
 
-/// The app's received sticks, by id.
+impl Held {
+    /// Stops its receive, if one runs, and waits until it ended.
+    async fn stop(&mut self) {
+        if let Some((cancel, task)) = self.running.take() {
+            cancel.cancel();
+            let _ = task.await;
+        }
+    }
+}
+
+/// The app's received sticks, by id. Every change of one (start, pause,
+/// resume, forget, Quit) is made under the one `held` mutex, start to end:
+/// two of them never overlap on a stick.
 #[derive(Default)]
 pub struct Receivers {
     held: tokio::sync::Mutex<HashMap<StickId, Held>>,
@@ -72,7 +85,7 @@ impl Receivers {
         change(lock(&self.shown).entry(stick_id).or_default());
     }
 
-    /// The received sticks downloading now, for the Quit dialog.
+    /// The received sticks coming in now, for the Quit dialog.
     pub fn downloading(&self) -> Vec<StickId> {
         lock(&self.shown)
             .iter()
@@ -81,8 +94,8 @@ impl Receivers {
             .collect()
     }
 
-    /// Holds `stick_id` with its `lock` (not running yet).
-    pub async fn hold(&self, stick_id: StickId, lock: Lock) {
+    /// Holds `stick_id`, with its lock if it was taken (not running yet).
+    pub async fn hold(&self, stick_id: StickId, lock: Option<Lock>) {
         self.held.lock().await.insert(
             stick_id,
             Held {
@@ -96,36 +109,33 @@ impl Receivers {
         self.held.lock().await.contains_key(stick_id)
     }
 
-    /// Stops `stick_id`'s receive, if one runs, and waits until it ended.
-    pub async fn stop(&self, stick_id: &StickId) {
-        let running = match self.held.lock().await.get_mut(stick_id) {
-            Some(held) => held.running.take(),
-            None => None,
-        };
-        if let Some((cancel, task)) = running {
-            cancel.cancel();
-            let _ = task.await;
+    /// Stops `stick_id`'s receive, if one runs, and waits until it ended;
+    /// `show` then says what it is (paused), if it is still held.
+    pub async fn stop(&self, stick_id: &StickId, show: Option<Shown>) {
+        let mut held = self.held.lock().await;
+        if let Some(entry) = held.get_mut(stick_id) {
+            entry.stop().await;
+            if let Some(shown) = show {
+                self.show(*stick_id, |now| *now = shown);
+            }
         }
     }
 
-    /// Stops and lets go of `stick_id`, returning its lock (forget).
+    /// Stops and lets go of `stick_id` (forget); its lock, if this program
+    /// had it.
     pub async fn release(&self, stick_id: &StickId) -> Option<Lock> {
-        self.stop(stick_id).await;
+        let mut held = self.held.lock().await;
+        let mut entry = held.remove(stick_id)?;
+        entry.stop().await;
         lock(&self.shown).remove(stick_id);
-        self.held
-            .lock()
-            .await
-            .remove(stick_id)
-            .map(|held| held.lock)
+        entry.lock
     }
 
     /// Stops every receive (Quit): each keeps what it received, and goes on
     /// where it was next time. At most a few seconds.
     pub async fn stop_all(&self) {
-        let running: Vec<_> = self
-            .held
-            .lock()
-            .await
+        let mut held = self.held.lock().await;
+        let running: Vec<_> = held
             .values_mut()
             .filter_map(|held| held.running.take())
             .collect();
@@ -150,11 +160,48 @@ fn changed(app: &AppHandle) {
     let _ = app.emit("received-changed", ());
 }
 
-/// Starts receiving `stick_id` (held already) into `folder` with `ticket`,
-/// in the background.
+/// Why this program could not take a received stick's lock, in words.
+fn lock_words(error: &LockError) -> String {
+    match error {
+        LockError::DownloadInUse => "OurStick's command line (`ourstick get`) is receiving this \
+             stick right now. Stop it, then use Try again."
+            .to_owned(),
+        other => format!("{other}"),
+    }
+}
+
+/// Takes `stick_id`'s download lock, once more after a moment if another
+/// program is only looking at it. Off the async runtime.
+async fn take_lock(data_dir: std::path::PathBuf, stick_id: StickId) -> Result<Lock, String> {
+    let taken = tauri::async_runtime::spawn_blocking(move || {
+        take_retrying(|| download_lock(&data_dir, &stick_id))
+    })
+    .await;
+    match taken {
+        Ok(Ok(lock)) => Ok(lock),
+        Ok(Err(error)) => Err(lock_words(&error)),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Starts (again) receiving the held stick `stick_id` into `folder` with
+/// `ticket`, in the background: a receive of it that runs stops first, and
+/// its lock is taken if this program does not have it yet (else it stops,
+/// saying who holds it). Nothing if it is not held (forgotten meanwhile).
 pub async fn start(app: &AppHandle, stick_id: StickId, ticket: Ticket, folder: std::path::PathBuf) {
     let receivers = app.state::<Receivers>();
-    let cancel = Cancel::new();
+    let data_dir = app.state::<AppState>().data_dir.clone();
+    let mut held = receivers.held.lock().await;
+    let Some(entry) = held.get_mut(&stick_id) else {
+        return;
+    };
+    entry.stop().await;
+    if entry.lock.is_none() {
+        match take_lock(data_dir, stick_id).await {
+            Ok(lock) => entry.lock = Some(lock),
+            Err(why) => return stopped(app, stick_id, why),
+        }
+    }
     receivers.show(stick_id, |shown| {
         *shown = Shown {
             state: "starting",
@@ -162,6 +209,7 @@ pub async fn start(app: &AppHandle, stick_id: StickId, ticket: Ticket, folder: s
         }
     });
     changed(app);
+    let cancel = Cancel::new();
     let task = {
         let app = app.clone();
         let cancel = cancel.clone();
@@ -169,12 +217,7 @@ pub async fn start(app: &AppHandle, stick_id: StickId, ticket: Ticket, folder: s
             run(&app, stick_id, ticket, folder, &cancel).await;
         })
     };
-    let mut held = receivers.held.lock().await;
-    match held.get_mut(&stick_id) {
-        Some(held) => held.running = Some((cancel, task)),
-        // Forgotten meanwhile: not wanted.
-        None => cancel.cancel(),
-    }
+    entry.running = Some((cancel, task));
 }
 
 /// One stick's receive, until cancelled or stopped for the user.
@@ -277,13 +320,19 @@ pub async fn start_all(app: &AppHandle) {
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let found = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
+        let received: Vec<_> = store
+            .joined_sticks()?
+            .into_iter()
+            .filter(|joined| joined.kind == ourstick_core::StickKind::App)
+            .collect();
+        // The keyring only for sticks it receives.
+        if received.is_empty() {
+            return Ok(Vec::new());
+        }
         let secrets = ourstick_core::device::open_system_keyring()?;
         let mut found = Vec::new();
-        for joined in store.joined_sticks()? {
-            if joined.kind != ourstick_core::StickKind::App {
-                continue;
-            }
-            let lock = ourstick_core::locks::download_lock(&data_dir, &joined.stick_id);
+        for joined in received {
+            let lock = take_retrying(|| download_lock(&data_dir, &joined.stick_id));
             let ticket = read_ticket(secrets.as_ref(), &joined.stick_id);
             found.push((joined, lock, ticket));
         }
@@ -300,14 +349,20 @@ pub async fn start_all(app: &AppHandle) {
     let receivers = app.state::<Receivers>();
     for (joined, lock, ticket) in found {
         let stick_id = joined.stick_id;
+        // Held either way; a lock another program has is taken again when
+        // it is started (or with Try again).
         let lock = match lock {
-            Ok(lock) => lock,
+            Ok(lock) => Some(lock),
             Err(error) => {
-                stopped(app, stick_id, format!("{error}"));
-                continue;
+                stopped(app, stick_id, lock_words(&error));
+                None
             }
         };
+        let without_lock = lock.is_none();
         receivers.hold(stick_id, lock).await;
+        if without_lock {
+            continue;
+        }
         match ticket {
             _ if joined.paused => receivers.show(stick_id, |shown| {
                 *shown = Shown {

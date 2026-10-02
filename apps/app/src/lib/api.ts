@@ -254,6 +254,8 @@ export interface PreviewView {
   total: number;
   to_write: number;
   folder: string;
+  /** Received there earlier with the command line: it goes on there. */
+  earlier: boolean;
   /** What is left on this computer where it would go. */
   left: number;
 }

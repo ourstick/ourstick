@@ -49,6 +49,7 @@ export function receivedShort(entry: { state: string; done: number; total: numbe
     case "stopped":
       return "Stopped";
     default:
-      return "";
+      // Not started yet (the app is still starting).
+      return "Getting ready…";
   }
 }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ourstick_core::clock::{Clock, SystemClock};
 use ourstick_core::device::open_system_keyring;
 use ourstick_core::download::{mark_received_folder, take_stick};
-use ourstick_core::locks::{download_lock, LockError};
+use ourstick_core::locks::{download_lock, take_retrying, LockError};
 use ourstick_core::places::check_received_folder;
 use ourstick_core::received::{check_link, display_name, forget_received};
 use ourstick_core::store::JoinedChange;
@@ -97,10 +97,11 @@ pub async fn add_received(
         blocking(move || {
             check_link(store.as_ref(), &stick_id, StickKind::App)?;
             // Its lock first: nothing else receives it while it is added.
-            let lock = match download_lock(&data_dir, &stick_id) {
-                Err(LockError::DownloadInUse) => {
-                    anyhow::bail!("`ourstick get` is receiving this stick right now; stop it first")
-                }
+            let lock = match take_retrying(|| download_lock(&data_dir, &stick_id)) {
+                Err(LockError::DownloadInUse) => anyhow::bail!(
+                    "OurStick's command line (`ourstick get`) is receiving this stick right \
+                     now; stop it first"
+                ),
                 lock => lock?,
             };
             check_received_folder(store.as_ref(), &data_dir, &folder, &stick_id)?;
@@ -112,18 +113,24 @@ pub async fn add_received(
         })
         .await?
     };
-    take_stick(
-        &state.store,
-        stick_id,
-        &folder,
-        StickKind::App,
-        SystemClock.now_ms(),
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    let store = state.store.clone();
-    blocking(move || Ok(store.change_joined_stick(&stick_id, &JoinedChange::Name(name))?)).await?;
-    receivers.hold(stick_id, made).await;
+    // Held at once: from here on, nothing else receives it.
+    receivers.hold(stick_id, Some(made)).await;
+    let now = SystemClock.now_ms();
+    if let Err(error) = take_stick(&state.store, stick_id, &folder, StickKind::App, now).await {
+        receivers.release(&stick_id).await;
+        return Err(error.to_string());
+    }
+    // Its name as the preview showed it, if it is a name a manifest may
+    // carry; the first round keeps it as the sender gives it anyway.
+    if ourstick_core::manifest::validate_name(&name).is_ok() {
+        let store = state.store.clone();
+        let named =
+            blocking(move || Ok(store.change_joined_stick(&stick_id, &JoinedChange::Name(name))?))
+                .await;
+        if let Err(error) = named {
+            tracing::warn!(%error, "a received stick's name waits for its first round");
+        }
+    }
     start(&app, stick_id, ticket, folder).await;
     Ok(stick_hex(&stick_id))
 }
@@ -138,16 +145,14 @@ pub async fn pause_received(
     receivers: State<'_, Receivers>,
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
-    receivers.stop(&stick_id).await;
+    let paused = Shown {
+        state: "paused",
+        ..Shown::default()
+    };
+    receivers.stop(&stick_id, Some(paused)).await;
     let store = state.store.clone();
     blocking(move || Ok(store.change_joined_stick(&stick_id, &JoinedChange::Paused(true))?))
         .await?;
-    receivers.show(stick_id, |shown| {
-        *shown = Shown {
-            state: "paused",
-            ..Shown::default()
-        }
-    });
     let _ = app.emit("received-changed", ());
     Ok(())
 }
@@ -164,7 +169,6 @@ pub async fn resume_received(
     if !receivers.is_held(&stick_id).await {
         return Err("this stick is not received here any more".to_owned());
     }
-    receivers.stop(&stick_id).await;
     let store = state.store.clone();
     let (ticket, folder) = blocking(move || {
         store.change_joined_stick(&stick_id, &JoinedChange::Paused(false))?;
@@ -195,7 +199,7 @@ pub async fn forget_received_stick(
     let forgotten = blocking(move || {
         let lock = match held {
             Some(lock) => lock,
-            None => download_lock(&data_dir, &stick_id)?,
+            None => take_retrying(|| download_lock(&data_dir, &stick_id))?,
         };
         let secrets = open_system_keyring()?;
         Ok(forget_received(

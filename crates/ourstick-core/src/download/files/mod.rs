@@ -176,7 +176,7 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
     if is_symlink(&partial) {
         return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
     }
-    std::fs::write(partial.join(PARTIAL_MARK), b"").map_err(io_error(&partial))?;
+    super::receive::write_hidden(&partial.join(PARTIAL_MARK), b"").map_err(io_error(&partial))?;
     Ok(partial)
 }
 

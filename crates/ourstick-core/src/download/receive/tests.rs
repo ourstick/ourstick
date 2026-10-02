@@ -181,3 +181,22 @@ fn a_round_writes_into_the_windows_folder_only_while_it_bears_its_mark() {
     let other = tempfile::tempdir().unwrap();
     partial_for(other.path(), None).unwrap();
 }
+
+#[test]
+fn the_received_folders_mark_is_hidden_and_written_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let stick_id = crate::stick_id::StickSigningKey::from_bytes(&[7; 32]).stick_id();
+    super::mark_received_folder(dir.path(), &stick_id).unwrap();
+    // Written again over itself (hidden on Windows, which asks for care).
+    super::mark_received_folder(dir.path(), &stick_id).unwrap();
+    assert!(super::received_folder_there(dir.path(), &stick_id));
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let mark = std::fs::metadata(dir.path().join(super::RECEIVED_MARKER)).unwrap();
+        assert_ne!(mark.file_attributes() & 0x2, 0, "the mark is not hidden");
+    }
+    // An older, visible mark stays readable when it is hidden again.
+    super::keep_mark_hidden(dir.path());
+    assert!(super::received_folder_there(dir.path(), &stick_id));
+}

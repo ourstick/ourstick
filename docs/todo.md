@@ -182,8 +182,3 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   the test sticks on Linux, the Mac and the VM (each one's key goes with it,
   so its links stop for good), or start from a clean install (database and
   OurStick's keyring entries deleted).
-- **Windows: `.ourstick-received` shows in Explorer** (seen in the test of
-  2026-10-02): a dot does not hide a file there. Someone may delete it,
-  and the folder is then no longer the stick's (the receiver waits, "its
-  folder is not there"). Give it the hidden attribute when it is written
-  (`FILE_ATTRIBUTE_HIDDEN`, through `windows-sys`, already a dependency).

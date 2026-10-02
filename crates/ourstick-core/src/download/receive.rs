@@ -26,10 +26,56 @@ use crate::transport::{Fetcher, TransportError};
 /// point, a deleted folder) is not available.
 pub const RECEIVED_MARKER: &str = ".ourstick-received";
 
-/// Marks `folder` as the received stick `stick_id`'s.
+/// Marks `folder` as the received stick `stick_id`'s. The mark is hidden
+/// on Windows too (a dot does not hide a file there): deleted by someone
+/// who does not know it, the folder would no longer be the stick's.
 pub fn mark_received_folder(folder: &Path, stick_id: &StickId) -> std::io::Result<()> {
     let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
-    std::fs::write(folder.join(RECEIVED_MARKER), hex)
+    write_hidden(&folder.join(RECEIVED_MARKER), hex.as_bytes())
+}
+
+/// Writes `contents` to `path`, as a hidden file on Windows (elsewhere a
+/// name starting with a dot hides it). A hidden file is written again with
+/// the same attribute, which Windows asks for.
+pub(crate) fn write_hidden(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .attributes(FILE_ATTRIBUTE_HIDDEN)
+            .open(path)?
+            .write_all(contents)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::write(path, contents)
+    }
+}
+
+/// A mark written before marks were hidden on Windows, hidden now: written
+/// again with its own content. Only tried. Blocking.
+fn keep_mark_hidden(folder: &Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        let mark = folder.join(RECEIVED_MARKER);
+        let visible = std::fs::metadata(&mark)
+            .is_ok_and(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN == 0);
+        if visible {
+            let hidden = std::fs::read(&mark).and_then(|contents| write_hidden(&mark, &contents));
+            if let Err(error) = hidden {
+                tracing::debug!(%error, "a received folder's mark stays visible");
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = folder;
 }
 
 /// Takes `stick_id`'s mark out of `folder` (a forgotten stick, or one that
@@ -84,6 +130,7 @@ pub(super) fn partial_for(
                 source: std::io::Error::from(std::io::ErrorKind::NotFound),
             });
         }
+        keep_mark_hidden(output_dir);
     }
     super::files::prepare_partial_dir(output_dir)
 }

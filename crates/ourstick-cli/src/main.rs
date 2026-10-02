@@ -144,7 +144,7 @@ async fn main() -> std::process::ExitCode {
         Err(error) => {
             // An error can carry text a peer chose (a stick's or a file's
             // name): escaped like everything else shown from peers.
-            eprintln!("Error: {}", display::untrusted(&format!("{error:#}")));
+            eprintln!("Error: {}", display::untrusted_lines(&format!("{error:#}")));
             std::process::ExitCode::FAILURE
         }
     }

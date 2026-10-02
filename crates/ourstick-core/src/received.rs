@@ -21,6 +21,8 @@ pub enum ReceivedError {
     RetiredStick,
     #[error("you already receive this stick (\u{201c}{0}\u{201d})")]
     AlreadyReceived(String),
+    #[error("OurStick (the app) receives this stick, into {}; use the app, or forget the stick there first", .0.display())]
+    ReceivedByApp(PathBuf),
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -38,7 +40,7 @@ pub enum ReceivedError {
 /// Whether the program `kind` may receive the stick `stick_id`: never one of
 /// this device's own sticks (or one it gave a new sharing link); for the
 /// receiver window, not one it already receives (it takes over one `get`
-/// received).
+/// received); for `get`, not one the window receives.
 pub fn check_link(
     store: &dyn Store,
     stick_id: &StickId,
@@ -58,17 +60,15 @@ pub fn check_link(
     {
         return Err(ReceivedError::RetiredStick);
     }
-    if kind == StickKind::App {
-        if let Some(joined) = store.joined_stick(stick_id)? {
-            if joined.kind == StickKind::App {
-                return Err(ReceivedError::AlreadyReceived(display_name(
-                    joined.name.as_deref(),
-                    stick_id,
-                )));
-            }
+    match store.joined_stick(stick_id)? {
+        Some(joined) if joined.kind == StickKind::App && kind == StickKind::App => Err(
+            ReceivedError::AlreadyReceived(display_name(joined.name.as_deref(), stick_id)),
+        ),
+        Some(joined) if joined.kind == StickKind::App => {
+            Err(ReceivedError::ReceivedByApp(joined.output_dir))
         }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// A received stick's name for a message: as its manifest gave it, else

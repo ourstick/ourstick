@@ -6,6 +6,16 @@ pub fn untrusted(text: &str) -> String {
     ourstick_core::untrusted::escape(text)
 }
 
+/// [`untrusted`] line by line: our own messages keep their line breaks
+/// (the usage text), and nothing a peer names can hold one (stick and file
+/// names are refused with control characters).
+pub fn untrusted_lines(text: &str) -> String {
+    text.split('\n')
+        .map(untrusted)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A byte count for humans, e.g. `1.5 MB`.
 pub fn bytes(count: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
@@ -33,6 +43,12 @@ mod tests {
         assert_eq!(untrusted("\u{1b}[2Jevil"), "\\u{1b}[2Jevil");
         assert_eq!(untrusted("a\nb\rc\u{7}"), "a\\u{a}b\\u{d}c\\u{7}");
         assert_eq!(untrusted("\u{9b}31m"), "\\u{9b}31m");
+    }
+
+    #[test]
+    fn line_breaks_stay_and_escapes_go() {
+        assert_eq!(untrusted_lines("a\nb"), "a\nb");
+        assert_eq!(untrusted_lines("x\u{1b}[2J\ny"), "x\\u{1b}[2J\ny");
     }
 
     #[test]

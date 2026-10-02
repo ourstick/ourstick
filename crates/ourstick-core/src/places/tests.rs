@@ -235,3 +235,12 @@ fn a_folder_not_made_yet_is_checked_where_its_links_lead() {
         Err(PlaceError::Shared { .. })
     ));
 }
+
+#[cfg(unix)]
+#[test]
+fn dot_dot_in_a_folder_not_made_yet_does_not_hide_where_it_leads() {
+    let device = device();
+    let link = device.data.parent().unwrap().join("link");
+    std::os::unix::fs::symlink(&device.documentaries, &link).unwrap();
+    assert!(check_received(&device, &link.join("new/../x"), 9).is_err());
+}

@@ -41,10 +41,17 @@ pub fn comparable(path: &Path) -> PathBuf {
     ))
 }
 
-/// `path` with links resolved in its longest part that exists.
+/// `path` with links resolved in its longest part that exists. Relative
+/// paths are taken from the current folder; `..` in a part that does not
+/// exist yet is taken as written.
 fn resolved(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(real) = std::fs::canonicalize(&absolute) {
+        return real;
+    }
+    let path = &lexical(&absolute);
     let mut rest = Vec::new();
-    let mut existing = path;
+    let mut existing = path.as_path();
     loop {
         if let Ok(real) = std::fs::canonicalize(existing) {
             return rest.iter().rev().fold(real, |path, part| path.join(part));
@@ -57,6 +64,21 @@ fn resolved(path: &Path) -> PathBuf {
             _ => return path.to_path_buf(),
         }
     }
+}
+
+/// `path` with `.` and `..` folded away as written.
+fn lexical(path: &Path) -> PathBuf {
+    let mut folded = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                folded.pop();
+            }
+            other => folded.push(other),
+        }
+    }
+    folded
 }
 
 /// The text of a path as places are compared: Windows' `\\?\` dropped and

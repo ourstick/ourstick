@@ -129,8 +129,8 @@ created by the first `get`.
 
 The latest folder wins: a `get` into another folder sets `output_dir` to it and
 clears `completed_*`, because the new folder holds nothing yet; but `get` never
-moves an `app` stick (it may only resume it in its folder), and the receiver
-window takes over a `cli` one. Forgetting deletes the row, its
+touches an `app` stick (not even in its folder: paused there, it stays paused),
+and the receiver window takes over a `cli` one. Forgetting deletes the row, its
 `downloaded_files` and its space claims, never its `record_floors` row (ADR
 0004) nor the files received. The old folder
 is left as it is. `completed_*` is set only after every file is in place, and

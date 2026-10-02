@@ -73,6 +73,11 @@ fn the_window_takes_over_a_stick_get_received_but_not_its_own_twice() {
         check_link(&store, &stick_id(5), StickKind::App),
         Err(ReceivedError::AlreadyReceived(name)) if name == "Holiday"
     ));
+    // `get` is told at once, before it makes a folder or starts networking.
+    assert!(matches!(
+        check_link(&store, &stick_id(5), StickKind::Cli),
+        Err(ReceivedError::ReceivedByApp(folder)) if folder == Path::new("/d/two")
+    ));
 }
 
 #[test]
@@ -117,8 +122,8 @@ fn world() -> (MemoryStore, MemorySecretStore, tempfile::TempDir, PathBuf) {
 fn forgetting_keeps_the_files_and_the_floor_and_drops_the_rest() {
     let (store, secrets, dir, output) = world();
     let data = dir.path().join("data");
-    let _lock = download_lock(&data, &stick_id(6)).unwrap();
-    forget_received(&store, &secrets, &data, &stick_id(6), &_lock).unwrap();
+    let lock = download_lock(&data, &stick_id(6)).unwrap();
+    forget_received(&store, &secrets, &data, &stick_id(6), &lock).unwrap();
     assert!(store.joined_stick(&stick_id(6)).unwrap().is_none());
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
     assert!(secrets

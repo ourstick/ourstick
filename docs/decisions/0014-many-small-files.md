@@ -112,8 +112,8 @@ is written only after the file is.
   writes them at `RECORD_GROUP = 256`, at the end of a batch, and on every
   way out. 16 is where the measured syncs stopped getting much cheaper on
   this machine's disks (4.6 → 0.56 ms at 16, 0.23 at 64); 256 is the
-  owner's catalogue group; both are measured again in step 5 and on the
-  Mac and Windows.
+  owner's catalogue group; both are measured again in steps 3 (Linux) and 4
+  (the Mac, Windows).
 - `download/joined.rs`: the found rows in groups too.
 - Tests: the queue keeps order and caps at 16; a twin waits for its
   source in the queue; records are written in groups and all are written

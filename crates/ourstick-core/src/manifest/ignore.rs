@@ -30,9 +30,10 @@ const NAMES: &[&str] = &[
     ".ourstick-received",
 ];
 
-/// Name prefixes: AppleDouble files (`._photo.jpg`) and per-user trash
-/// folders (`.Trash-1000`).
-const PREFIXES: &[&str] = &["._", ".Trash-"];
+/// Name prefixes: AppleDouble files (`._photo.jpg`), per-user trash
+/// folders (`.Trash-1000`), and every name OurStick writes beside its own
+/// (`.ourstick-received.new`), as a receiver treats them (ADR 0010).
+const PREFIXES: &[&str] = &["._", ".Trash-", ".ourstick-"];
 
 /// Whether a file or folder with this name is left out of every stick.
 pub fn is_ignored(name: &str) -> bool {
@@ -55,6 +56,7 @@ mod tests {
             "Thumbs.db",
             ".ourstick-drive",
             ".ourstick-partial",
+            ".ourstick-received.new",
         ] {
             assert!(is_ignored(name), "{name}");
         }
@@ -67,6 +69,7 @@ mod tests {
             ".Trash",
             "thumbs.db.bak",
             "notes.directory",
+            ".ourstick",
         ] {
             assert!(!is_ignored(name), "{name}");
         }

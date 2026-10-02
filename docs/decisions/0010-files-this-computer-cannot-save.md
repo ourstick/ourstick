@@ -36,7 +36,8 @@ why nothing comes, and should not have to ask anyone to rename anything.
      left; `stick_names::folder_name` drops them everywhere, as today, since
      a stick's folder may be copied to Windows);
    - everywhere: `c:` at the start becomes `c_`, a first name OurStick uses
-     itself (`.ourstick-partial`, `.ourstick-received`) gets `_` in front.
+     itself (any starting with `.ourstick-`, such as `.ourstick-partial`
+     and `.ourstick-received`) gets `_` in front.
      (`c:` everywhere, because a stick must not hold a drive on any
      receiver; any other `:` only on Windows, where it is not allowed.)
    - a name too long (255 UTF-16 units on Windows, 255 bytes elsewhere) is

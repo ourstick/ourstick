@@ -101,8 +101,10 @@ recorded, so later versions write to the same place:
   gets `_` after its stem;
 - on every system, a name that looks like a Windows drive (an ASCII letter
   followed by `:`, e.g. `c:evil`) becomes `c_evil`, so a stick behaves the
-  same everywhere; a first name the reader uses itself (`.ourstick-partial`,
-  `.ourstick-received`, in any letter case) gets `_` in front; a name too
+  same everywhere; a first name the reader uses itself (any name starting
+  with `.ourstick-`, such as `.ourstick-partial` and `.ourstick-received`,
+  in any letter case) gets `_` in front, and an owner leaves such names out
+  of its sticks; a name too
   long for the system is cut, keeping its extension; a name no rule can
   make savable (it should not happen) is saved as `_`;
 - names that would be one file in the reader's folder (letter case, where

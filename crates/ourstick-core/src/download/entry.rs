@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::files::{copy_into_place, decrypt_into_place, target_path};
+use super::files::{copy_into_place, decrypt_into_place, partial_there, target_path};
 use super::not_ready::Waiting;
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
@@ -136,6 +136,12 @@ pub(super) async fn receive_file(
                 return Err(io_error(leftover)(error));
             }
         }
+    }
+    // Not into a partial folder that is not this download's any more (an
+    // unplugged disk): iroh would make it again on another disk.
+    {
+        let partial = partial.to_path_buf();
+        run_blocking(move || partial_there(&partial)).await?;
     }
     fetcher.export_blob(&entry.hash, &ciphertext).await?;
     if on_event(DownloadEvent::FileReceived {

@@ -17,6 +17,16 @@ fn a_sender_that_is_off_is_waited_for_longer_each_time_up_to_five_minutes() {
         match after_error(&off, None, waited) {
             Next::Wait(Waiting::Sender(reason), after) => {
                 assert_eq!(reason, "no route");
+                assert_eq!(
+                    after_error(
+                        &DownloadError::Transport(TransportError::Unreachable(
+                            "\u{1b}[2J".to_owned()
+                        )),
+                        None,
+                        Duration::ZERO
+                    ),
+                    Next::Wait(Waiting::Sender("\\u{1b}[2J".to_owned()), FIRST_WAIT)
+                );
                 pauses.push(after);
                 waited = after;
             }
@@ -141,4 +151,16 @@ async fn a_cancel_reaches_whoever_waits_before_or_after() {
     cancel.cancelled().await;
     assert!(cancel.is_cancelled());
     assert!(!pause(Duration::from_secs(3600), &cancel).await);
+}
+
+#[test]
+fn a_ledger_that_fails_is_said_and_tried_again() {
+    let failed = SpaceError::Io {
+        path: "/data".into(),
+        source: std::io::Error::from(std::io::ErrorKind::Other),
+    };
+    assert!(matches!(
+        after_error(&DownloadError::Cancelled, Some(&failed), Duration::ZERO),
+        Next::Wait(Waiting::ThisComputer(_), _)
+    ));
 }

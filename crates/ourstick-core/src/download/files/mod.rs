@@ -173,6 +173,24 @@ pub(super) fn target_path(output_dir: &Path, relative: &str) -> Result<PathBuf, 
     check_no_symlinks(output_dir, relative)
 }
 
+/// The mark a download leaves in the partial folder it made. A folder made
+/// again by anything else (iroh makes a missing folder when it exports a
+/// blob) lacks it: that is an unplugged disk's folder made again on another
+/// disk, and nothing more is written there.
+pub(super) const PARTIAL_MARK: &str = ".ourstick-here";
+
+/// Whether `partial` is still the partial folder this download made; else
+/// `NotFound`, as for a folder that is gone.
+pub(super) fn partial_there(partial: &Path) -> Result<(), DownloadError> {
+    if partial.join(PARTIAL_MARK).is_file() {
+        Ok(())
+    } else {
+        Err(io_error(partial)(std::io::Error::from(
+            std::io::ErrorKind::NotFound,
+        )))
+    }
+}
+
 /// Creates (or reuses) the partial directory, refusing one that is a symbolic
 /// link, which would send unfinished files elsewhere.
 pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, DownloadError> {
@@ -193,6 +211,7 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
     if is_symlink(&partial) {
         return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
     }
+    std::fs::write(partial.join(PARTIAL_MARK), b"").map_err(io_error(&partial))?;
     Ok(partial)
 }
 
@@ -287,12 +306,7 @@ fn place(
     let target = check_no_symlinks(output_dir, &entry.path)?;
     // The folder must still be there (with its unfinished files): a disk
     // unplugged meanwhile is not filled in its place.
-    let partial = output_dir.join(PARTIAL_DIR);
-    if !partial.is_dir() {
-        return Err(io_error(&partial)(std::io::Error::from(
-            std::io::ErrorKind::NotFound,
-        )));
-    }
+    partial_there(&output_dir.join(PARTIAL_DIR))?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(io_error(parent))?;
     }

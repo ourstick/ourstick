@@ -348,3 +348,18 @@ fn a_folder_that_is_gone_is_never_made_again() {
     ));
     assert!(!gone.exists());
 }
+
+#[test]
+fn a_partial_folder_made_again_by_anyone_else_is_not_this_downloads() {
+    let output = tempfile::tempdir().unwrap();
+    let partial = prepare_partial_dir(output.path()).unwrap();
+    partial_there(&partial).unwrap();
+    // The disk went and came back empty; iroh's export made the folder
+    // again (create_dir_all): without the mark it is refused.
+    std::fs::remove_dir_all(&partial).unwrap();
+    std::fs::create_dir_all(&partial).unwrap();
+    assert!(matches!(
+        partial_there(&partial),
+        Err(DownloadError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+    ));
+}

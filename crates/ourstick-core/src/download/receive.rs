@@ -166,10 +166,14 @@ pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: 
             },
             LONGEST_WAIT,
         ),
+        // The ledger could not be read or written: said, and tried again.
+        (_, Some(other)) => wait(Waiting::ThisComputer(crate::untrusted::escape(
+            &other.to_string(),
+        ))),
         (DownloadError::Transport(transport), _) => match transport {
             TransportError::UnknownStick => Next::Wait(Waiting::NoLongerShared, LONGEST_WAIT),
             TransportError::Unreachable(reason) | TransportError::Interrupted(reason) => {
-                wait(Waiting::Sender(reason.clone()))
+                wait(Waiting::Sender(crate::untrusted::escape(reason)))
             }
             TransportError::NoRecord | TransportError::NotReady | TransportError::Protocol(_) => {
                 wait(Waiting::Sender(said()))
@@ -253,11 +257,15 @@ pub async fn receive<F: Fetcher>(
         }
         let folder = receiving.folder.to_path_buf();
         if !run_blocking(move || received_folder_there(&folder, &stick_id)).await {
-            last_why = Some(std::mem::discriminant(&Waiting::Folder));
-            on_event(ReceiveEvent::Waiting {
-                why: Waiting::Folder,
-                after: FIRST_WAIT,
-            });
+            // Told once, then looked for quietly every FIRST_WAIT.
+            let folder_why = Some(std::mem::discriminant(&Waiting::Folder));
+            if last_why != folder_why {
+                last_why = folder_why;
+                on_event(ReceiveEvent::Waiting {
+                    why: Waiting::Folder,
+                    after: FIRST_WAIT,
+                });
+            }
             if !pause(FIRST_WAIT, cancel).await {
                 return Ok(());
             }
@@ -274,7 +282,9 @@ pub async fn receive<F: Fetcher>(
                 }
             }
         };
-        let Some(round) = round else {
+        // Cancelled while the round ended (it may have stopped *because*
+        // of the cancel): a stop the user asked for, not an error.
+        let Some(round) = round.filter(|_| !cancel.is_cancelled()) else {
             return Ok(());
         };
         receiving.room.release();
@@ -291,6 +301,9 @@ pub async fn receive<F: Fetcher>(
             }
             Err(error) => error,
         };
+        if cancel.is_cancelled() {
+            return Ok(());
+        }
         let refused = receiving.room.refusal();
         let mut next = after_error(&error, refused.as_ref(), waited);
         // A new reason starts from the first pause again.

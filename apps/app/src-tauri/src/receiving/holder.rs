@@ -43,6 +43,9 @@ pub struct Receivers {
     /// from its plan, so only names in the stick now; none before a round
     /// has planned (the window then reads what is recorded).
     saved_as: Mutex<HashMap<StickId, Vec<ourstick_core::download::SavedAs>>>,
+    /// What each stick's latest round found at its top level (ADR 0012),
+    /// for choosing what to get with the sender away.
+    contents: Mutex<HashMap<StickId, Vec<ourstick_core::download::TopEntry>>>,
     /// Quit began: nothing starts any more.
     pub(super) quitting: std::sync::atomic::AtomicBool,
 }
@@ -71,6 +74,21 @@ impl Receivers {
             .iter()
             .map(|(stick_id, lines)| (*stick_id, super::words::saved_as_views(lines)))
             .collect()
+    }
+
+    /// What `stick_id`'s latest round found at its top level, if a round
+    /// has read its manifest since the app started.
+    pub fn contents(&self, stick_id: &StickId) -> Option<Vec<ourstick_core::download::TopEntry>> {
+        lock(&self.contents).get(stick_id).cloned()
+    }
+
+    /// A round read the stick's manifest: what is at its top level now.
+    pub(super) fn contents_now(
+        &self,
+        stick_id: StickId,
+        entries: &[ourstick_core::download::TopEntry],
+    ) {
+        lock(&self.contents).insert(stick_id, entries.to_vec());
     }
 
     /// A round planned: what it saves under another name starts empty.
@@ -155,6 +173,7 @@ impl Receivers {
         let mut held = self.held.lock().await;
         // What the window showed of it goes, held or not.
         lock(&self.saved_as).remove(stick_id);
+        lock(&self.contents).remove(stick_id);
         let mut entry = held.remove(stick_id)?;
         entry.stop().await;
         lock(&self.shown).remove(stick_id);

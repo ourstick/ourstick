@@ -35,8 +35,19 @@ pub struct ReceivedEntry {
     paused: bool,
     /// What is saved under another name than at the sender (ADR 0010).
     saved_as: super::words::SavedAsList,
+    /// What the user chose not to get, escaped, and whether files of it
+    /// are already here (ADR 0012).
+    left_out: Vec<LeftOutView>,
     #[serde(flatten)]
     shown: Shown,
+}
+
+/// A top-level name left out, as the list says it: "Not getting: Films",
+/// or "Not updating" for one whose files are already here.
+#[derive(Debug, Serialize)]
+pub struct LeftOutView {
+    shown: String,
+    here: bool,
 }
 
 /// The sticks the window receives, oldest first.
@@ -62,19 +73,27 @@ pub async fn received(
                     &store.saved_elsewhere(&joined.stick_id)?,
                 )),
             };
-            sticks.push((joined, saved_as));
+            let mut left_out = Vec::new();
+            for name in store.left_out(&joined.stick_id)? {
+                left_out.push(LeftOutView {
+                    shown: ourstick_core::untrusted::escape(&name),
+                    here: store.has_files_under(&joined.stick_id, &name)?,
+                });
+            }
+            sticks.push((joined, saved_as, left_out));
         }
         Ok(sticks)
     })
     .await?;
     Ok(joined
         .into_iter()
-        .map(|(joined, saved_as)| ReceivedEntry {
+        .map(|(joined, saved_as, left_out)| ReceivedEntry {
             id: stick_hex(&joined.stick_id),
             name: display_name(joined.name.as_deref(), &joined.stick_id),
             folder: joined.output_dir.display().to_string(),
             paused: joined.paused,
             saved_as,
+            left_out,
             shown: receivers.shown(&joined.stick_id),
         })
         .collect())
@@ -104,6 +123,7 @@ pub async fn add_received(
     text: String,
     folder: String,
     name: String,
+    left_out: Vec<String>,
     app: AppHandle,
     state: State<'_, AppState>,
     receivers: State<'_, Receivers>,
@@ -164,6 +184,26 @@ pub async fn add_received(
         })
         .await;
         return Err(words.to_owned());
+    }
+    // What the user un-ticked in the preview, before its first round
+    // (ADR 0012). If it cannot be kept, nothing is got that was not wanted:
+    // the stick stays paused (its Resume would get everything), saying why.
+    if !left_out.is_empty() {
+        let store = state.store.clone();
+        let chosen = super::work(move || {
+            if let Err(error) = store.set_left_out(&stick_id, &left_out) {
+                let _ = store.change_joined_stick(&stick_id, &JoinedChange::Paused(true));
+                return Err(error.into());
+            }
+            Ok(())
+        })
+        .await;
+        if let Err(why) = chosen {
+            let words =
+                format!("{why} Nothing is being got yet: use Choose what to get…, then Resume.");
+            super::stopped(&app, stick_id, words.clone());
+            return Err(words);
+        }
     }
     // Its name as the preview showed it, if it is a name a manifest may
     // carry; the first round keeps it as the sender gives it anyway.

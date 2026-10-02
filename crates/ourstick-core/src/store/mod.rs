@@ -203,6 +203,16 @@ pub trait Store: Send + Sync {
     /// empty set: everything), in one go.
     fn set_left_out(&self, stick_id: &StickId, names: &[String]) -> Result<(), StoreError>;
 
+    /// Whether files of a received stick under its top-level `name` (the
+    /// file `name`, or anything in the folder `name`) are recorded here.
+    fn has_files_under(&self, stick_id: &StickId, name: &str) -> Result<bool, StoreError> {
+        let folder = format!("{name}/");
+        Ok(self
+            .downloaded_files(stick_id)?
+            .iter()
+            .any(|file| file.path == name || file.path.starts_with(&folder)))
+    }
+
     /// Forgets one recorded file of a received stick (its file is gone, or it
     /// is to be saved at another place); nothing if there is none.
     fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError>;

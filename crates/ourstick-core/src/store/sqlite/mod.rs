@@ -291,6 +291,10 @@ impl Store for SqliteStore {
         received::set_left_out(&mut self.connection(), stick_id, names)
     }
 
+    fn has_files_under(&self, stick_id: &StickId, name: &str) -> Result<bool, StoreError> {
+        files::has_files_under(&self.connection(), stick_id, name)
+    }
+
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
         files::downloaded_files(&self.connection(), stick_id)
     }

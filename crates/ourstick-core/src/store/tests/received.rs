@@ -130,7 +130,36 @@ fn what_is_left_out_is_kept_whole_and_replaced_whole(store: &dyn Store) {
     assert!(store.left_out(&joined(5, 11).stick_id).unwrap().is_empty());
 }
 
+fn files_under_a_top_level_name_are_found(store: &dyn Store) {
+    let id = joined(6, 10).stick_id;
+    store.add_joined_stick(&joined(6, 10)).unwrap();
+    let file = |path: &str| DownloadedFile {
+        path: path.to_owned(),
+        saved_as: path.to_owned(),
+        stamp: FileStamp {
+            size: 1,
+            mtime_ns: 1,
+            ctime_ns: 1,
+        },
+        blob_hash: [1; 32],
+    };
+    for path in ["Films/a.mkv", "Films0.txt", "Film", "note.txt"] {
+        store.record_downloaded_file(&id, &file(path)).unwrap();
+    }
+    assert!(store.has_files_under(&id, "Films").unwrap());
+    assert!(store.has_files_under(&id, "note.txt").unwrap());
+    // Neither a longer name nor a shorter one is under it.
+    assert!(store.has_files_under(&id, "Film").unwrap());
+    assert!(!store.has_files_under(&id, "Fil").unwrap());
+    assert!(!store.has_files_under(&id, "Music").unwrap());
+    store
+        .record_downloaded_file(&id, &file("Films.old/x"))
+        .unwrap();
+    assert!(!store.has_files_under(&id, "Films.ol").unwrap());
+}
+
 for_every_store!(
+    files_under_a_top_level_name_are_found,
     what_is_left_out_is_kept_whole_and_replaced_whole,
     a_received_stick_keeps_its_program_name_and_pause,
     a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays,

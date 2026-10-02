@@ -256,6 +256,8 @@ export interface ReceivedEntry {
   total: number;
   /** When it began waiting (ms since 1970), for "since 14:30". */
   since_ms: number | null;
+  /** What is not got (escaped), and whether its files are already here. */
+  left_out: { shown: string; here: boolean }[];
 }
 
 export function received(): Promise<ReceivedEntry[]> {
@@ -303,13 +305,50 @@ export function chooseFolder(): Promise<string | null> {
   return invoke("choose_folder");
 }
 
-/** "Get it": received into `folder` and kept up to date. Returns its id. */
+/** "Get it": received into `folder` and kept up to date, but for the
+ * top-level names `leftOut` (exactly as the stick names them). Returns its id. */
 export function addReceived(
   text: string,
   folder: string,
   name: string,
+  leftOut: string[] = [],
 ): Promise<string> {
-  return invoke("add_received", { text, folder, name });
+  return invoke("add_received", { text, folder, name, leftOut });
+}
+
+/** A received stick's top-level entry, as the choice lists it. */
+export interface ChoiceEntry {
+  /** Exactly as the stick names it: send this back. */
+  name: string;
+  /** The same, escaped: show this (isolated). */
+  shown: string;
+  is_dir: boolean;
+  files: number;
+  bytes: number;
+  ticked: boolean;
+  /** Files of it are already here. */
+  here: boolean;
+  /** On the stick now (an un-ticked name may no longer be). */
+  on_stick: boolean;
+}
+
+export interface ChoiceView {
+  entries: ChoiceEntry[];
+  /** Every entry is listed, not only those already left out. */
+  known: boolean;
+}
+
+/** "Choose what to get…": a received stick's top-level entries. */
+export function receivedContents(stickId: string): Promise<ChoiceView> {
+  return invoke("received_contents", { stickId });
+}
+
+/** Saves what not to get (the whole set) and receives the stick again. */
+export function chooseWhatToGet(
+  stickId: string,
+  leftOut: string[],
+): Promise<void> {
+  return invoke("choose_what_to_get", { stickId, leftOut });
 }
 
 export function pauseReceived(stickId: string): Promise<void> {

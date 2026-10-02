@@ -246,3 +246,25 @@ pub(super) fn forget_downloaded_file(
     )?;
     Ok(())
 }
+
+/// Whether a row is the file `name` or under the folder `name`: a range of
+/// the primary key (`name/` up to `name0`, `0` coming after `/`), so a big
+/// stick is not read whole.
+pub(super) fn has_files_under(
+    connection: &Connection,
+    stick_id: &StickId,
+    name: &str,
+) -> Result<bool, StoreError> {
+    let any: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM downloaded_files WHERE stick_id = ?1
+             AND (path = ?2 OR (path >= ?3 AND path < ?4)))",
+        params![
+            stick_id.to_bytes(),
+            name,
+            format!("{name}/"),
+            format!("{name}0")
+        ],
+        |row| row.get(0),
+    )?;
+    Ok(any)
+}

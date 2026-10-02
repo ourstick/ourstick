@@ -137,6 +137,8 @@ fn main() {
             receiving::commands::resume_received,
             receiving::commands::forget_received_stick,
             receiving::commands::open_received_folder,
+            receiving::choice::received_contents,
+            receiving::choice::choose_what_to_get,
             problems::dismiss_app_problem,
             stick_life_commands::remove,
             stick_commands::add_paths,

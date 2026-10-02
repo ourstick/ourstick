@@ -163,8 +163,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   PlaceError or LinkedError: a database failure through those shows its own
   text. `told_one` (the watcher's error) looks at the one error, not its
   chain.
-- **Linux: Quit from the dock does not quit.** GNOME's "Quit" asks the app
-  through its GTK actions; an app without a `quit` action only has its
-  windows closed, and OurStick stays in the tray (as with ×). Exporting a
-  `quit` action on tao's `gtk::Application` would need `gtk` as a direct
-  dependency (ask first). Found in the manual test on 2026-10-02.
+- **Linux: Quit from the dock does not quit** (it only closes the windows,
+  and OurStick stays in the tray, as with ×). Tried on 2026-10-02 and undone:
+  the Ubuntu Dock's Quit closes every window itself and never asks the app;
+  GNOME's own Quit (Show Applications → Quit) does call a GTK `quit` action
+  (`enableGTKAppId` plus a `SimpleAction` on tao's application worked), but
+  without an activation token, so the Quit dialog opened behind the other
+  windows. Not worth the app id's cost (the `.desktop` file must then be
+  named `com.ourstick.app.desktop`).

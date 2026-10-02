@@ -109,7 +109,7 @@ pub async fn new_link(
 ) -> Result<String, String> {
     let old = stick_id_of(&stick_id)?;
     let stick = state.stick_now(&old).await.map_err(shown)?;
-    keep_busy(&app, &state, &old, "Giving it a new link…").await?;
+    keep_busy(&app, &state, &old, "Changing the sharing link…").await?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = blocking(move || {

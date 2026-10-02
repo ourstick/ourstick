@@ -25,7 +25,7 @@
   <h1>Welcome to OurStick</h1>
   <p>
     OurStick is a virtual USB stick. It appears in your file manager like any
-    USB drive. Put files on it, then share the link — the other person sees
+    USB drive. Put files on it, then send its sharing link — the other person sees
     the same stick. It holds as much as your computer has room for.
   </p>
   <form onsubmit={plug}>

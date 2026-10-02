@@ -26,7 +26,7 @@
       {:else}
         <button role="menuitem" onclick={() => pick("start")}>Start sharing</button>
       {/if}
-      <button role="menuitem" onclick={() => pick("new-link")}>Give it a new link…</button>
+      <button role="menuitem" onclick={() => pick("new-link")}>Change the sharing link…</button>
       <button role="menuitem" class="danger-text" onclick={() => pick("remove")}>Remove this stick…</button>
     </div>
   {/if}

@@ -37,7 +37,7 @@
     <h1>Share OurStick</h1>
     <button class="close" aria-label="Close" onclick={() => getCurrentWindow().close()}>✕</button>
   </header>
-  <p class="muted">Anyone with this link can read the stick.</p>
+  <p class="muted">Anyone with this sharing link can read the stick.</p>
 
   {#if view}
     <div class="row">
@@ -50,7 +50,7 @@
       <button onclick={() => act(sendByEmail, "Your mail program should open now.")}>Send by email</button>
     </div>
   {:else if loaded}
-    <p>The link is not ready yet: the stick is being published.</p>
+    <p>The sharing link is not ready yet: the stick is getting ready.</p>
   {/if}
   {#if note}<p class="muted note">{note}</p>{/if}
 </main>

@@ -60,7 +60,7 @@ so Spotlight leaves it alone.
 - Left: the app's sticks (ADR 0009), oldest first, each with its name and
   what it is doing in plain words: `Sharing`, `Someone downloading`,
   `2 downloading`, `Not sharing`, `Getting ready…`, or while it changes
-  `Renaming…`, `Giving it a new link…`, `Removing…`. One is shown on the
+  `Renaming…`, `Changing the sharing link…`, `Removing…`. One is shown on the
   right; at the bottom `+ New stick…` asks for a name (`Make it`; "Making
   it… please wait."). The tray's `New stick…` opens the same field.
 - Right, the chosen stick. Title: its name; no size.
@@ -68,14 +68,16 @@ so Spotlight leaves it alone.
   Click opens a two-item menu: `Open in file manager`, `Eject (keeps
   sharing)` (or `Mount` when ejected).
 - And `⋯`, the stick's own menu: `Rename…`, `Stop sharing…` (or `Start
-  sharing`), `Give it a new link…`, `Remove this stick…` (red). Each asks
+  sharing`), `Change the sharing link…`, `Remove this stick…` (red). Each asks
   in the window first, with "… please wait." while it works:
   - Rename: the new name (1–60 characters, not the name of another stick).
     Its folder or volume, its bookmark or letter follow; people see the new
     name with its next version.
-  - New link: "Everyone with the old link can no longer download. The files
-    stay on the stick. Send the new link to those who should still have it."
-  - Remove: "Its link stops working, and the files copied onto it are
+  - Change the sharing link (the only way to take access back, ADR 0009
+    §5): "The old sharing link stops working. Send the new one to the people
+    who should still have it. The files stay." Button `Change it`. "Link" is
+    always "sharing link" in the window, so that nobody wonders which link.
+  - Remove: "Its sharing link stops working, and the files copied onto it are
     deleted from this computer. Folders shared as they are (linked) stay
     where they are."
 - Drop zone: "Drop files or folders here", below it `N files · size`.
@@ -115,7 +117,7 @@ so Spotlight leaves it alone.
 
 ### 2 · Share popup
 
-- One line: "Anyone with this link can read the stick."
+- One line: "Anyone with this sharing link can read the stick."
 - Link field (read-only, monospace) + `Copy`.
 - QR code of the full link (including `#secret`).
 - `Copy QR image`, `Send by email` (opens mailto: with the link in the body).

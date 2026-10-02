@@ -193,7 +193,7 @@ export function sticks(): Promise<StickEntry[]> {
   return invoke("sticks");
 }
 
-/** "Give it a new link": everyone with the old link loses it. Returns the new id. */
+/** "Change the sharing link": the old one stops working. Returns the new id. */
 export function newLink(stickId: string): Promise<string> {
   return invoke("new_link", { stickId });
 }

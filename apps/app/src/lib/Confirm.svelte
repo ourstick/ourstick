@@ -53,7 +53,7 @@
     <h1>Quit OurStick?</h1>
     {#if view.shared.length > 0}
       <p>
-        Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its link" : "their links"} will no
+        Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its sharing link" : "their sharing links"} will no
         longer be able to download.
       </p>
       {#if view.downloading.length > 0}
@@ -68,7 +68,7 @@
     </div>
   {:else if view}
     <h1>Stop sharing {view.name ? `“${view.name}”` : "this stick"}?</h1>
-    <p>Anyone with the link will no longer be able to download.</p>
+    <p>Anyone with the sharing link will no longer be able to download.</p>
     {#if view.readers > 0}
       <p><strong>Someone is still downloading.</strong></p>
     {/if}

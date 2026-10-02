@@ -59,12 +59,9 @@
       </div>
     </form>
   {:else if ask === "new-link"}
-    <strong>Give “{name}” a new link?</strong>
-    <p>
-      Everyone with the old link can no longer download. The files stay on the stick. Send the new link to those who
-      should still have it.
-    </p>
-    {#if busy}<p class="muted">Making a new link… please wait.</p>{/if}
+    <strong>Change the sharing link of “{name}”?</strong>
+    <p>The old sharing link stops working. Send the new one to the people who should still have it. The files stay.</p>
+    {#if busy}<p class="muted">Changing the sharing link… please wait.</p>{/if}
     {#if failure}<p class="error">{failure}</p>{/if}
     <div class="actions">
       <button onclick={() => onDone(null)} disabled={busy}>Cancel</button>
@@ -73,13 +70,13 @@
         disabled={busy}
         onclick={() => run(async () => ({ kind: "new-link", id: await newLink(stickId) }))}
       >
-        Give it a new link
+        Change it
       </button>
     </div>
   {:else}
     <strong>Remove “{name}”?</strong>
     <p>
-      Its link stops working, and the files copied onto it are deleted from this computer. Folders shared as they are
+      Its sharing link stops working, and the files copied onto it are deleted from this computer. Folders shared as they are
       (linked) stay where they are.
     </p>
     {#if busy}<p class="muted">Removing… please wait.</p>{/if}

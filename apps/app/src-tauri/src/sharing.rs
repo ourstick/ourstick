@@ -44,7 +44,9 @@ fn finish_pending(state: &AppState) -> Result<Vec<String>> {
         ));
     }
     for (name, error) in finish_new_links(store, secrets.as_ref(), &state.data_dir)? {
-        failed.push(format!("A new link for {name} is not finished: {error}"));
+        failed.push(format!(
+            "Changing the sharing link of \u{201c}{name}\u{201d} is not finished: {error}"
+        ));
     }
     Ok(failed)
 }

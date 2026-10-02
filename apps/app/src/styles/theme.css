@@ -183,6 +183,13 @@ input {
   user-select: text;
 }
 
+input[type="checkbox"] {
+  min-height: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
 input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;

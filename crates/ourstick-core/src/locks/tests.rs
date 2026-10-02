@@ -114,6 +114,8 @@ fn a_held_lock_is_seen_from_another_handle_and_a_free_one_is_not() {
     assert!(!is_held(dir.path(), ClaimKind::Download, &one.stick_id).unwrap());
     let download = download_lock(dir.path(), &one.stick_id).unwrap();
     assert!(is_held(dir.path(), ClaimKind::Download, &one.stick_id).unwrap());
+    // A download's batch room lives and dies with its lock too.
+    assert!(is_held(dir.path(), ClaimKind::Scratch, &one.stick_id).unwrap());
     assert!(matches!(
         download_lock(dir.path(), &one.stick_id),
         Err(LockError::DownloadInUse)

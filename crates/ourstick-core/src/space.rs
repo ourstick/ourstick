@@ -24,8 +24,12 @@ const BUDGET_SHARE: u64 = 10;
 pub enum SpaceError {
     #[error("does not fit: needs {needed} bytes, {available} are left")]
     DoesNotFit { needed: u64, available: u64 },
-    #[error("not enough room for another share's working space ({free} bytes free on the cache's disk, other shares hold {held}); stop one of them first")]
-    NoRoomForCache { free: u64, held: u64 },
+    #[error("not enough room for another share's working space ({free} bytes free on the cache's disk; other shares hold {held}, downloads {downloads}); stop one of them first")]
+    NoRoomForCache {
+        free: u64,
+        held: u64,
+        downloads: u64,
+    },
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -201,7 +205,17 @@ pub fn claim_cache(
             let held = sum(&|kind| kind == ClaimKind::Cache);
             // Promised to downloads: not free for a cache.
             let downloads = sum(&|kind| kind != ClaimKind::Cache);
-            cache_share(free.saturating_sub(downloads), held, together)
+            cache_share(free.saturating_sub(downloads), held, together).map_err(|error| match error
+            {
+                // Say what took the room: the disk's free bytes, and the
+                // downloads' part of them.
+                SpaceError::NoRoomForCache { held, .. } => SpaceError::NoRoomForCache {
+                    free,
+                    held,
+                    downloads,
+                },
+                other => other,
+            })
         });
         let claim = match &decided {
             Ok(Ok(bytes)) => vec![SpaceClaim {
@@ -226,7 +240,11 @@ pub fn cache_share(free: u64, held: u64, together: usize) -> Result<u64, SpaceEr
     let part = total / u64::try_from(together.max(1)).unwrap_or(u64::MAX);
     let mine = part.min(total.saturating_sub(held)).max(MIN_BUDGET);
     if free < mine {
-        return Err(SpaceError::NoRoomForCache { free, held });
+        return Err(SpaceError::NoRoomForCache {
+            free,
+            held,
+            downloads: 0,
+        });
     }
     Ok(mine)
 }

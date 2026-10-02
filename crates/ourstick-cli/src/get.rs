@@ -180,10 +180,14 @@ impl Getter<'_> {
             match self.download_once().await {
                 Ok(report) => seq = report.seq,
                 Err(error) => {
+                    // A version that does not fit says why, not "cancelled".
+                    let why = match self.room.refusal() {
+                        Some(refusal) => refusal_words(&refusal),
+                        None => untrusted(&error.to_string()),
+                    };
                     println!(
-                        "[{}] Download stopped: {}. Trying again at the next check.",
+                        "[{}] Download stopped: {why}. Trying again at the next check.",
                         clock(self.started.elapsed()),
-                        untrusted(&error.to_string())
                     );
                     tokio::time::sleep(FOLLOW_EVERY).await;
                 }

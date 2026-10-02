@@ -264,3 +264,28 @@ fn a_cache_leaves_out_what_downloads_hold_on_its_disk() {
     let mine = claim_cache(&disks, &store, data_dir, &stick_id(1), &cache, 1).unwrap();
     assert_eq!(mine, (100 * GB - 62 * GB) / 10);
 }
+
+#[test]
+fn a_share_refused_for_room_says_downloads_hold_it() {
+    let (store, data) = setup(2);
+    let data_dir = data.path();
+    // A small disk: 10 GB free of 15 GB, 1.5 GB of it the system's. A
+    // download takes all but 1.6 GB, under a share's 2 GB.
+    let disks = data_disk(data_dir, 10 * GB, 15 * GB);
+    let _download = download_lock(data_dir, &stick_id(2)).unwrap();
+    let out = data_dir.join("out");
+    let needed = 7 * GB + 400 * (1 << 20);
+    claim_download(&disks, &store, data_dir, &stick_id(2), &out, needed, GB).unwrap();
+    let (_share, _) = lock_for_sharing(data_dir, &store, &stick_id(1)).unwrap();
+    let cache = data_dir.join("cache");
+    match claim_cache(&disks, &store, data_dir, &stick_id(1), &cache, 1) {
+        Err(SpaceError::NoRoomForCache {
+            free,
+            held,
+            downloads,
+        }) => {
+            assert_eq!((free, held, downloads), (10 * GB, 0, needed + GB));
+        }
+        other => panic!("{other:?}"),
+    }
+}

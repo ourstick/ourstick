@@ -25,7 +25,8 @@ fn read_all(connection: &Connection) -> Result<Vec<SpaceClaim>, StoreError> {
             row.get::<_, i64>(3)?,
         ))
     })?;
-    rows.map(|row| {
+    let mut claims = Vec::new();
+    for row in rows {
         let (stick_id, kind, disk, bytes) = row?;
         let stick_id = StickId::from_bytes(&blob32(stick_id, "stick_id")?)
             .map_err(|_| StoreError::Corrupt("a claim's stick id is not a key".to_owned()))?;
@@ -33,16 +34,21 @@ fn read_all(connection: &Connection) -> Result<Vec<SpaceClaim>, StoreError> {
             "cache" => ClaimKind::Cache,
             "download" => ClaimKind::Download,
             "scratch" => ClaimKind::Scratch,
-            other => return Err(StoreError::Corrupt(format!("claim kind {other}"))),
+            // A kind of a later version of OurStick, running beside this
+            // one: not counted, rather than every claim failing.
+            other => {
+                tracing::warn!(kind = other, "a claim of an unknown kind is not counted");
+                continue;
+            }
         };
-        Ok(SpaceClaim {
+        claims.push(SpaceClaim {
             stick_id,
             kind,
             disk,
             bytes: to_u64(bytes, "bytes")?,
-        })
-    })
-    .collect()
+        });
+    }
+    Ok(claims)
 }
 
 pub(super) fn claims(connection: &Connection) -> Result<Vec<SpaceClaim>, StoreError> {

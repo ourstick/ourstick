@@ -47,10 +47,17 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         Mode::StopSharing(stick_id) => format!("index.html#stop/{}", stick_hex(&stick_id)),
         Mode::Quit => "index.html#quit".to_owned(),
     };
+    // Quit also lists the sticks coming in: a paragraph more.
+    let receiving = matches!(mode, Mode::Quit)
+        && !app
+            .state::<crate::receiving::Receivers>()
+            .downloading()
+            .is_empty();
+    let height = if receiving { 320.0 } else { 230.0 };
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title("OurStick")
         .focused(crate::windows::FOCUS_NEW)
-        .inner_size(420.0, 230.0)
+        .inner_size(420.0, height)
         .resizable(false)
         .always_on_top(true)
         .center()

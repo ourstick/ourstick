@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
-  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+  import { onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { appState, confirmView, quit, stopSharing, type ConfirmView } from "./api";
 
   let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
@@ -11,30 +11,9 @@
   onMount(() => {
     appState().then((app) => (document.documentElement.dataset.platform = app.platform));
     confirmView(stickId)
-      .then(async (loaded) => {
-        view = loaded;
-        await fit();
-      })
+      .then((loaded) => (view = loaded))
       .catch((error) => (failure = String(error)));
   });
-
-  let card: HTMLElement | undefined = $state();
-
-  /** The window as tall as what it says (long names, two paragraphs). The
-   * page is as tall as the window and hides the rest: the card's content is
-   * measured, with the page's padding around it. */
-  async function fit() {
-    await tick();
-    if (!card) return;
-    const around = card.getBoundingClientRect().top * 2;
-    const height = Math.ceil(card.scrollHeight + around + 2);
-    const window = getCurrentWindow();
-    const now = await window.innerSize();
-    const scale = await window.scaleFactor();
-    if (height > now.height / scale) {
-      await window.setSize(new LogicalSize(now.width / scale, Math.min(height, 640)));
-    }
-  }
 
   const close = () => getCurrentWindow().close();
 
@@ -65,7 +44,7 @@
   }
 </script>
 
-<main class="card dialog" bind:this={card}>
+<main class="card dialog">
   {#if failure}
     <p class="error">{failure}</p>
     {#if !view}
@@ -75,6 +54,8 @@
   <!-- Nothing until the app says whether it shares: never the wrong words. -->
   {#if view && quitting}
     <h1>Quit OurStick?</h1>
+    <!-- What it says scrolls if it is long; the buttons always show. -->
+    <div class="said">
     {#if view.shared.length > 0}
       <p>
         Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its sharing link" : "their sharing links"} will no
@@ -89,6 +70,7 @@
     {#if view.receiving.length > 0}
       <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
     {/if}
+    </div>
     <div class="actions">
       <button onclick={close} disabled={busy}>
         {view.sharing || view.receiving.length > 0 ? "Don't quit" : "Cancel"}
@@ -111,5 +93,13 @@
 <style>
   .dialog h1 {
     font-size: 1.2em;
+  }
+  .said {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .dialog .actions {
+    flex-shrink: 0;
   }
 </style>

@@ -40,19 +40,22 @@ fn finish_pending(state: &AppState) -> Result<Vec<String>> {
         &crate::drive::AppDrive,
     )? {
         failed.push(format!(
-            "Removing \u{201c}{name}\u{201d} is not finished: {error}"
+            "Removing \u{201c}{name}\u{201d} is not finished: {}",
+            crate::words::told(&anyhow::Error::from(error))
         ));
     }
     for (name, error) in finish_new_links(store, secrets.as_ref(), &state.data_dir)? {
         failed.push(format!(
-            "Changing the sharing link of \u{201c}{name}\u{201d} is not finished: {error}"
+            "Changing the sharing link of \u{201c}{name}\u{201d} is not finished: {}",
+            crate::words::told(&anyhow::Error::from(error))
         ));
     }
     for (name, error) in
         ourstick_core::received::finish_forgetting(store, secrets.as_ref(), &state.data_dir)?
     {
         failed.push(format!(
-            "Forgetting \u{201c}{name}\u{201d} is not finished: {error}"
+            "Forgetting \u{201c}{name}\u{201d} is not finished: {}",
+            crate::words::told(&anyhow::Error::from(error))
         ));
     }
     Ok(failed)

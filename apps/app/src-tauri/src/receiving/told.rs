@@ -45,17 +45,17 @@ impl Landed {
                 self.received = 0;
             }
             DownloadEvent::Progress { received, .. } => self.received = received,
-            // Planned, and here now: received, copied from another file, or
-            // left as the folder has it. (A file already here was never
-            // planned.)
+            // Planned, and here now: received, or copied from another file.
+            // A file left as the folder has it is not counted: most were
+            // never planned (the user changed them there), and a bar a little
+            // short before "Up to date" is better than one full too soon.
             DownloadEvent::FileReceived { size, .. } => {
                 self.finished = self.finished.saturating_add(size);
                 self.size = 0;
                 self.already_local = 0;
                 self.received = 0;
             }
-            DownloadEvent::FileCopiedHere { size, .. }
-            | DownloadEvent::FileChangedHere { size, .. } => {
+            DownloadEvent::FileCopiedHere { size, .. } => {
                 self.finished = self.finished.saturating_add(size);
             }
             _ => return false,
@@ -108,8 +108,7 @@ impl Told {
                 DownloadEvent::FileStarted { .. }
                 | DownloadEvent::Progress { .. }
                 | DownloadEvent::FileReceived { .. }
-                | DownloadEvent::FileCopiedHere { .. }
-                | DownloadEvent::FileChangedHere { .. },
+                | DownloadEvent::FileCopiedHere { .. },
             ) => {
                 shown.done = landed.bytes(shown.total);
                 progress_only = true;

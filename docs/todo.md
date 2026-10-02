@@ -151,3 +151,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **Windows VM disk:** a full debug build of the workspace with its tests
   takes about 75 GB in `target\debug`; it filled the VM's disk once
   (`LNK1180`). Clean it now and then.
+- **Windows: the stick's drive letter is named after the disk it points
+  into** ("Windows (O:)", not "OurStick (O:)"). A `subst` letter reports its
+  host volume's label; both per-user `DefaultLabel` keys
+  (`HKCU\Software\Classes\Applications\Explorer.exe\Drives\O` and
+  `HKCU\…\Explorer\DriveIcons\O`) were tried in the VM on 2026-10-02 and
+  Explorer ignored them. Only a real volume (a VHD) would carry its own name.

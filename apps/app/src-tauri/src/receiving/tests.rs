@@ -51,6 +51,12 @@ fn a_big_file_moves_the_bar_while_it_comes() {
         path: "a",
         size: 100,
     });
+    // A file the user changed in the folder was not planned: not counted.
+    landed.on(&DownloadEvent::FileChangedHere {
+        path: "notes",
+        size: 5_000,
+    });
+    assert_eq!(landed.bytes(2_100), 100);
     // An earlier run kept 1,500 of the film's 2,000.
     landed.on(&DownloadEvent::FileStarted {
         path: "film",

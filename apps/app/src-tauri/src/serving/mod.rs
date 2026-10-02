@@ -328,7 +328,7 @@ fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
             return;
         }
         WatchEvent::Failed { error } => ShareProblem::Failed {
-            message: error.to_string(),
+            message: crate::words::told_one(*error),
         },
         WatchEvent::Ejected => ShareProblem::Ejected,
     };

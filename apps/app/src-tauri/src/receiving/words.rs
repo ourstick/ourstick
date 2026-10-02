@@ -69,22 +69,20 @@ pub fn waiting_words(why: &Waiting) -> String {
 /// are kept; what came from the keyring, the store, a lock or the disk is
 /// said in words for everyone.
 pub fn said(error: &anyhow::Error) -> String {
+    use ourstick_core::device::DeviceError;
     use ourstick_core::received::ReceivedError;
-    use ourstick_core::{SecretError, StoreError};
-    tracing::warn!(error = %format!("{error:#}"), "told in the window in words");
-    use crate::words::{RECORDS, SECRETS};
-    const DISK: &str = "Something on this computer failed (a folder or a file). Try again.";
-    if error.downcast_ref::<SecretError>().is_some() {
-        return SECRETS.to_owned();
+    // The keyring and the records: the same words everywhere.
+    if let Some(words) = crate::words::known(error) {
+        return words;
     }
-    // Opening the keyring: its errors come as the device's.
-    if let Some(device) = error.downcast_ref::<ourstick_core::device::DeviceError>() {
-        use ourstick_core::device::DeviceError;
+    tracing::warn!(error = %format!("{error:#}"), "told in the window in words");
+    const DISK: &str = "Something on this computer failed (a folder or a file). Try again.";
+    if let Some(device) = error.downcast_ref::<DeviceError>() {
         return match device {
-            DeviceError::Store(_) => RECORDS.to_owned(),
             DeviceError::Lock(locked) => super::lock_words(locked),
             DeviceError::Io { .. } | DeviceError::NoHome(_) => DISK.to_owned(),
-            _ => SECRETS.to_owned(),
+            // A key missing or not the right one: its own words say what to do.
+            other => sentence(&other.to_string()),
         };
     }
     if let Some(download) = error.downcast_ref::<DownloadError>() {
@@ -96,16 +94,11 @@ pub fn said(error: &anyhow::Error) -> String {
             other => stopped_words(other),
         };
     }
-    if error.downcast_ref::<StoreError>().is_some() {
-        return RECORDS.to_owned();
-    }
     if let Some(locked) = error.downcast_ref::<ourstick_core::locks::LockError>() {
         return super::lock_words(locked);
     }
     if let Some(received) = error.downcast_ref::<ReceivedError>() {
         return match received {
-            ReceivedError::Secret(_) => SECRETS.to_owned(),
-            ReceivedError::Store(_) => RECORDS.to_owned(),
             ReceivedError::Lock(locked) => super::lock_words(locked),
             ReceivedError::Io { .. } => DISK.to_owned(),
             other => sentence(&other.to_string()),

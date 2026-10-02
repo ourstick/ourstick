@@ -2,6 +2,7 @@
   import { addReceived, chooseFolder, previewLink, type PreviewView } from "./api";
   import { size } from "./format";
   import PathText from "./PathText.svelte";
+  import SavedAsNote from "./SavedAsNote.svelte";
 
   let {
     onAdded,
@@ -121,6 +122,7 @@
         new folder.
       </p>
     {/if}
+    <SavedAsNote lines={preview.saved_as} coming />
     {#if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
     {:else if fits}

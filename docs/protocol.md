@@ -90,25 +90,29 @@ A reader rejects the whole manifest if any rule fails. A writer never produces o
   and escaping the output folder.
 
 The rules are platform-neutral: a manifest that follows them is valid on the
-wire. Before writing anything, a reader additionally refuses the whole
-manifest (nothing is written, its record is not accepted) if any path:
+wire. A reader never refuses a manifest for a name its own system cannot
+save (ADR 0010): it saves every file, and a name it cannot save as it is
+gets the smallest change that makes it savable, chosen by the reader and
+recorded, so later versions write to the same place:
 
-- has a component that is not a single plain name on the reader's platform;
-- has a component that looks like a Windows drive (an ASCII letter followed
-  by `:`, e.g. `c:evil`), on every platform, so a stick behaves the same
-  everywhere;
-- on Windows, has a component with `< > : " | ? *` or a control character,
-  ending in a dot or space, or named like a device (`CON`, `PRN`, `AUX`,
-  `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension);
-- starts with the reader's partial directory `.ourstick-partial`, in any
-  letter case;
-- equals another path when letter case is ignored, or is a file that another
-  path needs as a folder (e.g. `a` and `a/b`, also `A` and `a/b`).
+- on Windows, `< > : " | ? *` and control characters become `_`, a trailing
+  dot or space is dropped, a name Windows keeps for itself (`CON`, `PRN`,
+  `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension)
+  gets `_` after its stem;
+- on every system, a name that looks like a Windows drive (an ASCII letter
+  followed by `:`, e.g. `c:evil`) becomes `c_evil`, so a stick behaves the
+  same everywhere; a first name the reader uses itself (`.ourstick-partial`,
+  `.ourstick-received`, in any letter case) gets `_` in front; a name too
+  long for the system is cut, keeping its extension;
+- names that would be one file in the reader's folder (letter case, where
+  that folder's disk ignores it; Unicode forms on macOS), or a file where a
+  folder must go, get ` (2)`, ` (3)`… The place a file was saved first is
+  kept in every later version; a renamed folder holds all its files.
 
-A reader also refuses to write through a symbolic link that exists in its
-output folder, checking when a file starts and again right before it is moved
-into place. Mapping such names to safe ones instead of refusing them is an
-open question.
+Nothing on the wire changes: the sender does not know. A reader refuses to
+write through a symbolic link that exists in its output folder, checking
+when a file starts and again right before it is moved into place; a
+symbolic link where a folder of the stick must go is in the way like a file.
 
 ### What the manifest hash covers
 
@@ -622,8 +626,6 @@ Rules on every platform:
   memory until reused, so they can end up in swap or core dumps. Would add
   `zeroize` as a direct dependency (it is already in the tree through
   `ed25519-dalek` and `chacha20poly1305`).
-- Mapping names that a reader cannot write (Windows device names, `:`,
-  letter-case collisions) to safe ones, instead of refusing the manifest.
 - A reader will need a stable node identity later (e.g. for seeds, per-reader
   access, or being reachable for updates). In v1 `get` uses a fresh random node
   key per run, because a reader needs no lasting identity and must not share the

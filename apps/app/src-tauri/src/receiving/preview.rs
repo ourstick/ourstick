@@ -51,6 +51,8 @@ pub struct PreviewView {
     earlier_elsewhere: Option<String>,
     /// What is left there for it.
     left: u64,
+    /// What would be saved under another name there (ADR 0010).
+    saved_as: Vec<super::words::SavedAsView>,
 }
 
 /// Where received sticks go: `parent`, else the Downloads folder.
@@ -175,6 +177,7 @@ pub async fn preview_link(
             .map(|earlier| earlier.display().to_string()),
         folder: previewed.folder.display().to_string(),
         left,
+        saved_as: super::words::saved_as_views(previewed.saved_as),
     })
 }
 

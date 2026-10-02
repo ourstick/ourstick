@@ -60,7 +60,10 @@ export interface Stick {
 export type About<T> = T & { stick_id: string };
 
 /** A problem, of a stick or of the whole app. */
-export type ShareProblem = { kind: "failed"; message: string } | { kind: "ejected" } | { kind: "seen_slowly" };
+export type ShareProblem =
+  | { kind: "failed"; message: string }
+  | { kind: "ejected" }
+  | { kind: "seen_slowly" };
 
 /** The whole app's problem (not of one stick), if any. */
 export function appProblem(): Promise<ShareProblem | null> {
@@ -90,7 +93,10 @@ export type AddOutcome =
   | { kind: "does_not_fit"; needed: number; left: number };
 
 /** Copies dropped files and folders onto the stick, if they fit. */
-export function addPaths(stickId: string, paths: string[]): Promise<AddOutcome> {
+export function addPaths(
+  stickId: string,
+  paths: string[],
+): Promise<AddOutcome> {
   return invoke("add_paths", { stickId, paths });
 }
 
@@ -149,7 +155,10 @@ export function confirmView(stickId: string | null): Promise<ConfirmView> {
 }
 
 /** Shows the Stop sharing dialog, or the Quit one. */
-export function openDialog(quit: boolean, stickId: string | null): Promise<void> {
+export function openDialog(
+  quit: boolean,
+  stickId: string | null,
+): Promise<void> {
   return invoke("open_dialog", { quit, stickId });
 }
 
@@ -216,12 +225,22 @@ export function renameStick(stickId: string, name: string): Promise<void> {
 }
 
 /** A stick this device receives in the window (step 7b). */
+/** A name saved under another here than at the sender (escaped already). */
+export interface SavedAs {
+  path: string;
+  saved_as: string;
+  /** Files it holds: 1 for a file, more for a folder. */
+  files: number;
+}
+
 export interface ReceivedEntry {
   id: string;
   /** Its name from the sender (show it isolated: it is the sender's text). */
   name: string;
   folder: string;
   paused: boolean;
+  /** What is saved under another name than at the sender. */
+  saved_as: SavedAs[];
   /** "starting", "downloading", "getting_more", "up_to_date", "waiting", "paused", "stopped". */
   state: string;
   /** Why it waits or stopped, in words for everyone. */
@@ -260,10 +279,15 @@ export interface PreviewView {
   earlier_elsewhere: string | null;
   /** What is left on this computer where it would go. */
   left: number;
+  /** What would be saved under another name there. */
+  saved_as: SavedAs[];
 }
 
 /** Looks at a pasted sharing link: `parent` is where it would be saved (else Downloads). */
-export function previewLink(text: string, parent: string | null): Promise<PreviewView> {
+export function previewLink(
+  text: string,
+  parent: string | null,
+): Promise<PreviewView> {
   return invoke("preview_link", { text, parent });
 }
 
@@ -273,7 +297,11 @@ export function chooseFolder(): Promise<string | null> {
 }
 
 /** "Get it": received into `folder` and kept up to date. Returns its id. */
-export function addReceived(text: string, folder: string, name: string): Promise<string> {
+export function addReceived(
+  text: string,
+  folder: string,
+  name: string,
+): Promise<string> {
   return invoke("add_received", { text, folder, name });
 }
 

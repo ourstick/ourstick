@@ -1,6 +1,6 @@
 # 0010: Files this computer cannot save under their names
 
-Status: Proposed (2026-10-02)
+Status: Accepted (2026-10-02)
 
 ## Context
 

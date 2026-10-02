@@ -349,6 +349,17 @@ fn savable(name: &str, first: bool, rules: Rules) -> String {
     safe
 }
 
+/// What `files` (recorded rows of one folder) hold under another name than
+/// theirs, a renamed folder once for its files, by path: the receiver's
+/// notice, from what is recorded (ADR 0010, rule 8).
+pub fn saved_elsewhere(files: &[crate::store::DownloadedFile]) -> Vec<SavedAs> {
+    let mut files: Vec<&crate::store::DownloadedFile> = files.iter().collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    let saved: Vec<String> = files.iter().map(|file| file.saved_as.clone()).collect();
+    renamed(&paths, &saved)
+}
+
 /// What was saved under another name, a renamed folder once for its files.
 fn renamed(paths: &[&str], saved: &[String]) -> Vec<SavedAs> {
     let mut lines: Vec<SavedAs> = Vec::new();

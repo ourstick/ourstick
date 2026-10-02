@@ -8,6 +8,7 @@
   } from "./api";
   import { since, size } from "./format";
   import PathText from "./PathText.svelte";
+  import SavedAsNote from "./SavedAsNote.svelte";
 
   let {
     entry,
@@ -115,6 +116,7 @@
     <p><button onclick={() => act(() => pauseReceived(entry.id))} disabled={busy}>Pause</button></p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
+  <SavedAsNote lines={entry.saved_as} />
 </section>
 
 <style>

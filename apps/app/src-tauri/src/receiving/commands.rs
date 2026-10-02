@@ -33,6 +33,8 @@ pub struct ReceivedEntry {
     name: String,
     folder: String,
     paused: bool,
+    /// What is saved under another name than at the sender (ADR 0010).
+    saved_as: Vec<super::words::SavedAsView>,
     #[serde(flatten)]
     shown: Shown,
 }
@@ -44,15 +46,26 @@ pub async fn received(
     receivers: State<'_, Receivers>,
 ) -> Result<Vec<ReceivedEntry>, String> {
     let store = state.store.clone();
-    let joined = super::work(move || Ok(store.joined_sticks()?)).await?;
+    let joined = super::work(move || {
+        let mut sticks = Vec::new();
+        for joined in store.joined_sticks()? {
+            if joined.kind != StickKind::App {
+                continue;
+            }
+            let renamed = store.saved_elsewhere(&joined.stick_id)?;
+            sticks.push((joined, ourstick_core::download::saved_elsewhere(&renamed)));
+        }
+        Ok(sticks)
+    })
+    .await?;
     Ok(joined
         .into_iter()
-        .filter(|joined| joined.kind == StickKind::App)
-        .map(|joined| ReceivedEntry {
+        .map(|(joined, saved_as)| ReceivedEntry {
             id: stick_hex(&joined.stick_id),
             name: display_name(joined.name.as_deref(), &joined.stick_id),
             folder: joined.output_dir.display().to_string(),
             paused: joined.paused,
+            saved_as: super::words::saved_as_views(saved_as),
             shown: receivers.shown(&joined.stick_id),
         })
         .collect())

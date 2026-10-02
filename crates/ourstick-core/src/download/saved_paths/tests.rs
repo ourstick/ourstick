@@ -314,3 +314,38 @@ fn a_renamed_name_at_the_length_limit_still_fits() {
         }
     }
 }
+
+#[test]
+fn the_notice_groups_recorded_files_by_renamed_folder() {
+    let row = |path: &str, saved_as: &str| crate::store::DownloadedFile {
+        path: path.to_owned(),
+        saved_as: saved_as.to_owned(),
+        stamp: crate::manifest::FileStamp {
+            size: 1,
+            mtime_ns: 1,
+            ctime_ns: 1,
+        },
+        blob_hash: [0; 32],
+    };
+    let lines = saved_elsewhere(&[
+        row("Trip?/b", "Trip_/b"),
+        row("ok.txt", "ok.txt"),
+        row("a?.jpg", "a_.jpg"),
+        row("Trip?/a", "Trip_/a"),
+    ]);
+    assert_eq!(
+        lines,
+        [
+            SavedAs {
+                path: "Trip?".into(),
+                saved_as: "Trip_".into(),
+                files: 2
+            },
+            SavedAs {
+                path: "a?.jpg".into(),
+                saved_as: "a_.jpg".into(),
+                files: 1
+            },
+        ]
+    );
+}

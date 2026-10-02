@@ -22,6 +22,28 @@ fn size(bytes: u64) -> String {
     }
 }
 
+/// One name saved under another here (ADR 0010), as the window lists it:
+/// both escaped (they are the sender's text).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SavedAsView {
+    path: String,
+    saved_as: String,
+    /// The files it holds (1 for a file, more for a folder).
+    files: usize,
+}
+
+/// The window's lines for what is saved under another name.
+pub fn saved_as_views(lines: Vec<ourstick_core::download::SavedAs>) -> Vec<SavedAsView> {
+    lines
+        .into_iter()
+        .map(|line| SavedAsView {
+            path: ourstick_core::untrusted::escape(&line.path),
+            saved_as: ourstick_core::untrusted::escape(&line.saved_as),
+            files: line.files,
+        })
+        .collect()
+}
+
 /// Why a received stick waits, and that it will try again by itself.
 pub fn waiting_words(why: &Waiting) -> String {
     match why {
@@ -207,6 +229,17 @@ mod tests {
         );
         let stopped = stopped_words(&DownloadError::Cancelled);
         assert_eq!(stopped, "It stopped. Use Try again.");
+    }
+
+    #[test]
+    fn saved_as_lines_are_escaped() {
+        let views = saved_as_views(vec![ourstick_core::download::SavedAs {
+            path: "a\u{1b}?.jpg".to_owned(),
+            saved_as: "a\u{1b}_.jpg".to_owned(),
+            files: 1,
+        }]);
+        assert_eq!(views[0].path, "a\\u{1b}?.jpg");
+        assert_eq!(views[0].saved_as, "a\\u{1b}_.jpg");
     }
 
     #[test]

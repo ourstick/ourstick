@@ -40,66 +40,88 @@ Nothing gives way to anyone outside OurStick.
 
 ## Decision
 
-1. **OurStick measures its own reading, and slows down when it gets
-   slower.** Each part of the catalogue (at most 256 files or 256 MB) and
-   each file put in a suitcase reports how many files and bytes it read and
-   how long it took. A part far slower than this disk has recently been for
-   OurStick means someone else is using the disk. Then OurStick pauses after
-   each part, so that it reads only a small share of the time; when parts
-   become fast again, it goes back to full speed. No OS priority, no
-   `unsafe`, the same on every system.
-2. **Speed is judged against similar work.** Small files cost a seek each,
-   whatever their size; big ones cost their bytes. A part is judged by what
-   it should have taken at this disk's recent best: a cost per file and a
-   cost per byte, each the best of the recent parts of that kind (parts of
-   mostly big files teach the cost per byte, parts of many small ones the
-   cost per file). The recent best fades slowly (about by half over an
-   hour of parts), so a disk whose inner tracks are slower, or a cache that
-   made the first parts look fast, does not count as "someone else" for
-   long.
-3. **Someone else is there** when two parts in a row took more than three
-   times what they should have. Three, not two: the inner tracks of a disk
-   are up to half as fast as its outer ones, and a second sequential reader
-   on a spinning disk costs far more than that. **They are gone** when one
-   part takes less than one and a half times what it should have.
-4. **Giving way:** while someone else is there, after each part OurStick
-   pauses nine times as long as the part took (it reads a tenth of the
-   time), at least 1 s, at most 60 s. Parts stay small (as today), so the
-   user's program waits at most one part for the disk.
-5. **Readers waiting still matter, but do not take the disk back from the
-   user.** The catalogue's pause for waiting readers (today's
-   `LONGEST_YIELD`) stays; a suitcase for a waiting reader gives way to the
-   user as well. A reader who waits longer because the owner's disk is busy
-   is told nothing new: "The sender is getting it ready" is already what
-   they see.
-6. **The owner sees it.** While giving way, a stick's state says so:
-   "Reading the folder slowly while another program uses the disk." No
+1. **OurStick times its own reads from the disk, and slows down when they
+   get slower.** Only the time spent inside the file's `read` calls counts
+   (a timing adapter around the file), not the encryption or the hashing
+   in between (about 195 MB/s on this machine, ADR 0007, so a part's whole
+   time would hide half of a slowdown), nor recording or publishing. Only
+   the first read of a file counts: the second read of `encrypt_blob` comes
+   from the page cache for a file that fits in memory and from the disk for
+   one that does not, so it says nothing steady about the disk. Files taken
+   from their record (not read) do not count.
+2. **Speed is judged against similar work, in windows.** A window is
+   64 MB read, or 64 files, whichever comes first, also inside one big file.
+   Small files cost a seek each, whatever their size; big ones cost their
+   bytes. A window is judged by what it should have taken at this disk's
+   recent best: a cost per file and a cost per byte, each the best of the
+   recent windows of that kind (windows of mostly big files teach the cost
+   per byte, windows of many small ones the cost per file). The recent best
+   fades, by half over an hour of reading time (the sum of timed reads: no
+   wall clock, so tests are exact), so a disk whose inner tracks are
+   slower, or a cache that made the first windows look fast, does not count
+   as "someone else" for long.
+3. **Someone else is there** when two windows in a row took more than
+   three times what they should have. Three, not two: the inner tracks of a
+   disk are up to half as fast as its outer ones, and a second sequential
+   reader on a spinning disk costs far more than that. **They are gone**
+   when one window takes less than one and a half times what it should
+   have. One slow window alone (a drive waking up, a sector read again, a
+   flash drive pausing to write) is never enough.
+4. **Giving way:** while someone else is there, after each window OurStick
+   pauses nine times as long as the window took (it reads a tenth of the
+   time), at least 1 s, at most 30 s. The pause is in the window, so a 30 GB
+   file gives way as often as a folder of photos, and the user's program
+   waits at most one window (64 MB, under a second on a spinning disk) for
+   the disk.
+5. **One place decides per disk.** All of OurStick's reading from one disk
+   goes through that disk's `DiskShare` (the disk as `Root` already knows
+   it), whichever stick and whichever reader (a catalogue, a suitcase) it
+   is for. Only one of them reads a window at a time: they take turns, so
+   OurStick never mistakes itself for someone else. When readers wait for
+   a suitcase (today's "not ready"), the suitcase takes the next turn
+   first; this replaces the catalogue's pause for waiting readers
+   (`LONGEST_YIELD`). A suitcase gives way to the user as well: a reader who
+   waits longer because the sender's disk is busy is told nothing new ("the
+   sender is getting it ready" is what they already see). Two programs of
+   OurStick on one disk (the CLI and the app) do not know of each other;
+   they are rare, and each then gives way to the other as to anyone.
+6. **The owner sees it,** once when it starts and once when it stops, not
+   at every window: the CLI prints "Reading your folder slowly, so another
+   program can use the disk." and "Reading at full speed again."; the app
+   shows the first under a sharing stick's state while it lasts. No
    setting: a stick that never gives way is not something a user asks for,
-   and one that always crawls is what this avoids.
+   and one that always crawls is what this avoids. Each change is logged
+   (`debug`) with its numbers (the window's time, the expected time), never
+   a path.
 7. **Not the reader's side, not now.** A receiver writes at the network's
-   speed, which is far below a disk's except on a fast home network; its
-   first round compares files already in the folder by content, which is
-   rare and short. Both stay as they are, and the todo says so.
+   speed, which is far below a disk's except on a fast home network; files
+   already in its folder are compared by content only when they are not as
+   it recorded them (a folder received before without records, or files
+   changed there). That can be long (a 500 GB folder received again in a
+   new place), and the todo says so; it can use the same `DiskShare` later.
 
 ## In the code
 
-- `share/disk_share.rs` (new, pure, no I/O): `DiskShare`, with
-  `after_part(files, bytes, took) -> Duration` (the pause before the next
-  part) and `giving_way() -> bool`. The recent bests and their fading are
-  in it; time comes in as `took` and as the caller's `Instant`s, so tests
-  drive it with numbers only.
-- `share/pass.rs`: after each part, `DiskShare::after_part` (the bytes
-  read: the catalogue's `read` files, twice their size); the pause is the
-  larger of it and today's yield to waiting readers.
-- `share/keeper/prepare.rs`: one `DiskShare` per stick's keeper, fed after
-  each file it encrypts into a suitcase. The pass and the keeper of a
-  stick read the same disk at the same time; each judges its own parts.
-  Sticks on different disks do not slow each other; sticks on one disk each
-  see the other as "someone else" only if their parts get slower, which
-  makes both give way, then both speed up: a slow sway, not a stall, and
-  rare (a pass and a suitcase of one stick are already paced by rule 5).
-- An event `PassEvent::GivingWay(bool)` (and the keeper's equivalent) for
-  the owner's state words, rule 6.
+- `share/disk_share.rs` (new, pure, no I/O): `DiskShare` with
+  `after_window(files, bytes, took: Duration) -> Duration` (the pause),
+  `giving_way() -> bool`, and the named constants of rules 2–4 in one place.
+  Its time is what it is given (`took`), so tests drive it with numbers
+  only, no `Clock`.
+- `share/disk_turns.rs` (new): one `DiskShare` per disk per process, behind
+  a turn (a lock taken per window, the waiting-readers' suitcase first), and
+  `Timed<R: Read>`, which times the first read of a file, closes windows,
+  and sleeps for the pause in the blocking thread it reads in. Both are
+  given to the catalogue (`manifest/catalogue.rs`, through `next_part`) and
+  to the keeper (`share/keeper/prepare.rs`) by the caller, not made inside.
+- A trait for the judgement (`DiskLoad`), so a better source (the system's
+  disk counters, see Consequences) can replace the timing later without
+  changing the callers.
+- `PassEvent::GivingWay(bool)` and the keeper's matching event come from
+  the disk's one `DiskShare`, so a stick has one state; the CLI and the app
+  show it (rule 6).
+- A drive ejected during a pause: the pause sleeps in slices of at most
+  5 s and checks the drive's mark between them, as the pass does between
+  parts, so `DriveMissing` is not a pause late.
 
 ## Consequences
 
@@ -108,15 +130,18 @@ Nothing gives way to anyone outside OurStick.
 - The judgement is a guess from timing. It can mistake a slow stretch of
   the disk (bad sectors, a fragmented file, a drive spinning up) for
   another user, and give way for no reason; it recovers at the first fast
-  part. It cannot see another user on a disk so fast that sharing it costs
+  window. It cannot see another user on a disk so fast that sharing it costs
   OurStick little (an SSD): there OurStick does not slow down, and the user
   does not notice it either.
 - Measuring adds no I/O: only the time of reads OurStick does anyway.
+- OurStick's own readers on one disk take turns (rule 5): a catalogue and
+  a suitcase no longer read at once. On a spinning disk that is faster
+  than today (no seeking between them); on an SSD, a little slower.
 - Rejected: reading the system's disk counters (`/proc/diskstats` on
   Linux) to see others' I/O directly. Exact, but Linux only; macOS and
   Windows need IOKit or performance counter APIs, through `unsafe` or new
   dependencies. It can come later, behind a trait, if timing proves not
-  enough.
+  enough; the `DiskLoad` trait is that place.
 - Rejected: OS priority (Context). If Giorgos approves the `unsafe` calls
   later, they add to this; they do not replace it, since `mq-deadline` and
   the other non-BFQ schedulers ignore them.
@@ -124,14 +149,25 @@ Nothing gives way to anyone outside OurStick.
 ## Order of work
 
 1. `DiskShare` with tests: steady disk (never gives way), a busy stretch
-   (gives way after two slow parts, back after one fast), small files and
-   big ones mixed (no false alarm), fading (an early cached burst stops
+   (gives way after two slow windows, back after one fast), one slow window
+   alone (no change), small files and big ones mixed (no false alarm), a
+   window of unread files (ignored), fading (an early cached burst stops
    counting), the bounds of the pause.
-2. The pass and the keeper use it; the owner's state words (CLI and app).
-3. Manual test on `sda`: share a large test folder (not Rescued_Disk: made up
-   files, about 20 GB), and while its catalogue runs copy a 5 GB file on
-   the same disk; time the copy with and without OurStick running, and see
-   OurStick's state say it is giving way and then stop. The copy should
-   take at most about 1.3 times as long as alone.
-4. Docs: protocol.md (the owner's behaviour; nothing on the wire changes),
+2. `Timed` and the turns, with tests: windows inside one big file, the
+   first read only, the suitcase for a waiting reader first, the pause in
+   slices with an ejected drive.
+3. The catalogue and the keeper use them; `LONGEST_YIELD` goes; the
+   owner's words (CLI, app). An integration test: a pass over a folder whose
+   reads are made slow (a `Read` that sleeps) says it gives way, and stops
+   saying so when they are fast again.
+4. Manual test on `sda`, with made-up files (not Rescued_Disk): a 20 GB folder of
+   photos-sized files and one 10 GB file. Time copying a 5 GB file on the
+   same disk alone, then while OurStick's catalogue runs, three times each,
+   with the cache dropped before each run (`sync; echo 3 | sudo tee
+   /proc/sys/vm/drop_caches`, run by Giorgos), and take the middle time. It
+   passes if the copy takes at most 1.3 times as long as alone, OurStick
+   keeps reading meanwhile (it does not stop), and it says "full speed"
+   again within a minute of the copy ending. If not, the constants of rule
+   3–4 are tuned with the logged numbers, and the ADR says so.
+5. Docs: protocol.md (the owner's behaviour; nothing on the wire changes),
    gui-spec.md (the words), todo.md; status Accepted. Then Rescued_Disk.

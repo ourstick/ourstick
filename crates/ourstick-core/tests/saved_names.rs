@@ -13,7 +13,10 @@ mod common;
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 
-use common::{keep_going, write_file, Owner, Reader};
+// The tests with `c:` names (not on Windows) are the ones that keep going.
+#[cfg(not(windows))]
+use common::keep_going;
+use common::{write_file, Owner, Reader};
 use ourstick_core::download::DownloadEvent;
 use ourstick_core::transport::Publisher;
 use ourstick_core::Store;

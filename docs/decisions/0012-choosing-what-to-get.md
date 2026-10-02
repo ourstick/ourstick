@@ -1,6 +1,6 @@
 # 0012: Choosing what to get of a received stick
 
-Status: Proposed (2026-10-02)
+Status: Accepted (2026-10-03)
 
 ## Context
 

@@ -147,7 +147,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
     it is that stick's lock; a `DownloadLock { stick_id }` type would.
   - `get --follow` still has its own loop; move it onto `download::receive`
     once the window has proved it.
-  - Choosing which folders of a received stick to get is step 7b-iv.
 - **Windows VM disk:** a full debug build of the workspace with its tests
   takes about 75 GB in `target\debug`; it filled the VM's disk once
   (`LNK1180`). Clean it now and then.
@@ -192,7 +191,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   it matters: send only what changed since the reader's version (a protocol
   change; its own ADR).
 - **Next, in this order (agreed 2026-10-02):**
-  1. ADR 0012, choosing what to get (proposed; implement).
+  1. ~~ADR 0012, choosing what to get~~ (done 2026-10-03, tried Linux → Mac:
+     a 104 GB folder left out, a file un-ticked kept and no longer updated).
   2. ADR 0013 (to write), giving way to the user's disk: the catalogue and
      the suitcases measure their own read speed and, when it drops (someone
      else is using the disk), pause between parts, speeding up again when

@@ -258,11 +258,15 @@ in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
 - **Add a sharing link:** a field to paste the link (never shown back,
   logged or put in a message: it holds the stick's key) → `Look at it` →
   "Looking for the sender… please wait." (at most half a minute) → the
-  stick's name, its top-level folders and files with their sizes (at most
-  200, then "and N more"), `Save to <folder>` (Downloads/<stick name> at
-  first) with `Choose…` (the system's folder picker), and `Needs up to X ·
-  fits`, or "Needs up to X, and only Y are left on this computer there",
-  or "The sender is still counting its files: more is coming." → `Get it`.
+  stick's name, then "What to get:" with `All` / `None` and every
+  top-level folder and file with a tick (all ticked) and its size, largest
+  first; "New things the sender adds will come too."; `Save to <folder>`
+  (Downloads/<stick name> at first) with `Choose…` (the system's folder
+  picker); and `Needs up to X · fits` (the ticked ones, as they change), or
+  "Needs up to X, and only Y are left where it would be saved. Un-tick
+  something, choose another place, or free some room.", or "Tick at least
+  one thing.", or "The sender is still counting its files: more is coming."
+  → `Get it` (ADR 0012).
   If the sender cannot be reached: "The sender's computer is off, or
   OurStick is not open there. Try again when it is." A link to one of this
   device's own sticks, or one it already receives, is refused, saying so.
@@ -273,9 +277,15 @@ in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
   or OurStick is not open there. It goes on by itself when they are back."
   (or why else it waits: no room, its folder's disk unplugged, the sender
   no longer sharing it with this link); "Paused: …"; or, in red, why it
-  stopped, with `Try again`. Its `⋯` menu: `Pause` / `Resume`, `Forget
-  this stick…` (red): "It is no longer kept up to date. Its files stay in
-  <folder>."
+  stopped, with `Try again`. Under it, what it leaves out: "Not getting:
+  Films." and "Not updating: Music (it stays in the folder)." Its `⋯` menu:
+  `Pause` / `Resume`, `Choose what to get…` (the same ticks; un-ticking
+  what is here says "Music stays in your folder, but is no longer updated.
+  OurStick never deletes anything."; a name the stick no longer has is
+  marked "not on the stick now"; `Save`), `Forget this stick…` (red): "It
+  is no longer kept up to date. Its files stay in <folder>." When there is
+  not room, its wait says to leave something out with `Choose what to
+  get…`.
 - Received sticks are kept up to date in the background while the app
   runs, each going on where it was after a restart; files the sender
   removes stay here; a folder whose disk is unplugged is never filled on
@@ -284,8 +294,8 @@ in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
 - **First launch** has a second way in: "Someone sent you a sharing link?
   `I got a sharing link`", straight to adding it, with no stick of one's
   own.
-- Not yet: choosing which folders of a stick to get (step 7b-iv), and
-  receiving without the app (a web receiver is out of v1). `ourstick get`
+- Not yet: choosing below the top level of a stick (ADR 0012 keeps it to
+  top-level entries), and receiving without the app (a web receiver is out of v1). `ourstick get`
   still works, but never touches a stick the window receives.
 
 ## Before the first public release

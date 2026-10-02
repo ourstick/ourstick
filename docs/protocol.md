@@ -229,6 +229,12 @@ carries only the key). Every file blob of that stick must use the same cipher.
 - Right before a file is moved into place, the file there is checked again:
   it must be absent, or still as planned. Otherwise it is left and reported.
 - Files that left the stick are kept and reported, never deleted.
+- A reader may leave out top-level entries of a stick (ADR 0012): a set of
+  first path components, byte-exact as in the manifest, read at every round.
+  Nothing under them is fetched, counted or given a new place; files of them
+  already here stay where they were recorded and are no longer updated. New
+  top-level entries are fetched. Nothing on the wire changes: the owner
+  never learns what a reader leaves out.
 - If the owner refuses a blob during a download, most likely because it
   published a new version and stopped serving the old blobs, the reader
   fetches the record again. With a newer version it goes on with that one

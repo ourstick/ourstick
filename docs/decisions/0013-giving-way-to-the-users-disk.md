@@ -80,8 +80,9 @@ Nothing gives way to anyone outside OurStick.
 5. **One place decides per disk.** All of OurStick's reading from one disk
    goes through that disk's `DiskShare`, whichever stick and whichever
    reader (a catalogue, a suitcase) it is for. A "disk" is a filesystem:
-   its device id on Linux and macOS, its volume (the path's prefix, `C:\`)
-   on Windows; one share for the whole process where neither is known.
+   its device id on Linux and macOS, its volume on Windows (the path's
+   prefix, `C:\`, with a `subst` letter, as the app's own drive is, taken
+   back to the folder it stands for); one share for the whole process where neither is known.
    Two partitions of one physical disk are two filesystems, so OurStick on
    one may take OurStick on the other for someone else: rare, and it only
    slows both. Only one reader reads a window at a time: they take turns in
@@ -93,8 +94,8 @@ Nothing gives way to anyone outside OurStick.
    someone (what `LONGEST_YIELD` bounds today); this replaces it. The pause
    is the disk's, not the reader's: it is a time before which the next turn
    does not start, waited for outside the turn, so no reader holds the
-   disk while it sleeps, and a stick that stops leaves the queue at once. A suitcase gives way to the user as well: a reader who
-   waits longer because the sender's disk is busy is told nothing new ("the
+   disk while it sleeps, and a stick that stops leaves the queue at once. A suitcase gives way to the
+   user as well: a reader who waits longer because the sender's disk is busy is told nothing new ("the
    sender is getting it ready" is what they already see). Two programs of
    OurStick on one disk (the CLI and the app) do not know of each other;
    they are rare, and each then gives way to the other as to anyone.
@@ -126,19 +127,22 @@ Nothing gives way to anyone outside OurStick.
   ends it), closes windows, and waits for the disk's pause in the blocking
   thread it reads in. The catalogue opens files itself
   (`hash_file_telling_plaintext`), so it is given a way to open a file as a
-  `Timed` reader, not only the `DiskShare`. A file bigger than memory is
-  read from the disk twice and only the first read is timed, so for such
-  files OurStick reads about two elevenths of the time, not a tenth: close
-  enough, and said here rather than guessed at run time. A drive found
+  `Timed` reader, not only the `DiskShare`. The second read (after the
+  seek back) still takes turns and pauses at each window like the first,
+  so a file bigger than memory, read from the disk twice, still leaves the
+  user nine tenths of the time and never reads out of turn; it only does
+  not feed the judgement (no best, no slow or fast window). A drive found
   missing between slices of a pause comes out of `read` as an error of its
   own kind, which the catalogue passes on as `DriveMissing`, not as a file
-  gone. Both are
-  given to the catalogue (`manifest/catalogue.rs`, through `next_part`) and
-  to the keeper (`share/keeper/prepare.rs`) by the caller, not made inside.
+  gone. The `DiskShare`s and the way to open a `Timed` reader are given to
+  the catalogue (`manifest/catalogue.rs`, through `next_part`) and to the
+  keeper (`share/keeper/prepare.rs`) by the caller, not made inside.
   `Timed` measures and sleeps through a small trait of its own (`Timer`:
-  elapsed time, sleep), real in the app and the CLI, a fake in tests, so the
-  bounds of the pause and the ejected-drive slices are tested without
-  waiting.
+  monotonic elapsed time, sleep), real in the app and the CLI, a fake in
+  tests, so the bounds of the pause and the ejected-drive slices are tested
+  without waiting. It is not the core's `Clock`, which tells wall time in
+  milliseconds for records (and can jump); a pause needs a clock that never
+  goes back.
 - A trait for the judgement (`DiskLoad`), so a better source (the system's
   disk counters, see Consequences) can replace the timing later without
   changing the callers.

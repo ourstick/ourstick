@@ -217,12 +217,14 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **Next, in this order (agreed 2026-10-02):**
   1. ~~ADR 0012, choosing what to get~~ (done 2026-10-03, tried Linux → Mac:
      a 104 GB folder left out, a file un-ticked kept and no longer updated).
-  2. ADR 0013 (to write), giving way to the user's disk: the catalogue and
-     the suitcases measure their own read speed and, when it drops (someone
-     else is using the disk), pause between parts, speeding up again when
-     it recovers. No OS priority: on this Linux machine the HDD's scheduler
-     (`mq-deadline`) ignores `ionice` classes, and Windows' and macOS's
-     background I/O modes need unsafe calls.
-  3. Send `Rescued_Disk` (980 GB, 146 297 files, 10 levels deep,
+  2. ADR 0014, receiving many small files (proposed 2026-10-03: records in
+     groups, 16 files placed at once; first, by Giorgos' choice).
+  3. ADR 0013, giving way to the user's disk (written and reviewed; Giorgos
+     agreed 2026-10-03): OurStick times its own reads in windows and, when
+     they get far slower (someone else is using the disk), reads a tenth of
+     the time until they are fast again. No OS priority: on this Linux
+     machine the HDD's scheduler (`mq-deadline`) ignores `ionice` classes,
+     and Windows' and macOS's background I/O modes need unsafe calls.
+  4. Send `Rescued_Disk` (980 GB, 146 297 files, 10 levels deep,
      no name Windows refuses, 1 579 paths over 260 characters in a Windows
      Downloads folder) as the first real scale test.

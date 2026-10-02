@@ -6,7 +6,7 @@
     resumeReceived,
     type ReceivedEntry,
   } from "./api";
-  import { since, size } from "./format";
+  import { middle, since, size } from "./format";
 
   let {
     entry,
@@ -72,11 +72,6 @@
       <button class="more" aria-label="More for this stick" aria-expanded={menu} onclick={() => (menu = !menu)}>⋯</button>
       {#if menu}
         <div class="menu" role="menu">
-          {#if entry.paused}
-            <button role="menuitem" onclick={() => act(() => resumeReceived(entry.id))}>Resume</button>
-          {:else}
-            <button role="menuitem" onclick={() => act(() => pauseReceived(entry.id))}>Pause</button>
-          {/if}
           <button
             role="menuitem"
             class="danger-text"
@@ -93,7 +88,7 @@
   {#if forgetting}
     <section class="ask">
       <strong>Forget “<bdi>{entry.name}</bdi>”?</strong>
-      <p>It is no longer kept up to date. Its files stay in {entry.folder}.</p>
+      <p>It is no longer kept up to date. Its files stay in <bdi title={entry.folder}>{middle(entry.folder, 64)}</bdi>.</p>
       {#if busy}<p class="muted">Forgetting… please wait.</p>{/if}
       <div class="actions">
         <button onclick={() => (forgetting = false)} disabled={busy}>Cancel</button>
@@ -103,7 +98,7 @@
   {/if}
 
   <p class="folder row spread">
-    <span class="muted path" title={entry.folder}>Saved in {entry.folder}</span>
+    <span class="muted path" title={entry.folder}>Saved in <bdi>{middle(entry.folder)}</bdi></span>
     <button onclick={() => act(() => openReceivedFolder(entry.id))}>Open folder</button>
   </p>
 
@@ -113,6 +108,10 @@
   {/if}
   {#if entry.state === "stopped"}
     <p><button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Try again</button></p>
+  {:else if entry.paused}
+    <p><button class="primary" onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Resume</button></p>
+  {:else if entry.state}
+    <p><button onclick={() => act(() => pauseReceived(entry.id))} disabled={busy}>Pause</button></p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 </section>

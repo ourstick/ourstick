@@ -69,7 +69,9 @@
       <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
     {/if}
     <div class="actions">
-      <button onclick={close} disabled={busy}>{view.sharing ? "Keep sharing" : "Cancel"}</button>
+      <button onclick={close} disabled={busy}>
+        {view.sharing || view.receiving.length > 0 ? "Don't quit" : "Cancel"}
+      </button>
       <button class={view.sharing ? "danger" : "primary"} onclick={stop} disabled={busy}>Quit</button>
     </div>
   {:else if view}

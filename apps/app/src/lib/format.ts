@@ -11,6 +11,22 @@ export function size(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
 }
 
+/**
+ * A long path cut in the middle, so its own folder's name stays in view:
+ * "/Users/me/…/Holiday 2026". Either separator (macOS, Linux, Windows).
+ */
+export function middle(path: string, max = 48): string {
+  const chars = [...path];
+  if (chars.length <= max) return path;
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const separator = cut >= 0 ? path[cut] : "";
+  const last = [...path.slice(cut + 1)];
+  // The last name alone is too long: its end stays.
+  if (last.length + 2 >= max) return "…" + last.slice(last.length - (max - 1)).join("");
+  const start = chars.slice(0, max - last.length - 2).join("");
+  return `${start}…${separator}${last.join("")}`;
+}
+
 export function rate(bytesPerSecond: number): string {
   if (bytesPerSecond >= 1e6) {
     return `${(bytesPerSecond / 1e6).toFixed(1)} MB/s`;

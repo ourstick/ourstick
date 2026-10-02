@@ -1,6 +1,6 @@
 <script lang="ts">
   import { addReceived, chooseFolder, previewLink, type PreviewView } from "./api";
-  import { size } from "./format";
+  import { middle, size } from "./format";
 
   let {
     onAdded,
@@ -101,7 +101,7 @@
       {#each preview.entries as entry (entry.name)}
         <li>
           <bdi class="name">{entry.name}{entry.is_dir ? "/" : ""}</bdi>
-          <span class="muted">{size(entry.bytes)}</span>
+          <span class="muted size">{size(entry.bytes)}</span>
         </li>
       {/each}
       {#if preview.more > 0}
@@ -109,14 +109,14 @@
       {/if}
     </ul>
     <p class="row spread">
-      <span class="muted path" title={preview.folder}>Save to {preview.folder}</span>
+      <span class="muted path" title={preview.folder}>Save to <bdi>{middle(preview.folder)}</bdi></span>
       <button onclick={choose} disabled={adding}>Choose…</button>
     </p>
     {#if preview.earlier}
       <p class="muted">You received this stick here before: it goes on in the same folder.</p>
     {:else if preview.earlier_elsewhere}
       <p class="muted">
-        You received this stick before, in {preview.earlier_elsewhere}. The files there stay there; it starts again in the
+        You received this stick before, in <bdi title={preview.earlier_elsewhere}>{middle(preview.earlier_elsewhere, 64)}</bdi>. The files there stay there; it starts again in the
         new folder.
       </p>
     {/if}
@@ -183,6 +183,10 @@
     padding: 4px 8px;
     border: 1px solid var(--border);
     border-radius: var(--button-radius);
+  }
+  .size {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .name,
   .path {

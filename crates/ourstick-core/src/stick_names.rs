@@ -6,7 +6,7 @@
 
 use icu_normalizer::ComposingNormalizerBorrowed;
 
-use crate::download::files::{component_problem, is_reserved_device};
+use crate::download::saved_names::safe_name;
 use crate::drive::free_name_where;
 use crate::manifest::{name_for_manifest, validate_name};
 use crate::store::OwnedStick;
@@ -71,36 +71,24 @@ pub fn name_from_folder(folder: &str) -> String {
     }
 }
 
-/// The folder for a stick called `name`: what Windows refuses replaced by
-/// `_`, no trailing dot or space, a reserved name (`CON`, `COM1`…) given a
-/// `_`, and " (2)", " (3)"… if `taken` says the name is used (the caller
-/// compares ignoring case and asks the disk too). Always a plain name that
-/// every system accepts.
+/// The folder for a stick called `name`, by the rule every name OurStick
+/// writes follows (`download::saved_names::safe_name`, Windows' rules always,
+/// so a folder made anywhere can go anywhere): what Windows refuses replaced
+/// by `_`, no trailing dot or space, a reserved name (`CON`, `COM1`…) given
+/// a `_`, a name too long cut; "Stick" if nothing is left; and " (2)",
+/// " (3)"… if `taken` says the name is used (the caller compares ignoring
+/// case and asks the disk too).
 pub fn folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
-    let mut folder: String = normal_form(name)
+    let folder: String = normal_form(name)
         .chars()
-        .map(|c| {
-            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
-                '_'
-            } else {
-                c
-            }
-        })
+        .map(|c| if matches!(c, '/' | '\\') { '_' } else { c })
         .collect();
-    folder = folder.trim_end_matches(['.', ' ']).to_owned();
-    if folder.is_empty() || folder == "." || folder == ".." {
-        folder = "Stick".to_owned();
-    }
-    if is_reserved_device(&folder) {
-        // Windows reads the name before the first dot: `COM1.txt` is COM1.
-        let stem_end = folder.find('.').unwrap_or(folder.len());
-        folder.insert(stem_end, '_');
-    }
-    // The reader's own rule has the last word, in every build: a name it
-    // would refuse falls back to "Stick".
-    if component_problem(&folder, true).is_some() {
-        folder = "Stick".to_owned();
-    }
+    let plain = folder.trim_end_matches(['.', ' ']);
+    let folder = if plain.is_empty() {
+        "Stick".to_owned()
+    } else {
+        safe_name(&folder, true).into_owned()
+    };
     free_name_where(&folder, taken)
 }
 

@@ -20,6 +20,11 @@ mod path;
 mod receive;
 mod relay;
 mod relay_watch;
+// Until the reader uses them (ADR 0010, step 4).
+#[allow(dead_code)]
+pub(crate) mod saved_names;
+#[allow(dead_code)]
+pub(crate) mod saved_paths;
 mod types;
 
 use fetch_files::{fetch_files, FileCounts};
@@ -382,18 +387,4 @@ async fn download_over(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancellation_maps_to_its_own_error() {
-        assert!(matches!(
-            cancelled(TransportError::Cancelled),
-            DownloadError::Cancelled
-        ));
-        assert!(matches!(
-            cancelled(TransportError::Corrupt),
-            DownloadError::Transport(TransportError::Corrupt)
-        ));
-    }
-}
+mod tests;

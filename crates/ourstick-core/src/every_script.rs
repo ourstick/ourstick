@@ -77,6 +77,30 @@ fn names_and_paths_in_every_script_never_panic() {
                 ..Manifest::default()
             };
             let _ = check_manifest_paths(&manifest);
+            if !text.is_empty() {
+                for windows in [true, false] {
+                    let saved = crate::download::saved_names::safe_name(&text, windows);
+                    assert!(
+                        component_problem(&saved, windows).is_none(),
+                        "{text:?} saved as {saved:?}"
+                    );
+                }
+                let path = format!("{text}/{text}");
+                for fold_case in [true, false] {
+                    let rules = crate::download::saved_paths::Rules {
+                        windows: true,
+                        fold_case,
+                        fold_normal: true,
+                    };
+                    let saved = crate::download::saved_paths::saved_paths(
+                        &[&path, &text],
+                        &[],
+                        |_, _| crate::download::saved_paths::OnDisk::Nothing,
+                        rules,
+                    );
+                    assert_eq!(saved.saved.len(), 2);
+                }
+            }
         }
     }
 }

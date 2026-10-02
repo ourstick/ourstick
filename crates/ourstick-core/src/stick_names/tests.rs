@@ -1,5 +1,6 @@
 use super::*;
 use crate::cipher::CipherId;
+use crate::download::files::component_problem;
 use crate::stick_id::StickSigningKey;
 
 fn stick(seed: u8, name: &str) -> OwnedStick {
@@ -73,6 +74,9 @@ fn a_folder_name_is_one_every_system_takes() {
     assert_eq!(folder_name("COM1.txt", none), "COM1_.txt");
     assert_eq!(folder_name("LPT9", none), "LPT9_");
     assert_eq!(folder_name("Μαρι\u{301}α", none), "Μαρία");
+    // Too long: cut, not given up on.
+    let long = folder_name(&"Ταξίδι ".repeat(60), none);
+    assert!(long.starts_with("Ταξίδι") && long.encode_utf16().count() <= 255);
     // Taken, as the caller sees it (here ignoring case).
     let taken = |candidate: &str| {
         ["for maria", "for maria (2)"].contains(&candidate.to_lowercase().as_str())

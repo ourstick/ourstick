@@ -20,7 +20,7 @@ use crate::untrusted::escape;
 /// `windows` selects the Windows rules; it is a parameter so they are tested
 /// everywhere.
 /// The longest file or folder name the systems OurStick runs on take.
-const MAX_NAME: usize = 255;
+pub(crate) const MAX_NAME: usize = 255;
 
 pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
     let mut components = Path::new(component).components();

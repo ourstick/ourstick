@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::locks::{download_lock, LockError};
+use crate::locks::{download_lock, Lock, LockError};
 use crate::secrets::{SecretError, SecretName, SecretStore};
 use crate::stick_id::StickId;
 use crate::store::{JoinedChange, StickKind, Store, StoreError};
@@ -44,7 +44,11 @@ pub fn check_link(
     stick_id: &StickId,
     kind: StickKind,
 ) -> Result<(), ReceivedError> {
-    if let Some(own) = store.owned_stick(stick_id)? {
+    let own = store.owned_stick(stick_id)?.or(store
+        .removing_sticks()?
+        .into_iter()
+        .find(|stick| stick.stick_id == *stick_id));
+    if let Some(own) = own {
         return Err(ReceivedError::OwnStick(own.name));
     }
     if store
@@ -89,14 +93,16 @@ pub fn received_store_dir(data_dir: &Path, stick_id: &StickId) -> PathBuf {
 
 /// "Forget this stick": no longer received, its sharing link (ticket)
 /// forgotten, its waiting blobs and records deleted; the files already
-/// received stay. The caller holds the stick's download lock, and has
-/// stopped receiving it. Marked first, so a crash leaves it hidden and
-/// [`finish_forgetting`] completes it at the next start.
+/// received stay. `_held` is the stick's download lock (no other program
+/// receives it meanwhile); the caller has stopped receiving it. Marked
+/// first, so a crash leaves it hidden and [`finish_forgetting`] completes it
+/// at the next start.
 pub fn forget_received(
     store: &dyn Store,
     secrets: &dyn SecretStore,
     data_dir: &Path,
     stick_id: &StickId,
+    _held: &Lock,
 ) -> Result<(), ReceivedError> {
     match store.change_joined_stick(stick_id, &JoinedChange::Forgetting) {
         Ok(()) => {}

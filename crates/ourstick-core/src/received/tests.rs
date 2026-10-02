@@ -42,6 +42,24 @@ fn a_link_to_one_of_this_devices_own_sticks_is_refused() {
         Err(ReceivedError::RetiredStick)
     ));
     assert!(check_link(&store, &stick_id(3), StickKind::App).is_ok());
+    // A stick being removed is still this device's own.
+    store.add_owned_stick(&owned(7, "Films")).unwrap();
+    store.mark_removing(&stick_id(7)).unwrap();
+    assert!(matches!(
+        check_link(&store, &stick_id(7), StickKind::Cli),
+        Err(ReceivedError::OwnStick(name)) if name == "Films"
+    ));
+}
+
+#[test]
+fn an_unknown_stick_is_not_forgotten() {
+    let (store, secrets, dir, _output) = world();
+    let data = dir.path().join("data");
+    let lock = download_lock(&data, &stick_id(8)).unwrap();
+    assert!(matches!(
+        forget_received(&store, &secrets, &data, &stick_id(8), &lock),
+        Err(ReceivedError::Store(StoreError::StickNotFound))
+    ));
 }
 
 #[test]
@@ -100,7 +118,7 @@ fn forgetting_keeps_the_files_and_the_floor_and_drops_the_rest() {
     let (store, secrets, dir, output) = world();
     let data = dir.path().join("data");
     let _lock = download_lock(&data, &stick_id(6)).unwrap();
-    forget_received(&store, &secrets, &data, &stick_id(6)).unwrap();
+    forget_received(&store, &secrets, &data, &stick_id(6), &_lock).unwrap();
     assert!(store.joined_stick(&stick_id(6)).unwrap().is_none());
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
     assert!(secrets
@@ -140,7 +158,8 @@ fn a_forget_stopped_halfway_is_hidden_and_finished_at_start() {
     store
         .change_joined_stick(&stick_id(6), &JoinedChange::Forgetting)
         .unwrap();
-    forget_received(&store, &secrets, &data, &stick_id(6)).unwrap();
+    let lock = download_lock(&data, &stick_id(6)).unwrap();
+    forget_received(&store, &secrets, &data, &stick_id(6), &lock).unwrap();
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
 }
 

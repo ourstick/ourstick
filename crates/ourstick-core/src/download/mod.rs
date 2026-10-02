@@ -122,8 +122,8 @@ pub async fn download(
 }
 
 /// [`download`] for the program `kind`: the receiver window (`App`) takes
-/// over a stick `get` received; `get` (`Cli`) is refused moving the app's
-/// stick to another folder ([`DownloadError::ReceivedByApp`]).
+/// over a stick `get` received; `get` (`Cli`) is refused the app's
+/// stick ([`DownloadError::ReceivedByApp`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn download_as(
     kind: StickKind,

@@ -221,3 +221,17 @@ fn each_received_stick_has_a_folder_of_its_own() {
     .is_ok());
     assert!(check_received(&device, &downloads.join("Films"), 10).is_ok());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_folder_not_made_yet_is_checked_where_its_links_lead() {
+    let device = device();
+    // ~/link points into a folder a command-line stick shares; ~/link/new
+    // does not exist yet.
+    let link = device.data.parent().unwrap().join("link");
+    std::os::unix::fs::symlink(&device.documentaries, &link).unwrap();
+    assert!(matches!(
+        check_received(&device, &link.join("new"), 9),
+        Err(PlaceError::Shared { .. })
+    ));
+}

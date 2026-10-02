@@ -168,9 +168,9 @@ pub enum DownloadError {
     Cipher(#[from] CipherError),
     #[error(transparent)]
     Store(#[from] StoreError),
-    #[error("OurStick (the app) receives this stick into {}; use the app, or forget the stick there first", .0.display())]
+    #[error("OurStick (the app) receives this stick, into {}; use the app, or forget the stick there first", .0.display())]
     ReceivedByApp(PathBuf),
-    #[error("this stick is being forgotten; try again in a moment")]
+    #[error("this stick is being forgotten by OurStick (the app); open the app to finish that, then try again")]
     BeingForgotten,
     #[error("I/O error on {path}: {source}")]
     Io {

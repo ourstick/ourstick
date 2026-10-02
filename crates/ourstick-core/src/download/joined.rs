@@ -13,7 +13,7 @@ use crate::ticket::Ticket;
 
 /// Records the stick as received by `kind` into `output_dir`: a new row,
 /// or the folder of an earlier one (another folder holds nothing yet: it
-/// replaces the old one). `get` never moves the app's stick; the app takes
+/// replaces the old one). `get` never touches the app's stick; the app takes
 /// over one `get` received. The caller holds the stick's download lock.
 pub(super) async fn prepare(
     store: &Arc<dyn Store>,
@@ -26,10 +26,10 @@ pub(super) async fn prepare(
     let output_dir = output_dir.to_path_buf();
     run_blocking(move || {
         match store.joined_stick(&stick_id)? {
+            // The window's stick is the window's alone, also in its own
+            // folder: paused there, it stays paused.
             Some(joined) if joined.kind == StickKind::App && kind == StickKind::Cli => {
-                if joined.output_dir != output_dir {
-                    return Err(DownloadError::ReceivedByApp(joined.output_dir));
-                }
+                return Err(DownloadError::ReceivedByApp(joined.output_dir));
             }
             Some(joined) => {
                 if joined.output_dir != output_dir {
@@ -97,19 +97,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_never_moves_the_windows_stick_but_may_resume_it() {
+    async fn get_never_touches_the_windows_stick() {
         let (store, stick_id) = setup();
         let here = Path::new("/d/Holiday");
         prepare(&store, stick_id, here, StickKind::App, 1)
             .await
             .unwrap();
-        prepare(&store, stick_id, here, StickKind::Cli, 2)
-            .await
-            .unwrap();
-        let elsewhere = Path::new("/d/other");
-        match prepare(&store, stick_id, elsewhere, StickKind::Cli, 3).await {
-            Err(DownloadError::ReceivedByApp(folder)) => assert_eq!(folder, here),
-            other => panic!("{other:?}"),
+        for folder in [here, Path::new("/d/other")] {
+            match prepare(&store, stick_id, folder, StickKind::Cli, 2).await {
+                Err(DownloadError::ReceivedByApp(named)) => assert_eq!(named, here),
+                other => panic!("{other:?}"),
+            }
         }
         let joined = store.joined_stick(&stick_id).unwrap().unwrap();
         assert_eq!(

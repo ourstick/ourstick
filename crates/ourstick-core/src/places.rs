@@ -29,15 +29,34 @@ impl Relation {
     }
 }
 
-/// `path` as places are compared: links resolved where it exists, then
-/// [`comparable_text`] with letter case ignored where the file system
-/// ignores it (macOS, Windows).
+/// `path` as places are compared: links resolved in the part of it that
+/// exists (a folder not made yet, inside a linked folder, is compared where
+/// it will really be), then [`comparable_text`] with letter case ignored
+/// where the file system ignores it (macOS, Windows).
 pub fn comparable(path: &Path) -> PathBuf {
-    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let resolved = resolved(path);
     PathBuf::from(comparable_text(
         &resolved.to_string_lossy(),
         cfg!(any(target_os = "macos", windows)),
     ))
+}
+
+/// `path` with links resolved in its longest part that exists.
+fn resolved(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut existing = path;
+    loop {
+        if let Ok(real) = std::fs::canonicalize(existing) {
+            return rest.iter().rev().fold(real, |path, part| path.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
 }
 
 /// The text of a path as places are compared: Windows' `\\?\` dropped and

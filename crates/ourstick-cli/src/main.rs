@@ -134,12 +134,23 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
+    match run().await {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            // An error can carry text a peer chose (a stick's or a file's
+            // name): escaped like everything else shown from peers.
+            eprintln!("Error: {}", display::untrusted(&format!("{error:#}")));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
 
+async fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args)? {
         Command::Share {

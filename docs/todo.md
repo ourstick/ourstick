@@ -184,3 +184,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   the ones that could not be saved, each with its path in the stick and
   why, as plain text the user can copy into a message or email to the
   sender ("rename these"). Needs a plan, an ADR and reviews before code.
+- **Before release: end every test link.** Sharing links of the test
+  sticks were seen in screenshots and chats during the manual tests. Remove
+  the test sticks on Linux, the Mac and the VM (each one's key goes with it,
+  so its links stop for good), or start from a clean install (database and
+  OurStick's keyring entries deleted).

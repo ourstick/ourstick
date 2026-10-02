@@ -165,3 +165,23 @@ fn a_ledger_that_fails_is_said_and_tried_again() {
         Next::Wait(Waiting::ThisComputer(_), _)
     ));
 }
+
+#[test]
+fn a_round_writes_into_the_windows_folder_only_while_it_bears_its_mark() {
+    let mount_point = tempfile::tempdir().unwrap();
+    let stick_id = crate::stick_id::StickSigningKey::from_bytes(&[4; 32]).stick_id();
+    // The disk went: its mount point is there, empty.
+    assert!(matches!(
+        partial_for(mount_point.path(), Some(stick_id)),
+        Err(DownloadError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+    ));
+    assert!(std::fs::read_dir(mount_point.path())
+        .unwrap()
+        .next()
+        .is_none());
+    mark_received_folder(mount_point.path(), &stick_id).unwrap();
+    partial_for(mount_point.path(), Some(stick_id)).unwrap();
+    // `get`'s folders bear no mark, and need none.
+    let other = tempfile::tempdir().unwrap();
+    partial_for(other.path(), None).unwrap();
+}

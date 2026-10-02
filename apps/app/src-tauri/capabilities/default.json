@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "What the app's windows may do: the app's own commands, and close themselves.",
   "windows": ["main", "share-*", "confirm-*"],
-  "permissions": ["core:default", "core:window:allow-close"]
+  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-size"]
 }

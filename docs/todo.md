@@ -163,3 +163,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   PlaceError or LinkedError: a database failure through those shows its own
   text. `told_one` (the watcher's error) looks at the one error, not its
   chain.
+- **Linux: Quit from the dock does not quit.** GNOME's "Quit" asks the app
+  through its GTK actions; an app without a `quit` action only has its
+  windows closed, and OurStick stays in the tray (as with ×). Exporting a
+  `quit` action on tao's `gtk::Application` would need `gtk` as a direct
+  dependency (ask first). Found in the manual test on 2026-10-02.

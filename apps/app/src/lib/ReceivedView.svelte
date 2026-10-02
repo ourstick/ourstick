@@ -6,7 +6,8 @@
     resumeReceived,
     type ReceivedEntry,
   } from "./api";
-  import { middle, since, size } from "./format";
+  import { since, size } from "./format";
+  import PathText from "./PathText.svelte";
 
   let {
     entry,
@@ -88,7 +89,7 @@
   {#if forgetting}
     <section class="ask">
       <strong>Forget “<bdi>{entry.name}</bdi>”?</strong>
-      <p>It is no longer kept up to date. Its files stay in <bdi title={entry.folder}>{middle(entry.folder, 64)}</bdi>.</p>
+      <p>It is no longer kept up to date. Its files stay in <bdi>{entry.folder}</bdi>.</p>
       {#if busy}<p class="muted">Forgetting… please wait.</p>{/if}
       <div class="actions">
         <button onclick={() => (forgetting = false)} disabled={busy}>Cancel</button>
@@ -98,7 +99,7 @@
   {/if}
 
   <p class="folder row spread">
-    <span class="muted path" title={entry.folder}>Saved in <bdi>{middle(entry.folder)}</bdi></span>
+    <span class="muted path"><PathText label="Saved in" path={entry.folder} /></span>
     <button onclick={() => act(() => openReceivedFolder(entry.id))}>Open folder</button>
   </p>
 

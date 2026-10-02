@@ -1,6 +1,7 @@
 <script lang="ts">
   import { addReceived, chooseFolder, previewLink, type PreviewView } from "./api";
-  import { middle, size } from "./format";
+  import { size } from "./format";
+  import PathText from "./PathText.svelte";
 
   let {
     onAdded,
@@ -109,14 +110,14 @@
       {/if}
     </ul>
     <p class="row spread">
-      <span class="muted path" title={preview.folder}>Save to <bdi>{middle(preview.folder)}</bdi></span>
+      <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
       <button onclick={choose} disabled={adding}>Choose…</button>
     </p>
     {#if preview.earlier}
       <p class="muted">You received this stick here before: it goes on in the same folder.</p>
     {:else if preview.earlier_elsewhere}
       <p class="muted">
-        You received this stick before, in <bdi title={preview.earlier_elsewhere}>{middle(preview.earlier_elsewhere, 64)}</bdi>. The files there stay there; it starts again in the
+        You received this stick before, in <bdi>{preview.earlier_elsewhere}</bdi>. The files there stay there; it starts again in the
         new folder.
       </p>
     {/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onMount, tick } from "svelte";
+  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
   import { appState, confirmView, quit, stopSharing, type ConfirmView } from "./api";
 
   let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
@@ -11,9 +11,24 @@
   onMount(() => {
     appState().then((app) => (document.documentElement.dataset.platform = app.platform));
     confirmView(stickId)
-      .then((loaded) => (view = loaded))
+      .then(async (loaded) => {
+        view = loaded;
+        await fit();
+      })
       .catch((error) => (failure = String(error)));
   });
+
+  /** The window as tall as what it says (long names, two paragraphs). */
+  async function fit() {
+    await tick();
+    const height = Math.ceil(document.documentElement.scrollHeight);
+    const window = getCurrentWindow();
+    const now = await window.innerSize();
+    const scale = await window.scaleFactor();
+    if (height > now.height / scale) {
+      await window.setSize(new LogicalSize(now.width / scale, Math.min(height, 640)));
+    }
+  }
 
   const close = () => getCurrentWindow().close();
 

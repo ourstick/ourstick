@@ -2,13 +2,14 @@
   // What is (or will be) saved under another name than at the sender
   // (ADR 0010): the first lines, then all of them on request. Names are the
   // sender's text, escaped by the app and isolated here.
-  import type { SavedAs } from "./api";
+  import type { SavedAsList } from "./api";
   import { files } from "./format";
 
-  let { lines, coming = false }: { lines: SavedAs[]; coming?: boolean } = $props();
+  let { list, coming = false }: { list: SavedAsList; coming?: boolean } = $props();
   const FIRST = 10;
   let all = $state(false);
-  let count = $derived(lines.reduce((sum, line) => sum + line.files, 0));
+  let lines = $derived(list.lines);
+  let count = $derived(list.files);
   let shown = $derived(all ? lines : lines.slice(0, FIRST));
 </script>
 
@@ -30,8 +31,11 @@
         </li>
       {/each}
     </ul>
+    {#if all && list.more > 0}
+      <p class="muted">… and {list.more} more {list.more === 1 ? "name" : "names"} (see the folder).</p>
+    {/if}
     {#if lines.length > FIRST}
-      <button onclick={() => (all = !all)}>{all ? "Show fewer" : `Show all ${lines.length}`}</button>
+      <button onclick={() => (all = !all)}>{all ? "Show fewer" : `Show all ${lines.length + list.more}`}</button>
     {/if}
   </section>
 {/if}

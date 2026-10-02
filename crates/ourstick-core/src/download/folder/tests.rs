@@ -286,3 +286,23 @@ fn the_disk_is_asked_inside_the_folder_whether_it_folds_case() {
     std::fs::create_dir(digits.join("456")).unwrap();
     assert!(case_folded(&digits.join("456")));
 }
+
+#[test]
+fn a_file_where_a_received_folder_was_stops_nothing() {
+    let out = tempfile::tempdir().unwrap();
+    std::fs::create_dir(out.path().join("Trip")).unwrap();
+    let row = written(out.path(), "Trip/a.jpg", b"a");
+    // The user deleted the folder and saved a note of that name.
+    std::fs::remove_dir_all(out.path().join("Trip")).unwrap();
+    std::fs::write(out.path().join("Trip"), b"my note").unwrap();
+    let plan = plan_folder(
+        out.path(),
+        &manifest(vec![entry("Trip/a.jpg", b"a"), entry("b.txt", b"b")]),
+        &[row],
+        &cipher(),
+    )
+    .unwrap();
+    assert_eq!(plan.saved, ["Trip (2)/a.jpg", "b.txt"]);
+    assert_eq!(plan.forget, ["Trip/a.jpg"]);
+    assert_eq!(std::fs::read(out.path().join("Trip")).unwrap(), b"my note");
+}

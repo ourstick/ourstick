@@ -57,9 +57,20 @@ impl Receivers {
     }
 
     /// What each stick's latest round saved under another name, for the
-    /// sticks a round has planned for since the app started.
+    /// sticks a round has planned for since the app started (the tests'
+    /// view; the window takes [`Receivers::saved_as_lists`]).
+    #[cfg(test)]
     pub fn saved_as(&self) -> HashMap<StickId, Vec<ourstick_core::download::SavedAs>> {
         lock(&self.saved_as).clone()
+    }
+
+    /// The same, as the window gets it (at most its first lines each): no
+    /// copy of a long list on every refresh.
+    pub fn saved_as_lists(&self) -> HashMap<StickId, super::words::SavedAsList> {
+        lock(&self.saved_as)
+            .iter()
+            .map(|(stick_id, lines)| (*stick_id, super::words::saved_as_views(lines)))
+            .collect()
     }
 
     /// A round planned: what it saves under another name starts empty.

@@ -37,7 +37,10 @@ const PREFIXES: &[&str] = &["._", ".Trash-", ".ourstick-"];
 
 /// Whether a file or folder with this name is left out of every stick.
 pub fn is_ignored(name: &str) -> bool {
-    NAMES.contains(&name) || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+    NAMES.contains(&name)
+        || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+        // OurStick's own names in any letter case, as a receiver takes them.
+        || name.to_ascii_lowercase().starts_with(".ourstick-")
 }
 
 #[cfg(test)]
@@ -57,6 +60,7 @@ mod tests {
             ".ourstick-drive",
             ".ourstick-partial",
             ".ourstick-received.new",
+            ".OurStick-Partial",
         ] {
             assert!(is_ignored(name), "{name}");
         }

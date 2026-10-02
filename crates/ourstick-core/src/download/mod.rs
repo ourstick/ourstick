@@ -339,6 +339,7 @@ async fn download_over(
     let FileCounts {
         already_here,
         changed_here,
+        left_out,
     } = fetch_files(
         fetcher,
         connection,
@@ -363,7 +364,7 @@ async fn download_over(
         return Ok(Over::Partial { seq: version.seq });
     }
     // Complete only if the folder holds every file of this version.
-    if changed_here == 0 {
+    if changed_here == 0 && left_out == 0 {
         let store = store.clone();
         let stick_id = ticket.stick_id;
         run_blocking(move || store.complete_download(&stick_id, version)).await?;
@@ -378,6 +379,7 @@ async fn download_over(
         already_here,
         changed_here,
         saved_as: plan.renamed.iter().map(|renamed| renamed.files).sum(),
+        left_out,
         usage: PathUsage::default(),
     }))
 }

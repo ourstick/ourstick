@@ -232,6 +232,13 @@ export interface SavedAs {
   files: number;
 }
 
+/** The names saved under another: the first lines, how many more, files in all. */
+export interface SavedAsList {
+  lines: SavedAs[];
+  more: number;
+  files: number;
+}
+
 /** A stick this device receives in the window (step 7b). */
 export interface ReceivedEntry {
   id: string;
@@ -240,7 +247,7 @@ export interface ReceivedEntry {
   folder: string;
   paused: boolean;
   /** What is saved under another name than at the sender. */
-  saved_as: SavedAs[];
+  saved_as: SavedAsList;
   /** "starting", "downloading", "getting_more", "up_to_date", "waiting", "paused", "stopped". */
   state: string;
   /** Why it waits or stopped, in words for everyone. */
@@ -280,7 +287,7 @@ export interface PreviewView {
   /** What is left on this computer where it would go. */
   left: number;
   /** What would be saved under another name there. */
-  saved_as: SavedAs[];
+  saved_as: SavedAsList;
 }
 
 /** Looks at a pasted sharing link: `parent` is where it would be saved (else Downloads). */

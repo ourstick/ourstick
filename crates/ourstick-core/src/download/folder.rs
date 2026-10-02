@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use super::files::{component_problem, target_path};
+use super::files::component_problem;
 use super::saved_paths::{saved_paths, OnDisk, Recorded, Rules, SavedAs};
 use super::{io_error, DownloadError};
 use crate::cipher::Cipher;
@@ -25,6 +25,9 @@ pub(super) enum FilePlan {
     /// The folder has something else, changed there or not written by `get`:
     /// left as it is.
     ChangedHere,
+    /// No savable place was found for it here (every place in the way):
+    /// not fetched, told.
+    LeftOut,
 }
 
 /// The plan for every entry of a manifest, in manifest order.
@@ -125,16 +128,38 @@ fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
     true
 }
 
-/// What is at `place` under `output_dir`; a symbolic link is in the way like
-/// a file.
-fn on_disk(output_dir: &Path, place: &str) -> OnDisk {
-    let Ok(target) = target_path(output_dir, place) else {
-        return OnDisk::File;
-    };
-    match std::fs::symlink_metadata(&target) {
-        Ok(metadata) if metadata.is_dir() => OnDisk::Folder,
-        Ok(_) => OnDisk::File,
-        Err(_) => OnDisk::Nothing,
+/// What a plan learns of the folder, each place asked once: whether it is
+/// a symbolic link, and what is there.
+struct Looked<'a> {
+    output_dir: &'a Path,
+    links: RefCell<HashMap<PathBuf, bool>>,
+}
+
+impl Looked<'_> {
+    /// [`target_path`], with each folder asked once.
+    fn target(&self, place: &str) -> Result<PathBuf, DownloadError> {
+        super::files::target_path_by(self.output_dir, place, &|path| {
+            *self
+                .links
+                .borrow_mut()
+                .entry(path.to_path_buf())
+                .or_insert_with(|| {
+                    std::fs::symlink_metadata(path)
+                        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                })
+        })
+    }
+
+    /// What is at `place`; a symbolic link is in the way like a file.
+    fn on_disk(&self, place: &str) -> OnDisk {
+        let Ok(target) = self.target(place) else {
+            return OnDisk::File;
+        };
+        match std::fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.is_dir() => OnDisk::Folder,
+            Ok(_) => OnDisk::File,
+            Err(_) => OnDisk::Nothing,
+        }
     }
 }
 
@@ -158,6 +183,10 @@ pub(super) fn plan_folder_by(
     cipher: &dyn Cipher,
     rules: Rules,
 ) -> Result<FolderPlan, DownloadError> {
+    let looked = Looked {
+        output_dir,
+        links: RefCell::default(),
+    };
     let in_stick: BTreeSet<&str> = manifest
         .entries
         .iter()
@@ -168,7 +197,9 @@ pub(super) fn plan_folder_by(
     let (kept, mut forget): (Vec<&DownloadedFile>, Vec<&DownloadedFile>) =
         recorded.iter().partition(|file| {
             in_stick.contains(file.path.as_str())
-                || target_path(output_dir, &file.saved_as).is_ok_and(|target| target.is_file())
+                || looked
+                    .target(&file.saved_as)
+                    .is_ok_and(|target| target.is_file())
         });
     let rows: Vec<Recorded<'_>> = kept
         .iter()
@@ -195,10 +226,11 @@ pub(super) fn plan_folder_by(
         &paths,
         &rows,
         |place, entry| {
-            let there = on_disk(output_dir, place);
+            let there = looked.on_disk(place);
             // A file of this entry's content, placed before a stop, is its.
             if let (OnDisk::File, Some(index)) = (there, entry) {
-                let ours = target_path(output_dir, place)
+                let ours = looked
+                    .target(place)
                     .ok()
                     .and_then(|target| hash_of(&target));
                 if ours == Some(manifest.entries[index].hash) {
@@ -224,22 +256,31 @@ pub(super) fn plan_folder_by(
         .collect();
     let mut files = Vec::with_capacity(manifest.entries.len());
     let mut found = Vec::new();
-    for (entry, saved_as) in manifest.entries.iter().zip(&places.saved) {
-        // The last word before anything is written: a name that is still not
-        // savable (it should not happen) leaves that one file out.
-        if saved_as
-            .split('/')
-            .any(|name| component_problem(name, rules.windows).is_some())
+    for (index, (entry, saved_as)) in manifest.entries.iter().zip(&places.saved).enumerate() {
+        // No place found for it, or the last word before anything is
+        // written: a name that is still not savable (it should not happen).
+        if places.left_out.contains(&index)
+            || saved_as
+                .split('/')
+                .any(|name| component_problem(name, rules.windows).is_some())
         {
-            tracing::warn!("a file left out: no savable name was found for it");
-            files.push(FilePlan::ChangedHere);
+            tracing::warn!("a file left out: no savable place was found for it");
+            files.push(FilePlan::LeftOut);
             continue;
         }
-        let target = target_path(output_dir, saved_as)?;
+        let target = looked.target(saved_as)?;
         let metadata = match std::fs::symlink_metadata(&target) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 files.push(FilePlan::Download { replaceable: None });
+                continue;
+            }
+            // Something of the user's where a folder must go, which the
+            // choice of places could not see: this file waits, the others
+            // come (a failed round would stop them all, every round).
+            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                tracing::warn!("a file left out: a file here is in the way of its folder");
+                files.push(FilePlan::LeftOut);
                 continue;
             }
             Err(error) => return Err(io_error(&target)(error)),

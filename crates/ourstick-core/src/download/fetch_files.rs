@@ -26,6 +26,7 @@ use crate::transport::{Fetcher, PeerConnection};
 pub(super) struct FileCounts {
     pub(super) already_here: usize,
     pub(super) changed_here: usize,
+    pub(super) left_out: usize,
 }
 
 /// Where an entry lands under `output_dir` (its path was checked before).
@@ -99,6 +100,13 @@ pub(super) async fn fetch_files(
                         done.counts.changed_here += 1;
                         DownloadEvent::FileChangedHere {
                             path: &entry.path,
+                            size: entry.size,
+                        }
+                    }
+                    FilePlan::LeftOut => {
+                        done.counts.left_out += 1;
+                        DownloadEvent::FileLeftOut {
+                            path: &manifest.entries[index].path,
                             size: entry.size,
                         }
                     }

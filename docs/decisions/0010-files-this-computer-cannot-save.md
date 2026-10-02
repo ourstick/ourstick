@@ -52,12 +52,16 @@ why nothing comes, and should not have to ask anyone to rename anything.
 3. **Then, ` (n)` where two names would be one file here**, as
    `drive::free_name_where` does (`photo.jpg` → `photo (2).jpg`; the folder
    `a` → `a (2)`): with another entry of the stick, with a name already
-   recorded for this folder, or with a file already in the folder that is
-   in the way (a file where a folder must go). Two names are one file here
-   if they are equal once folded as this folder's disk folds them: letter
-   case only where the folder ignores it (probed once per round in the
-   partial folder: does `.OURSTICK-HERE` open `.ourstick-here`?), Unicode
-   normalization on macOS only (a platform rule, not probed). A Linux folder on a case-sensitive disk keeps
+   recorded for this folder, or with what is already in the folder: a file
+   where a folder must go (for a recorded folder too: its files move), and,
+   for a changed name, anything at that place. A name that tries 1 000
+   numbers and finds no place (every place in the way, e.g. a folder of the
+   stick that is now a link elsewhere) is left out and told. Two names are
+   one file here if they are equal once folded as this folder's disk folds
+   them: letter case only where the folder ignores it (asked once per round
+   with a name inside the folder, or inside the nearest folder above it
+   that is there, in the other case; when nothing tells, folded), Unicode
+   normalization on macOS only (a platform rule, not asked). A Linux folder on a case-sensitive disk keeps
    `photo.jpg` and `Photo.jpg` as they are.
 4. **Who keeps its place:** first the names already recorded (their places
    stay theirs), then every entry whose name needs no change, then the rest
@@ -94,11 +98,13 @@ why nothing comes, and should not have to ask anyone to rename anything.
    and escaped. The preview says the same before Get it, computed the same
    way ("414 files will have slightly different names here"). The heading
    counts files; the lines are names (a renamed folder is one line).
-   `get` prints the same lines, escaped, and exits 0: everything came.
+   `get` prints one line per name ("“a?.jpg” is saved here as
+   “a_.jpg”"), escaped, and a summary line, and exits 0.
 9. **Safety does not change.** Every path written is built from savable
    names and checked again before it is joined to the folder; a path that
-   still fails (a bug) leaves that one file out, logged, and the round goes
-   on. Paths that could leave the folder are refused when the manifest is
+   still fails (a bug), or a file of the user's in the way of its folder,
+   leaves that one file out (`FileLeftOut`, told in `get` and logged), and
+   the round goes on: a round never fails for one file's place. Paths that could leave the folder are refused when the manifest is
    decoded (`\`, NUL, `.`, `..`, empty components), as today; symbolic
    links in the folder are refused, as today.
 
@@ -169,6 +175,10 @@ when written (an error of the round, as today); paths longer than Windows'
   `api.ts` gets the types. `receiving::words` drops its `UnsafePath` and
   `PathCollision` wording; `told.rs` and `progress.rs` take the new event.
 
+Owners leave every name starting with `.ourstick-` out of their sticks
+(any letter case), as receivers take such names for OurStick's own: a
+user's `.ourstick-notes` is not shared.
+
 ## Consequences
 
 - A receiver gets every file, always, and is told where the few renamed
@@ -195,8 +205,8 @@ when written (an error of the round, as today); paths longer than Windows'
    `DownloadedFile`, `SqliteStore`, `MemoryStore`, `saved_elsewhere`,
    `forget_downloaded_file`; tests.
 4. Core: plan / preview / fetch / place / copy / record / partial / events /
-   report with saved paths. Integration tests with two peers, rules forced
-   to Windows: `a?.jpg`, `CON.txt`, `Trip?/x` and a genuine `a_.jpg` all
+   report with saved paths. Tests with Windows' rules forced (through
+   `plan_folder_by`) and integration tests with two peers on this system: `a?.jpg`, `CON.txt`, `Trip?/x` and a genuine `a_.jpg` all
    come; a next version changing `a?.jpg` updates its file; a next version
    adding `Trip?/y` puts it into `Trip_/`; a genuine `a_.jpg` added after
    `a?.jpg` was saved as `a_.jpg` becomes `a_ (2).jpg`; the file `a` then `a/b`; a stopped

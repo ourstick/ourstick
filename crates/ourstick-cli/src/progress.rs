@@ -231,6 +231,14 @@ impl Progress {
                 "[{at}]   {}: the sender is still preparing it; waiting.",
                 untrusted(path)
             )],
+            DownloadEvent::FileLeftOut { path, size } => {
+                self.finished += size;
+                vec![format!(
+                    "[{at}]   {}: cannot be saved in this folder (something here is in its way), \
+                     left out",
+                    untrusted(path)
+                )]
+            }
             // Told once per name, before the files come (ADR 0010).
             DownloadEvent::SavedAs {
                 path,
@@ -307,6 +315,12 @@ impl Progress {
             kept.push(format!(
                 "{} changed here, left untouched",
                 count(report.changed_here)
+            ));
+        }
+        if report.left_out > 0 {
+            kept.push(format!(
+                "{} could not be saved here",
+                count(report.left_out)
             ));
         }
         if !kept.is_empty() {

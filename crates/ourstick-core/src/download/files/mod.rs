@@ -12,15 +12,16 @@ use crate::cipher::Cipher;
 use crate::manifest::{Entry, FileStamp, Manifest};
 use crate::untrusted::escape;
 
-/// Why one path component cannot be written safely on this reader, if it
-/// cannot. Manifest paths are already free of `\`, NUL, `.`, `..` and empty
-/// components (validated on decode); this adds what depends on the platform.
-///
-/// `windows` selects the Windows rules; it is a parameter so they are tested
-/// everywhere.
 /// The longest file or folder name the systems OurStick runs on take.
 pub(crate) const MAX_NAME: usize = 255;
 
+/// Why one path component cannot be written safely on this reader, if it
+/// cannot. Manifest paths are already free of `\`, NUL, `.`, `..` and empty
+/// components (validated on decode); this adds what depends on the platform.
+/// The last check of every name written (ADR 0010).
+///
+/// `windows` selects the Windows rules; it is a parameter so they are tested
+/// everywhere.
 pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'static str> {
     let mut components = Path::new(component).components();
     let single_normal = matches!(
@@ -116,11 +117,22 @@ pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
 
 /// Refuses a path that passes through a symbolic link inside `output_dir`.
 fn check_no_symlinks(output_dir: &Path, relative: &str) -> Result<PathBuf, DownloadError> {
+    target_path_by(output_dir, relative, &|path| {
+        std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    })
+}
+
+/// [`target_path`], asking `is_link` whether a place is a symbolic link (a
+/// plan of many files asks each folder once).
+pub(super) fn target_path_by(
+    output_dir: &Path,
+    relative: &str,
+    is_link: &dyn Fn(&Path) -> bool,
+) -> Result<PathBuf, DownloadError> {
     let mut path = output_dir.to_path_buf();
     for component in relative.split('/') {
         path.push(component);
-        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink())
-        {
+        if is_link(&path) {
             return Err(unsafe_path(
                 relative,
                 "it would pass through a symbolic link",

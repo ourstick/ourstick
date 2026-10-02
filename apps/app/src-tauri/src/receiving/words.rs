@@ -32,16 +32,34 @@ pub struct SavedAsView {
     files: usize,
 }
 
-/// The window's lines for what is saved under another name.
-pub fn saved_as_views(lines: Vec<ourstick_core::download::SavedAs>) -> Vec<SavedAsView> {
-    lines
-        .into_iter()
-        .map(|line| SavedAsView {
-            path: ourstick_core::untrusted::escape(&line.path),
-            saved_as: ourstick_core::untrusted::escape(&line.saved_as),
-            files: line.files,
-        })
-        .collect()
+/// What the window gets of the names saved under another: the first
+/// [`SAVED_AS_LISTED`] lines (the window shows 10, then all of these), how
+/// many more, and how many files in all.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SavedAsList {
+    lines: Vec<SavedAsView>,
+    more: usize,
+    files: usize,
+}
+
+/// The most lines sent to the window at once.
+pub const SAVED_AS_LISTED: usize = 200;
+
+/// The window's list of what is saved under another name.
+pub fn saved_as_views(lines: &[ourstick_core::download::SavedAs]) -> SavedAsList {
+    SavedAsList {
+        lines: lines
+            .iter()
+            .take(SAVED_AS_LISTED)
+            .map(|line| SavedAsView {
+                path: ourstick_core::untrusted::escape(&line.path),
+                saved_as: ourstick_core::untrusted::escape(&line.saved_as),
+                files: line.files,
+            })
+            .collect(),
+        more: lines.len().saturating_sub(SAVED_AS_LISTED),
+        files: lines.iter().map(|line| line.files).sum(),
+    }
 }
 
 /// Why a received stick waits, and that it will try again by itself.
@@ -173,9 +191,10 @@ pub fn stopped_words(error: &DownloadError) -> String {
         DownloadError::Io { .. } => {
             "Saving it on this computer failed. Use Try again.".to_owned()
         }
-        // A symbolic link in the folder, or a name that is not a plain one.
-        DownloadError::UnsafePath { path, reason } => format!(
-            "\u{201c}{}\u{201d} cannot be saved in this folder: {reason}.",
+        // A shortcut (symbolic link) in the way of the folder's own files.
+        DownloadError::UnsafePath { path, .. } => format!(
+            "\u{201c}{}\u{201d} cannot be saved in this folder: a shortcut to another place is in \
+             its way. Move the shortcut out of the folder, then use Try again.",
             ourstick_core::untrusted::escape(path)
         ),
         DownloadError::Manifest(_) | DownloadError::Cipher(_) => {
@@ -224,8 +243,8 @@ mod tests {
         });
         assert_eq!(
             refused,
-            "\u{201c}Photos/a.png\u{201d} cannot be saved in this folder: it would pass through \
-             a symbolic link."
+            "\u{201c}Photos/a.png\u{201d} cannot be saved in this folder: a shortcut to another \
+             place is in its way. Move the shortcut out of the folder, then use Try again."
         );
         let stopped = stopped_words(&DownloadError::Cancelled);
         assert_eq!(stopped, "It stopped. Use Try again.");
@@ -233,13 +252,22 @@ mod tests {
 
     #[test]
     fn saved_as_lines_are_escaped() {
-        let views = saved_as_views(vec![ourstick_core::download::SavedAs {
-            path: "a\u{1b}?.jpg".to_owned(),
-            saved_as: "a\u{1b}_.jpg".to_owned(),
-            files: 1,
-        }]);
-        assert_eq!(views[0].path, "a\\u{1b}?.jpg");
-        assert_eq!(views[0].saved_as, "a\\u{1b}_.jpg");
+        let line = |path: &str| ourstick_core::download::SavedAs {
+            path: path.to_owned(),
+            saved_as: format!("{path}_"),
+            files: 2,
+        };
+        let views = saved_as_views(&[line("a\u{1b}?.jpg")]);
+        assert_eq!(views.lines[0].path, "a\\u{1b}?.jpg");
+        assert_eq!(views.lines[0].saved_as, "a\\u{1b}?.jpg_");
+        // At most SAVED_AS_LISTED lines go to the window; the rest counted.
+        let many: Vec<_> = (0..SAVED_AS_LISTED + 5)
+            .map(|n| line(&n.to_string()))
+            .collect();
+        let views = saved_as_views(&many);
+        assert_eq!(views.lines.len(), SAVED_AS_LISTED);
+        assert_eq!(views.more, 5);
+        assert_eq!(views.files, 2 * (SAVED_AS_LISTED + 5));
     }
 
     #[test]

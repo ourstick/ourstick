@@ -84,7 +84,13 @@ pub(crate) struct SavedPaths {
     /// Every recorded row not kept at its place (in the stick or not), by
     /// stick path: its row is to be forgotten.
     pub(crate) displaced: Vec<String>,
+    /// Entries no place was found for (every candidate in the way, e.g. a
+    /// folder of the stick that is now a link elsewhere): left out, by index.
+    pub(crate) left_out: Vec<usize>,
 }
+
+/// How many numbers a name tries before its entry is left out.
+const MOST_NUMBERS: u32 = 1_000;
 
 /// The places taken this round, as the disk sees them (folded): files, and
 /// every folder they are in, with the stick's folder each one holds (two
@@ -164,12 +170,18 @@ pub(crate) fn saved_paths(
             moved.push(row.path);
             continue;
         }
-        // Its folders as other rows chose them, and its place not made one
-        // with another by this round's folding.
-        let agrees = folder_pairs(row.path, row.saved_as)
+        // Its folders as other rows chose them, none of them a file now (the
+        // user put a file there), and its place not made one with another
+        // by this round's folding.
+        let pairs = folder_pairs(row.path, row.saved_as);
+        let agrees = pairs
             .iter()
             .all(|(stick, here)| folders.get(stick).is_none_or(|chosen| chosen == here));
-        if !agrees || !taken.file_free(row.saved_as, row.path, rules) {
+        let in_the_way = pairs
+            .iter()
+            .any(|(_, here)| on_disk(here, None) == OnDisk::File);
+        if !agrees || in_the_way || !taken.file_free(row.saved_as, row.path, rules) {
+            tracing::warn!("a recorded place is no longer free here; chosen again");
             moved.push(row.path);
             continue;
         }
@@ -193,26 +205,47 @@ pub(crate) fn saved_paths(
         saved[index] = Some((*path).to_owned());
     }
     // The rest, top-down.
+    let mut left_out = Vec::new();
     for (index, path) in paths.iter().enumerate() {
         if saved[index].is_none() {
-            let place = choose(path, index, &mut folders, &mut taken, &on_disk, rules);
-            saved[index] = Some(place);
+            match choose(path, index, &mut folders, &mut taken, &on_disk, rules) {
+                Some(place) => saved[index] = Some(place),
+                None => {
+                    tracing::warn!("a file left out: every place for it is in the way");
+                    left_out.push(index);
+                    saved[index] = Some((*path).to_owned());
+                }
+            }
         }
     }
     let saved: Vec<String> = saved.into_iter().flatten().collect();
     let displaced = moved.iter().map(|path| (*path).to_owned()).collect();
+    let index_of: HashMap<&str, usize> = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| (*path, index))
+        .collect();
     let moved = moved
         .into_iter()
         .filter_map(|path| {
-            let index = paths.iter().position(|p| *p == path)?;
+            let index = *index_of.get(path)?;
             Some((path.to_owned(), saved[index].clone()))
         })
         .collect();
+    // What was renamed, of what is saved.
+    let (named, placed): (Vec<&str>, Vec<String>) = paths
+        .iter()
+        .zip(&saved)
+        .enumerate()
+        .filter(|(index, _)| !left_out.contains(index))
+        .map(|(_, (path, saved))| (*path, saved.clone()))
+        .unzip();
     SavedPaths {
-        renamed: super::saved_lines::renamed(paths, &saved),
+        renamed: super::saved_lines::renamed(&named, &placed),
         saved,
         moved,
         displaced,
+        left_out,
     }
 }
 
@@ -285,7 +318,7 @@ fn choose(
     taken: &mut Taken,
     on_disk: &impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
-) -> String {
+) -> Option<String> {
     let names: Vec<&str> = path.split('/').collect();
     let mut stick = String::new();
     let mut here = String::new();
@@ -321,12 +354,15 @@ fn choose(
         let mut candidate = join(&base);
         let mut number = 2;
         while !free(&candidate) {
+            if number > MOST_NUMBERS {
+                return None;
+            }
             candidate = join(&numbered(&base, number, !last, rules.windows));
             number += 1;
         }
         if last {
             taken.take(&candidate, path, rules);
-            return candidate;
+            return Some(candidate);
         }
         taken
             .folders
@@ -338,16 +374,16 @@ fn choose(
     unreachable!("a path has at least one name")
 }
 
-/// `name` made savable, and not one of OurStick's own at the top.
+/// `name` made savable, and not one of OurStick's own at the top (marked
+/// first, then made savable: the mark counts in its length).
 fn savable(name: &str, first: bool, rules: Rules) -> String {
-    let safe = safe_name(name, rules.windows).into_owned();
-    if first {
-        if let Some(marked) = not_ours(&safe, &OURS) {
-            return marked;
-        }
-    }
-    safe
+    let marked = if first { not_ours(name, &OURS) } else { None };
+    let name = marked.as_deref().unwrap_or(name);
+    safe_name(name, rules.windows).into_owned()
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod edge_tests;

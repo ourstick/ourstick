@@ -34,7 +34,7 @@ pub struct ReceivedEntry {
     folder: String,
     paused: bool,
     /// What is saved under another name than at the sender (ADR 0010).
-    saved_as: Vec<super::words::SavedAsView>,
+    saved_as: super::words::SavedAsList,
     #[serde(flatten)]
     shown: Shown,
 }
@@ -49,7 +49,7 @@ pub async fn received(
     // From the latest round where there was one; else (before a round has
     // planned, e.g. the sender is away since the start) from what is
     // recorded, read once per call and only then.
-    let rounds = receivers.saved_as();
+    let rounds = receivers.saved_as_lists();
     let joined = super::work(move || {
         let mut sticks = Vec::new();
         for joined in store.joined_sticks()? {
@@ -57,10 +57,10 @@ pub async fn received(
                 continue;
             }
             let saved_as = match rounds.get(&joined.stick_id).cloned() {
-                Some(lines) => lines,
-                None => ourstick_core::download::saved_elsewhere(
+                Some(list) => list,
+                None => super::words::saved_as_views(&ourstick_core::download::saved_elsewhere(
                     &store.saved_elsewhere(&joined.stick_id)?,
-                ),
+                )),
             };
             sticks.push((joined, saved_as));
         }
@@ -74,7 +74,7 @@ pub async fn received(
             name: display_name(joined.name.as_deref(), &joined.stick_id),
             folder: joined.output_dir.display().to_string(),
             paused: joined.paused,
-            saved_as: super::words::saved_as_views(saved_as),
+            saved_as,
             shown: receivers.shown(&joined.stick_id),
         })
         .collect())

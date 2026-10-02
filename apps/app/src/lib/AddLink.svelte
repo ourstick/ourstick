@@ -122,7 +122,7 @@
         new folder.
       </p>
     {/if}
-    <SavedAsNote lines={preview.saved_as} coming />
+    <SavedAsNote list={preview.saved_as} coming />
     {#if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
     {:else if fits}

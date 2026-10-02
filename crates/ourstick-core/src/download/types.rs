@@ -61,6 +61,12 @@ pub enum DownloadEvent<'a> {
         saved_as: &'a str,
         files: usize,
     },
+    /// No savable place was found for this file here (every place for it is
+    /// in the way): not fetched. Its path in the stick.
+    FileLeftOut {
+        path: &'a str,
+        size: u64,
+    },
     /// Every file of a partial version is here; waiting for the owner's next
     /// version.
     WaitingForMore {
@@ -146,6 +152,8 @@ pub struct DownloadReport {
     /// Files saved under another name than theirs, as this computer cannot
     /// save theirs (ADR 0010).
     pub saved_as: usize,
+    /// Files no savable place was found for here: not fetched.
+    pub left_out: usize,
     /// Bytes that arrived over direct and over relay paths, over all
     /// connections of this download.
     pub usage: PathUsage,

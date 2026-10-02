@@ -43,9 +43,9 @@
     unticked = next;
   }
 
-  /** What is un-ticked now and already here: it stays, no longer updated. */
   /** Every entry is listed and none is ticked: nothing would come. */
   let none = $derived(known && entries.length > 0 && entries.every((entry) => unticked.has(entry.name)));
+  /** What is un-ticked now and already here: it stays, no longer updated. */
   let staying = $derived(entries.filter((entry) => unticked.has(entry.name) && entry.here));
 
   async function save() {

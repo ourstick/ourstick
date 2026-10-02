@@ -79,6 +79,9 @@
   /** Largest first: size is why the list is opened. */
   let entries = $derived(preview ? [...preview.entries].sort((a, b) => b.bytes - a.bytes) : []);
   let chosen = $derived(entries.filter((entry) => !unticked.has(entry.name)));
+  /** Entries listed, none ticked: nothing would come. (None listed yet, as
+   * while the sender starts counting, is not a choice: everything comes.) */
+  let none = $derived(entries.length > 0 && chosen.length === 0);
   let needs = $derived(chosen.reduce((sum, entry) => sum + entry.to_write, 0));
   let fits = $derived(preview !== null && (preview.partial || needs <= preview.left));
 
@@ -155,7 +158,7 @@
       </p>
     {/if}
     <SavedAsNote list={preview.saved_as} coming />
-    {#if chosen.length === 0}
+    {#if none}
       <p class="error">Tick at least one thing.</p>
     {:else if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
@@ -169,7 +172,7 @@
     {/if}
     {#if adding}<p class="muted">Adding… please wait.</p>{/if}
     <div class="row end">
-      <button class="primary" onclick={getIt} disabled={adding || !fits || chosen.length === 0}>Get it</button>
+      <button class="primary" onclick={getIt} disabled={adding || !fits || none}>Get it</button>
     </div>
   {/if}
 </section>

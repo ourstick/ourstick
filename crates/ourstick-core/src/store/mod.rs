@@ -195,6 +195,14 @@ pub trait Store: Send + Sync {
         file: &DownloadedFile,
     ) -> Result<(), StoreError>;
 
+    /// The top-level names of a received stick the user chose not to get
+    /// (ADR 0012), sorted; empty: everything is got.
+    fn left_out(&self, stick_id: &StickId) -> Result<Vec<String>, StoreError>;
+
+    /// Replaces what the user chose not to get of a received stick (an
+    /// empty set: everything), in one go.
+    fn set_left_out(&self, stick_id: &StickId, names: &[String]) -> Result<(), StoreError>;
+
     /// Forgets one recorded file of a received stick (its file is gone, or it
     /// is to be saved at another place); nothing if there is none.
     fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError>;

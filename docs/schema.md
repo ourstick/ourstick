@@ -25,7 +25,9 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 18
+## Version 19
+
+Version 19 (`0019_left_out.sql`, ADR 0012) added `joined_left_out`, below.
 
 Version 18 (`0018_saved_as.sql`, ADR 0010) added `downloaded_files.saved_as`,
 equal to `path` for every row before, and its unique index.
@@ -202,6 +204,21 @@ the file is gone the row is forgotten, before a round chooses its places. A row 
 so an interrupted `get` keeps what it finished. Moving the stick to another
 folder deletes its rows (in the same transaction as the move). Rows of files
 that left the stick stay, so their files are known as `get`'s own.
+
+### `joined_left_out`
+
+What the user chose not to get of a received stick in the window (ADR
+0012): its top-level names, byte-exact as in the stick's manifest. A name
+not here comes, also one the sender adds later. Replaced whole when the user
+saves a choice; deleted with the stick when it is forgotten. `ourstick get`
+never reads it.
+
+| Column     | Type    | Meaning                                              |
+|------------|---------|------------------------------------------------------|
+| `stick_id` | BLOB 32 | The received stick (foreign key to `joined_sticks`)  |
+| `name`     | TEXT    | A top-level name of the stick, not empty             |
+
+Primary key `(stick_id, name)`.
 
 ### `linked_entries`
 

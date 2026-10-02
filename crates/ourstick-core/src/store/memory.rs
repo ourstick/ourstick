@@ -27,6 +27,8 @@ struct State {
     floors: BTreeMap<[u8; 32], ManifestVersion>,
     owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
     downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
+    /// What the user chose not to get of each received stick (ADR 0012).
+    left_out: BTreeMap<[u8; 32], std::collections::BTreeSet<String>>,
     linked: BTreeMap<[u8; 32], BTreeMap<String, LinkedEntry>>,
     claims: BTreeMap<([u8; 32], u8), SpaceClaim>,
     /// Owned sticks being removed: hidden from the usual reads.
@@ -337,6 +339,14 @@ impl Store for MemoryStore {
         }
         files.insert(file.path.clone(), file.clone());
         Ok(())
+    }
+
+    fn left_out(&self, stick_id: &StickId) -> Result<Vec<String>, StoreError> {
+        joined::left_out(self, stick_id)
+    }
+
+    fn set_left_out(&self, stick_id: &StickId, names: &[String]) -> Result<(), StoreError> {
+        joined::set_left_out(self, stick_id, names)
     }
 
     fn forget_downloaded_file(&self, stick_id: &StickId, path: &str) -> Result<(), StoreError> {

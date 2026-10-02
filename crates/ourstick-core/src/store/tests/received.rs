@@ -54,6 +54,7 @@ fn a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays(store: &dyn St
         blob_hash: [7; 32],
     };
     store.record_downloaded_file(&id, &file).unwrap();
+    store.set_left_out(&id, &["Films".to_owned()]).unwrap();
     let claim = SpaceClaim {
         stick_id: id,
         kind: ClaimKind::Download,
@@ -77,7 +78,9 @@ fn a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays(store: &dyn St
         .move_joined_stick(&id, Path::new("/elsewhere"))
         .is_err());
     assert!(store.record_downloaded_file(&id, &file).is_err());
+    assert!(store.set_left_out(&id, &[]).is_err());
     store.forget_joined_stick(&id).unwrap();
+    assert!(store.left_out(&id).unwrap().is_empty());
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
     assert!(store.downloaded_files(&id).unwrap().is_empty());
     assert!(store.space_claims().unwrap().is_empty());
@@ -86,7 +89,43 @@ fn a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays(store: &dyn St
     store.add_joined_stick(&stick).unwrap();
 }
 
+fn what_is_left_out_is_kept_whole_and_replaced_whole(store: &dyn Store) {
+    let id = joined(4, 10).stick_id;
+    // No such stick: refused.
+    assert!(matches!(
+        store.set_left_out(&id, &["Films".to_owned()]),
+        Err(StoreError::StickNotFound)
+    ));
+    store.add_joined_stick(&joined(4, 10)).unwrap();
+    // Nothing left out: everything is got.
+    assert!(store.left_out(&id).unwrap().is_empty());
+    let names =
+        |list: &[&str]| -> Vec<String> { list.iter().map(|name| (*name).to_owned()).collect() };
+    // Byte-exact (a Mac's decomposed name is another name), sorted, once.
+    let decomposed = "Φω\u{301}τα";
+    store
+        .set_left_out(&id, &names(&["Films", decomposed, "Films", "Old photos"]))
+        .unwrap();
+    assert_eq!(
+        store.left_out(&id).unwrap(),
+        names(&["Films", "Old photos", decomposed])
+    );
+    // Replaced whole.
+    store.set_left_out(&id, &names(&["Music"])).unwrap();
+    assert_eq!(store.left_out(&id).unwrap(), names(&["Music"]));
+    store.set_left_out(&id, &[]).unwrap();
+    assert!(store.left_out(&id).unwrap().is_empty());
+    // An empty name is not a name.
+    assert!(store.set_left_out(&id, &names(&[""])).is_err());
+    assert!(store.left_out(&id).unwrap().is_empty());
+    // Per stick.
+    store.add_joined_stick(&joined(5, 11)).unwrap();
+    store.set_left_out(&id, &names(&["Films"])).unwrap();
+    assert!(store.left_out(&joined(5, 11).stick_id).unwrap().is_empty());
+}
+
 for_every_store!(
+    what_is_left_out_is_kept_whole_and_replaced_whole,
     a_received_stick_keeps_its_program_name_and_pause,
     a_stick_being_forgotten_is_hidden_and_goes_but_its_floor_stays,
 );

@@ -1,5 +1,6 @@
 //! [`Store`] on SQLite, with migrations from `crates/ourstick-core/migrations/`.
 
+mod device;
 mod files;
 mod joined;
 mod life;
@@ -10,7 +11,7 @@ mod received;
 mod rows;
 mod space;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -20,16 +21,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 use migrations::MIGRATIONS;
 pub use migrations::SCHEMA_VERSION;
 use migrations::{migrate, user_version};
-use rows::{blob32, is_constraint_violation, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS};
+use rows::{blob32, is_constraint_violation, seq_i64, to_u64, OwnedRow, OWNED_COLUMNS};
 
 use super::{
-    check_device, check_owned_stick, path_str, ClaimKind, Device, DownloadedFile, JoinedChange,
-    JoinedStick, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SecretBackend,
-    SpaceClaim, Store, StoreError,
+    check_owned_stick, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry,
+    ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
-use crate::ticket::NodeId;
 
 /// How long to wait for another process holding the database lock.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -82,63 +81,11 @@ impl SqliteStore {
 
 impl Store for SqliteStore {
     fn device(&self) -> Result<Option<Device>, StoreError> {
-        let row = self
-            .connection()
-            .query_row(
-                "SELECT node_id, secret_backend, key_file_path, created_at_ms FROM device",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<Vec<u8>>>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((node_id, backend, key_file_path, created_at_ms)) = row else {
-            return Ok(None);
-        };
-        let secret_backend = match (backend.as_str(), key_file_path) {
-            ("secret-service", None) => SecretBackend::SecretService,
-            ("keychain", None) => SecretBackend::Keychain,
-            ("credential-manager", None) => SecretBackend::CredentialManager,
-            ("key-file", Some(path)) => SecretBackend::KeyFile(PathBuf::from(path)),
-            _ => return Err(StoreError::Corrupt(format!("secret_backend {backend}"))),
-        };
-        Ok(Some(Device {
-            node_id: node_id
-                .map(|node_id| blob32(node_id, "node_id").map(NodeId))
-                .transpose()?,
-            secret_backend,
-            created_at_ms: to_u64(created_at_ms, "created_at_ms")?,
-        }))
+        device::device(&self.connection())
     }
 
     fn create_device(&self, device: &Device) -> Result<(), StoreError> {
-        check_device(device)?;
-        let (backend, key_file_path) = match &device.secret_backend {
-            SecretBackend::SecretService => ("secret-service", None),
-            SecretBackend::Keychain => ("keychain", None),
-            SecretBackend::CredentialManager => ("credential-manager", None),
-            SecretBackend::KeyFile(path) => ("key-file", Some(path_str(path)?)),
-        };
-        let inserted = self.connection().execute(
-            "INSERT INTO device (id, node_id, secret_backend, key_file_path, created_at_ms)
-             VALUES (1, ?1, ?2, ?3, ?4)",
-            params![
-                device.node_id.map(|node_id| node_id.0.to_vec()),
-                backend,
-                key_file_path,
-                time_i64(device.created_at_ms)?
-            ],
-        );
-        match inserted {
-            Ok(_) => Ok(()),
-            Err(error) if is_constraint_violation(&error) => Err(StoreError::DeviceExists),
-            Err(error) => Err(error.into()),
-        }
+        device::create_device(&self.connection(), device)
     }
 
     fn add_owned_stick(&self, stick: &OwnedStick) -> Result<(), StoreError> {
@@ -334,6 +281,14 @@ impl Store for SqliteStore {
 
     fn saved_elsewhere(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
         files::saved_elsewhere(&self.connection(), stick_id)
+    }
+
+    fn left_out(&self, stick_id: &StickId) -> Result<Vec<String>, StoreError> {
+        received::left_out(&self.connection(), stick_id)
+    }
+
+    fn set_left_out(&self, stick_id: &StickId, names: &[String]) -> Result<(), StoreError> {
+        received::set_left_out(&mut self.connection(), stick_id, names)
     }
 
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {

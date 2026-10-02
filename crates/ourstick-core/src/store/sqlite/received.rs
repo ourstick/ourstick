@@ -65,10 +65,52 @@ pub(super) fn forget(connection: &mut Connection, stick_id: &StickId) -> Result<
     // take an older version.
     for sql in [
         "DELETE FROM downloaded_files WHERE stick_id = ?1",
+        "DELETE FROM joined_left_out WHERE stick_id = ?1",
         "DELETE FROM space_claims WHERE stick_id = ?1 AND kind IN ('download', 'scratch')",
         "DELETE FROM joined_sticks WHERE stick_id = ?1",
     ] {
         transaction.execute(sql, [id])?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+pub(super) fn left_out(
+    connection: &Connection,
+    stick_id: &StickId,
+) -> Result<Vec<String>, StoreError> {
+    let mut statement =
+        connection.prepare("SELECT name FROM joined_left_out WHERE stick_id = ?1 ORDER BY name")?;
+    let names = statement
+        .query_map([stick_id.to_bytes()], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(names)
+}
+
+pub(super) fn set_left_out(
+    connection: &mut Connection,
+    stick_id: &StickId,
+    names: &[String],
+) -> Result<(), StoreError> {
+    let id = stick_id.to_bytes();
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let live: bool = transaction.query_row(
+        "SELECT EXISTS (SELECT 1 FROM joined_sticks WHERE stick_id = ?1 AND forgetting = 0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Err(StoreError::StickNotFound);
+    }
+    if names.iter().any(String::is_empty) {
+        return Err(StoreError::Inconsistent("a name left out is empty"));
+    }
+    transaction.execute("DELETE FROM joined_left_out WHERE stick_id = ?1", [id])?;
+    for name in names {
+        transaction.execute(
+            "INSERT OR IGNORE INTO joined_left_out (stick_id, name) VALUES (?1, ?2)",
+            params![id, name],
+        )?;
     }
     transaction.commit()?;
     Ok(())

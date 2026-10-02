@@ -124,8 +124,35 @@ pub(super) fn forget(store: &MemoryStore, stick_id: &StickId) -> Result<(), Stor
     // The record floor stays (ADR 0004).
     state.joined.remove(&key);
     state.downloaded_files.remove(&key);
+    state.left_out.remove(&key);
     for kind in [ClaimKind::Download, ClaimKind::Scratch] {
         state.claims.remove(&super::claim_key(stick_id, kind));
     }
+    Ok(())
+}
+
+pub(super) fn left_out(store: &MemoryStore, stick_id: &StickId) -> Result<Vec<String>, StoreError> {
+    Ok(store
+        .state()
+        .left_out
+        .get(&stick_id.to_bytes())
+        .map(|names| names.iter().cloned().collect())
+        .unwrap_or_default())
+}
+
+pub(super) fn set_left_out(
+    store: &MemoryStore,
+    stick_id: &StickId,
+    names: &[String],
+) -> Result<(), StoreError> {
+    let mut state = store.state();
+    let key = stick_id.to_bytes();
+    if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
+        return Err(StoreError::StickNotFound);
+    }
+    if names.iter().any(String::is_empty) {
+        return Err(StoreError::Inconsistent("a name left out is empty"));
+    }
+    state.left_out.insert(key, names.iter().cloned().collect());
     Ok(())
 }

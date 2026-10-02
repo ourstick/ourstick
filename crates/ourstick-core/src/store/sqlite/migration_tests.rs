@@ -131,3 +131,28 @@ fn migration_18_saves_every_received_file_at_its_own_path() {
     assert!(files.iter().all(|file| file.saved_as == file.path));
     assert!(store.saved_elsewhere(&stick).unwrap().is_empty());
 }
+
+#[test]
+fn migration_19_leaves_nothing_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    {
+        // A database as version 18 left it, with a received stick.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..18] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 18).unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks (stick_id, output_dir, joined_at_ms) VALUES (?1, '/d/x', 4)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert!(store.left_out(&stick).unwrap().is_empty());
+    store.set_left_out(&stick, &["Films".to_owned()]).unwrap();
+    assert_eq!(store.left_out(&stick).unwrap(), ["Films"]);
+}

@@ -98,13 +98,12 @@ fn unsafe_path(path: &str, reason: &'static str) -> DownloadError {
 /// (`saved_paths`, ADR 0010).
 pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadError> {
     for entry in &manifest.entries {
-        let plain = entry.path.split('/').all(|name| {
-            let mut components = Path::new(name).components();
-            matches!(
-                (components.next(), components.next()),
-                (Some(Component::Normal(normal)), None) if normal == name
-            )
-        });
+        // The same on every system (as the decoding's rules): Windows would
+        // read `c:evil` as drive C:, which is a name to change, not refuse.
+        let plain = entry
+            .path
+            .split('/')
+            .all(|name| !matches!(name, "" | "." | "..") && !name.contains(['\\', '\0']));
         if !plain {
             return Err(unsafe_path(
                 &entry.path,

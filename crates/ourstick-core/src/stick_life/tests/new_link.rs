@@ -128,7 +128,7 @@ fn a_new_link_whose_marker_cannot_be_fixed_waits_and_others_go_on() {
         news.push(new);
     }
     // The stuck stick's marker cannot be written (a read-only drive).
-    let marker = stuck.root_path.join(DRIVE_MARKER);
+    let marker = stuck.root_path.join(crate::manifest::DRIVE_MARKER);
     std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o400)).unwrap();
     let failed = finish_new_links(&world.store, &world.secrets, &world.data).unwrap();
     std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600)).unwrap();

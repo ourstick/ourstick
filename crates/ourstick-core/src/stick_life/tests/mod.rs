@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::device::{create_stick, load_stick};
-use crate::manifest::DRIVE_MARKER;
 use crate::secrets::MemorySecretStore;
 use crate::store::{Device, LinkedEntry, MemoryStore, SecretBackend};
 use crate::ticket::NodeId;

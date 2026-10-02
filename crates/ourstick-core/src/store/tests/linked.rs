@@ -6,7 +6,7 @@ use crate::manifest::FileStamp;
 fn linked(name: &str, path: &str) -> LinkedEntry {
     LinkedEntry {
         name: name.to_owned(),
-        path: path.into(),
+        path: absolute(path),
         is_dir: true,
         disk: Some(u64::MAX - 1),
         added_at_ms: 7,

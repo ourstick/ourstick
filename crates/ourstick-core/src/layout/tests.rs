@@ -1,5 +1,15 @@
 use super::*;
 
+/// `path` (written `/a/b`) as an absolute path on this system: on Windows
+/// a path needs a drive to be absolute.
+fn absolute(path: &str) -> std::path::PathBuf {
+    if cfg!(windows) && path.starts_with('/') {
+        format!("C:{}", path.replace('/', "\\")).into()
+    } else {
+        path.into()
+    }
+}
+
 fn entry(name: &str, path: &Path, is_dir: bool) -> LinkedEntry {
     let metadata = std::fs::metadata(path).ok();
     LinkedEntry {
@@ -83,15 +93,15 @@ fn the_layout_is_loaded_from_the_store() {
         .add_owned_stick(&OwnedStick::new(
             stick_id,
             "s",
-            "/stick",
+            absolute("/stick"),
             CipherId::XChaCha20Poly1305,
             1,
         ))
         .unwrap();
-    let films = entry("Films", Path::new("/media/Films"), true);
+    let films = entry("Films", &absolute("/media/Films"), true);
     store.add_linked_entry(&stick_id, &films).unwrap();
     let layout = StickLayout::load(&store, &stick_id).unwrap();
-    assert_eq!(layout, StickLayout::new(Path::new("/stick"), &[films]));
+    assert_eq!(layout, StickLayout::new(&absolute("/stick"), &[films]));
     let other = StickSigningKey::from_bytes(&[2; 32]).stick_id();
     assert!(matches!(
         StickLayout::load(&store, &other),

@@ -124,6 +124,12 @@ pub async fn add_received(
     if let Err(error) = take_stick(&state.store, stick_id, &folder, StickKind::App, now).await {
         receivers.release(&stick_id).await;
         tracing::warn!(%error, "a received stick could not be recorded");
+        let words = match error {
+            ourstick_core::download::DownloadError::BeingForgotten => {
+                "This stick is still being forgotten. Restart OurStick, then add it again."
+            }
+            _ => "It could not be added. Try again in a moment.",
+        };
         // Nothing of it left: its mark, its folder if still empty, and its
         // saved sharing link go.
         let made_folder = folder.clone();
@@ -136,7 +142,7 @@ pub async fn add_received(
             Ok(())
         })
         .await;
-        return Err("It could not be added. Try again in a moment.".to_owned());
+        return Err(words.to_owned());
     }
     // Its name as the preview showed it, if it is a name a manifest may
     // carry; the first round keeps it as the sender gives it anyway.

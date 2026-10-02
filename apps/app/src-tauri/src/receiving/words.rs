@@ -80,6 +80,25 @@ pub fn said(error: &anyhow::Error) -> String {
     if error.downcast_ref::<SecretError>().is_some() {
         return SECRETS.to_owned();
     }
+    // Opening the keyring: its errors come as the device's.
+    if let Some(device) = error.downcast_ref::<ourstick_core::device::DeviceError>() {
+        use ourstick_core::device::DeviceError;
+        return match device {
+            DeviceError::Store(_) => RECORDS.to_owned(),
+            DeviceError::Lock(locked) => super::lock_words(locked),
+            DeviceError::Io { .. } | DeviceError::NoHome(_) => DISK.to_owned(),
+            _ => SECRETS.to_owned(),
+        };
+    }
+    if let Some(download) = error.downcast_ref::<DownloadError>() {
+        return match download {
+            DownloadError::BeingForgotten => {
+                "This stick is still being forgotten. Restart OurStick, then add it again."
+                    .to_owned()
+            }
+            other => stopped_words(other),
+        };
+    }
     if error.downcast_ref::<StoreError>().is_some() {
         return RECORDS.to_owned();
     }
@@ -160,11 +179,22 @@ mod tests {
 
     #[test]
     fn errors_are_said_in_words_for_everyone() {
-        let keyring = anyhow::Error::from(ourstick_core::SecretError::AccessDenied {
+        let locked = || ourstick_core::SecretError::AccessDenied {
             store: "keyring".to_owned(),
             reason: "locked".to_owned(),
-        });
+        };
+        // As the keyring's own error, and as opening it gives it (the
+        // device's): both in words.
+        let opening = anyhow::Error::from(ourstick_core::device::DeviceError::from(locked()));
+        assert!(
+            said(&opening).starts_with("OurStick could not reach the passwords"),
+            "{}",
+            said(&opening)
+        );
+        let keyring = anyhow::Error::from(locked());
         assert!(said(&keyring).starts_with("OurStick could not reach the passwords"));
+        let forgotten = anyhow::Error::from(DownloadError::BeingForgotten);
+        assert!(said(&forgotten).contains("Restart OurStick"));
         let store = anyhow::Error::from(ourstick_core::StoreError::StickNotFound);
         assert!(said(&store).starts_with("OurStick's own records"));
         let disk = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::Other));

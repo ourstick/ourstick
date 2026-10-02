@@ -93,7 +93,7 @@ async fn take_lock(data_dir: std::path::PathBuf, stick_id: StickId) -> Result<Lo
     match taken {
         Ok(Ok(lock)) => Ok(lock),
         Ok(Err(error)) => Err(lock_words(&error)),
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(said(&anyhow::Error::from(error))),
     }
 }
 
@@ -322,7 +322,7 @@ pub async fn start_all(app: &AppHandle) {
                 }
             }),
             Ok(ticket) => start(app, stick_id, ticket, joined.output_dir, false).await,
-            Err(error) => stopped(app, stick_id, format!("{error:#}")),
+            Err(error) => stopped(app, stick_id, said(&error)),
         }
     }
     changed(app);

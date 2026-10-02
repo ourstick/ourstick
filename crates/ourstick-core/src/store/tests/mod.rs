@@ -29,6 +29,16 @@ fn owned(seed: u8, created_at_ms: u64) -> OwnedStick {
     )
 }
 
+/// `path` (written `/a/b`) as an absolute path on this system: on Windows
+/// a path needs a drive to be absolute.
+fn absolute(path: &str) -> std::path::PathBuf {
+    if cfg!(windows) && path.starts_with('/') {
+        format!("C:{}", path.replace('/', "\\")).into()
+    } else {
+        path.into()
+    }
+}
+
 fn joined(seed: u8, joined_at_ms: u64) -> JoinedStick {
     JoinedStick::new(
         owner(seed).stick_id(),

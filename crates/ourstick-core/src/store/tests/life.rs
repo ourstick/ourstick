@@ -19,7 +19,7 @@ fn file(path: &str) -> OwnedFile {
 fn linked(name: &str) -> LinkedEntry {
     LinkedEntry {
         name: name.to_owned(),
-        path: format!("/elsewhere/{name}").into(),
+        path: absolute(&format!("/elsewhere/{name}")),
         is_dir: true,
         disk: None,
         added_at_ms: 1,

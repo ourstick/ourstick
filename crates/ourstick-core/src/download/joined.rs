@@ -73,6 +73,42 @@ pub(super) async fn remember_name(
         .map_err(DownloadError::from)
 }
 
+/// What this round's folder holds, file by file, and where each file goes,
+/// with what is recorded of it and what the user chose not to get (read
+/// every round: a choice saved while it waited counts now). Nothing is
+/// fetched for a file that is there, and nothing written over a file
+/// changed there.
+pub(super) async fn plan_round(
+    store: &Arc<dyn Store>,
+    ticket: &Ticket,
+    output_dir: &Path,
+    manifest: &crate::manifest::Manifest,
+    cipher: &Arc<dyn crate::cipher::Cipher>,
+) -> Result<super::folder::FolderPlan, DownloadError> {
+    let store = store.clone();
+    let stick_id = ticket.stick_id;
+    let (recorded, left_out) = run_blocking(move || {
+        Ok::<_, StoreError>((
+            store.downloaded_files(&stick_id)?,
+            store.left_out(&stick_id)?,
+        ))
+    })
+    .await?;
+    let output_dir = output_dir.to_path_buf();
+    let manifest = manifest.clone();
+    let cipher = cipher.clone();
+    run_blocking(move || {
+        super::folder::plan_folder(
+            &output_dir,
+            &manifest,
+            &recorded,
+            &left_out,
+            cipher.as_ref(),
+        )
+    })
+    .await
+}
+
 /// What a round does once its folder is planned, before any file comes:
 /// rows of files gone, or saved at a new place, are forgotten (their places
 /// are free for this round, ADR 0010); then `Planned`, a `SavedAs` per name
@@ -99,6 +135,16 @@ pub(super) async fn take_plan(
             path: &renamed.path,
             saved_as: &renamed.saved_as,
             files: renamed.files,
+        };
+        if on_event(event).is_break() {
+            return Err(DownloadError::Cancelled);
+        }
+    }
+    for (name, files, bytes) in &plan.not_chosen {
+        let event = DownloadEvent::NotChosen {
+            name,
+            files: *files,
+            bytes: *bytes,
         };
         if on_event(event).is_break() {
             return Err(DownloadError::Cancelled);

@@ -39,6 +39,7 @@ fn names_saved_under_another_are_told_escaped_and_counted() {
         changed_here: 0,
         saved_as: 413,
         left_out: 0,
+        not_chosen: 0,
         usage: PathUsage::default(),
     };
     let summary = Progress::summary(&report, "/out", secs(3), secs(3));
@@ -70,6 +71,7 @@ fn a_file_left_out_is_told_and_counted() {
         changed_here: 0,
         saved_as: 0,
         left_out: 1,
+        not_chosen: 0,
         usage: PathUsage::default(),
     };
     let summary = Progress::summary(&report, "/out", secs(3), secs(3));

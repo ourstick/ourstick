@@ -28,6 +28,8 @@ pub(super) enum FilePlan {
     /// No savable place was found for it here (every place in the way):
     /// not fetched, told.
     LeftOut,
+    /// The user chose not to get it (ADR 0012): not fetched, not counted.
+    NotChosen,
 }
 
 /// The plan for every entry of a manifest, in manifest order.
@@ -42,6 +44,9 @@ pub(super) struct FolderPlan {
     /// Recorded files to forget before anything is recorded: their file is
     /// gone and they left the stick, or they are saved at a new place.
     pub(super) forget: Vec<String>,
+    /// The top-level names the user chose not to get that are on the stick,
+    /// with their files and bytes (ADR 0012).
+    pub(super) not_chosen: Vec<(String, usize, u64)>,
     /// Files found to hold the stick's content already, to record as written.
     pub(super) found: Vec<DownloadedFile>,
     /// Files `get` wrote that are still there but no longer in the stick.
@@ -49,6 +54,20 @@ pub(super) struct FolderPlan {
 }
 
 impl FolderPlan {
+    /// The bytes this plan writes, by the top-level name of the stick they
+    /// are under (a preview's per-entry "needs up to", ADR 0012).
+    pub(super) fn bytes_by_top(&self, manifest: &Manifest) -> BTreeMap<String, u64> {
+        let mut by_top: BTreeMap<String, u64> = BTreeMap::new();
+        for (plan, entry) in self.files.iter().zip(&manifest.entries) {
+            if matches!(plan, FilePlan::Download { .. }) {
+                let first = entry.path.split('/').next().unwrap_or_default();
+                let bytes = by_top.entry(first.to_owned()).or_default();
+                *bytes = bytes.saturating_add(entry.size);
+            }
+        }
+        by_top
+    }
+
     /// The bytes this plan writes into the folder: the files to download.
     pub(super) fn bytes_to_write(&self, manifest: &Manifest) -> u64 {
         self.files
@@ -68,111 +87,17 @@ fn content_hash(output_dir: &Path, path: &Path, cipher: &dyn Cipher) -> Option<[
         .map(|(entry, _)| entry.hash)
 }
 
-/// Whether the disk of `folder` takes two names that differ only in letter
-/// case for one: always on Windows; elsewhere asked of the disk itself,
-/// with a name inside the folder (or inside the nearest folder above it
-/// that is there, where the folder will be made) and the same name in the
-/// other case: the folder's own name would be looked up on its parent's
-/// disk, wrong for a disk mounted there. Where nothing tells, yes: a
-/// needless " (2)" is better than two files written at one place. Reads
-/// only. Blocking.
-pub(super) fn case_folded(folder: &Path) -> bool {
-    if cfg!(windows) {
-        return true;
-    }
-    let Some(inside) = folder.ancestors().find(|place| place.is_dir()) else {
-        return true;
-    };
-    let Ok(children) = std::fs::read_dir(inside) else {
-        return true;
-    };
-    for child in children.flatten().take(64) {
-        let name = child.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        // ASCII letters only: their other case is one letter, always.
-        if !name.chars().any(|c| c.is_ascii_alphabetic()) {
-            continue;
-        }
-        let swapped: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_lowercase() {
-                    c.to_ascii_uppercase()
-                } else {
-                    c.to_ascii_lowercase()
-                }
-            })
-            .collect();
-        let Ok(here) = std::fs::symlink_metadata(child.path()) else {
-            continue;
-        };
-        return match std::fs::symlink_metadata(inside.join(&swapped)) {
-            Ok(there) => same_file(&here, &there),
-            Err(_) => false,
-        };
-    }
-    true
-}
-
-/// Whether two metadata are of one file.
-#[cfg(unix)]
-fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    a.dev() == b.dev() && a.ino() == b.ino()
-}
-
-#[cfg(not(unix))]
-fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
-    true
-}
-
-/// What a plan learns of the folder, each place asked once: whether it is
-/// a symbolic link, and what is there.
-struct Looked<'a> {
-    output_dir: &'a Path,
-    links: RefCell<HashMap<PathBuf, bool>>,
-}
-
-impl Looked<'_> {
-    /// [`target_path`], with each folder asked once.
-    fn target(&self, place: &str) -> Result<PathBuf, DownloadError> {
-        super::files::target_path_by(self.output_dir, place, &|path| {
-            *self
-                .links
-                .borrow_mut()
-                .entry(path.to_path_buf())
-                .or_insert_with(|| {
-                    std::fs::symlink_metadata(path)
-                        .is_ok_and(|metadata| metadata.file_type().is_symlink())
-                })
-        })
-    }
-
-    /// What is at `place`; a symbolic link is in the way like a file.
-    fn on_disk(&self, place: &str) -> OnDisk {
-        let Ok(target) = self.target(place) else {
-            return OnDisk::File;
-        };
-        match std::fs::symlink_metadata(&target) {
-            Ok(metadata) if metadata.is_dir() => OnDisk::Folder,
-            Ok(_) => OnDisk::File,
-            Err(_) => OnDisk::Nothing,
-        }
-    }
-}
-
 /// Looks at every file of `manifest` under `output_dir`, and where each is
 /// saved there (ADR 0010). Blocking.
 pub(super) fn plan_folder(
     output_dir: &Path,
     manifest: &Manifest,
     recorded: &[DownloadedFile],
+    left_out: &[String],
     cipher: &dyn Cipher,
 ) -> Result<FolderPlan, DownloadError> {
     let rules = Rules::here(case_folded(output_dir));
-    plan_folder_by(output_dir, manifest, recorded, cipher, rules)
+    plan_folder_by(output_dir, manifest, recorded, left_out, cipher, rules)
 }
 
 /// [`plan_folder`] with the given rules (tests force Windows' anywhere).
@@ -180,9 +105,20 @@ pub(super) fn plan_folder_by(
     output_dir: &Path,
     manifest: &Manifest,
     recorded: &[DownloadedFile],
+    left_out: &[String],
     cipher: &dyn Cipher,
     rules: Rules,
 ) -> Result<FolderPlan, DownloadError> {
+    // What the user chose not to get, by its top-level name exactly as the
+    // stick names it (ADR 0012).
+    let left_out: BTreeSet<&str> = left_out.iter().map(String::as_str).collect();
+    let not_chosen: std::collections::HashSet<usize> = manifest
+        .entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| left_out.contains(entry.path.split('/').next().unwrap_or_default()))
+        .map(|(index, _)| index)
+        .collect();
     let looked = Looked {
         output_dir,
         links: RefCell::default(),
@@ -225,6 +161,7 @@ pub(super) fn plan_folder_by(
     let places = saved_paths(
         &paths,
         &rows,
+        &not_chosen,
         |place, entry| {
             let there = looked.on_disk(place);
             // A file of this entry's content, placed before a stop, is its.
@@ -257,6 +194,10 @@ pub(super) fn plan_folder_by(
     let mut files = Vec::with_capacity(manifest.entries.len());
     let mut found = Vec::new();
     for (index, (entry, saved_as)) in manifest.entries.iter().zip(&places.saved).enumerate() {
+        if not_chosen.contains(&index) {
+            files.push(FilePlan::NotChosen);
+            continue;
+        }
         // No place found for it, or the last word before anything is
         // written: a name that is still not savable (it should not happen).
         if places.left_out.contains(&index)
@@ -334,7 +275,19 @@ pub(super) fn plan_folder_by(
         .values()
         .filter(|file| !in_stick.contains(file.path.as_str()))
         .count();
+    let mut by_name: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
+    for index in &not_chosen {
+        let entry = &manifest.entries[*index];
+        let first = entry.path.split('/').next().unwrap_or_default();
+        let counted = by_name.entry(first).or_default();
+        counted.0 += 1;
+        counted.1 = counted.1.saturating_add(entry.size);
+    }
     Ok(FolderPlan {
+        not_chosen: by_name
+            .into_iter()
+            .map(|(name, (files, bytes))| (name.to_owned(), files, bytes))
+            .collect(),
         files,
         saved: places.saved,
         renamed: places.renamed,
@@ -353,5 +306,13 @@ pub(super) fn may_replace(target: &Path, replaceable: Option<FileStamp>) -> bool
     }
 }
 
+mod disk;
+
+pub(super) use disk::case_folded;
+use disk::Looked;
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod chosen_tests;

@@ -14,7 +14,13 @@ const LINUX: Rules = Rules {
 };
 
 fn plan(paths: &[&str], rules: Rules) -> SavedPaths {
-    saved_paths(paths, &[], |_, _| OnDisk::Nothing, rules)
+    saved_paths(
+        paths,
+        &[],
+        &Default::default(),
+        |_, _| OnDisk::Nothing,
+        rules,
+    )
 }
 
 #[test]
@@ -34,6 +40,7 @@ fn numbering_ends_and_the_file_is_left_out() {
     let saved = saved_paths(
         &["Trip/A.jpg", "Trip/a.jpg", "b"],
         &recorded,
+        &Default::default(),
         on_disk,
         WINDOWS,
     );
@@ -55,7 +62,13 @@ fn a_recorded_folder_that_is_now_a_file_moves_its_files() {
         path: "Trip/a.jpg",
         saved_as: "Trip/a.jpg",
     }];
-    let saved = saved_paths(&["Trip/a.jpg"], &recorded, on_disk, LINUX);
+    let saved = saved_paths(
+        &["Trip/a.jpg"],
+        &recorded,
+        &Default::default(),
+        on_disk,
+        LINUX,
+    );
     assert_eq!(saved.saved, ["Trip (2)/a.jpg"]);
     assert_eq!(saved.displaced, ["Trip/a.jpg"]);
 }
@@ -70,5 +83,32 @@ fn a_long_ourstick_name_is_marked_and_still_fits() {
         name.starts_with("_.ourstick-") && name.len() <= 255,
         "{name}"
     );
+    assert!(saved.left_out.is_empty());
+}
+
+#[test]
+fn what_is_not_chosen_takes_no_new_place_and_keeps_its_recorded_ones() {
+    let not_chosen: std::collections::HashSet<usize> = [0, 1].into();
+    // `Films?/a` came before (saved as `Films_/a`); `Films?/b` never did.
+    let recorded = [Recorded {
+        path: "Films?/a",
+        saved_as: "Films_/a",
+    }];
+    // Meanwhile the sender added a genuine `Films_/c`.
+    let saved = saved_paths(
+        &["Films?/a", "Films?/b", "Films_/c"],
+        &recorded,
+        &not_chosen,
+        |_, _| OnDisk::Nothing,
+        WINDOWS,
+    );
+    // The un-ticked folder keeps its place; the genuine one is numbered.
+    assert_eq!(saved.saved[0], "Films_/a");
+    assert_eq!(saved.saved[2], "Films_ (2)/c");
+    // Nothing of what is not got is told as renamed.
+    assert!(saved
+        .renamed
+        .iter()
+        .all(|line| !line.path.starts_with("Films?")));
     assert!(saved.left_out.is_empty());
 }

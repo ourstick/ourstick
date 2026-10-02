@@ -231,6 +231,8 @@ impl Progress {
                 "[{at}]   {}: the sender is still preparing it; waiting.",
                 untrusted(path)
             )],
+            // The command line gets everything (ADR 0012): never told.
+            DownloadEvent::Contents { .. } | DownloadEvent::NotChosen { .. } => Vec::new(),
             DownloadEvent::FileLeftOut { path, size } => {
                 self.finished += size;
                 vec![format!(

@@ -216,13 +216,15 @@ async fn a_preview_groups_by_top_level_and_leaves_out_what_is_already_here() {
                 name: "note.txt".to_owned(),
                 is_dir: false,
                 files: 1,
-                bytes: 4
+                bytes: 4,
+                to_write: 4,
             },
             TopEntry {
                 name: "photos".to_owned(),
                 is_dir: true,
                 files: 2,
-                bytes: 5
+                bytes: 5,
+                to_write: 5,
             },
         ]
     );

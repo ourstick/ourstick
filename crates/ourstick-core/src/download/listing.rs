@@ -113,6 +113,9 @@ pub struct TopEntry {
     pub is_dir: bool,
     pub files: u64,
     pub bytes: u64,
+    /// What it would write into the folder, files already there left out
+    /// (a preview's; elsewhere its bytes).
+    pub to_write: u64,
 }
 
 /// What adding a stick would bring (the receiver window, step 7b): its
@@ -154,54 +157,68 @@ pub async fn preview(
     connection.close().await;
     let (Listing { version, manifest }, cipher) = fetched?;
     let total = manifest.total_size();
-    let entries = top_entries(&manifest);
+    let mut entries = top_entries(&manifest);
     // What the folder holds counts, as a download would find it (each file
     // not recorded there is read once: a big existing copy takes a while).
-    let (to_write, folder, saved_as) = {
+    let (to_write, folder, saved_as, by_top) = {
         let store = store.clone();
         let stick_id = ticket.stick_id;
         let manifest = manifest.clone();
-        run_blocking(
-            move || -> Result<(u64, PathBuf, Vec<super::SavedAs>), DownloadError> {
-                // Chosen here, off the async runtime: it may look at folders.
-                let folder = choose(&manifest.name);
-                // The names it would change are the same as a download's.
-                let planned = |recorded: &[crate::store::DownloadedFile]| {
-                    plan_folder(&folder, &manifest, recorded, cipher.as_ref())
-                };
-                match std::fs::metadata(&folder) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        let plan = planned(&[])?;
-                        return Ok((manifest.total_size(), folder.clone(), plan.renamed));
-                    }
-                    Err(source) => {
-                        return Err(DownloadError::Io {
-                            path: folder,
-                            source,
-                        })
-                    }
-                    Ok(metadata) if !metadata.is_dir() => {
-                        return Err(DownloadError::Io {
-                            path: folder,
-                            source: std::io::Error::from(std::io::ErrorKind::NotADirectory),
-                        })
-                    }
-                    Ok(_) => {}
+        type Planned = (
+            u64,
+            PathBuf,
+            Vec<super::SavedAs>,
+            Option<BTreeMap<String, u64>>,
+        );
+        run_blocking(move || -> Result<Planned, DownloadError> {
+            // Chosen here, off the async runtime: it may look at folders.
+            let folder = choose(&manifest.name);
+            // The names it would change are the same as a download's.
+            let planned = |recorded: &[crate::store::DownloadedFile]| {
+                plan_folder(&folder, &manifest, recorded, &[], cipher.as_ref())
+            };
+            match std::fs::metadata(&folder) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    // A new folder: every entry writes all of its bytes.
+                    let plan = planned(&[])?;
+                    return Ok((manifest.total_size(), folder.clone(), plan.renamed, None));
                 }
-                let same = |joined: &crate::store::JoinedStick| {
-                    crate::places::comparable(&joined.output_dir)
-                        == crate::places::comparable(&folder)
-                };
-                let recorded = match store.joined_stick(&stick_id)? {
-                    Some(joined) if same(&joined) => store.downloaded_files(&stick_id)?,
-                    _ => Vec::new(),
-                };
-                let plan = planned(&recorded)?;
-                Ok((plan.bytes_to_write(&manifest), folder.clone(), plan.renamed))
-            },
-        )
+                Err(source) => {
+                    return Err(DownloadError::Io {
+                        path: folder,
+                        source,
+                    })
+                }
+                Ok(metadata) if !metadata.is_dir() => {
+                    return Err(DownloadError::Io {
+                        path: folder,
+                        source: std::io::Error::from(std::io::ErrorKind::NotADirectory),
+                    })
+                }
+                Ok(_) => {}
+            }
+            let same = |joined: &crate::store::JoinedStick| {
+                crate::places::comparable(&joined.output_dir) == crate::places::comparable(&folder)
+            };
+            let recorded = match store.joined_stick(&stick_id)? {
+                Some(joined) if same(&joined) => store.downloaded_files(&stick_id)?,
+                _ => Vec::new(),
+            };
+            let plan = planned(&recorded)?;
+            Ok((
+                plan.bytes_to_write(&manifest),
+                folder.clone(),
+                plan.renamed.clone(),
+                Some(plan.bytes_by_top(&manifest)),
+            ))
+        })
         .await?
     };
+    if let Some(by_top) = by_top {
+        for entry in &mut entries {
+            entry.to_write = by_top.get(&entry.name).copied().unwrap_or(0);
+        }
+    }
     Ok(Preview {
         version,
         name: manifest.name.clone(),
@@ -215,7 +232,7 @@ pub async fn preview(
 }
 
 /// The manifest's files grouped by their first component, in name order.
-fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
+pub(super) fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
     let mut entries: BTreeMap<&str, TopEntry> = BTreeMap::new();
     for file in &manifest.entries {
         let (first, deeper) = match file.path.split_once('/') {
@@ -227,10 +244,12 @@ fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
             is_dir: deeper,
             files: 0,
             bytes: 0,
+            to_write: 0,
         });
         entry.is_dir |= deeper;
         entry.files += 1;
         entry.bytes = entry.bytes.saturating_add(file.size);
+        entry.to_write = entry.bytes;
     }
     entries.into_values().collect()
 }

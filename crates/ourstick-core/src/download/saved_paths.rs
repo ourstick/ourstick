@@ -92,55 +92,6 @@ pub(crate) struct SavedPaths {
 /// How many numbers a name tries before its entry is left out.
 const MOST_NUMBERS: u32 = 1_000;
 
-/// The places taken this round, as the disk sees them (folded): files, and
-/// every folder they are in, with the stick's folder each one holds (two
-/// folders of the stick are never one folder here).
-#[derive(Default)]
-struct Taken {
-    files: HashSet<String>,
-    folders: HashMap<String, String>,
-}
-
-impl Taken {
-    /// Whether a folder may be at `place` (folded) for the stick's `folder`:
-    /// no file there, and no other stick folder.
-    fn folder_free(&self, place: &str, folder: &str) -> bool {
-        !self.files.contains(place)
-            && self
-                .folders
-                .get(place)
-                .is_none_or(|holder| holder == folder)
-    }
-
-    /// Whether the file `path` of the stick may be saved at `saved_as`: its
-    /// place free, and each of its folders free for the stick's folder.
-    fn file_free(&self, saved_as: &str, path: &str, rules: Rules) -> bool {
-        let place = rules.fold(saved_as);
-        !self.files.contains(&place)
-            && !self.folders.contains_key(&place)
-            && folder_pairs(path, saved_as)
-                .iter()
-                .all(|(stick, here)| self.folder_free(&rules.fold(here), stick))
-    }
-
-    fn take(&mut self, saved_as: &str, path: &str, rules: Rules) {
-        for (stick, here) in folder_pairs(path, saved_as) {
-            self.folders.entry(rules.fold(&here)).or_insert(stick);
-        }
-        self.files.insert(rules.fold(saved_as));
-    }
-}
-
-/// Each folder of `path` with the folder of `saved_as` it is saved as,
-/// outermost first (the two have as many names).
-fn folder_pairs(path: &str, saved_as: &str) -> Vec<(String, String)> {
-    let stick: Vec<&str> = path.split('/').collect();
-    let here: Vec<&str> = saved_as.split('/').collect();
-    (1..stick.len().min(here.len()))
-        .map(|depth| (stick[..depth].join("/"), here[..depth].join("/")))
-        .collect()
-}
-
 /// The names OurStick uses itself at the top of a received folder.
 const OURS: [&str; 2] = [super::PARTIAL_DIR, super::receive::RECEIVED_MARKER];
 
@@ -150,10 +101,12 @@ const OURS: [&str; 2] = [super::PARTIAL_DIR, super::receive::RECEIVED_MARKER];
 /// the caller says `Nothing` if the file there already holds that entry's
 /// content (placed, then stopped before it was recorded). Recorded places first
 /// (they stay theirs), then every path that needs no change, then the rest
-/// in manifest order (ADR 0010, rule 4).
+/// in manifest order (ADR 0010, rule 4). Entries in `not_chosen` (by index,
+/// ADR 0012) take no new place and are not told as renamed.
 pub(crate) fn saved_paths(
     paths: &[&str],
     recorded: &[Recorded<'_>],
+    not_chosen: &HashSet<usize>,
     on_disk: impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
 ) -> SavedPaths {
@@ -196,8 +149,13 @@ pub(crate) fn saved_paths(
         .collect();
     // Unchanged: every name savable as it is, its folders not moved, and
     // nothing in the way.
+    // Entries the user chose not to get (ADR 0012) take no new place: their
+    // recorded rows above keep theirs.
     for (index, path) in paths.iter().enumerate() {
-        if saved[index].is_some() || !unchanged(path, index, &folders, &taken, &on_disk, rules) {
+        if not_chosen.contains(&index)
+            || saved[index].is_some()
+            || !unchanged(path, index, &folders, &taken, &on_disk, rules)
+        {
             continue;
         }
         taken.take(path, path, rules);
@@ -207,6 +165,12 @@ pub(crate) fn saved_paths(
     // The rest, top-down.
     let mut left_out = Vec::new();
     for (index, path) in paths.iter().enumerate() {
+        if not_chosen.contains(&index) {
+            if saved[index].is_none() {
+                saved[index] = Some((*path).to_owned());
+            }
+            continue;
+        }
         if saved[index].is_none() {
             match choose(path, index, &mut folders, &mut taken, &on_disk, rules) {
                 Some(place) => saved[index] = Some(place),
@@ -238,7 +202,7 @@ pub(crate) fn saved_paths(
         .iter()
         .zip(&saved)
         .enumerate()
-        .filter(|(index, _)| !left_set.contains(index))
+        .filter(|(index, _)| !left_set.contains(index) && !not_chosen.contains(index))
         .map(|(_, (path, saved))| (*path, saved.clone()))
         .unzip();
     SavedPaths {
@@ -382,6 +346,10 @@ fn savable(name: &str, first: bool, rules: Rules) -> String {
     let name = marked.as_deref().unwrap_or(name);
     safe_name(name, rules.windows).into_owned()
 }
+
+mod taken;
+
+use taken::{folder_pairs, Taken};
 
 #[cfg(test)]
 mod tests;

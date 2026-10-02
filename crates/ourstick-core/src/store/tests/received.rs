@@ -118,6 +118,12 @@ fn what_is_left_out_is_kept_whole_and_replaced_whole(store: &dyn Store) {
     // An empty name is not a name.
     assert!(store.set_left_out(&id, &names(&[""])).is_err());
     assert!(store.left_out(&id).unwrap().is_empty());
+    // The choice is the stick's, not its folder's: moved, it stays.
+    store.set_left_out(&id, &names(&["Films"])).unwrap();
+    store
+        .move_joined_stick(&id, std::path::Path::new("/elsewhere"))
+        .unwrap();
+    assert_eq!(store.left_out(&id).unwrap(), names(&["Films"]));
     // Per stick.
     store.add_joined_stick(&joined(5, 11)).unwrap();
     store.set_left_out(&id, &names(&["Films"])).unwrap();

@@ -97,6 +97,7 @@ fn names_and_paths_in_every_script_never_panic() {
                     let saved = crate::download::saved_paths::saved_paths(
                         &[&path, &text],
                         &[],
+                        &Default::default(),
                         |_, _| crate::download::saved_paths::OnDisk::Nothing,
                         rules,
                     );

@@ -16,7 +16,7 @@ fn empty(_: &str, _: Option<usize>) -> OnDisk {
 }
 
 fn plan(paths: &[&str], rules: Rules) -> SavedPaths {
-    saved_paths(paths, &[], empty, rules)
+    saved_paths(paths, &[], &Default::default(), empty, rules)
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn a_file_in_the_way_moves_the_folder() {
             OnDisk::Nothing
         }
     };
-    let saved = saved_paths(&["a/b"], &[], on_disk, LINUX);
+    let saved = saved_paths(&["a/b"], &[], &Default::default(), on_disk, LINUX);
     assert_eq!(saved.saved, ["a (2)/b"]);
 }
 
@@ -88,7 +88,7 @@ fn a_renamed_name_never_lands_on_a_file_there() {
             OnDisk::Nothing
         }
     };
-    let saved = saved_paths(&["a?.jpg"], &[], on_disk, WINDOWS);
+    let saved = saved_paths(&["a?.jpg"], &[], &Default::default(), on_disk, WINDOWS);
     assert_eq!(saved.saved, ["a_ (2).jpg"]);
     // Unless that file is this entry's, placed before a stop.
     let mine = |place: &str, entry: Option<usize>| {
@@ -99,7 +99,7 @@ fn a_renamed_name_never_lands_on_a_file_there() {
         }
     };
     assert_eq!(
-        saved_paths(&["a?.jpg"], &[], mine, WINDOWS).saved,
+        saved_paths(&["a?.jpg"], &[], &Default::default(), mine, WINDOWS).saved,
         ["a_.jpg"]
     );
 }
@@ -111,14 +111,26 @@ fn recorded_places_stay_in_later_versions() {
         saved_as: "a_.jpg",
     }];
     // A genuine `a_.jpg` arriving later does not take the recorded place.
-    let saved = saved_paths(&["a?.jpg", "a_.jpg"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["a?.jpg", "a_.jpg"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["a_.jpg", "a_ (2).jpg"]);
     // A file added later to a renamed folder goes into it.
     let recorded = [Recorded {
         path: "Trip?/x",
         saved_as: "Trip_ (2)/x",
     }];
-    let saved = saved_paths(&["Trip?/x", "Trip?/y"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["Trip?/x", "Trip?/y"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["Trip_ (2)/x", "Trip_ (2)/y"]);
 }
 
@@ -128,7 +140,7 @@ fn a_recorded_place_is_taken_even_when_its_file_left_the_stick() {
         path: "old?.txt",
         saved_as: "new.txt",
     }];
-    let saved = saved_paths(&["new.txt"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(&["new.txt"], &recorded, &Default::default(), empty, WINDOWS);
     assert_eq!(saved.saved, ["new (2).txt"]);
 }
 
@@ -145,7 +157,13 @@ fn recorded_places_made_one_by_folding_are_moved() {
             saved_as: "photo.jpg",
         },
     ];
-    let saved = saved_paths(&["Photo.jpg", "photo.jpg"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["Photo.jpg", "photo.jpg"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["Photo.jpg", "photo (2).jpg"]);
     assert_eq!(
         saved.moved,
@@ -199,7 +217,13 @@ fn two_folders_of_the_stick_are_never_one_here() {
         path: "Trip?/x",
         saved_as: "Trip_/x",
     }];
-    let saved = saved_paths(&["Trip?/x", "Trip_/y"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["Trip?/x", "Trip_/y"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["Trip_/x", "Trip_ (2)/y"]);
 }
 
@@ -224,7 +248,13 @@ fn recorded_places_are_checked_in_both_directions() {
             saved_as: "a/b",
         },
     ];
-    let saved = saved_paths(&["A", "a/b"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["A", "a/b"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["A", "a (2)/b"]);
     assert_eq!(saved.moved, [("a/b".to_owned(), "a (2)/b".to_owned())]);
     // Rows that disagree on a folder: the byte-first (`Trip_ (2)/y`) keeps
@@ -239,14 +269,20 @@ fn recorded_places_are_checked_in_both_directions() {
             saved_as: "Trip_ (2)/y",
         },
     ];
-    let saved = saved_paths(&["Trip?/x", "Trip?/y"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(
+        &["Trip?/x", "Trip?/y"],
+        &recorded,
+        &Default::default(),
+        empty,
+        WINDOWS,
+    );
     assert_eq!(saved.saved, ["Trip_ (2)/x", "Trip_ (2)/y"]);
     // A row whose places do not match its path is chosen again.
     let recorded = [Recorded {
         path: "a/b",
         saved_as: "b",
     }];
-    let saved = saved_paths(&["a/b"], &recorded, empty, WINDOWS);
+    let saved = saved_paths(&["a/b"], &recorded, &Default::default(), empty, WINDOWS);
     assert_eq!(saved.saved, ["a/b"]);
 }
 
@@ -259,7 +295,10 @@ fn a_folder_in_the_way_of_a_file() {
             OnDisk::Nothing
         }
     };
-    assert_eq!(saved_paths(&["a"], &[], on_disk, LINUX).saved, ["a (2)"]);
+    assert_eq!(
+        saved_paths(&["a"], &[], &Default::default(), on_disk, LINUX).saved,
+        ["a (2)"]
+    );
 }
 
 #[test]

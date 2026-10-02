@@ -26,7 +26,6 @@ pub(crate) mod saved_paths;
 mod types;
 
 use fetch_files::{fetch_files, FileCounts};
-use folder::plan_folder;
 use joined::record_downloaded;
 use listing::fetch_listing;
 use path::ReceivingPath;
@@ -303,19 +302,14 @@ async fn download_over(
     {
         return Err(DownloadError::Cancelled);
     }
+    let top = listing::top_entries(&manifest);
+    if on_event(DownloadEvent::Contents { entries: &top }).is_break() {
+        return Err(DownloadError::Cancelled);
+    }
 
     // What the folder already holds, file by file. Nothing is fetched for a
     // file that is there, and nothing is written over a file changed there.
-    let plan = {
-        let store = store.clone();
-        let stick_id = ticket.stick_id;
-        let recorded = run_blocking(move || store.downloaded_files(&stick_id)).await?;
-        let output_dir = output_dir.to_path_buf();
-        let manifest = manifest.clone();
-        let cipher = cipher.clone();
-        run_blocking(move || plan_folder(&output_dir, &manifest, &recorded, cipher.as_ref()))
-            .await?
-    };
+    let plan = joined::plan_round(&store, ticket, output_dir, &manifest, &cipher).await?;
     joined::take_plan(&store, ticket, &plan, &manifest, on_event).await?;
     if plan.no_longer_in_stick > 0
         && on_event(DownloadEvent::NoLongerInStick {
@@ -340,6 +334,7 @@ async fn download_over(
         already_here,
         changed_here,
         left_out,
+        not_chosen,
     } = fetch_files(
         fetcher,
         connection,
@@ -380,6 +375,7 @@ async fn download_over(
         changed_here,
         saved_as: plan.renamed.iter().map(|renamed| renamed.files).sum(),
         left_out,
+        not_chosen,
         usage: PathUsage::default(),
     }))
 }

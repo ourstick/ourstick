@@ -232,6 +232,7 @@ fn summary_says_how_long_and_which_path() {
         changed_here: 0,
         saved_as: 0,
         left_out: 0,
+        not_chosen: 0,
         usage: PathUsage {
             direct: 5_000_000_000,
             relay: 950_000_000,
@@ -329,6 +330,7 @@ fn files_not_downloaded_are_accounted_for() {
         changed_here: 2,
         saved_as: 0,
         left_out: 0,
+        not_chosen: 0,
         usage: PathUsage::default(),
     };
     assert_eq!(
@@ -348,6 +350,7 @@ fn a_later_download_says_both_when_and_how_long() {
         changed_here: 0,
         saved_as: 0,
         left_out: 0,
+        not_chosen: 0,
         usage: PathUsage::default(),
     };
     assert!(Progress::summary(&report, "/out", secs(95), secs(2))[0]

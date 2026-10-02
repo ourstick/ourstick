@@ -61,6 +61,20 @@ pub enum DownloadEvent<'a> {
         saved_as: &'a str,
         files: usize,
     },
+    /// What is on the stick at its top level, as this round's version has
+    /// it (ADR 0012): told after the manifest is read, for a window that
+    /// lets the user choose.
+    Contents {
+        entries: &'a [super::TopEntry],
+    },
+    /// A top-level name the user chose not to get, on the stick with its
+    /// `files` and `bytes`: not fetched. Told once per name, before the
+    /// files come (ADR 0012).
+    NotChosen {
+        name: &'a str,
+        files: usize,
+        bytes: u64,
+    },
     /// No savable place was found for this file here (every place for it is
     /// in the way): not fetched. Its path in the stick.
     FileLeftOut {
@@ -154,6 +168,8 @@ pub struct DownloadReport {
     pub saved_as: usize,
     /// Files no savable place was found for here: not fetched.
     pub left_out: usize,
+    /// Files the user chose not to get (ADR 0012).
+    pub not_chosen: usize,
     /// Bytes that arrived over direct and over relay paths, over all
     /// connections of this download.
     pub usage: PathUsage,

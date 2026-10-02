@@ -27,6 +27,7 @@ pub(super) struct FileCounts {
     pub(super) already_here: usize,
     pub(super) changed_here: usize,
     pub(super) left_out: usize,
+    pub(super) not_chosen: usize,
 }
 
 /// Where an entry lands under `output_dir` (its path was checked before).
@@ -102,6 +103,11 @@ pub(super) async fn fetch_files(
                             path: &entry.path,
                             size: entry.size,
                         }
+                    }
+                    // Told once per top-level name, before the files (ADR 0012).
+                    FilePlan::NotChosen => {
+                        done.counts.not_chosen += 1;
+                        continue;
                     }
                     FilePlan::LeftOut => {
                         done.counts.left_out += 1;

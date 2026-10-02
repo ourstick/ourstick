@@ -4,12 +4,12 @@ use super::*;
 use crate::cipher::{ChaChaCipher, StickKey};
 use crate::manifest::Entry;
 
-fn cipher() -> ChaChaCipher {
+pub(super) fn cipher() -> ChaChaCipher {
     ChaChaCipher::new(&StickKey::from_bytes([3; 32]))
 }
 
 /// The manifest entry the stick would have for `content` at `path`.
-fn entry(path: &str, content: &[u8]) -> Entry {
+pub(super) fn entry(path: &str, content: &[u8]) -> Entry {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f");
     std::fs::write(&file, content).unwrap();
@@ -18,7 +18,7 @@ fn entry(path: &str, content: &[u8]) -> Entry {
     entry
 }
 
-fn manifest(entries: Vec<Entry>) -> Manifest {
+pub(super) fn manifest(entries: Vec<Entry>) -> Manifest {
     Manifest {
         entries,
         ..Manifest::default()
@@ -48,6 +48,7 @@ fn missing_files_are_downloaded() {
         out.path(),
         &manifest(vec![entry("a", b"one")]),
         &[],
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -62,6 +63,7 @@ fn a_file_as_get_left_it_is_skipped_or_replaced_by_a_new_version() {
         out.path(),
         &manifest(vec![entry("a", b"one")]),
         std::slice::from_ref(&row),
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -70,6 +72,7 @@ fn a_file_as_get_left_it_is_skipped_or_replaced_by_a_new_version() {
         out.path(),
         &manifest(vec![entry("a", b"two")]),
         std::slice::from_ref(&row),
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -92,6 +95,7 @@ fn a_file_changed_here_is_never_overwritten() {
             out.path(),
             &manifest(vec![entry("a", version)]),
             std::slice::from_ref(&row),
+            &[],
             &cipher(),
         )
         .unwrap();
@@ -110,6 +114,7 @@ fn a_file_only_touched_here_is_still_updated() {
         out.path(),
         &manifest(vec![entry("a", b"two")]),
         &[row],
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -129,6 +134,7 @@ fn a_file_not_written_by_get_counts_only_if_its_content_matches() {
     let plan = plan_folder(
         out.path(),
         &manifest(vec![entry("other", b"two"), entry("same", b"one")]),
+        &[],
         &[],
         &cipher(),
     )
@@ -150,6 +156,7 @@ fn a_folder_in_the_way_is_left_alone_and_the_file_saved_beside_it() {
         out.path(),
         &manifest(vec![entry("a", b"one")]),
         &[],
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -168,6 +175,7 @@ fn files_no_longer_in_the_stick_are_counted_not_touched() {
         out.path(),
         &manifest(vec![]),
         &[gone, deleted_here],
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -196,7 +204,7 @@ const WINDOWS: Rules = Rules {
 
 /// The plan with Windows' rules, as a Windows receiver makes it.
 fn windows_plan(dir: &Path, entries: Vec<Entry>, recorded: &[DownloadedFile]) -> FolderPlan {
-    plan_folder_by(dir, &manifest(entries), recorded, &cipher(), WINDOWS).unwrap()
+    plan_folder_by(dir, &manifest(entries), recorded, &[], &cipher(), WINDOWS).unwrap()
 }
 
 #[test]
@@ -299,6 +307,7 @@ fn a_file_where_a_received_folder_was_stops_nothing() {
         out.path(),
         &manifest(vec![entry("Trip/a.jpg", b"a"), entry("b.txt", b"b")]),
         &[row],
+        &[],
         &cipher(),
     )
     .unwrap();
@@ -319,6 +328,7 @@ fn a_file_with_no_place_left_is_left_out_and_the_others_planned() {
     let plan = plan_folder(
         out.path(),
         &manifest(vec![entry("a/b", b"b"), entry("c", b"c")]),
+        &[],
         &[],
         &cipher(),
     )
@@ -343,6 +353,7 @@ fn a_shortcut_at_a_files_place_leaves_only_that_file_out() {
     let plan = plan_folder(
         out.path(),
         &manifest(vec![entry("a.txt", b"a"), entry("b.txt", b"b")]),
+        &[],
         &[],
         &cipher(),
     )

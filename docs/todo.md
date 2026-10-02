@@ -186,6 +186,30 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   the window's responsiveness, and paths over Windows' 260 characters. Today
   there is no limit on size, number of files or depth, but none of this was
   measured at that size.
+  - **First part done 2026-10-03, CLI, Linux → the same Linux** (made-up
+    files of 1–8 KB, 464 MB, 224 257 folders, 20 levels; NVMe): every file
+    came, identical (`diff -r`). The catalogue: 8 s. The first `get`: 17:51,
+    about 93 files a second (433 KB/s), CPU about a quarter of the time on
+    both sides, so both mostly wait. A second `get`, nothing changed: 3 s,
+    the manifest 14.6 MB. Memory at most: sender 1.24 GB, reader 794 MB
+    (366 MB for the second `get`).
+  - **Small files are slow (to measure, then fix):** each file is its own
+    request, one after another (`fetch_files` → `fetch_blob`), then a
+    `sync_all`, a rename and a store commit, each in turn. Measure where the
+    10 ms a file go (timing logs; `strace` is not allowed here), then
+    likely: fetch several blobs of a batch at once, and sync and record per
+    batch rather than per file. Its own ADR if the order of writing (ADR
+    0007) changes.
+  - **Memory:** 1.24 GB for the sender of 100 000 files is too much
+    (Rescued_Disk has 146 297, a million is not absurd). Find what holds it (the
+    catalogue's `Vec`, the manifest kept whole, the suitcase plans).
+  - **Watching:** the 224 257 folders went past Linux's watch limit
+    (`max_user_watches` 65 536 here); the sender said so and checked every
+    60 s instead, as designed. Every 60 s it walks the whole folder: measure
+    what that costs on Rescued_Disk (a spinning disk), and whether to say how to
+    raise the limit.
+  - Still to do: Linux → Windows and → Mac with the app (the window's
+    responsiveness, paths over 260 characters).
 - **The manifest is sent whole at every new version** (about 100 bytes a
   file: 100 MB for a million files, at each change). If the scale test shows
   it matters: send only what changed since the reader's version (a protocol

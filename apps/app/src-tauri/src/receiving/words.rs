@@ -151,6 +151,18 @@ pub fn stopped_words(error: &DownloadError) -> String {
         DownloadError::Io { .. } => {
             "Saving it on this computer failed. Use Try again.".to_owned()
         }
+        // A name the sender's computer allows and this one does not.
+        DownloadError::UnsafePath { path, reason } => format!(
+            "\u{201c}{}\u{201d} cannot be saved on this computer: {reason}. Ask the sender to \
+             rename it.",
+            ourstick_core::untrusted::escape(path)
+        ),
+        DownloadError::PathCollision { first, second } => format!(
+            "\u{201c}{}\u{201d} and \u{201c}{}\u{201d} would be the same file on this computer. \
+             Ask the sender to rename one of them.",
+            ourstick_core::untrusted::escape(first),
+            ourstick_core::untrusted::escape(second)
+        ),
         DownloadError::Manifest(_) | DownloadError::Cipher(_) => {
             "What came from the sender could not be read. Use Try again; if it goes on, ask the \
              sender for a new sharing link."
@@ -191,6 +203,15 @@ mod tests {
         assert!(said(&disk).starts_with("Something on this computer"));
         let ours = anyhow::anyhow!("this stick is not received here any more");
         assert_eq!(said(&ours), "This stick is not received here any more.");
+        let refused = stopped_words(&DownloadError::UnsafePath {
+            path: "Photos/a?.png".to_owned(),
+            reason: "it contains a character Windows does not allow in names",
+        });
+        assert_eq!(
+            refused,
+            "\u{201c}Photos/a?.png\u{201d} cannot be saved on this computer: it contains a \
+             character Windows does not allow in names. Ask the sender to rename it."
+        );
         let stopped = stopped_words(&DownloadError::Cancelled);
         assert_eq!(stopped, "It stopped. Use Try again.");
     }

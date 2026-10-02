@@ -56,7 +56,8 @@ things on it (a few music folders, some documents). The receiver window
    anything." A "no room" wait names what is coming, so a renamed big
    folder can be un-ticked right there (`Choose what to get…`).
 6. **The command line gets everything, as today.** A choice belongs to the
-   window's sticks (`kind = app`); `ourstick get` never reads or writes it,
+   window's sticks (`kind = app`); `ourstick get` never writes it (a round
+   reads it for every stick, and a stick of `get`'s has none),
    and refuses a stick the window receives, as today, in the words it has
    ("OurStick (the app) receives this stick, into …").
 

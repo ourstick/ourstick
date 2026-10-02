@@ -183,7 +183,13 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
     if is_symlink(&partial) {
         return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
     }
-    std::fs::create_dir_all(&partial).map_err(io_error(&partial))?;
+    // Inside the folder as it is: a folder that is gone (an unplugged disk's
+    // empty mount point) is never made again on another disk.
+    match std::fs::create_dir(&partial) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(io_error(&partial)(error)),
+    }
     if is_symlink(&partial) {
         return Err(unsafe_path(PARTIAL_DIR, "it is a symbolic link"));
     }
@@ -279,6 +285,14 @@ fn place(
     replaceable: Option<FileStamp>,
 ) -> Result<Option<FileStamp>, DownloadError> {
     let target = check_no_symlinks(output_dir, &entry.path)?;
+    // The folder must still be there (with its unfinished files): a disk
+    // unplugged meanwhile is not filled in its place.
+    let partial = output_dir.join(PARTIAL_DIR);
+    if !partial.is_dir() {
+        return Err(io_error(&partial)(std::io::Error::from(
+            std::io::ErrorKind::NotFound,
+        )));
+    }
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(io_error(parent))?;
     }

@@ -14,8 +14,24 @@ use ourstick_core::download::{
     Waiting,
 };
 use ourstick_core::locks::download_lock;
-use ourstick_core::space::DownloadRoom;
+use ourstick_core::space::{Disks, DownloadRoom};
 use ourstick_core::{MemoryStore, StickKind, Store};
+
+/// Every path on one disk with plenty of room: the tests never depend on
+/// the machine's own disks.
+struct RoomyDisk;
+
+impl Disks for RoomyDisk {
+    fn key(&self, _path: &std::path::Path) -> std::io::Result<String> {
+        Ok("d".to_owned())
+    }
+    fn free(&self, _path: &std::path::Path) -> std::io::Result<u64> {
+        Ok(500 << 30)
+    }
+    fn total(&self, _path: &std::path::Path) -> std::io::Result<u64> {
+        Ok(1000 << 30)
+    }
+}
 
 /// What a receive told, as plain values.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,7 +53,8 @@ async fn run_receive(
     let data = tempfile::tempdir().unwrap();
     let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
     let _lock = download_lock(data.path(), &stick.ticket.stick_id).unwrap();
-    let room = DownloadRoom::new(
+    let room = DownloadRoom::with_disks(
+        Box::new(RoomyDisk),
         store.clone(),
         data.path().to_path_buf(),
         stick.ticket.stick_id,
@@ -216,4 +233,95 @@ async fn a_preview_groups_by_top_level_and_leaves_out_what_is_already_here() {
         .await
         .unwrap();
     assert_eq!(seen.to_write, 5);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_owner_who_goes_away_while_up_to_date_is_told_and_back_again() {
+    let stick = Arc::new(publish_versions(&[&[("a.txt", b"one")]]).await);
+    let folder = tempfile::tempdir().unwrap();
+    mark_received_folder(folder.path(), &stick.ticket.stick_id).unwrap();
+    let away = stick.clone();
+    let told = run_receive(
+        &stick,
+        folder.path(),
+        |told| {
+            told.iter()
+                .filter(|told| matches!(told, Told::UpToDate(_)))
+                .count()
+                >= 2
+        },
+        Told::UpToDate(1000),
+        move || {
+            // Away, then back a moment later.
+            let back = away.clone();
+            let served = away.served.lock().unwrap().clone();
+            away.withdraw();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                *back.served.lock().unwrap() = served;
+            });
+        },
+    )
+    .await;
+    let away_at = told
+        .iter()
+        .position(|told| {
+            matches!(
+                told,
+                Told::Waiting(Waiting::Sender(_) | Waiting::NoLongerShared)
+            )
+        })
+        .expect("the owner going away is told");
+    assert!(told[away_at..].contains(&Told::UpToDate(1000)), "{told:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancel_in_the_middle_of_a_download_stops_it_soon() {
+    let files: Vec<(String, Vec<u8>)> = (0..200)
+        .map(|index| (format!("f{index:03}.bin"), vec![index as u8; 4096]))
+        .collect();
+    let files: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(path, data)| (path.as_str(), data.as_slice()))
+        .collect();
+    let stick = publish_versions(&[&files]).await;
+    let folder = tempfile::tempdir().unwrap();
+    mark_received_folder(folder.path(), &stick.ticket.stick_id).unwrap();
+    let started = std::time::Instant::now();
+    let told = run_receive(
+        &stick,
+        folder.path(),
+        |told| told.iter().any(|told| matches!(told, Told::File(_))),
+        Told::UpToDate(0),
+        || {},
+    )
+    .await;
+    assert!(started.elapsed() < Duration::from_secs(15));
+    assert!(!told.contains(&Told::UpToDate(1000)), "{told:?}");
+    // What landed is whole: every file there is one the stick has.
+    for entry in std::fs::read_dir(folder.path()).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        if name.starts_with('f') {
+            assert_eq!(
+                std::fs::read(folder.path().join(&name)).unwrap().len(),
+                4096
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_window_records_a_stick_before_its_first_round() {
+    use ourstick_core::download::take_stick;
+    let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    let stick_id = ourstick_core::StickSigningKey::from_bytes(&[5; 32]).stick_id();
+    let folder = std::path::Path::new("/d/Holiday");
+    take_stick(&store, stick_id, folder, StickKind::App, 7)
+        .await
+        .unwrap();
+    let joined = store.joined_stick(&stick_id).unwrap().unwrap();
+    assert_eq!(
+        (joined.kind, joined.output_dir.as_path()),
+        (StickKind::App, folder)
+    );
 }

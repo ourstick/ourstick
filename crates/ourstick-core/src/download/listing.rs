@@ -131,7 +131,8 @@ pub struct Preview {
 
 /// Fetches and verifies the stick's manifest and says what adding it into
 /// `folder` would bring; nothing is written. Like [`list`], it raises the
-/// stick's record floor.
+/// stick's record floor. No deadline of its own: the caller bounds it (the
+/// sender may be away), and a folder holding an earlier copy is read.
 pub async fn preview(
     fetcher: &impl Fetcher,
     store: Arc<dyn Store>,
@@ -149,27 +150,43 @@ pub async fn preview(
     let (Listing { version, manifest }, cipher) = fetched?;
     let total = manifest.total_size();
     let entries = top_entries(&manifest);
-    let to_write = if folder.is_dir() {
-        // What the folder holds counts, as a download would find it.
-        let recorded = {
-            let store = store.clone();
-            let stick_id = ticket.stick_id;
-            let folder = folder.to_path_buf();
-            run_blocking(move || match store.joined_stick(&stick_id)? {
-                Some(joined) if joined.output_dir == folder => store.downloaded_files(&stick_id),
-                _ => Ok(Vec::new()),
-            })
-            .await?
-        };
+    // What the folder holds counts, as a download would find it (each file
+    // not recorded there is read once: a big existing copy takes a while).
+    let to_write = {
+        let store = store.clone();
+        let stick_id = ticket.stick_id;
         let folder = folder.to_path_buf();
         let manifest = manifest.clone();
-        run_blocking(move || {
-            plan_folder(&folder, &manifest, &recorded, cipher.as_ref())
-                .map(|plan| plan.bytes_to_write(&manifest))
+        run_blocking(move || -> Result<u64, DownloadError> {
+            match std::fs::metadata(&folder) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(manifest.total_size())
+                }
+                Err(source) => {
+                    return Err(DownloadError::Io {
+                        path: folder,
+                        source,
+                    })
+                }
+                Ok(metadata) if !metadata.is_dir() => {
+                    return Err(DownloadError::Io {
+                        path: folder,
+                        source: std::io::Error::from(std::io::ErrorKind::NotADirectory),
+                    })
+                }
+                Ok(_) => {}
+            }
+            let same = |joined: &crate::store::JoinedStick| {
+                crate::places::comparable(&joined.output_dir) == crate::places::comparable(&folder)
+            };
+            let recorded = match store.joined_stick(&stick_id)? {
+                Some(joined) if same(&joined) => store.downloaded_files(&stick_id)?,
+                _ => Vec::new(),
+            };
+            let plan = plan_folder(&folder, &manifest, &recorded, cipher.as_ref())?;
+            Ok(plan.bytes_to_write(&manifest))
         })
         .await?
-    } else {
-        total
     };
     Ok(Preview {
         version,

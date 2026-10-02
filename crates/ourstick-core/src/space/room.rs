@@ -39,7 +39,8 @@ impl DownloadRoom {
         Self::with_disks(Box::new(SystemDisks), store, data_dir, stick_id, output)
     }
 
-    pub(crate) fn with_disks(
+    /// [`DownloadRoom::new`] with other disks (tests, or another program's view).
+    pub fn with_disks(
         disks: Box<dyn Disks>,
         store: Arc<dyn Store>,
         data_dir: PathBuf,

@@ -336,3 +336,15 @@ fn a_file_changed_while_downloading_is_left_alone() {
     );
     assert_eq!(written.size, 4);
 }
+
+#[test]
+fn a_folder_that_is_gone_is_never_made_again() {
+    // An unplugged disk's mount point: the stick's folder below it is gone.
+    let mount_point = tempfile::tempdir().unwrap();
+    let gone = mount_point.path().join("Holiday");
+    assert!(matches!(
+        prepare_partial_dir(&gone),
+        Err(DownloadError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+    ));
+    assert!(!gone.exists());
+}

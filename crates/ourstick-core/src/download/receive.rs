@@ -13,6 +13,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 use super::{download_as, wait_for_newer, DownloadError, DownloadEvent, RelayPolicy, FOLLOW_EVERY};
+use crate::blocking::run_blocking;
 use crate::clock::Clock;
 use crate::space::{DownloadRoom, SpaceError};
 use crate::stick_id::StickId;
@@ -31,10 +32,29 @@ pub fn mark_received_folder(folder: &Path, stick_id: &StickId) -> std::io::Resul
     std::fs::write(folder.join(RECEIVED_MARKER), hex)
 }
 
-/// Whether `folder` is there and marked as `stick_id`'s.
+/// Whether `folder` is there and marked as `stick_id`'s (reading no more
+/// of the mark than an id takes). Blocking.
 pub fn received_folder_there(folder: &Path, stick_id: &StickId) -> bool {
+    use std::io::Read;
     let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
-    std::fs::read(folder.join(RECEIVED_MARKER)).is_ok_and(|mark| mark == hex.as_bytes())
+    let mut mark = Vec::new();
+    std::fs::File::open(folder.join(RECEIVED_MARKER))
+        .and_then(|file| file.take(hex.len() as u64 + 1).read_to_end(&mut mark))
+        .is_ok()
+        && mark == hex.as_bytes()
+}
+
+/// Records the stick as received by `kind` into `folder` before its first
+/// round (the receiver window adds it): the same one place a download writes
+/// the row in. The caller holds the stick's download lock.
+pub async fn take_stick(
+    store: &Arc<dyn Store>,
+    stick_id: StickId,
+    folder: &Path,
+    kind: StickKind,
+    now_ms: u64,
+) -> Result<(), DownloadError> {
+    super::joined::prepare(store, stick_id, folder, kind, now_ms).await
 }
 
 /// Tells a receive to stop: whatever it is doing (downloading, waiting for
@@ -80,21 +100,33 @@ pub enum Waiting {
     NoLongerShared,
     /// What comes does not fit on this computer.
     Room { needed: u64, available: u64 },
+    /// The disk the stick is written to is full.
+    DiskFull,
     /// The folder is not there, or not the stick's (an unplugged disk).
     Folder,
     /// The owner's folder keeps changing while it is downloaded.
     KeepsChanging,
+    /// The owner's copy, or what came of it, is damaged; a new version of
+    /// the stick may mend it.
+    Damaged(String),
+    /// This version cannot be taken here (a name this computer refuses, two
+    /// names for one file): the owner's next version may be.
+    CannotTake(String),
+    /// Something on this computer failed (its network, its storage).
+    ThisComputer(String),
 }
 
 /// What a receive tells, besides each download's own events.
 #[derive(Debug)]
 pub enum ReceiveEvent<'a> {
     Download(DownloadEvent<'a>),
-    /// Every file of version `seq` is here; waiting for the next one.
+    /// Every file of version `seq` is here; waiting for the next one. Told
+    /// again when the owner can be reached again after `Waiting`.
     UpToDate {
         seq: u64,
     },
-    /// Trying again in `after`, because of `why`.
+    /// Trying again in `after`, because of `why`. While up to date, told
+    /// when the owner cannot be reached (asked again every `after`).
     Waiting {
         why: Waiting,
         after: Duration,
@@ -112,11 +144,20 @@ pub enum Next {
 const FIRST_WAIT: Duration = FOLLOW_EVERY;
 /// The longest pause between tries.
 const LONGEST_WAIT: Duration = Duration::from_secs(300);
+/// How long a cancelled round may take to stop at its next event and finish
+/// the file it is placing, before it is dropped.
+const GRACE: Duration = Duration::from_secs(10);
 
 /// What to do after `error`, the round's room refusal being `refused` and
 /// `waited` the last pause for the same reason: the one place that decides.
+/// Nothing is given up on that the owner or this computer can mend; only a
+/// record that must not be taken, the store and the programs' own refusals
+/// stop, saying why.
 pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: Duration) -> Next {
+    use std::io::ErrorKind;
     let longer = (waited * 2).clamp(FIRST_WAIT, LONGEST_WAIT);
+    let said = || crate::untrusted::escape(&error.to_string());
+    let wait = |why| Next::Wait(why, longer);
     match (error, refused) {
         (_, Some(SpaceError::DoesNotFit { needed, available })) => Next::Wait(
             Waiting::Room {
@@ -125,40 +166,44 @@ pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: 
             },
             LONGEST_WAIT,
         ),
-        (DownloadError::Transport(TransportError::UnknownStick), _) => {
-            Next::Wait(Waiting::NoLongerShared, LONGEST_WAIT)
-        }
-        (
-            DownloadError::Transport(
-                TransportError::Unreachable(reason) | TransportError::Interrupted(reason),
-            ),
-            _,
-        ) => Next::Wait(Waiting::Sender(reason.clone()), longer),
-        (
-            DownloadError::Transport(
-                TransportError::NoRecord | TransportError::Bind(_) | TransportError::Io(_),
-            ),
-            _,
-        ) => Next::Wait(Waiting::Sender(error.to_string()), longer),
-        (DownloadError::Transport(TransportError::Refused | TransportError::OwnerFailed), _) => {
-            Next::Wait(Waiting::KeepsChanging, longer)
-        }
+        (DownloadError::Transport(transport), _) => match transport {
+            TransportError::UnknownStick => Next::Wait(Waiting::NoLongerShared, LONGEST_WAIT),
+            TransportError::Unreachable(reason) | TransportError::Interrupted(reason) => {
+                wait(Waiting::Sender(reason.clone()))
+            }
+            TransportError::NoRecord | TransportError::NotReady | TransportError::Protocol(_) => {
+                wait(Waiting::Sender(said()))
+            }
+            TransportError::Refused => wait(Waiting::KeepsChanging),
+            TransportError::OwnerFailed | TransportError::Corrupt => {
+                Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
+            }
+            TransportError::Bind(_) | TransportError::Storage(_) | TransportError::Io(_) => {
+                wait(Waiting::ThisComputer(said()))
+            }
+            TransportError::Cancelled => Next::Stop,
+        },
         (DownloadError::Io { source, .. }, _) => match source.kind() {
-            std::io::ErrorKind::StorageFull => Next::Wait(
-                Waiting::Room {
-                    needed: 0,
-                    available: 0,
-                },
-                LONGEST_WAIT,
-            ),
-            std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+            ErrorKind::StorageFull | ErrorKind::QuotaExceeded => {
+                Next::Wait(Waiting::DiskFull, LONGEST_WAIT)
+            }
+            ErrorKind::NotFound | ErrorKind::PermissionDenied => {
                 Next::Wait(Waiting::Folder, FIRST_WAIT)
             }
-            _ => Next::Stop,
+            _ => wait(Waiting::ThisComputer(said())),
         },
-        // A bad record (an older version than this device has seen, a
-        // wrong signature), unsafe paths, damaged data, the store, and the
-        // app's or `get`'s own refusals: they need the user.
+        (
+            DownloadError::UnsafePath { .. }
+            | DownloadError::PathCollision { .. }
+            | DownloadError::Manifest(_),
+            _,
+        ) => Next::Wait(Waiting::CannotTake(said()), LONGEST_WAIT),
+        (DownloadError::SizeMismatch { .. } | DownloadError::Cipher(_), _) => {
+            Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
+        }
+        // A record that must not be taken (older than this device has seen,
+        // a wrong signature), the store, a cancel from outside, and the
+        // programs' own refusals: they need the user.
         _ => Next::Stop,
     }
 }
@@ -177,62 +222,86 @@ pub struct Receiving<'a, F: Fetcher> {
     pub follow_every: Duration,
 }
 
+/// Gives the room back however a receive ends.
+struct GiveBack<'a>(&'a DownloadRoom);
+
+impl Drop for GiveBack<'_> {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
 /// Receives the stick into its marked folder and keeps it up to date until
 /// `cancel` (then `Ok`), or until an error that needs the user (`Err`,
 /// saying why). The caller holds the stick's download lock and shuts the
 /// fetcher down after this returns (keeping its store, so the next receive
-/// resumes).
+/// resumes). A cancelled round stops at its next event, finishing the file
+/// it is placing (at most [`GRACE`]); a file being placed past that may
+/// still land a moment after this returns, and is found at the next round.
 pub async fn receive<F: Fetcher>(
     receiving: &Receiving<'_, F>,
     cancel: &Cancel,
     on_event: &mut (dyn FnMut(ReceiveEvent<'_>) + Send),
 ) -> Result<(), DownloadError> {
+    let _give_back = GiveBack(receiving.room);
     let stick_id = receiving.ticket.stick_id;
     let mut waited = Duration::ZERO;
+    let mut last_why: Option<std::mem::Discriminant<Waiting>> = None;
     loop {
         if cancel.is_cancelled() {
             return Ok(());
         }
-        if !received_folder_there(receiving.folder, &stick_id) {
-            waited = FIRST_WAIT;
+        let folder = receiving.folder.to_path_buf();
+        if !run_blocking(move || received_folder_there(&folder, &stick_id)).await {
+            last_why = Some(std::mem::discriminant(&Waiting::Folder));
             on_event(ReceiveEvent::Waiting {
                 why: Waiting::Folder,
-                after: waited,
+                after: FIRST_WAIT,
             });
-            if !pause(waited, cancel).await {
+            if !pause(FIRST_WAIT, cancel).await {
                 return Ok(());
             }
             continue;
         }
-        let round = tokio::select! {
-            round = one_round(receiving, on_event) => round,
-            () = cancel.cancelled() => return Ok(()),
+        let round = {
+            let round = one_round(receiving, cancel, &mut *on_event);
+            tokio::pin!(round);
+            tokio::select! {
+                round = &mut round => Some(round),
+                () = cancel.cancelled() => {
+                    let _ = tokio::time::timeout(GRACE, &mut round).await;
+                    None
+                }
+            }
+        };
+        let Some(round) = round else {
+            return Ok(());
         };
         receiving.room.release();
         let error = match round {
             Ok(seq) => {
                 waited = Duration::ZERO;
+                last_why = None;
                 on_event(ReceiveEvent::UpToDate { seq });
-                let mut quiet = |_: super::FollowEvent<'_>| {};
-                let newer = tokio::select! {
-                    newer = wait_for_newer(
-                        receiving.fetcher,
-                        receiving.ticket,
-                        seq,
-                        receiving.follow_every,
-                        &mut quiet,
-                    ) => newer,
-                    () = cancel.cancelled() => return Ok(()),
-                };
-                match newer {
-                    Ok(_) => continue,
-                    Err(error) => error,
+                match follow(receiving, cancel, seq, &mut *on_event).await {
+                    None => return Ok(()),
+                    Some(Ok(())) => continue,
+                    Some(Err(error)) => error,
                 }
             }
             Err(error) => error,
         };
         let refused = receiving.room.refusal();
-        match after_error(&error, refused.as_ref(), waited) {
+        let mut next = after_error(&error, refused.as_ref(), waited);
+        // A new reason starts from the first pause again.
+        if let Next::Wait(why, _) = &next {
+            let why = std::mem::discriminant(why);
+            if last_why != Some(why) {
+                last_why = Some(why);
+                next = after_error(&error, refused.as_ref(), Duration::ZERO);
+            }
+        }
+        match next {
             Next::Stop => return Err(error),
             Next::Wait(why, after) => {
                 waited = after;
@@ -245,14 +314,46 @@ pub async fn receive<F: Fetcher>(
     }
 }
 
-/// One download, its events passed on and to the room; the version it
-/// completed.
+/// While up to date: waits for the owner's next version, telling when the
+/// owner cannot be reached (or no longer shares the stick) and when it can
+/// again. `None` if cancelled.
+async fn follow<F: Fetcher>(
+    receiving: &Receiving<'_, F>,
+    cancel: &Cancel,
+    seq: u64,
+    on_event: &mut (dyn FnMut(ReceiveEvent<'_>) + Send),
+) -> Option<Result<(), DownloadError>> {
+    let after = receiving.follow_every;
+    let mut told = |event: super::FollowEvent<'_>| match event {
+        super::FollowEvent::Unreachable { reason } => {
+            let why = match reason {
+                TransportError::UnknownStick => Waiting::NoLongerShared,
+                other => Waiting::Sender(crate::untrusted::escape(&other.to_string())),
+            };
+            on_event(ReceiveEvent::Waiting { why, after });
+        }
+        super::FollowEvent::Reachable => on_event(ReceiveEvent::UpToDate { seq }),
+    };
+    tokio::select! {
+        newer = wait_for_newer(receiving.fetcher, receiving.ticket, seq, after, &mut told) => {
+            Some(newer.map(|_| ()))
+        }
+        () = cancel.cancelled() => None,
+    }
+}
+
+/// One download, its events passed on and to the room, stopping at its next
+/// event once cancelled; the version it completed.
 async fn one_round<F: Fetcher>(
     receiving: &Receiving<'_, F>,
+    cancel: &Cancel,
     on_event: &mut (dyn FnMut(ReceiveEvent<'_>) + Send),
 ) -> Result<u64, DownloadError> {
     let room = receiving.room;
     let mut forward = |event: DownloadEvent<'_>| {
+        if cancel.is_cancelled() {
+            return std::ops::ControlFlow::Break(());
+        }
         let flow = room.on_event(&event);
         on_event(ReceiveEvent::Download(event));
         flow

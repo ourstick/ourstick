@@ -41,19 +41,43 @@ fn what_the_owner_or_this_computer_can_fix_is_waited_for() {
         ),
         (io(std::io::ErrorKind::NotFound), Waiting::Folder),
         (io(std::io::ErrorKind::PermissionDenied), Waiting::Folder),
-        (
-            io(std::io::ErrorKind::StorageFull),
-            Waiting::Room {
-                needed: 0,
-                available: 0,
-            },
-        ),
+        (io(std::io::ErrorKind::StorageFull), Waiting::DiskFull),
     ];
     for (error, expected) in cases {
         match after_error(&error, None, Duration::ZERO) {
             Next::Wait(why, _) => assert_eq!(why, expected, "{error:?}"),
             other => panic!("{error:?}: {other:?}"),
         }
+    }
+    // Waited for, with what happened in words.
+    for error in [
+        DownloadError::Transport(TransportError::Corrupt),
+        DownloadError::Transport(TransportError::OwnerFailed),
+        DownloadError::UnsafePath {
+            path: "x".to_owned(),
+            reason: "no",
+        },
+        DownloadError::PathCollision {
+            first: "a".to_owned(),
+            second: "A".to_owned(),
+        },
+        DownloadError::Transport(TransportError::Protocol("odd".to_owned())),
+        DownloadError::Transport(TransportError::Storage("full".to_owned())),
+        io(std::io::ErrorKind::TimedOut),
+    ] {
+        assert!(
+            matches!(
+                after_error(&error, None, Duration::ZERO),
+                Next::Wait(
+                    Waiting::Damaged(_)
+                        | Waiting::CannotTake(_)
+                        | Waiting::Sender(_)
+                        | Waiting::ThisComputer(_),
+                    _
+                )
+            ),
+            "{error:?}"
+        );
     }
 }
 
@@ -79,17 +103,9 @@ fn a_version_that_does_not_fit_waits_and_says_how_much() {
 fn what_needs_the_user_stops() {
     for error in [
         DownloadError::Record(RecordError::BadSignature),
-        DownloadError::UnsafePath {
-            path: "x".to_owned(),
-            reason: "no",
-        },
-        DownloadError::PathCollision {
-            first: "a".to_owned(),
-            second: "A".to_owned(),
-        },
         DownloadError::BeingForgotten,
         DownloadError::Cancelled,
-        io(std::io::ErrorKind::InvalidData),
+        DownloadError::Transport(TransportError::Cancelled),
     ] {
         assert_eq!(
             after_error(&error, None, Duration::ZERO),

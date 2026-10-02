@@ -155,10 +155,10 @@
       </p>
     {/if}
     <SavedAsNote list={preview.saved_as} coming />
-    {#if preview.partial}
-      <p class="muted">The sender is still counting its files: more is coming.</p>
-    {:else if chosen.length === 0}
+    {#if chosen.length === 0}
       <p class="error">Tick at least one thing.</p>
+    {:else if preview.partial}
+      <p class="muted">The sender is still counting its files: more is coming.</p>
     {:else if fits}
       <p class="muted">Needs up to {size(needs)} · fits</p>
     {:else}

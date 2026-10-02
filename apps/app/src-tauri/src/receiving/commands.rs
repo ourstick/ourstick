@@ -197,26 +197,26 @@ pub async fn add_received(
                 Ok(())
             })
             .await;
+            let mut words = "What not to get could not be saved, so the stick was not added. \
+                             Try again in a moment.";
             if let Err(why) = undone {
-                // Still listed: shown, saying so, for the user to forget it.
                 tracing::warn!(%why, "a stick whose choice could not be kept, half undone");
-                receivers
-                    .hold_again(
-                        &app,
-                        stick_id,
-                        None,
-                        "What not to get could not be saved. Nothing is being got: use Forget \
-                         this stick…, then add it again."
-                            .to_owned(),
-                    )
-                    .await;
+                // Still listed: shown, saying so, for the user to forget it.
+                // Already marked forgotten: hidden, finished at the next start.
+                let store = state.store.clone();
+                let listed = super::work(move || Ok(store.joined_stick(&stick_id)?.is_some()))
+                    .await
+                    .unwrap_or(true);
+                if listed {
+                    words = "What not to get could not be saved. Nothing is being got: use \
+                             Forget this stick…, then add it again.";
+                    receivers
+                        .hold_again(&app, stick_id, None, words.to_owned())
+                        .await;
+                }
             }
             super::changed(&app);
-            return Err(
-                "What not to get could not be saved, so the stick was not added. Try again in a \
-                 moment."
-                    .to_owned(),
-            );
+            return Err(words.to_owned());
         }
     }
     // Its name as the preview showed it, if it is a name a manifest may

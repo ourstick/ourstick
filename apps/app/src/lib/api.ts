@@ -279,8 +279,6 @@ export interface PreviewView {
   /** The sender is still counting its files. */
   partial: boolean;
   entries: PreviewEntry[];
-  /** Entries not listed. */
-  more: number;
   total: number;
   to_write: number;
   folder: string;

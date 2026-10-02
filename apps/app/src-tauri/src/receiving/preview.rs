@@ -20,9 +20,6 @@ use crate::state::AppState;
 
 /// How long a preview waits for the sender.
 const PREVIEW_WAIT: Duration = Duration::from_secs(30);
-/// How many top-level entries a preview lists; the rest are counted.
-/// Every top-level entry is listed: each must be choosable (ADR 0012).
-const LISTED: usize = usize::MAX;
 
 /// A top-level entry of a previewed stick.
 #[derive(Debug, Serialize)]
@@ -44,9 +41,8 @@ pub struct PreviewView {
     name: String,
     /// The sender is still counting its files: more is to come.
     partial: bool,
+    /// Every top-level entry: each must be choosable (ADR 0012).
     entries: Vec<EntryView>,
-    /// Entries past the first [`LISTED`].
-    more: usize,
     total: u64,
     to_write: u64,
     /// Where it would be saved.
@@ -157,14 +153,12 @@ pub async fn preview_link(
         )?)
     })
     .await?;
-    let more = previewed.entries.len().saturating_sub(LISTED);
     Ok(PreviewView {
         name: previewed.name,
         partial: previewed.partial,
         entries: previewed
             .entries
             .into_iter()
-            .take(LISTED)
             .map(|entry| EntryView {
                 name: entry.name,
                 is_dir: entry.is_dir,
@@ -173,7 +167,6 @@ pub async fn preview_link(
                 to_write: entry.to_write,
             })
             .collect(),
-        more,
         total: previewed.total,
         to_write: previewed.to_write,
         earlier: earlier.as_ref() == Some(&previewed.folder),

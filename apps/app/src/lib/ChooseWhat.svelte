@@ -16,6 +16,8 @@
   let entries = $state<ChoiceEntry[]>([]);
   let known = $state(true);
   let loading = $state(true);
+  /** The list could not be read: saving would send a choice never shown. */
+  let unread = $state(false);
   let saving = $state(false);
   let failure = $state<string | null>(null);
   let unticked = $state<Set<string>>(new Set());
@@ -28,6 +30,7 @@
       unticked = new Set(view.entries.filter((entry) => !entry.ticked).map((entry) => entry.name));
     } catch (error) {
       failure = String(error);
+      unread = true;
     } finally {
       loading = false;
     }
@@ -41,6 +44,8 @@
   }
 
   /** What is un-ticked now and already here: it stays, no longer updated. */
+  /** Every entry is listed and none is ticked: nothing would come. */
+  let none = $derived(known && entries.length > 0 && entries.every((entry) => unticked.has(entry.name)));
   let staying = $derived(entries.filter((entry) => unticked.has(entry.name) && entry.here));
 
   async function save() {
@@ -60,10 +65,10 @@
   <strong>What to get:</strong>
   {#if loading}
     <p class="muted">Looking… please wait.</p>
-  {:else}
+  {:else if !unread}
     {#if !known}
       <p class="muted">
-        The rest of the list comes once the sender's computer is reachable. For now only what you chose not to get is
+        The rest of the list comes once the sender's computer is on. For now only what you chose not to get is
         listed.
       </p>
     {/if}
@@ -103,11 +108,12 @@
         {staying.length === 1 ? "is" : "are"} no longer updated. OurStick never deletes anything.
       </p>
     {/if}
+    {#if none}<p class="error">Tick at least one thing.</p>{/if}
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
   <div class="actions">
     <button onclick={onDone} disabled={saving}>Cancel</button>
-    <button class="primary" onclick={save} disabled={saving || loading}>Save</button>
+    <button class="primary" onclick={save} disabled={saving || loading || unread || none}>Save</button>
   </div>
 </section>
 

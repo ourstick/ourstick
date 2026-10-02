@@ -77,7 +77,7 @@ pub fn waiting_words(why: &Waiting) -> String {
         }
         Waiting::Room { needed, available } => format!(
             "Not enough room on this computer: it needs up to {}, and {} are left. It goes on \
-             when there is room.",
+             when there is room, or leave something out with Choose what to get… (in ⋯).",
             size(*needed),
             size(*available)
         ),

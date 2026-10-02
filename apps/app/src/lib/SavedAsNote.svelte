@@ -15,21 +15,23 @@
 {#if lines.length > 0}
   <section class="note">
     <p>
-      {files(count)}
-      {coming ? "will have" : count === 1 ? "has" : "have"}
-      slightly different names here than at the sender:
+      {#if count === 1}
+        1 file {coming ? "will have" : "has"} a slightly different name here than at the sender:
+      {:else}
+        {count} files {coming ? "will have" : "have"} slightly different names here than at the sender:
+      {/if}
     </p>
     <ul>
-      {#each shown as line (line.path)}
+      {#each shown as line (line.path + "\0" + line.saved_as)}
         <li>
-          <bdi>{line.path}</bdi> → <bdi>{line.saved_as}</bdi>{#if line.files > 1}<span class="muted">
+          <bdi>{line.path}</bdi> is saved as <bdi>{line.saved_as}</bdi>{#if line.files > 1}<span class="muted">
               ({files(line.files)})</span
             >{/if}
         </li>
       {/each}
     </ul>
-    {#if lines.length > FIRST && !all}
-      <button onclick={() => (all = true)}>Show all ({lines.length})</button>
+    {#if lines.length > FIRST}
+      <button onclick={() => (all = !all)}>{all ? "Show fewer" : `Show all ${lines.length}`}</button>
     {/if}
   </section>
 {/if}

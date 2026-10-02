@@ -332,6 +332,10 @@ impl Store for SqliteStore {
         files::forget_downloaded_file(&self.connection(), stick_id, path)
     }
 
+    fn saved_elsewhere(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
+        files::saved_elsewhere(&self.connection(), stick_id)
+    }
+
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError> {
         files::downloaded_files(&self.connection(), stick_id)
     }

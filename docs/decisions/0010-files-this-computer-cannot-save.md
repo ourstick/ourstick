@@ -79,9 +79,10 @@ why nothing comes, and should not have to ask anyone to rename anything.
 7. **Nothing is overwritten or deleted.** If the sender later renames the
    file, the new name comes as a new file; the copy under the changed name
    stays, like any file no longer in the stick (as today).
-8. **The receiver is told, briefly**, from what is recorded (so it is there
-   after a restart too, and goes when those files leave the stick or the
-   stick is forgotten). Under the received stick's state:
+8. **The receiver is told, briefly**, from the latest round's plan (only
+   names in the stick now: a renamed copy the sender's own rename left
+   behind is no longer listed); after a restart, until a round has planned
+   (the sender may be away), from what is recorded. Under the received stick's state:
 
    > 414 files have slightly different names here than at the sender:
    > Day 1/What a view?.jpg → Day 1/What a view_.jpg
@@ -158,9 +159,11 @@ when written (an error of the round, as today); paths longer than Windows'
 
 ## In the window and the CLI
 
-- The notice is read from the store (`Store::saved_elsewhere(stick_id)`:
-  rows whose `saved_as` differs, grouped by renamed folder), refreshed when
-  a round ends; worded in `receiving::words`. `ReceivedView.svelte` shows
+- The notice comes from each round's `SavedAs` events, kept per stick by
+  the receiver (`Receivers::saved_as`, reset when a round plans, in
+  `told.rs`); before a round has planned, from `Store::saved_elsewhere`
+  (filtered in the database) grouped by `download::saved_elsewhere`.
+  Words in `SavedAsNote.svelte`, names escaped in `receiving::words`. `ReceivedView.svelte` shows
   it; the stick list does not. `AddLink.svelte` shows the preview's;
   `api.ts` gets the types. `receiving::words` drops its `UnsafePath` and
   `PathCollision` wording; `told.rs` and `progress.rs` take the new event.

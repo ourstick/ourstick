@@ -95,6 +95,24 @@ impl Told {
         if let ReceiveEvent::Download(download) = &event {
             self.landed.on(download);
         }
+        match &event {
+            ReceiveEvent::Download(DownloadEvent::Planned { .. }) => {
+                receivers.round_planned(self.stick_id)
+            }
+            ReceiveEvent::Download(DownloadEvent::SavedAs {
+                path,
+                saved_as,
+                files,
+            }) => receivers.saved_as_too(
+                self.stick_id,
+                ourstick_core::download::SavedAs {
+                    path: (*path).to_owned(),
+                    saved_as: (*saved_as).to_owned(),
+                    files: *files,
+                },
+            ),
+            _ => {}
+        }
         let landed = &self.landed;
         receivers.show(self.stick_id, |shown| match event {
             ReceiveEvent::Download(DownloadEvent::Planned { bytes }) => {

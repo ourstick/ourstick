@@ -46,14 +46,23 @@ pub async fn received(
     receivers: State<'_, Receivers>,
 ) -> Result<Vec<ReceivedEntry>, String> {
     let store = state.store.clone();
+    // From the latest round where there was one; else (before a round has
+    // planned, e.g. the sender is away since the start) from what is
+    // recorded, read once per call and only then.
+    let rounds = receivers.saved_as();
     let joined = super::work(move || {
         let mut sticks = Vec::new();
         for joined in store.joined_sticks()? {
             if joined.kind != StickKind::App {
                 continue;
             }
-            let renamed = store.saved_elsewhere(&joined.stick_id)?;
-            sticks.push((joined, ourstick_core::download::saved_elsewhere(&renamed)));
+            let saved_as = match rounds.get(&joined.stick_id).cloned() {
+                Some(lines) => lines,
+                None => ourstick_core::download::saved_elsewhere(
+                    &store.saved_elsewhere(&joined.stick_id)?,
+                ),
+            };
+            sticks.push((joined, saved_as));
         }
         Ok(sticks)
     })

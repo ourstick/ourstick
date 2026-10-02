@@ -327,11 +327,13 @@ fn the_notice_groups_recorded_files_by_renamed_folder() {
         },
         blob_hash: [0; 32],
     };
-    let lines = saved_elsewhere(&[
+    let lines = super::super::saved_lines::saved_elsewhere(&[
         row("Trip?/b", "Trip_/b"),
         row("ok.txt", "ok.txt"),
         row("a?.jpg", "a_.jpg"),
         row("Trip?/a", "Trip_/a"),
+        // Not of its path's shape: left out, never a panic.
+        row("x/y", "z"),
     ]);
     assert_eq!(
         lines,

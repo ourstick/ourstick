@@ -39,6 +39,10 @@ impl Held {
 pub struct Receivers {
     pub(super) held: tokio::sync::Mutex<HashMap<StickId, Held>>,
     shown: Mutex<HashMap<StickId, Shown>>,
+    /// What each stick's latest round saved under another name (ADR 0010):
+    /// from its plan, so only names in the stick now; none before a round
+    /// has planned (the window then reads what is recorded).
+    saved_as: Mutex<HashMap<StickId, Vec<ourstick_core::download::SavedAs>>>,
     /// Quit began: nothing starts any more.
     pub(super) quitting: std::sync::atomic::AtomicBool,
 }
@@ -50,6 +54,22 @@ impl Receivers {
 
     pub(super) fn show(&self, stick_id: StickId, change: impl FnOnce(&mut Shown)) {
         change(lock(&self.shown).entry(stick_id).or_default());
+    }
+
+    /// What each stick's latest round saved under another name, for the
+    /// sticks a round has planned for since the app started.
+    pub fn saved_as(&self) -> HashMap<StickId, Vec<ourstick_core::download::SavedAs>> {
+        lock(&self.saved_as).clone()
+    }
+
+    /// A round planned: what it saves under another name starts empty.
+    pub(super) fn round_planned(&self, stick_id: StickId) {
+        lock(&self.saved_as).insert(stick_id, Vec::new());
+    }
+
+    /// One more name the round saves under another.
+    pub(super) fn saved_as_too(&self, stick_id: StickId, line: ourstick_core::download::SavedAs) {
+        lock(&self.saved_as).entry(stick_id).or_default().push(line);
     }
 
     /// The received sticks coming in now, for the Quit dialog.

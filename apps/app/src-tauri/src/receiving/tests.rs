@@ -86,3 +86,23 @@ fn a_big_file_moves_the_bar_while_it_comes() {
     landed.on(&DownloadEvent::Planned { bytes: 10 });
     assert_eq!(landed.bytes(10), 0);
 }
+
+#[test]
+fn a_round_s_names_saved_elsewhere_replace_the_last_round_s() {
+    let receivers = Receivers::default();
+    let line = |path: &str| ourstick_core::download::SavedAs {
+        path: path.to_owned(),
+        saved_as: format!("{path}_"),
+        files: 1,
+    };
+    assert!(receivers.saved_as().is_empty());
+    receivers.round_planned(stick(1));
+    receivers.saved_as_too(stick(1), line("a?"));
+    receivers.saved_as_too(stick(1), line("b?"));
+    assert_eq!(receivers.saved_as()[&stick(1)].len(), 2);
+    // The next round planned: only its own names.
+    receivers.round_planned(stick(1));
+    assert!(receivers.saved_as()[&stick(1)].is_empty());
+    receivers.saved_as_too(stick(1), line("c?"));
+    assert_eq!(receivers.saved_as()[&stick(1)], [line("c?")]);
+}

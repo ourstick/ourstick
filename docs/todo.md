@@ -83,7 +83,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       IPv6, but no direct IPv6 path opened: a firewall…" for two machines on
       the same Wi-Fi whose direct path had just worked. When a direct path
       was seen in this download, say that it was lost, not a firewall.
-- [ ] **ADR 0010 (to write): a nonce per chunk, one read per file.** Today
+- [ ] **ADR 0011 (to write): a nonce per chunk, one read per file.** Today
       the nonce prefix comes from the hash of the whole file (ADR 0003), so
       a file is read twice before its blob exists. A nonce per 64 KiB chunk,
       derived (keyed) from that chunk's own plaintext and index ("synthetic

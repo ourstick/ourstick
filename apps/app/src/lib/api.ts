@@ -224,7 +224,6 @@ export function renameStick(stickId: string, name: string): Promise<void> {
   return invoke("rename", { stickId, name });
 }
 
-/** A stick this device receives in the window (step 7b). */
 /** A name saved under another here than at the sender (escaped already). */
 export interface SavedAs {
   path: string;
@@ -233,6 +232,7 @@ export interface SavedAs {
   files: number;
 }
 
+/** A stick this device receives in the window (step 7b). */
 export interface ReceivedEntry {
   id: string;
   /** Its name from the sender (show it isolated: it is the sender's text). */

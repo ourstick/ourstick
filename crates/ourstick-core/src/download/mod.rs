@@ -20,6 +20,7 @@ mod path;
 mod receive;
 mod relay;
 mod relay_watch;
+pub(crate) mod saved_lines;
 pub(crate) mod saved_names;
 pub(crate) mod saved_paths;
 mod types;
@@ -36,7 +37,8 @@ pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use listing::{list, preview, Listing, Preview, TopEntry};
 pub use receive::*;
 pub use relay::RelayPolicy;
-pub use saved_paths::{saved_elsewhere, SavedAs};
+pub use saved_lines::saved_elsewhere;
+pub use saved_paths::SavedAs;
 pub use types::{DownloadError, DownloadEvent, DownloadReport};
 
 /// How many new versions a download follows after a refusal before giving up;

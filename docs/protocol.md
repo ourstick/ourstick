@@ -103,11 +103,14 @@ recorded, so later versions write to the same place:
   followed by `:`, e.g. `c:evil`) becomes `c_evil`, so a stick behaves the
   same everywhere; a first name the reader uses itself (`.ourstick-partial`,
   `.ourstick-received`, in any letter case) gets `_` in front; a name too
-  long for the system is cut, keeping its extension;
+  long for the system is cut, keeping its extension; a name no rule can
+  make savable (it should not happen) is saved as `_`;
 - names that would be one file in the reader's folder (letter case, where
   that folder's disk ignores it; Unicode forms on macOS), or a file where a
   folder must go, get ` (2)`, ` (3)`… The place a file was saved first is
-  kept in every later version; a renamed folder holds all its files.
+  kept in every later version; a renamed folder holds all its files. A copy
+  under a changed name stays when the sender later renames the file, like
+  any file no longer in the stick.
 
 Nothing on the wire changes: the sender does not know. A reader refuses to
 write through a symbolic link that exists in its output folder, checking

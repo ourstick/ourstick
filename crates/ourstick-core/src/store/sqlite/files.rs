@@ -141,10 +141,28 @@ pub(super) fn downloaded_files(
     connection: &Connection,
     stick_id: &StickId,
 ) -> Result<Vec<DownloadedFile>, StoreError> {
-    let mut statement = connection.prepare(
+    files_where(connection, stick_id, "")
+}
+
+/// The rows saved under another name than their path (ADR 0010), filtered
+/// in the database.
+pub(super) fn saved_elsewhere(
+    connection: &Connection,
+    stick_id: &StickId,
+) -> Result<Vec<DownloadedFile>, StoreError> {
+    files_where(connection, stick_id, "AND saved_as != path")
+}
+
+/// A stick's rows, `and` a fixed condition of this module's.
+fn files_where(
+    connection: &Connection,
+    stick_id: &StickId,
+    and: &str,
+) -> Result<Vec<DownloadedFile>, StoreError> {
+    let mut statement = connection.prepare(&format!(
         "SELECT path, saved_as, size, mtime_ns, ctime_ns, blob_hash FROM downloaded_files
-         WHERE stick_id = ?1 ORDER BY path",
-    )?;
+         WHERE stick_id = ?1 {and} ORDER BY path"
+    ))?;
     let rows = statement.query_map([stick_id.to_bytes()], |row| {
         Ok((
             row.get::<_, String>(0)?,

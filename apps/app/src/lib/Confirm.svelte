@@ -19,7 +19,10 @@
 
   /** "Photos", "Photos and Films", "Photos, Films and Music". */
   function names(list: string[]): string {
-    const quoted = list.map((name) => `“${name}”`);
+    // Each name isolated (FIRST STRONG ISOLATE … POP DIRECTIONAL ISOLATE): a
+    // sender's writing direction never spills over the sentence.
+    const [open, close] = [String.fromCodePoint(0x2068), String.fromCodePoint(0x2069)];
+    const quoted = list.map((name) => `“${open}${name}${close}”`);
     return quoted.length < 2 ? (quoted[0] ?? "") : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
   }
 

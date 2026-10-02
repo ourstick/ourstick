@@ -3,9 +3,7 @@
 //! the moment it is added until it is forgotten (paused too), so `ourstick
 //! get` never touches it. What each one is doing, for the window.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
 
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::random_key;
@@ -25,10 +23,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::state::AppState;
 
 pub mod commands;
+mod holder;
 pub mod preview;
 mod told;
 mod words;
 
+pub use holder::Receivers;
 use told::Told;
 
 pub use words::{stopped_words, waiting_words};
@@ -48,107 +48,6 @@ pub struct Shown {
     pub since_ms: Option<u64>,
 }
 
-/// One received stick the app holds.
-struct Held {
-    /// Its download lock, once this program has it (another program may
-    /// hold it for a while: then it is taken again at the next start).
-    lock: Option<Lock>,
-    /// Its receive, while one runs.
-    running: Option<(Arc<Cancel>, tauri::async_runtime::JoinHandle<()>)>,
-}
-
-impl Held {
-    /// Stops its receive, if one runs, and waits until it ended.
-    async fn stop(&mut self) {
-        if let Some((cancel, task)) = self.running.take() {
-            cancel.cancel();
-            let _ = task.await;
-        }
-    }
-}
-
-/// The app's received sticks, by id. Every change of one (start, pause,
-/// resume, forget, Quit) is made under the one `held` mutex, start to end:
-/// two of them never overlap on a stick.
-#[derive(Default)]
-pub struct Receivers {
-    held: tokio::sync::Mutex<HashMap<StickId, Held>>,
-    shown: Mutex<HashMap<StickId, Shown>>,
-}
-
-impl Receivers {
-    pub fn shown(&self, stick_id: &StickId) -> Shown {
-        lock(&self.shown).get(stick_id).cloned().unwrap_or_default()
-    }
-
-    fn show(&self, stick_id: StickId, change: impl FnOnce(&mut Shown)) {
-        change(lock(&self.shown).entry(stick_id).or_default());
-    }
-
-    /// The received sticks coming in now, for the Quit dialog.
-    pub fn downloading(&self) -> Vec<StickId> {
-        lock(&self.shown)
-            .iter()
-            .filter(|(_, shown)| matches!(shown.state, "downloading" | "getting_more"))
-            .map(|(stick_id, _)| *stick_id)
-            .collect()
-    }
-
-    /// Holds `stick_id`, with its lock if it was taken (not running yet).
-    pub async fn hold(&self, stick_id: StickId, lock: Option<Lock>) {
-        self.held.lock().await.insert(
-            stick_id,
-            Held {
-                lock,
-                running: None,
-            },
-        );
-    }
-
-    pub async fn is_held(&self, stick_id: &StickId) -> bool {
-        self.held.lock().await.contains_key(stick_id)
-    }
-
-    /// Stops `stick_id`'s receive, if one runs, and waits until it ended;
-    /// `show` then says what it is (paused), if it is still held.
-    pub async fn stop(&self, stick_id: &StickId, show: Option<Shown>) {
-        let mut held = self.held.lock().await;
-        if let Some(entry) = held.get_mut(stick_id) {
-            entry.stop().await;
-            if let Some(shown) = show {
-                self.show(*stick_id, |now| *now = shown);
-            }
-        }
-    }
-
-    /// Stops and lets go of `stick_id` (forget); its lock, if this program
-    /// had it.
-    pub async fn release(&self, stick_id: &StickId) -> Option<Lock> {
-        let mut held = self.held.lock().await;
-        let mut entry = held.remove(stick_id)?;
-        entry.stop().await;
-        lock(&self.shown).remove(stick_id);
-        entry.lock
-    }
-
-    /// Stops every receive (Quit): each keeps what it received, and goes on
-    /// where it was next time. At most a few seconds.
-    pub async fn stop_all(&self) {
-        let mut held = self.held.lock().await;
-        let running: Vec<_> = held
-            .values_mut()
-            .filter_map(|held| held.running.take())
-            .collect();
-        for (cancel, _) in &running {
-            cancel.cancel();
-        }
-        for (_, task) in running {
-            // A round may take its grace (10 s) to finish the file it places.
-            let _ = tokio::time::timeout(Duration::from_secs(12), task).await;
-        }
-    }
-}
-
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
@@ -163,10 +62,13 @@ fn changed(app: &AppHandle) {
 /// Why this program could not take a received stick's lock, in words.
 fn lock_words(error: &LockError) -> String {
     match error {
-        LockError::DownloadInUse => "OurStick's command line (`ourstick get`) is receiving this \
-             stick right now. Stop it, then use Try again."
+        LockError::DownloadInUse => "Another OurStick program on this computer is getting this \
+             stick right now. Close it, then use Try again."
             .to_owned(),
-        other => format!("{other}"),
+        other => {
+            tracing::warn!(error = %other, "a received stick's lock");
+            "OurStick could not reserve this stick on this computer. Use Try again.".to_owned()
+        }
     }
 }
 
@@ -187,15 +89,40 @@ async fn take_lock(data_dir: std::path::PathBuf, stick_id: StickId) -> Result<Lo
 /// Starts (again) receiving the held stick `stick_id` into `folder` with
 /// `ticket`, in the background: a receive of it that runs stops first, and
 /// its lock is taken if this program does not have it yet (else it stops,
-/// saying who holds it). Nothing if it is not held (forgotten meanwhile).
-pub async fn start(app: &AppHandle, stick_id: StickId, ticket: Ticket, folder: std::path::PathBuf) {
+/// saying who holds it). With `resume`, its pause is lifted under the same
+/// mutex (a Pause never lands between). Nothing if it is not held
+/// (forgotten meanwhile) or the app is quitting.
+pub async fn start(
+    app: &AppHandle,
+    stick_id: StickId,
+    ticket: Ticket,
+    folder: std::path::PathBuf,
+    resume: bool,
+) {
     let receivers = app.state::<Receivers>();
-    let data_dir = app.state::<AppState>().data_dir.clone();
+    let state = app.state::<AppState>();
     let mut held = receivers.held.lock().await;
+    if receivers.quitting.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     let Some(entry) = held.get_mut(&stick_id) else {
         return;
     };
     entry.stop().await;
+    if resume {
+        let store = state.store.clone();
+        let lifted = crate::commands::blocking(move || {
+            Ok(store.change_joined_stick(
+                &stick_id,
+                &ourstick_core::store::JoinedChange::Paused(false),
+            )?)
+        })
+        .await;
+        if let Err(why) = lifted {
+            return stopped(app, stick_id, why);
+        }
+    }
+    let data_dir = state.data_dir.clone();
     if entry.lock.is_none() {
         match take_lock(data_dir, stick_id).await {
             Ok(lock) => entry.lock = Some(lock),
@@ -234,7 +161,14 @@ async fn run(
     let config = IrohConfig::new(random_key(), Network::Public);
     let fetcher = match IrohFetcher::start(&config, &store_dir).await {
         Ok(fetcher) => fetcher,
-        Err(error) => return stopped(app, stick_id, format!("cannot start networking: {error}")),
+        Err(error) => {
+            tracing::warn!(%error, "a received stick's networking");
+            return stopped(
+                app,
+                stick_id,
+                "This computer's network could not be started for it. Use Try again.".to_owned(),
+            );
+        }
     };
     let room = DownloadRoom::new(
         state.store.clone(),
@@ -294,13 +228,15 @@ pub fn read_ticket(
     stick_id: &StickId,
 ) -> anyhow::Result<Ticket> {
     use anyhow::Context;
-    let stored = secrets
-        .get(&SecretName::Ticket(*stick_id))?
-        .context("its sharing link is not in the keyring any more; add it again")?;
-    let text = String::from_utf8(stored).context("its stored sharing link is damaged")?;
+    let stored = secrets.get(&SecretName::Ticket(*stick_id))?.context(
+        "its sharing link is no longer saved on this computer; forget it and add it again",
+    )?;
+    let text = String::from_utf8(stored)
+        .context("its saved sharing link is damaged; forget it and add it again")?;
     // The error never repeats the link: it holds the stick's key.
-    text.parse()
-        .map_err(|_| anyhow::anyhow!("its stored sharing link is damaged; add it again"))
+    text.parse().map_err(|_| {
+        anyhow::anyhow!("its saved sharing link is damaged; forget it and add it again")
+    })
 }
 
 /// Keeps `ticket` in the keyring as the stick's sharing link.
@@ -370,7 +306,7 @@ pub async fn start_all(app: &AppHandle) {
                     ..Shown::default()
                 }
             }),
-            Ok(ticket) => start(app, stick_id, ticket, joined.output_dir).await,
+            Ok(ticket) => start(app, stick_id, ticket, joined.output_dir, false).await,
             Err(error) => stopped(app, stick_id, format!("{error:#}")),
         }
     }

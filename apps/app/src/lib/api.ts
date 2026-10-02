@@ -256,6 +256,8 @@ export interface PreviewView {
   folder: string;
   /** Received there earlier with the command line: it goes on there. */
   earlier: boolean;
+  /** Received earlier in another folder: it moves; the files there stay. */
+  earlier_elsewhere: string | null;
   /** What is left on this computer where it would go. */
   left: number;
 }

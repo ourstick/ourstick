@@ -79,10 +79,22 @@ pub fn stopped_words(error: &DownloadError) -> String {
             "What came does not belong to this sharing link. Ask the sender for a new one."
                 .to_owned()
         }
-        other => format!(
-            "Stopped: {}. Use Try again.",
-            ourstick_core::untrusted::escape(&other.to_string())
-        ),
+        DownloadError::ReceivedByApp(_) | DownloadError::BeingForgotten => {
+            "Another OurStick program on this computer has this stick. Close it, then use Try again."
+                .to_owned()
+        }
+        DownloadError::Io { .. } => {
+            "Saving it on this computer failed. Use Try again.".to_owned()
+        }
+        DownloadError::Manifest(_) | DownloadError::Cipher(_) => {
+            "What came from the sender could not be read. Use Try again; if it goes on, ask the \
+             sender for a new sharing link."
+                .to_owned()
+        }
+        other => {
+            tracing::warn!(error = %other, "a received stick stopped");
+            "It stopped. Use Try again.".to_owned()
+        }
     }
 }
 

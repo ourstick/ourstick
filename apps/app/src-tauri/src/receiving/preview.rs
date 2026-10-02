@@ -48,23 +48,30 @@ pub struct PreviewView {
     folder: String,
     /// Received there earlier with the command line: it goes on there.
     earlier: bool,
+    /// Received earlier in another folder (it moves; the files there stay).
+    earlier_elsewhere: Option<String>,
     /// What is left there for it.
     left: u64,
 }
 
-/// The folder a received stick goes into: `parent` (else the Downloads
-/// folder), and a folder named after the stick in it, not taken already.
-fn folder_for(name: &str, parent: Option<&str>) -> Result<PathBuf, String> {
-    let parent = match parent {
-        Some(parent) => PathBuf::from(parent),
+/// Where received sticks go: `parent`, else the Downloads folder.
+fn parent_folder(parent: Option<&str>) -> Result<PathBuf, String> {
+    match parent {
+        Some(parent) => Ok(PathBuf::from(parent)),
         None => {
             let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-            let home = std::env::var_os(home).ok_or("cannot find your home folder")?;
-            PathBuf::from(home).join("Downloads")
+            let home = std::env::var_os(home).ok_or("OurStick cannot find your home folder.")?;
+            Ok(PathBuf::from(home).join("Downloads"))
         }
-    };
-    let folder = folder_name(name, |candidate| parent.join(candidate).exists());
-    Ok(parent.join(folder))
+    }
+}
+
+/// The folder a received stick goes into: one named after it in `parent`,
+/// not taken already. Blocking (it looks at folders).
+fn folder_for(name: &str, parent: &Path) -> PathBuf {
+    parent.join(folder_name(name, |candidate| {
+        parent.join(candidate).exists()
+    }))
 }
 
 /// The nearest folder of `path` that exists, to measure its disk.
@@ -105,9 +112,11 @@ pub async fn preview_link(
         .await
         .map_err(|error| format!("cannot start networking: {error}"))?;
     let chosen_earlier = earlier.clone();
+    let chosen = parent.is_some();
+    let parent = parent_folder(parent.as_deref())?;
     let choose = move |name: &str| match chosen_earlier {
-        Some(folder) if parent.is_none() => folder,
-        _ => folder_for(name, parent.as_deref()).unwrap_or_else(|_| PathBuf::from(name)),
+        Some(folder) if !chosen => folder,
+        _ => folder_for(name, &parent),
     };
     let looked = tokio::time::timeout(
         PREVIEW_WAIT,
@@ -158,7 +167,12 @@ pub async fn preview_link(
         more,
         total: previewed.total,
         to_write: previewed.to_write,
-        earlier: earlier.is_some_and(|earlier| earlier == previewed.folder),
+        earlier: earlier.as_ref() == Some(&previewed.folder),
+        // Received earlier elsewhere: its files there stay, and it starts
+        // again in the new folder.
+        earlier_elsewhere: earlier
+            .filter(|earlier| *earlier != previewed.folder)
+            .map(|earlier| earlier.display().to_string()),
         folder: previewed.folder.display().to_string(),
         left,
     })
@@ -171,15 +185,14 @@ mod tests {
     #[test]
     fn a_stick_goes_into_a_folder_named_after_it_never_one_taken() {
         let parent = crate::testing::TempFolder::new();
-        let parent_text = parent.path().to_str().unwrap();
-        let folder = folder_for("Holiday", Some(parent_text)).unwrap();
+        let folder = folder_for("Holiday", parent.path());
         assert_eq!(folder, parent.path().join("Holiday"));
         std::fs::create_dir(&folder).unwrap();
-        let next = folder_for("Holiday", Some(parent_text)).unwrap();
+        let next = folder_for("Holiday", parent.path());
         assert_ne!(next, folder);
         assert!(next.starts_with(parent.path()));
         // A name with characters no folder may have still gets a folder.
-        let odd = folder_for("a/b:c", Some(parent_text)).unwrap();
+        let odd = folder_for("a/b:c", parent.path());
         assert_eq!(odd.parent().unwrap(), parent.path());
     }
 

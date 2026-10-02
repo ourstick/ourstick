@@ -88,6 +88,9 @@ pub async fn add_received(
 ) -> Result<String, String> {
     let ticket = ticket_of(&text)?;
     let stick_id = ticket.stick_id;
+    if receivers.is_held(&stick_id).await {
+        return Err("This stick is being added already.".to_owned());
+    }
     let folder = PathBuf::from(folder);
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -107,7 +110,9 @@ pub async fn add_received(
             check_received_folder(store.as_ref(), &data_dir, &folder, &stick_id)?;
             std::fs::create_dir_all(&folder)?;
             mark_received_folder(&folder, &stick_id)?;
+            // Kept only where secrets are safe; never in a plain file.
             let secrets = open_system_keyring()?;
+            ourstick_core::check_secret_store(secrets.as_ref())?;
             keep_ticket(secrets.as_ref(), &ticket)?;
             Ok(lock)
         })
@@ -118,7 +123,16 @@ pub async fn add_received(
     let now = SystemClock.now_ms();
     if let Err(error) = take_stick(&state.store, stick_id, &folder, StickKind::App, now).await {
         receivers.release(&stick_id).await;
-        return Err(error.to_string());
+        // Nothing of it left: its mark and its saved sharing link go.
+        let marked = folder.join(ourstick_core::download::RECEIVED_MARKER);
+        let _ = blocking(move || {
+            let _ = std::fs::remove_file(marked);
+            let secrets = open_system_keyring()?;
+            secrets.delete(&ourstick_core::secrets::SecretName::Ticket(stick_id))?;
+            Ok(())
+        })
+        .await;
+        return Err(crate::receiving::stopped_words(&error));
     }
     // Its name as the preview showed it, if it is a name a manifest may
     // carry; the first round keeps it as the sender gives it anyway.
@@ -131,7 +145,7 @@ pub async fn add_received(
             tracing::warn!(%error, "a received stick's name waits for its first round");
         }
     }
-    start(&app, stick_id, ticket, folder).await;
+    start(&app, stick_id, ticket, folder, false).await;
     Ok(stick_hex(&stick_id))
 }
 
@@ -141,20 +155,12 @@ pub async fn add_received(
 pub async fn pause_received(
     stick_id: String,
     app: AppHandle,
-    state: State<'_, AppState>,
     receivers: State<'_, Receivers>,
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
-    let paused = Shown {
-        state: "paused",
-        ..Shown::default()
-    };
-    receivers.stop(&stick_id, Some(paused)).await;
-    let store = state.store.clone();
-    blocking(move || Ok(store.change_joined_stick(&stick_id, &JoinedChange::Paused(true))?))
-        .await?;
+    let paused = receivers.pause(&app, &stick_id).await;
     let _ = app.emit("received-changed", ());
-    Ok(())
+    paused
 }
 
 /// "Resume": received again, from where it was.
@@ -171,7 +177,6 @@ pub async fn resume_received(
     }
     let store = state.store.clone();
     let (ticket, folder) = blocking(move || {
-        store.change_joined_stick(&stick_id, &JoinedChange::Paused(false))?;
         let joined = store
             .joined_stick(&stick_id)?
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))?;
@@ -179,7 +184,7 @@ pub async fn resume_received(
         Ok((read_ticket(secrets.as_ref(), &stick_id)?, joined.output_dir))
     })
     .await?;
-    start(&app, stick_id, ticket, folder).await;
+    start(&app, stick_id, ticket, folder, true).await;
     Ok(())
 }
 
@@ -211,6 +216,17 @@ pub async fn forget_received_stick(
         )?)
     })
     .await;
+    if let Err(why) = &forgotten {
+        // Still received here (its row stays): held again, saying why.
+        receivers
+            .hold_again(
+                &app,
+                stick_id,
+                None,
+                format!("Forgetting it did not finish: {why}"),
+            )
+            .await;
+    }
     let _ = app.emit("received-changed", ());
     forgotten
 }

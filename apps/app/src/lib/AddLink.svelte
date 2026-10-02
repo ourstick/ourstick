@@ -11,6 +11,8 @@
   } = $props();
 
   let text = $state("");
+  /** The text the preview is of: "Get it" adds exactly that link. */
+  let looked = "";
   let parent = $state<string | null>(null);
   let preview = $state<PreviewView | null>(null);
   let looking = $state(false);
@@ -21,13 +23,25 @@
     event?.preventDefault();
     looking = true;
     failure = null;
+    const asked = text;
     try {
-      preview = await previewLink(text, parent);
+      preview = await previewLink(asked, parent);
+      looked = asked;
     } catch (error) {
-      preview = null;
+      // A new link that fails shows nothing of the old one; a new folder
+      // that fails keeps the preview as it was.
+      if (asked !== looked) preview = null;
       failure = String(error);
     } finally {
       looking = false;
+    }
+  }
+
+  /** The link changed: what was shown is not of it any more. */
+  function edited() {
+    if (text !== looked) {
+      preview = null;
+      parent = null;
     }
   }
 
@@ -43,11 +57,11 @@
   }
 
   async function getIt() {
-    if (!preview) return;
+    if (!preview || adding) return;
     adding = true;
     failure = null;
     try {
-      onAdded(await addReceived(text, preview.folder, preview.name));
+      onAdded(await addReceived(looked, preview.folder, preview.name));
     } catch (error) {
       failure = String(error);
     } finally {
@@ -64,7 +78,14 @@
     <label>
       Paste the sharing link someone sent you
       <!-- svelte-ignore a11y_autofocus -->
-      <input bind:value={text} autofocus disabled={looking || adding} spellcheck="false" autocomplete="off" />
+      <input
+        bind:value={text}
+        oninput={edited}
+        autofocus
+        disabled={looking || adding}
+        spellcheck="false"
+        autocomplete="off"
+      />
     </label>
     <div class="row">
       <button type="button" onclick={onCancel} disabled={adding}>Cancel</button>
@@ -92,7 +113,12 @@
       <button onclick={choose} disabled={adding}>Choose…</button>
     </p>
     {#if preview.earlier}
-      <p class="muted">You received it here before with the command line: it goes on in the same folder.</p>
+      <p class="muted">You received this stick here before: it goes on in the same folder.</p>
+    {:else if preview.earlier_elsewhere}
+      <p class="muted">
+        You received this stick before, in {preview.earlier_elsewhere}. The files there stay there; it starts again in the
+        new folder.
+      </p>
     {/if}
     {#if preview.partial}
       <p class="muted">The sender is still counting its files: more is coming.</p>
@@ -100,7 +126,7 @@
       <p class="muted">Needs up to {size(preview.to_write)} · fits</p>
     {:else}
       <p class="error">
-        Needs up to {size(preview.to_write)}, and only {size(preview.left)} are left on this computer there. Choose
+        Needs up to {size(preview.to_write)}, and only {size(preview.left)} are left where it would be saved. Choose
         another place, or free some room.
       </p>
     {/if}

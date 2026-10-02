@@ -19,8 +19,8 @@ async fn a_stick_is_held_with_its_lock_until_it_is_let_go() {
     drop(lock);
     assert!(!receivers.is_held(&stick(1)).await);
     assert!(download_lock(data.path(), &stick(1)).is_ok());
-    // Stopping one that runs nothing, or one not held, is harmless.
-    receivers.stop(&stick(2), None).await;
+    // Letting go of one not held is harmless.
+    assert!(receivers.release(&stick(2)).await.is_none());
     // Held without its lock (another program had it): let go all the same.
     receivers.hold(stick(3), None).await;
     assert!(receivers.release(&stick(3)).await.is_none());

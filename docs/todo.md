@@ -157,3 +157,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   (`HKCU\Software\Classes\Applications\Explorer.exe\Drives\O` and
   `HKCU\…\Explorer\DriveIcons\O`) were tried in the VM on 2026-10-02 and
   Explorer ignored them. Only a real volume (a VHD) would carry its own name.
+- **Error words, left minor (reviews of 2026-10-02):** `words::kind` finds
+  the store's errors inside LifeError, ShareError, ReceivedError and
+  DeviceError, but not inside DownloadError, SpaceError, LockError,
+  PlaceError or LinkedError: a database failure through those shows its own
+  text. `told_one` (the watcher's error) looks at the one error, not its
+  chain.

@@ -105,8 +105,9 @@ why nothing comes, and should not have to ask anyone to rename anything.
    still fails (a bug), or a file of the user's in the way of its folder,
    leaves that one file out (`FileLeftOut`, told in `get` and logged), and
    the round goes on: a round never fails for one file's place. Paths that could leave the folder are refused when the manifest is
-   decoded (`\`, NUL, `.`, `..`, empty components), as today; symbolic
-   links in the folder are refused, as today.
+   decoded (`\`, NUL, `.`, `..`, empty components), as today; nothing is
+   written through a symbolic link in the folder: a folder of the stick
+   where a link is gets ` (2)`, a file whose place is a link is left out.
 
 Known limits: a folder on a Windows-formatted disk mounted on Linux or
 macOS gets the rules of the system it runs on, so a `?` there still fails

@@ -306,3 +306,49 @@ fn a_file_where_a_received_folder_was_stops_nothing() {
     assert_eq!(plan.forget, ["Trip/a.jpg"]);
     assert_eq!(std::fs::read(out.path().join("Trip")).unwrap(), b"my note");
 }
+
+#[test]
+fn a_file_with_no_place_left_is_left_out_and_the_others_planned() {
+    let out = tempfile::tempdir().unwrap();
+    // Files of the user's at `a` and at every numbered place after it, where
+    // the stick's folder `a` must go.
+    std::fs::write(out.path().join("a"), b"mine").unwrap();
+    for number in 2..=1_000 {
+        std::fs::write(out.path().join(format!("a ({number})")), b"mine").unwrap();
+    }
+    let plan = plan_folder(
+        out.path(),
+        &manifest(vec![entry("a/b", b"b"), entry("c", b"c")]),
+        &[],
+        &cipher(),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.files,
+        vec![FilePlan::LeftOut, FilePlan::Download { replaceable: None }]
+    );
+    assert!(plan.renamed.is_empty());
+    assert_eq!(
+        plan.bytes_to_write(&manifest(vec![entry("a/b", b"b"), entry("c", b"c")])),
+        1
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_shortcut_at_a_files_place_leaves_only_that_file_out() {
+    let out = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(elsewhere.path().join("x"), out.path().join("a.txt")).unwrap();
+    let plan = plan_folder(
+        out.path(),
+        &manifest(vec![entry("a.txt", b"a"), entry("b.txt", b"b")]),
+        &[],
+        &cipher(),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.files,
+        vec![FilePlan::LeftOut, FilePlan::Download { replaceable: None }]
+    );
+}

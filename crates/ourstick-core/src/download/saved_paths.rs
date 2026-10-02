@@ -233,11 +233,12 @@ pub(crate) fn saved_paths(
         })
         .collect();
     // What was renamed, of what is saved.
+    let left_set: std::collections::HashSet<usize> = left_out.iter().copied().collect();
     let (named, placed): (Vec<&str>, Vec<String>) = paths
         .iter()
         .zip(&saved)
         .enumerate()
-        .filter(|(index, _)| !left_out.contains(index))
+        .filter(|(index, _)| !left_set.contains(index))
         .map(|(_, (path, saved))| (*path, saved.clone()))
         .unzip();
     SavedPaths {

@@ -268,7 +268,13 @@ pub(super) fn plan_folder_by(
             files.push(FilePlan::LeftOut);
             continue;
         }
-        let target = looked.target(saved_as)?;
+        // A shortcut (symbolic link) at its place, or on the way to it: this
+        // file is left out, the others come.
+        let Ok(target) = looked.target(saved_as) else {
+            tracing::warn!("a file left out: a shortcut is at its place");
+            files.push(FilePlan::LeftOut);
+            continue;
+        };
         let metadata = match std::fs::symlink_metadata(&target) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

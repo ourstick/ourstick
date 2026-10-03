@@ -63,7 +63,9 @@ Nothing gives way to anyone outside OurStick.
    still in memory, and a window read from there (over 1 GB/s, or under
    0.2 ms a file) would set a "best" no disk can keep, after which every
    window from the disk looked slow. Such a window counts as fast (rule 3),
-   but is not a best.
+   but is not a best. And what a window should take is the **second** best
+   of its kind, not the best: one window read partly from memory (a few
+   files just copied in, under the floor) is not a speed the disk keeps.
 3. **Someone else is there** when two windows in a row took more than
    three times what they should have. Three, not two: the inner tracks of a
    disk are up to half as fast as its outer ones, and a second sequential
@@ -81,11 +83,13 @@ Nothing gives way to anyone outside OurStick.
    goes through that disk's `DiskShare`, whichever stick and whichever
    reader (a catalogue, a suitcase) it is for. A "disk" is a filesystem:
    its device id on Linux and macOS, its volume on Windows (the path's
-   prefix, `C:\`, with a `subst` letter, as the app's own drive is, taken
-   back to the folder it stands for); one share for the whole process where neither is known.
-   Two partitions of one physical disk are two filesystems, so OurStick on
-   one may take OurStick on the other for someone else: rare, and it only
-   slows both. Only one reader reads a window at a time: they take turns in
+   drive letter, `C:` for `C:\` and `\\?\C:\` alike); one share for the
+   whole process where neither is known. OurStick reads a stick by its
+   folders' own paths, never through a `subst` letter (the app's drive is
+   one, for the user), so a letter is not resolved. Two partitions of one
+   physical disk are two filesystems, as are APFS volumes of one container
+   and btrfs subvolumes: OurStick on one may take OurStick on the other for
+   someone else; rare, and it only slows both. Only one reader reads a window at a time: they take turns in
    the order they asked (a queue, not a lock, so a catalogue taking turn
    after turn cannot shut out a suitcase or another stick), so OurStick
    never mistakes itself for someone else. When readers wait for a suitcase
@@ -93,10 +97,16 @@ Nothing gives way to anyone outside OurStick.
    windows for each window of the catalogue, so new files still reach
    someone (what `LONGEST_YIELD` bounds today); this replaces it. The pause
    is the disk's, not the reader's: it is a time before which the next turn
-   does not start, waited for outside the turn, so no reader holds the
-   disk while it sleeps, and a stick that stops leaves the queue at once. A suitcase gives way to the
-   user as well: a reader who waits longer because the sender's disk is busy is told nothing new ("the
-   sender is getting it ready" is what they already see). Two programs of
+   does not start, whoever takes it. The reader whose turn it is sleeps it
+   holding the turn (no one would read meanwhile anyway, and the order is
+   kept), asking every 5 s whether to go on; one waiting in the queue asks
+   every half second, so a stick that stops leaves the queue at once. A
+   reader reads one disk through one `DiskReader` per thread (two of one
+   disk in one thread would wait for each other), and gives its turn back
+   at the end of each part, before recording or publishing. A suitcase
+   gives way to the user as well: a reader who waits longer because the
+   sender's disk is busy is told nothing new ("the sender is getting it
+   ready" is what they already see). Two programs of
    OurStick on one disk (the CLI and the app) do not know of each other;
    they are rare, and each then gives way to the other as to anyone.
 6. **The owner sees it,** once when it starts and once when it stops, not

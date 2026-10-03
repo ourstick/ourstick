@@ -189,6 +189,12 @@ impl Reporter {
         }
     }
 
+    /// The version reports are about until a round says another (a
+    /// reporter made only to tell a pause or a forget).
+    pub fn set_version(&self, seq: u64) {
+        self.latest().seq = Some(seq);
+    }
+
     /// Sends `state` now, about the latest version known (pausing, or
     /// forgetting the stick), within `deadline`.
     pub async fn send_now(

@@ -197,7 +197,7 @@ async fn what_could_not_go_goes_later_and_the_sender_away_is_not_told() {
 async fn pausing_and_forgetting_are_sent_at_once_within_a_deadline() {
     let (reporter, _store) = reporter(None);
     let owner = Owner::default();
-    reporter.on_event(&ReceiveEvent::UpToDate { seq: 2 }, 0, 0);
+    reporter.set_version(2);
     reporter
         .send_now(&owner, ReportState::Forgotten, Duration::from_secs(3))
         .await

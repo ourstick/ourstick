@@ -26,6 +26,7 @@ pub mod choice;
 pub mod commands;
 mod holder;
 pub mod preview;
+mod reports;
 pub mod ticks;
 mod told;
 mod words;
@@ -201,8 +202,9 @@ async fn run(
         room: &room,
         follow_every: FOLLOW_EVERY,
     };
+    let reporter = reports::reporter_for(app, stick_id, ticket.clone()).await;
     let (downloading, mut awake_wanted) = tokio::sync::watch::channel(false);
-    let mut told = Told::new(app.clone(), stick_id, downloading);
+    let mut told = Told::new(app.clone(), stick_id, downloading, reporter.clone());
     let awake = async {
         let mut keep = crate::inhibit::KeepAwake::default();
         while awake_wanted.changed().await.is_ok() {
@@ -211,9 +213,16 @@ async fn run(
         }
     };
     let mut on_event = |event: ReceiveEvent<'_>| told.on(event);
+    let reporting = async {
+        match &reporter {
+            Some(reporter) => reporter.pump(&fetcher).await,
+            None => std::future::pending().await,
+        }
+    };
     let received = tokio::select! {
         received = receive(&receiving, cancel, &mut on_event) => received,
         () = awake => Ok(()),
+        () = reporting => Ok(()),
     };
     if let Err(error) = received {
         stopped(app, stick_id, stopped_words(&error));

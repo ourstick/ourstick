@@ -17,6 +17,9 @@ pub(super) struct Told {
     downloading: tokio::sync::watch::Sender<bool>,
     last: Option<Instant>,
     landed: Landed,
+    /// Tells the owner how far this is (ADR 0015), from the same bytes the
+    /// bar shows.
+    reporter: Option<std::sync::Arc<ourstick_core::download::Reporter>>,
 }
 
 /// The bytes of a round that are here: whole files, and the part of the
@@ -78,6 +81,7 @@ impl Told {
         app: AppHandle,
         stick_id: StickId,
         downloading: tokio::sync::watch::Sender<bool>,
+        reporter: Option<std::sync::Arc<ourstick_core::download::Reporter>>,
     ) -> Self {
         Self {
             app,
@@ -85,6 +89,7 @@ impl Told {
             downloading,
             last: None,
             landed: Landed::default(),
+            reporter,
         }
     }
 
@@ -94,6 +99,13 @@ impl Told {
         let mut progress_only = false;
         if let ReceiveEvent::Download(download) = &event {
             self.landed.on(download);
+        }
+        if let Some(reporter) = &self.reporter {
+            let total = match &event {
+                ReceiveEvent::Download(DownloadEvent::Planned { bytes }) => *bytes,
+                _ => receivers.shown(&self.stick_id).total,
+            };
+            reporter.on_event(&event, self.landed.bytes(total), total);
         }
         match &event {
             ReceiveEvent::Download(DownloadEvent::Planned { .. }) => {

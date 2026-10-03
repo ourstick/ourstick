@@ -10,6 +10,7 @@ use ourstick_core::download::{mark_received_folder, take_stick};
 use ourstick_core::locks::{download_lock, take_retrying, LockError};
 use ourstick_core::places::check_received_folder;
 use ourstick_core::received::{check_link, display_name, forget_received};
+use ourstick_core::report::ReportState;
 use ourstick_core::store::JoinedChange;
 use ourstick_core::{StickKind, Ticket};
 use serde::Serialize;
@@ -246,6 +247,13 @@ pub async fn pause_received(
     let stick_id = stick_id_of(&stick_id)?;
     let paused = receivers.pause(&app, &stick_id).await;
     let _ = app.emit("received-changed", ());
+    if paused.is_ok() {
+        // Told in the background: the window does not wait for the owner.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            super::reports::report_once(&app, stick_id, ReportState::Paused).await;
+        });
+    }
     paused
 }
 
@@ -285,6 +293,9 @@ pub async fn forget_received_stick(
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
     let held = receivers.release(&stick_id).await;
+    // Before its key and link go: at most a few seconds, then forgotten
+    // whether the owner heard or not.
+    super::reports::report_once(&app, stick_id, ReportState::Forgotten).await;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let forgotten = super::work(move || {

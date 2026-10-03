@@ -216,7 +216,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   change; its own ADR).
 - ~~**Choosing inside one big folder**~~ (from the big-folder test, 2026-10-03):
   done as ADR 0012, Amendment 1 (a top-level folder opens; paths of two
-  parts left out). Still to try by hand with a one-folder stick.
+  parts left out). Tried by hand 2026-10-03, Linux → Mac and Linux →
+  Windows VM: a one-folder stick shown open, `MUSIC` inside it left out
+  ("Not getting: MUSIC (inside Disk)") while files added later inside it
+  came, then ticked again and got.
 - **The big-folder test, what it showed so far (2026-10-03):** a VM whose disk
   is a file on the sender's own disk made the sender give way to its own
   reader (ADR 0013 doing its job, in a test layout no two real computers

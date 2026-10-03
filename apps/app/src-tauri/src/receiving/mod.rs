@@ -226,6 +226,16 @@ async fn run(
     };
     if let Err(error) = received {
         stopped(app, stick_id, stopped_words(&error));
+        // Stopped until the user acts: the owner hears it waits, rather
+        // than seeing the last percent for months.
+        if let Some(reporter) = &reporter {
+            let waiting = ourstick_core::report::ReportState::Waiting(
+                ourstick_core::report::WaitReason::Other,
+            );
+            let _ = reporter
+                .send_now(&fetcher, waiting, ourstick_core::download::REPORT_DEADLINE)
+                .await;
+        }
     }
     // Its store stays: the next receive goes on where this one was.
     if let Err(error) = fetcher.shutdown(true).await {

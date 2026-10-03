@@ -37,6 +37,19 @@ pub enum ReceivedError {
     },
 }
 
+/// This computer's reader key for a received stick, if it has one: none
+/// means the owner never heard from it, so a pause or a forget need not
+/// be told (and no key is made just to say so).
+pub fn reader_key_if_any(
+    secrets: &dyn SecretStore,
+    stick_id: &StickId,
+) -> Result<Option<crate::report::ReaderKey>, SecretError> {
+    Ok(secrets
+        .get(&SecretName::ReaderKey(*stick_id))?
+        .and_then(|seed| <[u8; 32]>::try_from(seed.as_slice()).ok())
+        .map(|seed| crate::report::ReaderKey::from_bytes(&seed)))
+}
+
 /// This computer's reader key for a received stick (ADR 0015): the one
 /// kept in the secret store, or a new one kept there now (a stick received
 /// before reports, or its first round). Never in a plain file.

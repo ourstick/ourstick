@@ -10,11 +10,15 @@
 
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
+use iroh::Endpoint;
 use tokio::sync::mpsc;
 
 use crate::report::{MAX_REPORT_BYTES, MAX_SEALED_BYTES};
 use crate::stick_id::StickId;
+use crate::ticket::Ticket;
 use crate::transport::TransportError;
+
+use super::{bind, owner_addr, IrohConfig};
 
 /// ALPN of the report protocol.
 pub const REPORT_ALPN: &[u8] = b"ourstick/report/1";
@@ -111,6 +115,49 @@ pub(super) async fn send_report(
         .await
         .map_err(|error| interrupted(&error))?;
     Ok(())
+}
+
+/// Sends reports and nothing else (ADR 0015): an endpoint with no blob
+/// store, for telling a pause or a forget while the stick's own store is
+/// in use or about to go.
+#[derive(Debug)]
+pub struct IrohReportSender {
+    endpoint: Endpoint,
+}
+
+impl IrohReportSender {
+    pub async fn start(config: &IrohConfig) -> Result<Self, TransportError> {
+        Ok(Self {
+            endpoint: bind(config, Vec::new()).await?,
+        })
+    }
+
+    /// Closes its endpoint.
+    pub async fn close(self) {
+        self.endpoint.close().await;
+    }
+}
+
+impl crate::download::ReportTo for IrohReportSender {
+    async fn report(&self, ticket: &Ticket, sealed: &[u8]) -> Result<(), TransportError> {
+        report_on(&self.endpoint, ticket, sealed).await
+    }
+}
+
+/// One report on a connection of its own from `endpoint` (one QUIC
+/// connection speaks one protocol).
+pub(super) async fn report_on(
+    endpoint: &Endpoint,
+    ticket: &Ticket,
+    sealed: &[u8],
+) -> Result<(), TransportError> {
+    let connection = endpoint
+        .connect(owner_addr(ticket)?, REPORT_ALPN)
+        .await
+        .map_err(|error| TransportError::Unreachable(error.to_string()))?;
+    let sent = send_report(&connection, &ticket.stick_id, sealed).await;
+    connection.close(0u32.into(), b"done");
+    sent
 }
 
 #[cfg(test)]

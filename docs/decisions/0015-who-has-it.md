@@ -36,11 +36,12 @@ Things that hold, from earlier decisions:
    protocol `ourstick/report/1`, to the owner its round already reaches (a
    connection of its own: one QUIC connection speaks one protocol).
    It sends one when a round has planned, about every 30 seconds while it
-   downloads, and when the round ends, each with a deadline of 5 seconds.
-   The last state that could not go (most likely the round's end, as its
-   connection closes) is kept and sent once more, on a fresh connection,
-   when the reader next asks the owner for its record (a received stick
-   is checked for changes while the app runs), and with every later round.
+   downloads, and when the round ends (up to date, waiting, stopped until
+   the user acts), each with a deadline of 5 seconds. A state that could
+   not go is tried again every 30 seconds while the receive runs (and it
+   runs, checking for changes, as long as the app does); a later run
+   starts with a round, whose reports replace it. A change while a report
+   is on its way goes as soon as that one has.
    Each report says:
    - the version it is about (the record's `seq`);
    - its state: `downloading` with a whole percent (0–99) of what it gets,
@@ -152,11 +153,12 @@ Things that hold, from earlier decisions:
   stick_key)` and `open(bytes, stick_id, stick_key) -> Result<Opened,
   ReportError>` (thiserror): checks size, AEAD with the AAD, the signature,
   the name's characters.
-- Transport: `PeerConnection` gains `report(stick_id, sealed)`, best
-  effort, the caller bounding it; `IrohConnection` opens
-  `ourstick/report/1` to the same owner on a connection of its own (one
-  QUIC connection speaks one protocol, as `fetch_record` does), in the new
-  `report_protocol.rs` beside `record_protocol.rs`. `Publisher` gains `take_reports()`, a channel of
+- Transport: `Fetcher` gains `report(ticket, sealed)`, best effort, the
+  caller bounding it; it opens `ourstick/report/1` to the owner on a
+  connection of its own (one QUIC connection speaks one protocol, as
+  `fetch_record` does), so no download need be going on, in the new
+  `report_protocol.rs` beside `record_protocol.rs`. `IrohReportSender` does
+  the same from an endpoint with no blob store, for a pause or a forget. `Publisher` gains `take_reports()`, a channel of
   sealed reports (one publisher serves one stick, so the StickId is known),
   like `take_demand()`; the owner's side
   opens them with the stick's key (the transport holds no StickKey). The
@@ -168,12 +170,17 @@ Things that hold, from earlier decisions:
   `hide_report(stick, reader)`, `hide_reports(stick)`, the name and
   `next_report_counter`; both stores, the trait
   tests, a migration test. The reader key: `SecretName::ReaderKey(stick)`,
-  made when the stick is added (and, for sticks received before, at their
-  next round), deleted with the ticket in `received::finish`; protocol.md's
+  made at a stick's first round (`received::reader_key`, also for sticks
+  received before), deleted with the ticket in `received::finish`; a
+  pause or a forget is told only if it exists (`reader_key_if_any`: no
+  line to take off otherwise, and no key made to say so); protocol.md's
   "Key storage" lists it.
-- `download/`: a `Reporter` (reader key, stick key, kind, name, a `Clock`
-  for the 30 s) the round calls when it plans, as it goes, and when it
-  ends; the CLI passes none.
+- `download/`: a `Reporter` (reader key, ticket, kind, name, store,
+  clock): `on_event` takes a receive's events with the bytes the bar shows;
+  `pump`, selected beside the receive, sends what is due; `send_now` and
+  `set_version` tell a pause, a forget or a stop. `ReportTo` is where
+  reports go (every `Fetcher`, the report sender, a test's owner). The CLI
+  makes none.
 - App: the owner's side lists the reports under its stick (event
   `readers-changed`), with the words of rule 6 and `Remove from this
   list`; the line "Senders see you as…" under the received sticks; Forget
@@ -242,7 +249,7 @@ Each step ends with `cargo test` green and its docs.
 1. Core: `report/` (seal, open, sign, the counter), tests with bad input.
 2. Store: migration 0020, both stores, the 200/30/90 rules, trait and
    migration tests; schema.md.
-3. Transport: `ourstick/report/1`, `PeerConnection::report`,
+3. Transport: `ourstick/report/1`, `Fetcher::report`,
    `Publisher::take_reports`, the fakes; protocol.md.
 4. Reader: the reader key, the `Reporter` in the app's rounds, Forget's
    `forgotten`; two peers tests.

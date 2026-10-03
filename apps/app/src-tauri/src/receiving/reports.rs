@@ -7,10 +7,9 @@ use std::time::Duration;
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{open_system_keyring, random_key};
 use ourstick_core::download::Reporter;
-use ourstick_core::received::{reader_key, received_store_dir};
+use ourstick_core::received::{reader_key, reader_key_if_any};
 use ourstick_core::report::ReportState;
-use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
-use ourstick_core::transport::Fetcher;
+use ourstick_core::transport::iroh::{IrohConfig, IrohReportSender, Network};
 use ourstick_core::{StickId, Ticket};
 use tauri::{AppHandle, Manager};
 
@@ -52,35 +51,48 @@ pub(super) async fn reporter_for(
     }
 }
 
-/// Tells the owner `state` (paused, forgotten) once, if it can be reached
-/// within [`ENDING_DEADLINE`]; about the version last received whole.
-/// Never fails: the owner may well be away.
+/// Tells the owner `state` (paused, forgotten) once, if this computer
+/// ever reported to it and it can be reached within [`ENDING_DEADLINE`];
+/// about the version last received whole. With an endpoint of its own and
+/// no blob store, so the stick's store is never held twice. Never fails:
+/// the owner may well be away.
 pub(super) async fn report_once(app: &AppHandle, stick_id: StickId, state: ReportState) {
-    let told = tokio::time::timeout(ENDING_DEADLINE, async {
-        let app_state = app.state::<AppState>();
-        let store = app_state.store.clone();
-        let (ticket, seq) = super::work(move || {
-            let secrets = open_system_keyring()?;
-            let ticket = super::read_ticket(secrets.as_ref(), &stick_id)?;
-            let seq = store
-                .joined_stick(&stick_id)?
-                .and_then(|joined| joined.completed)
-                .map_or(0, |completed| completed.seq);
-            Ok((ticket, seq))
-        })
-        .await
-        .ok()?;
-        let reporter = reporter_for(app, stick_id, ticket).await?;
-        reporter.set_version(seq);
-        let config = IrohConfig::new(random_key(), Network::Public);
-        let store_dir = received_store_dir(&app_state.data_dir, &stick_id);
-        let fetcher = IrohFetcher::start(&config, &store_dir).await.ok()?;
-        let sent = reporter.send_now(&fetcher, state, ENDING_DEADLINE).await;
-        let _ = fetcher.shutdown(true).await;
-        sent.ok()
+    let app_state = app.state::<AppState>();
+    let store = app_state.store.clone();
+    let known = super::work(move || {
+        let secrets = open_system_keyring()?;
+        let Some(key) = reader_key_if_any(secrets.as_ref(), &stick_id)? else {
+            return Ok(None);
+        };
+        let ticket = super::read_ticket(secrets.as_ref(), &stick_id)?;
+        let seq = store
+            .joined_stick(&stick_id)?
+            .and_then(|joined| joined.completed)
+            .map_or(0, |completed| completed.seq);
+        Ok(Some((key, ticket, seq, store.receiver_name()?)))
     })
     .await;
-    if !matches!(told, Ok(Some(()))) {
+    let Ok(Some((key, ticket, seq, name))) = known else {
+        return;
+    };
+    let reporter = Reporter::new(
+        ticket,
+        key,
+        name,
+        app_state.store.clone(),
+        Arc::new(SystemClock),
+    );
+    reporter.set_version(seq);
+    let config = IrohConfig::new(random_key(), Network::Public);
+    let Ok(sender) = IrohReportSender::start(&config).await else {
+        return;
+    };
+    if reporter
+        .send_now(&sender, state, ENDING_DEADLINE)
+        .await
+        .is_err()
+    {
         tracing::debug!("the owner was not told of a pause or a forget");
     }
+    sender.close().await;
 }

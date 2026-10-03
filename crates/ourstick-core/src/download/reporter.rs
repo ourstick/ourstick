@@ -154,7 +154,12 @@ impl Reporter {
             DownloadEvent::Manifest { seq, .. } | DownloadEvent::NewVersion { seq },
         ) = event
         {
-            self.latest().seq = Some(*seq);
+            let mut latest = self.latest();
+            latest.seq = Some(*seq);
+            // A change waiting for its version can go now.
+            if latest.urgent {
+                self.wake.notify_one();
+            }
             return;
         }
         let Some((seq, state, urgent)) = noted(event, done, total) else {
@@ -170,12 +175,21 @@ impl Reporter {
     /// selects it beside the receive, so it never ends on its own.
     pub async fn pump(&self, fetcher: &impl ReportTo) {
         loop {
-            let due = self.latest().due(Instant::now(), self.every);
+            let due = {
+                let mut latest = self.latest();
+                let now = Instant::now();
+                let due = latest.due(now, self.every);
+                if due.is_some() {
+                    // Taken now: a change while it goes stays urgent.
+                    latest.urgent = false;
+                    latest.last_try = Some(now);
+                }
+                due
+            };
             if let Some((version, seq, state)) = due {
                 let sent = self.send(fetcher, seq, state).await;
                 let mut latest = self.latest();
                 latest.last_try = Some(Instant::now());
-                latest.urgent = false;
                 match sent {
                     Ok(()) => latest.sent_version = latest.sent_version.max(version),
                     Err(error) => tracing::debug!(%error, "a report to the owner did not go"),

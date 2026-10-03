@@ -206,7 +206,14 @@ fn only_its_own_mark_is_taken_out() {
 #[test]
 fn a_reader_key_is_made_once_and_kept() {
     let secrets = MemorySecretStore::new();
+    assert!(reader_key_if_any(&secrets, &stick_id(6)).unwrap().is_none());
     let first = reader_key(&secrets, &stick_id(6)).unwrap();
+    assert_eq!(
+        reader_key_if_any(&secrets, &stick_id(6))
+            .unwrap()
+            .map(|key| key.reader_id()),
+        Some(first.reader_id())
+    );
     assert_eq!(
         reader_key(&secrets, &stick_id(6)).unwrap().reader_id(),
         first.reader_id()

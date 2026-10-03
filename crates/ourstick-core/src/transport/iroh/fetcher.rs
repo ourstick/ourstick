@@ -19,7 +19,7 @@ use tokio::sync::watch;
 
 use super::batches::Batches;
 use super::record_protocol::{request_record, RECORD_ALPN};
-use super::report_protocol::{send_report, REPORT_ALPN};
+use super::report_protocol::report_on;
 use super::{absolute, bind, is_relay, network_report, owner_addr, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -93,14 +93,7 @@ impl Fetcher for IrohFetcher {
     /// On a connection of its own (one QUIC connection speaks one
     /// protocol), so a report needs no download going on.
     async fn report(&self, ticket: &Ticket, sealed: &[u8]) -> Result<(), TransportError> {
-        let connection = self
-            .endpoint
-            .connect(owner_addr(ticket)?, REPORT_ALPN)
-            .await
-            .map_err(|error| TransportError::Unreachable(error.to_string()))?;
-        let sent = send_report(&connection, &ticket.stick_id, sealed).await;
-        connection.close(0u32.into(), b"done");
-        sent
+        report_on(&self.endpoint, ticket, sealed).await
     }
 
     async fn connect(&self, ticket: &Ticket) -> Result<IrohConnection, TransportError> {

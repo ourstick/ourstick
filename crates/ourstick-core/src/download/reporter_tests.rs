@@ -15,10 +15,14 @@ use crate::ManifestHint;
 struct Owner {
     sent: Mutex<Vec<Vec<u8>>>,
     away: AtomicBool,
+    /// Held by a test: a report waits for it, as one slow to reach the
+    /// owner.
+    gate: tokio::sync::Mutex<()>,
 }
 
 impl ReportTo for Owner {
     async fn report(&self, _ticket: &Ticket, sealed: &[u8]) -> Result<(), TransportError> {
+        let _passed = self.gate.lock().await;
         if self.away.load(Ordering::SeqCst) {
             return Err(TransportError::Unreachable("away".to_owned()));
         }
@@ -238,4 +242,41 @@ fn waits_are_told_by_a_few_reasons_and_percents_stay_below_100() {
     assert_eq!(percent(200, 100), 99);
     assert_eq!(percent(u64::MAX, u64::MAX), 99);
     assert_eq!(percent(1, 3), 33);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_while_a_report_goes_still_goes_at_once() {
+    let (reporter, _store) = reporter(None);
+    let owner = Owner::default();
+    let pump = reporter.pump(&owner);
+    tokio::pin!(pump);
+    let mut step = async |wait: Duration| {
+        tokio::select! {
+            () = &mut pump => unreachable!(),
+            () = tokio::time::sleep(wait) => {}
+        }
+    };
+    // A change before its version is known goes once the version is.
+    reporter.on_event(&download(DownloadEvent::Planned { bytes: 10 }), 0, 10);
+    step(A_MOMENT).await;
+    assert!(owner.told(&ticket()).is_empty());
+    let held = owner.gate.lock().await;
+    reporter.on_event(&download(DownloadEvent::NewVersion { seq: 4 }), 0, 10);
+    // It is on its way (held) when the round ends.
+    step(A_MOMENT).await;
+    reporter.on_event(&ReceiveEvent::UpToDate { seq: 4 }, 10, 10);
+    drop(held);
+    step(A_MOMENT * 2).await;
+    let states: Vec<ReportState> = owner
+        .told(&ticket())
+        .iter()
+        .map(|report| report.state)
+        .collect();
+    assert_eq!(
+        states,
+        [
+            ReportState::Downloading { percent: 0 },
+            ReportState::UpToDate
+        ]
+    );
 }

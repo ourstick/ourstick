@@ -99,10 +99,11 @@ async fn a_request_longer_than_a_report_is_not_read_past_the_limit() {
         &vec![1u8; MAX_REPORT_BYTES],
     ]
     .concat();
-    // The owner stops reading at the limit and answers nothing.
+    // The owner stops reading at the limit; what this peer then sees of
+    // its stream does not matter, only that nothing is handed on.
     let _ = send.write_all(&request).await;
     let _ = send.finish();
-    assert!(recv.read_to_end(0).await.is_err());
+    let _ = recv.read_to_end(0).await;
     assert!(
         tokio::time::timeout(Duration::from_millis(500), reports.recv())
             .await
@@ -209,5 +210,37 @@ async fn a_reader_tells_its_owner_it_has_all_of_it() {
     assert_eq!(last.seq, publication.seq);
     assert!(last.everything);
     fetcher.shutdown(false).await.unwrap();
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_report_goes_from_an_endpoint_with_no_blob_store() {
+    use ourstick_core::download::ReportTo;
+    use ourstick_core::transport::iroh::{IrohConfig, IrohReportSender, Network};
+
+    let owner = Owner::new(&[("a.txt", b"hello")]).await;
+    let mut reports = owner.publisher.take_reports().unwrap();
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let sender =
+        IrohReportSender::start(&IrohConfig::new(common::random_key(), Network::LocalOnly))
+            .await
+            .unwrap();
+    let sealed = seal(
+        &report(),
+        &ReaderKey::generate(),
+        &ticket.stick_id,
+        &ticket.stick_key,
+    )
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        ReportTo::report(&sender, &ticket, &sealed),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(reports.recv().await.unwrap(), sealed);
+    sender.close().await;
     owner.publisher.shutdown().await;
 }

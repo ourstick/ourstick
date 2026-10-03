@@ -25,7 +25,7 @@ use crate::ticket::{AddressHint, NodeId, Ticket, MAX_ADDRESS_HINTS};
 pub use fetcher::{IrohConnection, IrohFetcher};
 pub use publisher::IrohPublisher;
 pub use record_protocol::RECORD_ALPN;
-pub use report_protocol::REPORT_ALPN;
+pub use report_protocol::{IrohReportSender, REPORT_ALPN};
 
 /// Which networks the node uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -53,14 +53,24 @@ impl Reader {
             .retain(|_, asked| now.duration_since(*asked) < IN_USE);
     }
 
-    /// Where it is: its lowest waiting ask, else its highest served one
-    /// (never moving back as asks end out of order).
-    pub(super) fn place(&self) -> Option<Place> {
+    /// Where it is at `now`: its lowest waiting ask, else its highest served
+    /// one (never moving back as asks end out of order), of the asks within
+    /// [`IN_USE`].
+    pub(super) fn place(&self, now: Instant) -> Option<Place> {
+        let fresh = |(place, asked): (&Place, &Instant)| {
+            (now.duration_since(*asked) < IN_USE).then_some(*place)
+        };
         self.waiting
-            .keys()
+            .iter()
+            .filter_map(fresh)
             .min()
-            .or_else(|| self.served.keys().max())
-            .copied()
+            .or_else(|| self.served.iter().filter_map(fresh).max())
+    }
+
+    /// A new version: places of earlier ones can never be served again.
+    fn keep_only(&mut self, generation: u64) {
+        self.waiting.retain(|place, _| place.0 == generation);
+        self.served.retain(|place, _| place.0 == generation);
     }
 }
 
@@ -70,6 +80,18 @@ impl State {
         self.preparing == Some(place)
             || self.open.iter().any(|open| open.place == place)
             || self.queue.contains(&number)
+    }
+
+    /// A new version: the queue and places refer to the old one (open
+    /// suitcases keep serving what they hold); readers' asks in it can never
+    /// be served again.
+    pub(super) fn next_generation(&mut self) {
+        self.generation += 1;
+        self.queue.clear();
+        let generation = self.generation;
+        for reader in self.readers.values_mut() {
+            reader.keep_only(generation);
+        }
     }
 
     pub(super) async fn on_demand(&mut self, event: Demand, context: &Context) {
@@ -103,10 +125,7 @@ impl State {
                         .as_ref()
                         .is_none_or(|old| old.manifest_hash != current.manifest_hash) =>
                 {
-                    // A new version: the queue and places refer to the old
-                    // one; open suitcases keep serving what they hold.
-                    self.generation += 1;
-                    self.queue.clear();
+                    self.next_generation();
                     self.current = Some(current);
                 }
                 Ok(_) => {}
@@ -151,7 +170,7 @@ impl State {
             reader.waiting.remove(&place);
             reader.served.insert(place, now);
             // Read-ahead: the one after where the reader is, one per reader.
-            let Some(at) = reader.place() else {
+            let Some(at) = reader.place(now) else {
                 return;
             };
             let next = at.1 + 1;
@@ -200,7 +219,7 @@ impl State {
             let asking = reader.waiting.values().any(fresh) || reader.served.values().any(fresh);
             asking
                 && (reader.waiting.get(&place).is_some_and(fresh)
-                    || reader.place().is_some_and(|at| {
+                    || reader.place(now).is_some_and(|at| {
                         at.0 == place.0 && (at.1 == place.1 || at.1 + 1 == place.1)
                     }))
         })

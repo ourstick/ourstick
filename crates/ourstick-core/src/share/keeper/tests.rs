@@ -120,7 +120,7 @@ fn room_is_made_from_what_no_reader_holds() {
 }
 
 #[test]
-fn a_reader_waiting_on_one_suitcase_does_not_hold_the_one_before() {
+fn a_reader_that_moved_on_does_not_hold_the_suitcase_before() {
     let (mut state, bytes) = state_with(4, 1_000);
     let budget = Budget::new(bytes);
     let now = Instant::now();
@@ -128,7 +128,6 @@ fn a_reader_waiting_on_one_suitcase_does_not_hold_the_one_before() {
     prepare_next(&mut state, &budget, now).unwrap();
     // The same reader got 0 and now waits on 3: 0 may go.
     state.note(1, [0; 32], true, now);
-    state.queue.clear();
     state.note(1, [3; 32], false, now);
     assert_eq!(prepare_next(&mut state, &budget, now), Some(vec![100]));
     // A reader that closed holds nothing either.
@@ -189,7 +188,7 @@ fn identical_files_are_served_from_whichever_suitcase_has_them() {
     prepare_next(&mut state, &budget, now).unwrap();
     // Served from suitcase 0: the reader is placed there, not at the twin's.
     state.note(1, [9; 32], true, now);
-    assert_eq!(state.readers[&1].place(), Some((0, 0)));
+    assert_eq!(state.readers[&1].place(now), Some((0, 0)));
 }
 
 #[test]
@@ -243,7 +242,7 @@ fn asks_across_a_suitcases_end_prepare_the_earlier_one_first() {
     state.note(1, [2; 32], false, now);
     state.note(1, [3; 32], false, now);
     assert_eq!(state.queue, [2, 3]);
-    assert_eq!(state.readers[&1].place(), Some((0, 2)));
+    assert_eq!(state.readers[&1].place(now), Some((0, 2)));
     let opened =
         |state: &State| -> Vec<usize> { state.open.iter().map(|open| open.place.1).collect() };
     prepare_next(&mut state, &budget, now).unwrap();
@@ -257,10 +256,25 @@ fn asks_across_a_suitcases_end_prepare_the_earlier_one_first() {
     assert!(matches!(state.next_job(&budget, now), Next::NoRoom));
     // Served from 2 too: the reader is at 3 (never back at 2), 2 may go.
     state.note(1, [2; 32], true, now);
-    assert_eq!(state.readers[&1].place(), Some((0, 5)));
+    assert_eq!(state.readers[&1].place(now), Some((0, 5)));
     assert!(!state.is_held((0, 2), now));
     // A later served ask never moves the place back.
     state.note(1, [5; 32], true, now);
     state.note(1, [3; 32], true, now);
-    assert_eq!(state.readers[&1].place(), Some((0, 5)));
+    assert_eq!(state.readers[&1].place(now), Some((0, 5)));
+}
+
+#[test]
+fn a_new_version_forgets_where_readers_were_in_the_old_one() {
+    let (mut state, _) = state_with(4, 1_000);
+    let now = Instant::now();
+    state.note(1, [2; 32], false, now);
+    // A new version (the same files): the old waiting ask can never be
+    // served, and must not keep the reader in the old version.
+    state.next_generation();
+    state.note(1, [2; 32], false, now);
+    assert_eq!(state.readers[&1].place(now), Some((1, 2)));
+    // A place asked for long ago is no place.
+    let later = now + IN_USE + Duration::from_secs(1);
+    assert_eq!(state.readers[&1].place(later), None);
 }

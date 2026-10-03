@@ -16,6 +16,7 @@ use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
 pub mod disk_share;
+pub mod disk_turns;
 mod keeper;
 mod latest;
 mod partial;

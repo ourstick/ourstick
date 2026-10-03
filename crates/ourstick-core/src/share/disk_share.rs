@@ -120,6 +120,12 @@ impl DiskShare {
         self.pause(took)
     }
 
+    /// The pause after `took` of reading that is not judged (a second
+    /// read of a file): as after a window, without judging it.
+    pub fn pause_for(&self, took: Duration) -> Duration {
+        self.pause(took)
+    }
+
     fn pause(&self, took: Duration) -> Duration {
         if self.giving_way {
             (took * PAUSE_FACTOR).clamp(SHORTEST_PAUSE, LONGEST_PAUSE)

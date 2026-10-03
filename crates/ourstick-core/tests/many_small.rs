@@ -62,9 +62,9 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
         .await;
     assert!(matches!(stopped, Err(DownloadError::Cancelled)));
     let kept = recorded(&reader, &owner);
-    // Every file told done before the stop is recorded (the one whose event
-    // stopped it is in place, and found by content next time).
-    for path in &done[..299] {
+    // Every file told done is recorded, the one whose telling stopped it
+    // too (it was in place before it was told).
+    for path in &done {
         assert!(kept.contains(path), "{path} is placed but not recorded");
     }
     for path in &kept {
@@ -118,5 +118,47 @@ async fn records_lost_to_a_power_cut_cost_no_fetching() {
     let again = reader.download(&ticket, &mut keep_going).await.unwrap();
     assert_eq!(again.received, 0, "found equal by content, not fetched");
     assert_eq!(recorded(&reader, &owner).len(), FILES);
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn twins_and_a_big_file_among_small_ones_all_come_whole() {
+    // Small files, identical ones spread among them (one blob), and a file
+    // too big to be placed beside others, in the middle.
+    let twin = noise(3000, 200);
+    let big = noise(5 << 20, 201);
+    let mut files: Vec<(String, Vec<u8>)> = (0..60)
+        .map(|index| (format!("{index:02}.bin"), noise(500 + index, index as u8)))
+        .collect();
+    for index in [3, 4, 17, 40, 59] {
+        files[index].1 = twin.clone();
+    }
+    files[30].1 = big.clone();
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::new(&listed).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let reader = Reader::new();
+
+    let mut copied = 0;
+    reader
+        .download(&ticket, &mut |event| {
+            if let DownloadEvent::FileCopiedHere { .. } = event {
+                copied += 1;
+            }
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+    // One twin fetched, the others copied from it once it was placed.
+    assert_eq!(copied, 4);
+    for (name, bytes) in &files {
+        assert_eq!(&reader.read(name), bytes, "{name}");
+    }
+    assert_eq!(recorded(&reader, &owner).len(), files.len());
+    assert!(!reader.exists(".ourstick-partial"));
     owner.publisher.shutdown().await;
 }

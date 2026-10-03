@@ -174,11 +174,6 @@ pub(super) struct Placing {
 }
 
 impl Placing {
-    /// The blob this placement reads (its file in `partial` is named after it).
-    pub(super) fn hash(&self) -> &[u8; 32] {
-        &self.entry.hash
-    }
-
     pub(super) fn entry(&self) -> &Entry {
         &self.entry
     }
@@ -224,10 +219,13 @@ pub(super) fn start_placing(
 /// Waits for `placing` and says how it went: the file's stamp once in place,
 /// `None` if the file changed in the folder while it downloaded (left as it
 /// is).
+///
+/// The file is in place before it is told: whether the user stopped at the
+/// telling comes back beside it, so the caller records it either way.
 pub(super) async fn finish_placing(
     placing: Placing,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<Option<FileStamp>, DownloadError> {
+) -> Result<(Option<FileStamp>, ControlFlow<()>), DownloadError> {
     let written = match placing.task.await {
         Ok(written) => written?,
         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
@@ -242,10 +240,8 @@ pub(super) async fn finish_placing(
         },
         None => DownloadEvent::ReceivedButChangedHere { path },
     };
-    if on_event(event).is_break() {
-        return Err(DownloadError::Cancelled);
-    }
-    Ok(written)
+    let told = on_event(event);
+    Ok((written, told))
 }
 
 /// Places `entry` by copying `source`, a file this download already wrote from

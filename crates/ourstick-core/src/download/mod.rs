@@ -17,6 +17,7 @@ mod joined;
 mod listing;
 mod not_ready;
 mod path;
+mod placing_queue;
 mod receive;
 mod relay;
 mod relay_watch;

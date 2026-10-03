@@ -214,6 +214,13 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   file: 100 MB for a million files, at each change). If the scale test shows
   it matters: send only what changed since the reader's version (a protocol
   change; its own ADR).
+- ~~**Who has it**~~ (ADR 0015, done 2026-10-04): tried by hand, Linux →
+  Mac and Linux → Windows VM at once: both downloading with their percent
+  (up to 30 s behind, as reports go), then "A Mac has all of it, up to
+  date.", "A Windows PC has what it chose, up to date." (it left a folder
+  out) and "Everyone who received it is up to date."; each line went at
+  its computer's Forget. An empty list now shows nothing (the user's
+  call: "No one on this list yet." made one wonder what the list is).
 - ~~**Choosing inside one big folder**~~ (from the big-folder test, 2026-10-03):
   done as ADR 0012, Amendment 1 (a top-level folder opens; paths of two
   parts left out). Tried by hand 2026-10-03, Linux → Mac and Linux →

@@ -127,8 +127,8 @@ Things that hold, from earlier decisions:
      older seq; the time is when the owner heard it.
    - "A Mac is waiting: no room there." — `waiting`, with its reason.
    When every computer heard from has all of it, or all it chose, up to
-   date: "Everyone who received it is up to date." With none:
-   "No one on this list yet." (after `Clear this list` too). Never "safe to delete": what was received
+   date: "Everyone who received it is up to date." With none, nothing
+   is shown (an empty list explains nothing, after `Clear this list` too). Never "safe to delete": what was received
    stays with the receivers whatever the sender does, and the sender
    decides.
 7. **A receiver that forgets the stick says so** if the owner can be

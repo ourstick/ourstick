@@ -146,7 +146,8 @@ so Spotlight leaves it alone.
   typed a name is it shown, "Maria (Mac)"; two of a kind with no name are
   told apart by when first heard, "A Mac (since 3 Oct)". When every line
   (shown or not) is up to date: "Everyone who received it is up to
-  date."; with none: "No one on this list yet." Each line has `×` (Remove
+  date."; with none, nothing at all (an empty list explains nothing).
+  Each line has `×` (Remove
   from this list); `Clear this list` and "and 12 more" under them, then
   "What each computer says of itself." Never "safe to delete": what was
   received stays with the receivers.

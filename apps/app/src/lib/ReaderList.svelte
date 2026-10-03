@@ -110,10 +110,10 @@
   );
 </script>
 
-<section class="readers" aria-label="Who has it">
-  {#if lines.length === 0}
-    <p class="muted">No one on this list yet.</p>
-  {:else}
+<!-- Nothing while no computer has said it has it: an empty list explains
+     nothing. -->
+<section class="readers" aria-label="Who has it" hidden={lines.length === 0 && !failure}>
+  {#if lines.length > 0}
     {#if everyone}<p><strong>Everyone who received it is up to date.</strong></p>{/if}
     <ul>
       {#each lines.slice(0, SHOWN) as line (line.reader)}

@@ -150,21 +150,29 @@ pub(super) async fn take_plan(
             return Err(DownloadError::Cancelled);
         }
     }
-    for found in plan.found.clone() {
-        record_downloaded(store, ticket, found).await?;
+    for group in plan.found.chunks(RECORD_GROUP) {
+        record_downloaded(store, ticket, group.to_vec()).await?;
     }
     Ok(())
 }
 
-/// Records that `file` is in the stick's folder as written.
+/// Files are recorded this many in one transaction (ADR 0014): one each,
+/// the commits' syncs were most of the time of a stick of small files.
+pub(super) const RECORD_GROUP: usize = 256;
+
+/// Records that `files` are in the stick's folder as written, all in one
+/// transaction (at most [`RECORD_GROUP`] of them, by the callers).
 pub(super) async fn record_downloaded(
     store: &Arc<dyn Store>,
     ticket: &Ticket,
-    file: DownloadedFile,
+    files: Vec<DownloadedFile>,
 ) -> Result<(), DownloadError> {
+    if files.is_empty() {
+        return Ok(());
+    }
     let store = store.clone();
     let stick_id = ticket.stick_id;
-    run_blocking(move || store.record_downloaded_file(&stick_id, &file)).await?;
+    run_blocking(move || store.record_downloaded_files(&stick_id, &files)).await?;
     Ok(())
 }
 

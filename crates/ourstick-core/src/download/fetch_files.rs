@@ -14,7 +14,7 @@ use super::entry::{copy_file, finish_placing, receive_file, start_placing, Placi
 use super::folder::FilePlan;
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
-use super::{record_downloaded, DownloadError, DownloadEvent};
+use super::{record_downloaded, DownloadError, DownloadEvent, RECORD_GROUP};
 use crate::cipher::Cipher;
 use crate::manifest::{Entry, FileStamp, Manifest};
 use crate::store::{DownloadedFile, Store};
@@ -70,6 +70,7 @@ pub(super) async fn fetch_files(
         output_dir,
         written_here: &mut written_here,
         counts: &mut counts,
+        unrecorded: Vec::new(),
     };
     let result = async {
         for batch in &batches {
@@ -170,8 +171,9 @@ pub(super) async fn fetch_files(
                 }
             }
             // Every file of the batch is in place (or left as the user changed
-            // it): its blobs are no longer needed.
+            // it) and recorded: its blobs are no longer needed.
             done.finish(placing.take(), on_event).await?;
+            done.record_now().await?;
             if fetches {
                 fetcher.drop_batch(&batch.name).await?;
             }
@@ -182,8 +184,11 @@ pub(super) async fn fetch_files(
     // On an error too, a file being placed is finished and recorded, so the
     // next run finds it in place.
     let finished = done.finish(placing.take(), on_event).await;
+    // What is placed is recorded, whatever ended the round.
+    let recorded = done.record_now().await;
     result?;
     finished?;
+    recorded?;
     Ok(counts)
 }
 
@@ -194,6 +199,8 @@ struct Done<'a> {
     output_dir: &'a Path,
     written_here: &'a mut HashMap<[u8; 32], (PathBuf, FileStamp)>,
     counts: &'a mut FileCounts,
+    /// Files placed and not recorded yet: recorded in groups (ADR 0014).
+    unrecorded: Vec<DownloadedFile>,
 }
 
 impl Done<'_> {
@@ -212,8 +219,15 @@ impl Done<'_> {
         self.record(&stick_path, &entry, written).await
     }
 
+    /// Records the files placed so far.
+    async fn record_now(&mut self) -> Result<(), DownloadError> {
+        let files = std::mem::take(&mut self.unrecorded);
+        record_downloaded(self.store, self.ticket, files).await
+    }
+
     /// Records the stick's `stick_path`, saved as `entry` (its place here),
-    /// as written with `stamp`, or as left changed (`None`).
+    /// as written with `stamp`, or as left changed (`None`): with the next
+    /// group, once [`RECORD_GROUP`] are waiting.
     async fn record(
         &mut self,
         stick_path: &str,
@@ -230,7 +244,11 @@ impl Done<'_> {
                     stamp,
                     blob_hash: entry.hash,
                 };
-                record_downloaded(self.store, self.ticket, file).await
+                self.unrecorded.push(file);
+                if self.unrecorded.len() >= RECORD_GROUP {
+                    self.record_now().await?;
+                }
+                Ok(())
             }
             None => {
                 self.counts.changed_here += 1;

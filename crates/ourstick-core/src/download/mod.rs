@@ -26,7 +26,7 @@ pub(crate) mod saved_paths;
 mod types;
 
 use fetch_files::{fetch_files, FileCounts};
-use joined::record_downloaded;
+use joined::{record_downloaded, RECORD_GROUP};
 use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::RelayLimiter;

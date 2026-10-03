@@ -83,7 +83,9 @@
    * while the sender starts counting, is not a choice: everything comes.) */
   let none = $derived(entries.length > 0 && chosen.length === 0);
   let needs = $derived(chosen.reduce((sum, entry) => sum + entry.to_write, 0));
-  let fits = $derived(preview !== null && (preview.partial || needs <= preview.left));
+  // While the sender still counts, what is known is the least it needs:
+  // more than is left already does not fit.
+  let fits = $derived(preview !== null && needs <= preview.left);
 
   function tick(name: string, on: boolean) {
     const next = new Set(unticked);
@@ -160,8 +162,13 @@
     <SavedAsNote list={preview.saved_as} coming />
     {#if none}
       <p class="error">Tick at least one thing.</p>
-    {:else if preview.partial}
+    {:else if preview.partial && fits}
       <p class="muted">The sender is still counting its files: more is coming.</p>
+    {:else if preview.partial}
+      <p class="error">
+        Needs at least {size(needs)} so far, and only {size(preview.left)} are left where it would be saved. Un-tick
+        something, choose another place, or free some room.
+      </p>
     {:else if fits}
       <p class="muted">Needs up to {size(needs)} · fits</p>
     {:else}

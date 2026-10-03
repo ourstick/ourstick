@@ -274,6 +274,8 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
   "Needs up to X, and only Y are left where it would be saved. Un-tick
   something, choose another place, or free some room.", or "Tick at least
   one thing.", or "The sender is still counting its files: more is coming."
+  (or, if what it has counted already does not fit, "Needs at least X so
+  far, and only Y are left…", and Get it is off)
   → `Get it` (ADR 0012).
   If the sender cannot be reached: "The sender's computer is off, or
   OurStick is not open there. Try again when it is." A link to one of this

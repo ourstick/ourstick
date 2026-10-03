@@ -214,12 +214,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   file: 100 MB for a million files, at each change). If the scale test shows
   it matters: send only what changed since the reader's version (a protocol
   change; its own ADR).
-- **The sender's speed reads 0 KB/s while it sends** (Rescued_Disk to the Windows
-  VM, 2026-10-03: "Someone downloading · 0 KB/s" while the VM received
-  about 45 MB/s of big files; with 100 000 small files the CLI showed a
-  speed). The rate counts `RequestUpdate::Progress` of iroh-blobs' get
-  events (`transport/iroh/handler.rs`, mode `NotifyLog`): find whether
-  progress comes for long blobs, or only at their end.
 - **Dropping onto a stick, from the big-folder test (2026-10-03):** (1) while a
   drop copies (3 GB, half a minute) only the zone's title says "Copying…":
   no progress, nothing else changes, so Giorgos dropped the folder again
@@ -229,11 +223,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   entries as files (they were four folders). Also: one big linked folder
   (a whole disk shared) leaves the receiver nothing to choose (ADR 0012
   chooses at the top level only): choose inside it when it is alone.
-- **A preview while the sender still counts never says it does not fit**
-  (Rescued_Disk parts on the Mac, 2026-10-03): with Pictures ticked, 114.5 GB
-  known and 27 GB left, Get it was on and the words were only "still
-  counting". What is known already is a floor: once it is more than is
-  left, say so (and keep Get it off), as for a whole stick.
 - **The big-folder test, what it showed so far (2026-10-03):** a VM whose disk
   is a file on the sender's own disk made the sender give way to its own
   reader (ADR 0013 doing its job, in a test layout no two real computers

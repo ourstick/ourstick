@@ -88,7 +88,7 @@ its node key, which its older sticks use.
 | `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS), `credential-manager` (Windows) or `key-file` |
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
-| `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible; NULL (the usual) shows only the kind of computer |
+| `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible (checked by the store; the column checks only that it is not empty); NULL (the usual) shows only the kind of computer |
 
 If a secret that the database says exists is missing from the recorded
 backend, that is an error for the user to resolve, never a reason to generate
@@ -136,7 +136,7 @@ created by the first `get`.
 | `name`                    | TEXT    | Its name as the last verified manifest gave it; NULL before one |
 | `paused`                  | INTEGER | 1 if the user paused it in the receiver window                |
 | `forgetting`              | INTEGER | 1 while it is being forgotten: hidden, finished at the next start |
-| `report_counter`          | INTEGER | The counter of its last report to the owner (ADR 0015), so the next is higher across restarts and a clock set back |
+| `report_counter`          | INTEGER | The counter of its last report to the owner (ADR 0015), so the next is higher across restarts and a clock set back; not NULL, ≥ 0, default 0 |
 
 The latest folder wins: a `get` into another folder sets `output_dir` to it and
 clears `completed_*`, because the new folder holds nothing yet; but `get` never
@@ -244,30 +244,35 @@ The latest report of each reader of an owned stick (ADR 0015), as
 - a report replaces its reader's row only if its `counter` is higher (an
   old report sent again changes nothing);
 - a new reader is kept while the stick has fewer than 200 rows; else in
-  place of a hidden row, else of the one silent longest if silent for 30
-  days; else refused (a flood fills only the free places);
+  place of the one silent longest if silent for 30 days, else of a hidden
+  row (whose counter then goes, so an old report of that reader sent again
+  could bring its line back until its next report); else refused (a flood
+  fills only the free places);
 - `forgotten` hides the row and keeps its counter;
-- rows received more than 90 days ago are deleted, and never read.
+- rows received more than 90 days ago are deleted, and never read (an old
+  report of such a reader sent again is kept as new, until its next one);
+- the owner's clock set back: `first_ms` is lowered to the report's time.
 
 Deleted with the stick (removed, or a new link).
 
 | Column        | Type    | Meaning                                                        |
 |---------------|---------|----------------------------------------------------------------|
-| `stick_id`    | BLOB 32 | The owned stick (foreign key to `owned_sticks`)                |
-| `reader_id`   | BLOB 32 | The reader's public key for this stick                         |
-| `counter`     | INTEGER | Its report's counter                                           |
-| `seq`         | INTEGER | The version it reports on                                      |
+| `stick_id`    | BLOB 32 | The owned stick (foreign key to `owned_sticks`); length 32     |
+| `reader_id`   | BLOB 32 | The reader's public key for this stick; length 32              |
+| `counter`     | INTEGER | Its report's counter; ≥ 0                                      |
+| `seq`         | INTEGER | The version it reports on; ≥ 0                                 |
 | `state`       | TEXT    | `downloading`, `up_to_date`, `waiting`, `paused`, `forgotten`  |
-| `percent`     | INTEGER | 0–99, only while `downloading`                                 |
-| `reason`      | TEXT    | `sender_away`, `no_room`, `folder_missing`, `other`, only while `waiting` |
-| `everything`  | INTEGER | 1 if it gets the whole stick                                   |
+| `percent`     | INTEGER | 0–99; set if and only if `downloading`                         |
+| `reason`      | TEXT    | `sender_away`, `no_room`, `folder_missing`, `other`; set if and only if `waiting` |
+| `everything`  | INTEGER | 1 if it gets the whole stick, else 0                           |
 | `kind`        | TEXT    | `macos`, `windows`, `linux`, `other`                           |
-| `name`        | TEXT    | A name its receiver typed, or NULL                             |
-| `first_ms`    | INTEGER | When this owner first heard from it (its own clock)            |
-| `received_ms` | INTEGER | When this owner received the report (its own clock)            |
-| `hidden`      | INTEGER | 1 if off the sender's list (removed, cleared, or forgotten by the reader) |
+| `name`        | TEXT    | A name its receiver typed (not empty), or NULL                 |
+| `first_ms`    | INTEGER | When this owner first heard from it (its own clock); ≥ 0       |
+| `received_ms` | INTEGER | When this owner received the report (its own clock); ≥ `first_ms` |
+| `hidden`      | INTEGER | 1 if off the sender's list (removed, cleared, or forgotten by the reader); default 0 |
 
-Primary key `(stick_id, reader_id)`; index `(stick_id, received_ms)`.
+`STRICT, WITHOUT ROWID`. Primary key `(stick_id, reader_id)`; index
+`(stick_id, received_ms)`.
 
 ### `linked_entries`
 

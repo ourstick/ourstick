@@ -41,7 +41,8 @@ impl KeptReport {
             everything: report.everything,
             kind: report.kind,
             name: report.name.clone(),
-            first_ms,
+            // The owner's clock set back: first heard is never after now.
+            first_ms: first_ms.min(now_ms),
             received_ms: now_ms,
         }
     }
@@ -74,8 +75,10 @@ pub(super) struct Held {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Room {
     Free,
-    /// In place of this reader: a hidden one first, else the longest
-    /// silent, if silent for [`SILENT_MS`].
+    /// In place of this reader: the longest silent, if silent for
+    /// [`SILENT_MS`], else a hidden one (whose counter then goes: an old
+    /// report of it sent again could bring its line back until its next
+    /// report).
     Instead(ReaderId),
     Full,
 }
@@ -92,14 +95,14 @@ pub(super) fn room_for(held: &[Held], now_ms: u64) -> Room {
             .filter(|kept| kept.hidden == hidden)
             .min_by_key(|kept| (kept.received_ms, kept.reader))
     };
-    if let Some(kept) = oldest(true) {
-        return Room::Instead(kept.reader);
-    }
-    match oldest(false) {
-        Some(kept) if now_ms.saturating_sub(kept.received_ms) >= SILENT_MS => {
-            Room::Instead(kept.reader)
+    if let Some(kept) = oldest(false) {
+        if now_ms.saturating_sub(kept.received_ms) >= SILENT_MS {
+            return Room::Instead(kept.reader);
         }
-        _ => Room::Full,
+    }
+    match oldest(true) {
+        Some(kept) => Room::Instead(kept.reader),
+        None => Room::Full,
     }
 }
 

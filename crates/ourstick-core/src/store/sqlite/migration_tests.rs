@@ -189,4 +189,26 @@ fn migration_20_starts_every_counter_and_list_empty() {
     assert_eq!(store.next_report_counter(&stick, 5).unwrap(), 5);
     store.set_receiver_name(Some("Μαρία")).unwrap();
     assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
+    // The new table holds a line, and its checks hold.
+    let connection = Connection::open(&path).unwrap();
+    let insert = |percent: Option<i64>, state: &str| {
+        connection.execute(
+            "INSERT INTO reader_reports (stick_id, reader_id, counter, seq, state, percent,
+             everything, kind, first_ms, received_ms) VALUES (?1, ?2, 1, 1, ?3, ?4, 1, 'linux', 5, 5)",
+            rusqlite::params![[4u8; 32], [1u8; 32], state, percent],
+        )
+    };
+    // Its stick must be shared here.
+    assert!(insert(Some(5), "downloading").is_err());
+    connection
+        .execute(
+            "INSERT INTO owned_sticks (stick_id, name, root_path, cipher, created_at_ms)
+             VALUES (?1, 'x', '/x', 1, 1)",
+            [[4u8; 32]],
+        )
+        .unwrap();
+    assert!(insert(None, "downloading").is_err());
+    assert!(insert(Some(100), "downloading").is_err());
+    assert!(insert(Some(5), "up_to_date").is_err());
+    insert(Some(5), "downloading").unwrap();
 }

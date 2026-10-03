@@ -146,11 +146,13 @@ fn a_flood_fills_only_the_free_places(store: &dyn Store) {
     // Full, everyone speaking: a new reader is refused, nobody pushed off.
     assert_eq!(keep(9_000, NOW + 1_000).unwrap(), KeepOutcome::Full);
     assert_eq!(store.reports(&id, NOW + 1_000).unwrap().len(), MAX_READERS);
-    // A hidden line makes room first.
+    // With no one silent for 30 days, a hidden line makes room.
     store.hide_report(&id, &reader(150)).unwrap();
     assert_eq!(keep(9_000, NOW + 1_000).unwrap(), KeepOutcome::Kept);
     assert_eq!(keep(9_001, NOW + 1_000).unwrap(), KeepOutcome::Full);
-    // A reader silent for 30 days makes room: the longest silent goes.
+    // A reader silent for 30 days makes room before a hidden one: the
+    // longest silent goes, the hidden line keeps its counter.
+    store.hide_report(&id, &reader(151)).unwrap();
     let later = NOW + SILENT_MS;
     assert_eq!(keep(9_001, later).unwrap(), KeepOutcome::Kept);
     let readers: Vec<ReaderId> = store
@@ -160,6 +162,39 @@ fn a_flood_fills_only_the_free_places(store: &dyn Store) {
         .map(|line| line.reader)
         .collect();
     assert!(!readers.contains(&reader(0)) && readers.contains(&reader(1)));
+    assert_eq!(keep(151, later).unwrap(), KeepOutcome::Old);
+}
+
+fn the_owners_clock_set_back_changes_nothing_kept(store: &dyn Store) {
+    let id = shared(store, 1);
+    store
+        .keep_report(&id, &reader(1), &report(1, ReportState::UpToDate), NOW)
+        .unwrap();
+    // A newer report, the clock an hour behind: kept, first heard not
+    // after it.
+    let behind = NOW - 3_600_000;
+    assert_eq!(
+        store
+            .keep_report(&id, &reader(1), &report(2, ReportState::Paused), behind)
+            .unwrap(),
+        KeepOutcome::Kept
+    );
+    let line = &store.reports(&id, behind).unwrap()[0];
+    assert_eq!((line.first_ms, line.received_ms), (behind, behind));
+    // Forgotten with a counter not above the last: an old report, nothing
+    // taken off.
+    assert_eq!(
+        store
+            .keep_report(&id, &reader(1), &report(2, ReportState::Forgotten), behind)
+            .unwrap(),
+        KeepOutcome::Old
+    );
+    assert_eq!(store.reports(&id, behind).unwrap().len(), 1);
+    // Hiding on a stick not shared here does nothing, and fails nothing.
+    let other = owner(9).stick_id();
+    store.hide_report(&other, &reader(1)).unwrap();
+    store.hide_reports(&other).unwrap();
+    assert!(store.reports(&other, NOW).unwrap().is_empty());
 }
 
 fn lines_older_than_ninety_days_are_not_shown_and_go(store: &dyn Store) {
@@ -263,7 +298,7 @@ fn a_counter_grows_even_when_the_clock_goes_back(store: &dyn Store) {
         NOW + 2
     );
     assert_eq!(store.next_report_counter(&id, NOW + 50).unwrap(), NOW + 50);
-    // Forgotten and received again: from the clock again.
+    // Being forgotten: no more reports.
     store
         .change_joined_stick(&id, &crate::store::JoinedChange::Forgetting)
         .unwrap();
@@ -274,6 +309,7 @@ for_every_store!(
     a_readers_latest_report_is_kept_and_an_old_one_changes_nothing,
     a_removed_line_comes_back_only_with_a_newer_report,
     a_flood_fills_only_the_free_places,
+    the_owners_clock_set_back_changes_nothing_kept,
     lines_older_than_ninety_days_are_not_shown_and_go,
     reports_are_only_for_sticks_shared_here_and_go_with_them,
     the_receivers_name_is_theirs_and_checked,

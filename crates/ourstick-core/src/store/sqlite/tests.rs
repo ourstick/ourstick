@@ -1,3 +1,4 @@
+use super::migrations::user_version;
 use super::*;
 use crate::cipher::CipherId;
 use crate::store::SecretBackend;

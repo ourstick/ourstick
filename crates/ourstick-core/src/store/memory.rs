@@ -3,14 +3,16 @@
 //!
 //! [`SqliteStore`]: super::SqliteStore
 
-use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
 
 mod extra;
 mod joined;
 mod life;
 mod reports;
+mod state;
+
+pub use state::MemoryStore;
+use state::{claim_key, sorted, State};
 
 use super::{
     check_device, check_drive_letter, check_owned_file, check_owned_stick, path_str, ClaimKind,
@@ -19,61 +21,6 @@ use super::{
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
-
-#[derive(Debug, Default)]
-struct State {
-    device: Option<Device>,
-    owned: BTreeMap<[u8; 32], OwnedStick>,
-    joined: BTreeMap<[u8; 32], JoinedStick>,
-    floors: BTreeMap<[u8; 32], ManifestVersion>,
-    owned_files: BTreeMap<[u8; 32], BTreeMap<String, OwnedFile>>,
-    downloaded_files: BTreeMap<[u8; 32], BTreeMap<String, DownloadedFile>>,
-    /// What the user chose not to get of each received stick (ADR 0012).
-    left_out: BTreeMap<[u8; 32], std::collections::BTreeSet<String>>,
-    linked: BTreeMap<[u8; 32], BTreeMap<String, LinkedEntry>>,
-    claims: BTreeMap<([u8; 32], u8), SpaceClaim>,
-    /// Owned sticks being removed: hidden from the usual reads.
-    removing: std::collections::BTreeSet<[u8; 32]>,
-    /// Received sticks being forgotten: hidden from the usual reads.
-    forgetting: std::collections::BTreeSet<[u8; 32]>,
-    /// Ids retired by a new link, with when.
-    retired: BTreeMap<[u8; 32], (u64, StickId)>,
-    /// Readers' latest reports on owned sticks (ADR 0015).
-    reports: BTreeMap<[u8; 32], BTreeMap<crate::report::ReaderId, reports::Line>>,
-    receiver_name: Option<String>,
-    report_counters: BTreeMap<[u8; 32], u64>,
-}
-
-fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {
-    (stick_id.to_bytes(), kind as u8)
-}
-
-/// A [`Store`] that forgets everything when dropped.
-#[derive(Debug, Default)]
-pub struct MemoryStore {
-    state: Mutex<State>,
-}
-
-impl MemoryStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn state(&self) -> MutexGuard<'_, State> {
-        // Every operation checks before it changes anything, so a panic while
-        // holding the lock leaves the state consistent.
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
-
-/// Same order as the SQLite store: oldest first, then by stick id.
-fn sorted<T: Clone>(items: impl Iterator<Item = (u64, [u8; 32], T)>) -> Vec<T> {
-    let mut items: Vec<_> = items.collect();
-    items.sort_by_key(|item| (item.0, item.1));
-    items.into_iter().map(|(_, _, item)| item).collect()
-}
 
 impl Store for MemoryStore {
     fn device(&self) -> Result<Option<Device>, StoreError> {

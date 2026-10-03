@@ -99,10 +99,10 @@ Things that hold, from earlier decisions:
    (`reader_reports`, index on stick and time): stick, reader id, counter,
    seq, state, percent, reason, `everything`, kind, name, and when *the
    owner* received it (its own clock: the time it shows). At most 200
-   readers per stick. A reader not yet kept is refused when the stick has
-   200 and none of them has been silent for 30 days: a flood of made-up
-   readers cannot push real ones off the list, it only fills the free
-   places (the cost: while 200 made-up lines keep speaking, a real new
+   readers per stick. A reader not yet kept takes the place of the one
+   silent longest if silent for 30 days, else of a hidden line, else is
+   refused: a flood of made-up readers cannot push real ones off the list,
+   it only fills the free places (the cost: while 200 made-up lines keep speaking, a real new
    reader gets no line; `Clear this list` empties it at once). Lines older
    than 90 days are dropped when a report is kept and
    never shown. Removing a stick, or giving it a new link (a new StickId
@@ -134,7 +134,8 @@ Things that hold, from earlier decisions:
    owner drops that line. Otherwise the line stays until 90 days pass or
    the sender removes it (`Remove from this list`, or `Clear this list` for
    all). A removed line keeps its counter, hidden: only a newer report
-   brings it back, never an old one sent again. Forgetting never waits for
+   brings it back, never an old one sent again (unless a full list later
+   gave its place to a new reader, rule 5, or 90 days passed). Forgetting never waits for
    the network beyond that.
 8. **The app only, in v1.** `ourstick get` keeps no secrets (it opens no
    secret store), so it has no reader key and sends no reports; the
@@ -161,7 +162,8 @@ Things that hold, from earlier decisions:
 - Store: migration 0020: `reader_reports` with its index and a `hidden`
   flag, `device.receiver_name`, and `joined_sticks.report_counter`. `Store` gains `keep_report` (the counter, the 200
   and 30-day rule, the 90 days), `reports(stick, now)` (filters by age),
-  `forget_report(stick, reader)`, and the name; both stores, the trait
+  `hide_report(stick, reader)`, `hide_reports(stick)`, the name and
+  `next_report_counter`; both stores, the trait
   tests, a migration test. The reader key: `SecretName::ReaderKey(stick)`,
   made when the stick is added (and, for sticks received before, at their
   next round), deleted with the ticket in `received::finish`; protocol.md's

@@ -43,12 +43,17 @@ pub(super) fn keep_report(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
+    // Lines that aged out stay gone whatever becomes of this report.
     let first_ms = match known {
         Some((counter, _)) if to_u64(counter, "counter")? >= report.counter => {
-            return Ok(KeepOutcome::Old)
+            transaction.commit()?;
+            return Ok(KeepOutcome::Old);
         }
         Some((_, first_ms)) => to_u64(first_ms, "first_ms")?,
-        None if forgotten => return Ok(KeepOutcome::Ignored),
+        None if forgotten => {
+            transaction.commit()?;
+            return Ok(KeepOutcome::Ignored);
+        }
         None => {
             match room_for(&held(&transaction, &id)?, now_ms) {
                 Room::Free => {}
@@ -58,7 +63,10 @@ pub(super) fn keep_report(
                         params![id, gone.to_bytes()],
                     )?;
                 }
-                Room::Full => return Ok(KeepOutcome::Full),
+                Room::Full => {
+                    transaction.commit()?;
+                    return Ok(KeepOutcome::Full);
+                }
             }
             now_ms
         }
@@ -81,7 +89,7 @@ pub(super) fn keep_report(
             kept.everything,
             kind_text(kept.kind),
             kept.name,
-            time_i64(first_ms)?,
+            time_i64(kept.first_ms)?,
             time_i64(now_ms)?,
             forgotten,
         ],

@@ -567,7 +567,8 @@ not the connection a download uses), on one bidirectional stream.
 
 The owner reads at most 512 bytes; a longer request is never read whole nor
 handed on. A request for another stick, or without a report, is not taken.
-At most 32 reports wait for the owner to open them; more are not taken. A
+At most 32 reports wait for the owner to open them (also before it starts
+opening them); more are not taken. A
 reader keeps a report that was not taken and sends it again later. An owner
 closes a connection 10 seconds after its answer if the peer has not. The
 transport opens nothing: the owner's side opens each report with the stick's

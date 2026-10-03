@@ -5,8 +5,7 @@
 //! sealed report; at most [`MAX_REPORT_BYTES`] in all, read with that limit.
 //! Answer: nothing, the stream finished once the report is taken, so the
 //! reader knows it arrived; reset when it is not taken (another stick, too
-//! many waiting, no one taking reports), so the reader keeps it to send
-//! again. The transport opens nothing:
+//! many waiting), so the reader keeps it to send again. The transport opens nothing:
 //! it hands the sealed bytes to the owner's side, which holds the key.
 
 use iroh::endpoint::Connection;

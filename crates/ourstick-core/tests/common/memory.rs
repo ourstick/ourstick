@@ -326,10 +326,10 @@ impl PeerConnection for MemoryConnection {
             return Err(TransportError::Unreachable("the owner is away".to_owned()));
         }
         match &served.reports {
-            Some(reports) if reports.try_send(sealed.to_vec()).is_ok() => Ok(()),
-            _ => Err(TransportError::Interrupted(
-                "the report was not taken".to_owned(),
-            )),
+            Some(reports) if reports.try_send(sealed.to_vec()).is_err() => Err(
+                TransportError::Interrupted("the report was not taken".to_owned()),
+            ),
+            _ => Ok(()),
         }
     }
     async fn close(self) {

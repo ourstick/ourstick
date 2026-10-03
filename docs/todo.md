@@ -229,6 +229,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   entries as files (they were four folders). Also: one big linked folder
   (a whole disk shared) leaves the receiver nothing to choose (ADR 0012
   chooses at the top level only): choose inside it when it is alone.
+- **A preview while the sender still counts never says it does not fit**
+  (Rescued_Disk parts on the Mac, 2026-10-03): with Pictures ticked, 114.5 GB
+  known and 27 GB left, Get it was on and the words were only "still
+  counting". What is known already is a floor: once it is more than is
+  left, say so (and keep Get it off), as for a whole stick.
 - **The big-folder test, what it showed so far (2026-10-03):** a VM whose disk
   is a file on the sender's own disk made the sender give way to its own
   reader (ADR 0013 doing its job, in a test layout no two real computers

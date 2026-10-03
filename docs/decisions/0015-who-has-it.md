@@ -1,6 +1,6 @@
 # 0015: Who has it
 
-Status: Proposed (2026-10-04), revised after the design reviews
+Status: Proposed (2026-10-04), revised after the design reviews and their confirmation
 
 ## Context
 
@@ -35,9 +35,12 @@ Things that hold, from earlier decisions:
 1. **A reader tells the owner how far it is**, in a small report, on a new
    protocol `ourstick/report/1`, over the connection its round already has.
    It sends one when a round has planned, about every 30 seconds while it
-   downloads, and when the round ends; a report that could not go is not
-   retried on its own, but the next round (the sender back, the next
-   change) sends the state as it is then. Each report says:
+   downloads, and when the round ends, each with a deadline of 5 seconds.
+   The last state that could not go (most likely the round's end, as its
+   connection closes) is kept and sent once more, on a fresh connection,
+   when the reader next asks the owner for its record (a received stick
+   is checked for changes while the app runs), and with every later round.
+   Each report says:
    - the version it is about (the record's `seq`);
    - its state: `downloading` with a whole percent (0–99) of what it gets,
      `up_to_date`, `waiting` with one reason of a fixed list
@@ -51,13 +54,17 @@ Things that hold, from earlier decisions:
      says so).
    - **the kind of computer** (`macos`, `windows`, `linux`, `other`) and
      **a name only if the receiver typed one** (rule 3);
-   - a **counter** that only grows (milliseconds of the reader's clock, or
-     the last one plus one if the clock went back).
+   - a **counter** that only grows: milliseconds of the reader's clock, or
+     the last one sent plus one if the clock went back. The last one sent is
+     kept with the received stick (a column of `joined_sticks`), so it
+     grows across restarts too.
 2. **Each reader speaks only for itself.** When the app receives a stick
    it makes, once, a **reader key** for that stick (Ed25519), kept in the
    secret store with the stick's ticket and deleted with it; its public
-   key is the **reader id**. A new key per received stick, never one per
-   device: two senders cannot tell that the same computer has both their
+   key is the **reader id**. It is deleted with the ticket when the stick
+   is forgotten (`received::finish`), and made at the next round for a
+   stick received before this ADR. A new key per received stick, never one
+   per device: two senders cannot tell that the same computer has both their
    sticks. Every report is signed with it. So someone else with the link
    can add lines of their own, but can never change another reader's line.
    A report whose counter is not above the last one kept for that reader is
@@ -68,7 +75,8 @@ Things that hold, from earlier decisions:
    `OurStick 2026-10-04 report XChaCha20-Poly1305 key`), with a random
    24-byte nonce and the version byte and StickId as associated data. On
    the wire: the StickId in clear (32 bytes, so the owner knows which key
-   to try, as `ourstick/record/1` asks), then version, nonce and sealed
+   to try, as `ourstick/record/1` asks; the owner takes that stick's
+   `SecretName::StickKey` from its secret store), then version, nonce and sealed
    report, at most 512 bytes in all, read with that limit. What does not
    open, is too big, or names a stick the owner does not share is dropped,
    with a debug line that names neither bytes nor keys. A reader with the
@@ -86,7 +94,7 @@ Things that hold, from earlier decisions:
    changes: it is a line, not a settings page). At most 40 characters, the
    same character rules as a manifest's names (no control or format
    characters); the owner escapes it before showing it. Kept in the
-   `device` row (a new column), the one place for it.
+   `device` row (a new column, `receiver_name`), the one place for it.
 5. **The owner keeps the latest report per reader** in SQLite
    (`reader_reports`, index on stick and time): stick, reader id, counter,
    seq, state, percent, reason, `everything`, kind, name, and when *the
@@ -94,18 +102,24 @@ Things that hold, from earlier decisions:
    readers per stick. A reader not yet kept is refused when the stick has
    200 and none of them has been silent for 30 days: a flood of made-up
    readers cannot push real ones off the list, it only fills the free
-   places. Lines older than 90 days are dropped when a report is kept and
+   places (the cost: while 200 made-up lines keep speaking, a real new
+   reader gets no line; `Clear this list` empties it at once). Lines older
+   than 90 days are dropped when a report is kept and
    never shown. Removing a stick, or giving it a new link (a new StickId
    and key), leaves its reports behind: they are deleted with it.
 6. **What the sender sees**, under the stick, one line per computer, the
    latest first (at most 5, then "and 12 more"). "Up to date" counts only
    on the latest *complete* version the owner has published (not a partial
    one of ADR 0007, not one being signed):
-   - "Maria (Mac) has all of it, up to date." — `up_to_date`,
-     `everything`, the latest complete seq.
+   - "A Mac has all of it, up to date." — `up_to_date`, `everything`,
+     the latest complete seq. A computer is named by its kind; only if its
+     receiver typed a name is that name shown before it: "Maria (Mac) has
+     all of it, up to date." Two computers of one kind with no name are
+     told apart by when they were first heard from: "A Mac (since 3 Oct)".
    - "A Windows PC has what it chose, up to date." — `everything` false.
    - "A Mac has everything so far; you are still reading your folder." —
-     up to date with a partial version.
+     up to date with a partial version ("has what it chose so far" without
+     `everything`).
    - "A Mac is downloading: 60%."
    - "A Linux PC had all of it at 14:30; not what changed since." — an
      older seq; the time is when the owner heard it.
@@ -118,8 +132,10 @@ Things that hold, from earlier decisions:
 7. **A receiver that forgets the stick says so** if the owner can be
    reached at that moment (state `forgotten`, a deadline of 3 seconds): the
    owner drops that line. Otherwise the line stays until 90 days pass or
-   the sender removes it (`Remove from this list`). Forgetting never waits
-   for the network beyond that.
+   the sender removes it (`Remove from this list`, or `Clear this list` for
+   all). A removed line keeps its counter, hidden: only a newer report
+   brings it back, never an old one sent again. Forgetting never waits for
+   the network beyond that.
 8. **The app only, in v1.** `ourstick get` keeps no secrets (it opens no
    secret store), so it has no reader key and sends no reports; the
    sender sees it only in the live activity, as today. **No switch to stop
@@ -142,13 +158,14 @@ Things that hold, from earlier decisions:
   opens them with the stick's key (the transport holds no StickKey). The
   in-memory fakes (`tests/common/owner_in_memory.rs`) do the same. Reports
   are not `Demand` and not `ReaderActivity` (ADR 0007): a separate channel.
-- Store: migration 0020: `reader_reports` with its index, and
-  `device.sender_name`. `Store` gains `keep_report` (the counter, the 200
+- Store: migration 0020: `reader_reports` with its index and a `hidden`
+  flag, `device.receiver_name`, and `joined_sticks.report_counter`. `Store` gains `keep_report` (the counter, the 200
   and 30-day rule, the 90 days), `reports(stick, now)` (filters by age),
   `forget_report(stick, reader)`, and the name; both stores, the trait
   tests, a migration test. The reader key: `SecretName::ReaderKey(stick)`,
   made when the stick is added (and, for sticks received before, at their
-  next round), deleted when it is forgotten.
+  next round), deleted with the ticket in `received::finish`; protocol.md's
+  "Key storage" lists it.
 - `download/`: a `Reporter` (reader key, stick key, kind, name, a `Clock`
   for the 30 s) the round calls when it plans, as it goes, and when it
   ends; the CLI passes none.
@@ -168,9 +185,12 @@ Things that hold, from earlier decisions:
   30 s with a test clock; a report that cannot go does not hold up the
   download; two peers on one machine: "has all of it, up to date" after a
   download, "has what it chose" with something left out, an older seq after
-  the sender adds a file, "everything so far" with a partial version, and
-  the line gone after the reader forgets the stick; no key or ticket in
-  the log lines of any of these.
+  the sender adds a file, "everything so far" with a partial version, the
+  line gone after the reader forgets the stick, and the last state sent
+  again after its report was lost; `forgotten` to an owner that cannot be
+  reached gives up after 3 seconds; a stream longer than 512 bytes is not
+  read past the limit; a counter kept across a restart with the clock set
+  back; no key or ticket in the log lines of any of these.
 
 ## Consequences
 
@@ -180,7 +200,8 @@ Things that hold, from earlier decisions:
   kind has the stick and how far it is, whether it left something out (not
   what, not how much), and a name only if the receiver gave one.
 - Someone with the link can add made-up lines (at most up to 200, never
-  pushing a real reader off) and can lie about itself, never about
+  pushing a real reader off, but then keeping new real readers off until
+  the sender clears the list) and can lie about itself, never about
   another. The list is a help to the sender, never a proof.
 - One more protocol on the owner's endpoint; reports are small (under 512
   bytes every 30 s per downloading reader).

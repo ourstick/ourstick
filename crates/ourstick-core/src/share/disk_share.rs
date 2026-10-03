@@ -22,15 +22,21 @@ const SLOW_IN_A_ROW: u32 = 2;
 const PAUSE_FACTOR: u32 = 9;
 const SHORTEST_PAUSE: Duration = Duration::from_secs(1);
 const LONGEST_PAUSE: Duration = Duration::from_secs(30);
-/// A recent best counts half as much (is twice as easy to match) after
-/// this much reading time, so a slower stretch of the disk is not taken
-/// for someone else for long.
-const FADE: Duration = Duration::from_secs(60 * 60);
+/// What a window should take is the median of this many recent windows
+/// of its kind, learned while OurStick is not giving way: one window read
+/// ahead by the system, or partly from memory, does not move it.
+const RECENT: usize = 16;
+/// Nothing is judged before this many windows of a kind: the first ones
+/// alone cannot tell the system reading ahead from someone else reading.
+const FIRST_WINDOWS: usize = 3;
+/// Slow this many windows in a row while giving way, the slow speed is the
+/// disk's now (a slower disk, not someone else): it is learned.
+const RELEARN_AFTER: u32 = 256;
 /// Files of at least this size on average make a window of big files (its
 /// cost is its bytes); smaller ones, a window of small files (a seek each).
 const BIG_FILE: u64 = 1 << 20;
-/// Faster than any disk: read from memory (files just copied in). Such a
-/// window is fast, but teaches no best.
+/// Faster than any disk: read from memory (files just copied in, or read
+/// ahead by the system). Such a window changes nothing and teaches no best.
 const FASTEST_BYTES_PER_SECOND: f64 = 1e9;
 const FASTEST_FILE: Duration = Duration::from_micros(200);
 
@@ -60,56 +66,38 @@ impl DiskLoad for DiskShare {
     }
 }
 
-/// A recent window of one kind, per unit (a file, or a byte), in seconds,
-/// and when it was seen (in reading time).
-#[derive(Debug, Clone, Copy)]
-struct Seen {
-    per_unit: f64,
-    seen_at: Duration,
-}
+/// The recent windows of one kind, per unit (a file, or a byte), in
+/// seconds, newest last.
+#[derive(Debug, Default, Clone)]
+struct Recent(std::collections::VecDeque<f64>);
 
-impl Seen {
-    /// Its time per unit, faded by the reading done since.
-    fn faded(&self, reading: Duration) -> f64 {
-        let since = (reading - self.seen_at).as_secs_f64() / FADE.as_secs_f64();
-        self.per_unit * 2f64.powf(since)
-    }
-}
-
-/// The two best recent windows of one kind. What a window should take is
-/// the second best: one window read partly from memory (a few files just
-/// copied in) is not a speed the disk keeps.
-#[derive(Debug, Default, Clone, Copy)]
-struct Best {
-    first: Option<Seen>,
-    second: Option<Seen>,
-}
-
-impl Best {
-    fn expected_per_unit(&self, reading: Duration) -> Option<f64> {
-        self.second.or(self.first).map(|seen| seen.faded(reading))
-    }
-
-    fn learn(&mut self, seen: Seen, reading: Duration) {
-        let beats =
-            |other: Option<Seen>| other.is_none_or(|other| seen.per_unit < other.faded(reading));
-        if beats(self.first) {
-            self.second = self.first;
-            self.first = Some(seen);
-        } else if beats(self.second) {
-            self.second = Some(seen);
+impl Recent {
+    /// The median of the recent windows; none before [`FIRST_WINDOWS`].
+    fn expected_per_unit(&self) -> Option<f64> {
+        let mut values: Vec<f64> = self.0.iter().copied().collect();
+        if values.len() < FIRST_WINDOWS {
+            return None;
         }
+        values.sort_by(f64::total_cmp);
+        Some(values[values.len() / 2])
+    }
+
+    fn learn(&mut self, per_unit: f64) {
+        if self.0.len() == RECENT {
+            self.0.pop_front();
+        }
+        self.0.push_back(per_unit);
     }
 }
 
 /// One disk's judgement (ADR 0013, rules 2–4).
 #[derive(Debug, Default)]
 pub struct DiskShare {
-    per_file: Best,
-    per_byte: Best,
-    /// The sum of every window's time.
-    reading: Duration,
+    per_file: Recent,
+    per_byte: Recent,
     slow_in_a_row: u32,
+    /// Windows in a row not fast while giving way.
+    held_back: u32,
     giving_way: bool,
 }
 
@@ -122,7 +110,6 @@ impl DiskShare {
     /// A window of `files` files (those begun in it) and `bytes` bytes read
     /// in `took`: the pause before the next one (zero at full speed).
     pub fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration {
-        self.reading += took;
         let seconds = took.as_secs_f64();
         // A window inside a big file begins no file: it is of big files.
         let big = files == 0 || bytes / files >= BIG_FILE;
@@ -141,21 +128,31 @@ impl DiskShare {
             per_unit < FASTEST_FILE.as_secs_f64()
         };
         let expected = best
-            .expected_per_unit(self.reading)
+            .expected_per_unit()
             .map(|per_unit| per_unit * units as f64);
+        // Read from memory (files just copied in, or what the system read
+        // ahead of OurStick): it tells nothing of the disk, and changes
+        // nothing. Measured: the end of a part, read ahead, came at "0 ms"
+        // and kept undoing the giving way.
+        if from_memory {
+            return self.pause(took);
+        }
         let ratio = match expected {
-            Some(expected) if expected > 0.0 && !from_memory => seconds / expected,
-            // Nothing to judge it by yet, or read from memory: fast.
+            Some(expected) if expected > 0.0 => seconds / expected,
+            // Nothing to judge it by yet: fast.
             _ => 0.0,
         };
-        // A slow window teaches nothing either: someone else's reading is
-        // not the disk's speed.
-        if !from_memory && ratio <= SLOW_RATIO {
-            let seen = Seen {
-                per_unit,
-                seen_at: self.reading,
-            };
-            best.learn(seen, self.reading);
+        // Learned only while not giving way, and not from a slow window:
+        // someone else's reading is not the disk's speed. Unless it lasts:
+        // held back for long, the slower speed is the disk's.
+        let fast = ratio < FAST_RATIO;
+        if self.giving_way && !fast {
+            self.held_back += 1;
+        } else {
+            self.held_back = 0;
+        }
+        if (!self.giving_way && ratio <= SLOW_RATIO) || self.held_back >= RELEARN_AFTER {
+            best.learn(per_unit);
         }
         let was = self.giving_way;
         if ratio > SLOW_RATIO {
@@ -165,7 +162,7 @@ impl DiskShare {
             }
         } else {
             self.slow_in_a_row = 0;
-            if ratio < FAST_RATIO {
+            if fast {
                 self.giving_way = false;
             }
         }

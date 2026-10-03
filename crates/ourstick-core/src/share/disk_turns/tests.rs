@@ -87,7 +87,7 @@ fn a_big_file_is_judged_window_by_window() {
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
     // 128 MB at 8 ms a MB (125 MB/s): two windows, fast.
-    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 192 * MB, 8));
     assert!(!disk.giving_way());
     // Then, inside one file, at 40 ms a MB: after two slow windows it gives
     // way, before the file ends.
@@ -105,7 +105,7 @@ fn only_the_first_read_of_a_file_is_judged() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 192 * MB, 8));
     // Read twice, as `encrypt_blob` does: a slow second read (the file was
     // not in memory) is not someone else.
     for _ in 0..4 {
@@ -125,9 +125,9 @@ fn small_files_close_a_window_every_64() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    // 128 files of 100 KB at 100 ms a MB (10 ms each): two windows, the
-    // bests.
-    for _ in 0..128 {
+    // 192 files of 100 KB at 100 ms a MB (10 ms each): three windows, the
+    // measure.
+    for _ in 0..192 {
         read_through(&mut reader, FakeFile::new(&timer, 100 * 1024, 100));
     }
     // Then four times slower, 128 files: two windows, giving way.
@@ -137,7 +137,7 @@ fn small_files_close_a_window_every_64() {
     // The last window is given back at the end of a part.
     reader.end_window();
     assert!(disk.giving_way());
-    assert_eq!(lock(&disk.state).windows, 4);
+    assert_eq!(lock(&disk.state).windows, 5);
     // Exactly 64 files are one window, the 65th begins the next.
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
@@ -159,7 +159,7 @@ fn the_pause_is_the_disks_and_the_next_turn_waits_for_it() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut first = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut first, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut first, FakeFile::new(&timer, 192 * MB, 8));
     // Exactly two slow windows, the turn given back at the end of a part,
     // before the file's end is read.
     let mut timed = first.open(FakeFile::new(&timer, 128 * MB, 40), 128 * MB as u64);
@@ -196,7 +196,7 @@ fn reading_a_files_end_waits_for_no_pause() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 192 * MB, 8));
     // The second slow window closes exactly at the file's end: the read
     // that finds the end does not wait for the pause that follows.
     let before = timer.elapsed();
@@ -213,7 +213,7 @@ fn a_reader_told_to_stop_during_a_pause_stops_and_frees_the_disk() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 192 * MB, 8));
     let mut timed = reader.open(FakeFile::new(&timer, 128 * MB, 40), 128 * MB as u64);
     let mut buffer = vec![0; MB];
     for _ in 0..128 {
@@ -354,7 +354,7 @@ fn a_file_grown_since_its_length_was_taken_is_read_in_turns() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 192 * MB, 8));
     // Its length was 1 MB when it was opened; it is 128 MB now, and slow.
     let mut timed = reader.open(FakeFile::new(&timer, 128 * MB, 40), MB as u64);
     std::io::copy(&mut timed, &mut std::io::sink()).unwrap();

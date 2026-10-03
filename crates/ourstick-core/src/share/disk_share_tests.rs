@@ -74,6 +74,7 @@ fn a_window_of_big_files_or_inside_one_counts_bytes() {
     // Inside one big file, no file begins.
     share.after_window(0, 64 * MB, ms(500));
     share.after_window(0, 64 * MB, ms(500));
+    share.after_window(0, 64 * MB, ms(500));
     share.after_window(0, 64 * MB, ms(2000));
     assert!(!share.giving_way());
     share.after_window(0, 64 * MB, ms(2000));
@@ -81,7 +82,7 @@ fn a_window_of_big_files_or_inside_one_counts_bytes() {
 }
 
 #[test]
-fn what_is_read_from_memory_is_fast_but_teaches_nothing() {
+fn what_is_read_from_memory_changes_nothing_and_teaches_nothing() {
     let mut share = DiskShare::default();
     // Files just copied in: 64 MB in 20 ms, small files in 50 µs.
     share.after_window(2, 64 * MB, ms(20));
@@ -92,17 +93,23 @@ fn what_is_read_from_memory_is_fast_but_teaches_nothing() {
         assert_eq!(small(&mut share, 10), Duration::ZERO);
     }
     assert!(!share.giving_way());
-    // …and from memory again while giving way counts as fast.
+    // …and while giving way, a window from memory (the end of a part, read
+    // ahead by the system) does not undo it, nor break two slow in a row.
     big(&mut share, 20);
+    share.after_window(0, 3 * MB, ms(0));
     big(&mut share, 20);
     assert!(share.giving_way());
-    share.after_window(2, 64 * MB, ms(20));
+    assert!(share.after_window(0, 3 * MB, ms(0)) >= Duration::from_secs(1));
+    assert!(share.giving_way());
+    // Only the disk at its speed again ends it.
+    big(&mut share, 100);
     assert!(!share.giving_way());
 }
 
 #[test]
 fn a_slower_stretch_of_the_disk_stops_counting_as_someone_else() {
     let mut share = DiskShare::default();
+    big(&mut share, 150);
     big(&mut share, 150);
     big(&mut share, 150);
     // Four times slower for good (another, slower part of the disk): it
@@ -127,6 +134,7 @@ fn the_pause_is_nine_times_the_window_within_bounds() {
     let mut share = DiskShare::default();
     small(&mut share, 1);
     small(&mut share, 1);
+    small(&mut share, 1);
     // Slow small windows of 64 × 4 ms = 256 ms: nine times is 2.3 s.
     small(&mut share, 4);
     assert_eq!(small(&mut share, 4), ms(64 * 4) * 9);
@@ -134,15 +142,18 @@ fn the_pause_is_nine_times_the_window_within_bounds() {
     let mut short = DiskShare::default();
     short.after_window(64, 64 * 1000, ms(64));
     short.after_window(64, 64 * 1000, ms(64));
+    short.after_window(64, 64 * 1000, ms(64));
     short.after_window(64, 64 * 1000, ms(64 * 5));
     assert_eq!(short.after_window(64, 64 * 1000, ms(64 * 5)), ms(2880));
     let mut tiny = DiskShare::default();
+    tiny.after_window(1, 1000, ms(1));
     tiny.after_window(1, 1000, ms(1));
     tiny.after_window(1, 1000, ms(1));
     tiny.after_window(1, 1000, ms(10));
     assert_eq!(tiny.after_window(1, 1000, ms(10)), SHORTEST_PAUSE);
     // …and a very long one at most 30 s.
     let mut long = DiskShare::default();
+    big(&mut long, 120);
     big(&mut long, 120);
     big(&mut long, 120);
     big(&mut long, 5);
@@ -153,6 +164,7 @@ fn the_pause_is_nine_times_the_window_within_bounds() {
 fn an_empty_window_changes_nothing() {
     let mut share = DiskShare::default();
     assert_eq!(share.after_window(0, 0, ms(5)), Duration::ZERO);
+    big(&mut share, 120);
     big(&mut share, 120);
     big(&mut share, 120);
     big(&mut share, 20);
@@ -192,11 +204,50 @@ fn disk_share_is_a_disk_load() {
 }
 
 #[test]
-fn someone_from_the_second_window_on_is_seen_too() {
+fn someone_from_the_fourth_window_on_is_seen_too() {
     let mut share = DiskShare::default();
-    // One window alone at the disk's speed, then someone else at once.
-    big(&mut share, 120);
+    // Three windows alone at the disk's speed (none judged yet), then
+    // someone else at once: slow windows are not learned, so they are seen.
+    for _ in 0..3 {
+        big(&mut share, 120);
+    }
     big(&mut share, 30);
     big(&mut share, 30);
     assert!(share.giving_way(), "a slow window became the measure");
+}
+
+#[test]
+fn someone_there_from_the_start_is_taken_for_the_disk_until_it_is_alone() {
+    let mut share = DiskShare::default();
+    // Someone else from the first window: their speed is the measure…
+    for _ in 0..20 {
+        assert_eq!(big(&mut share, 30), Duration::ZERO);
+    }
+    // …until the disk is alone, which is learned as it comes.
+    for _ in 0..20 {
+        big(&mut share, 120);
+    }
+    big(&mut share, 30);
+    big(&mut share, 30);
+    assert!(share.giving_way());
+}
+
+#[test]
+fn windows_read_ahead_by_the_system_are_no_measure() {
+    // As measured on a spinning disk: the system reads ahead while OurStick
+    // encrypts, so some windows look far faster (365 MB/s) than the disk
+    // (100 MB/s). Alone on the disk, OurStick never gives way.
+    let mut share = DiskShare::default();
+    for round in 0..200 {
+        let mb_per_second = if round % 3 == 0 { 365 } else { 100 };
+        assert_eq!(
+            big(&mut share, mb_per_second),
+            Duration::ZERO,
+            "round {round}"
+        );
+    }
+    // Someone else, at a fifth of the disk's speed: it gives way.
+    big(&mut share, 30);
+    big(&mut share, 30);
+    assert!(share.giving_way());
 }

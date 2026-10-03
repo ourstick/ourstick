@@ -52,20 +52,24 @@ Nothing gives way to anyone outside OurStick.
 2. **Speed is judged against similar work, in windows.** A window is
    64 MB read, or 64 files, whichever comes first, also inside one big file.
    Small files cost a seek each, whatever their size; big ones cost their
-   bytes. A window is judged by what it should have taken at this disk's
-   recent best: a cost per file and a cost per byte, each the best of the
-   recent windows of that kind (windows of mostly big files teach the cost
-   per byte, windows of many small ones the cost per file). The recent best
-   fades, by half over an hour of reading time (the sum of timed reads: no
-   wall clock, so tests are exact), so a disk whose inner tracks are
-   slower does not count as "someone else" for long. **A window faster
-   than any disk teaches nothing:** files just copied into the folder are
-   still in memory, and a window read from there (over 1 GB/s, or under
-   0.2 ms a file) would set a "best" no disk can keep, after which every
-   window from the disk looked slow. Such a window counts as fast (rule 3),
-   but is not a best. And what a window should take is the **second** best
-   of its kind, not the best: one window read partly from memory (a few
-   files just copied in, under the floor) is not a speed the disk keeps.
+   bytes. A window is judged by what it should have taken: a cost per file
+   or per byte, the **median** of the last 16 windows of its kind (windows
+   of mostly big files teach the cost per byte, windows of many small ones
+   the cost per file), learned only while OurStick is not giving way and
+   never from a slow window, so someone else's reading is not taken for
+   the disk's speed. Nothing is judged before 3 windows of a kind. Measured
+   on `sda` (step 4): only the reads are timed, so while OurStick encrypts
+   the system reads ahead, and some windows look far faster than the disk
+   (365 MB/s on a disk giving 100–150); a best (or a second best) of them
+   made every ordinary window look slow, and OurStick gave way to no one;
+   the median does not move for them. Held back for 256 windows in a row
+   (minutes at a tenth of the time), the slower speed is the disk's (a
+   slower disk, not someone else) and is learned. **A window faster than
+   any disk tells nothing** (over 1 GB/s, or under 0.2 ms a file): read
+   from memory (files just copied in, or read ahead at the end of a part,
+   measured at "0 ms"), it is not judged, changes nothing and teaches
+   nothing. Someone else using the disk from OurStick's first windows on
+   is taken for the disk until the disk is seen alone.
 3. **Someone else is there** when two windows in a row took more than
    three times what they should have. Three, not two: the inner tracks of a
    disk are up to half as fast as its outer ones, and a second sequential

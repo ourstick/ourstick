@@ -250,6 +250,12 @@ pub async fn run(
         let outcome = tokio::select! {
             outcome = run_pass(&owner, options, &mut on_pass) => outcome?,
             () = &mut readers => anyhow::bail!("the reader activity ended unexpectedly"),
+            // Ctrl-C while the folder is first read stops too (the signal
+            // is caught for the program once anything listens for it).
+            result = tokio::signal::ctrl_c() => {
+                result?;
+                return Ok(());
+            }
         };
         let publication = outcome.publication;
         if !ticket_printed? {

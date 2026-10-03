@@ -299,12 +299,12 @@ impl Store for SqliteStore {
         files::downloaded_files(&self.connection(), stick_id)
     }
 
-    fn record_downloaded_file(
+    fn record_downloaded_files(
         &self,
         stick_id: &StickId,
-        file: &DownloadedFile,
+        files: &[DownloadedFile],
     ) -> Result<(), StoreError> {
-        files::record_downloaded_file(&self.connection(), stick_id, file)
+        files::record_downloaded_files(&mut self.connection(), stick_id, files)
     }
 
     fn record_floor(&self, stick_id: &StickId) -> Result<Option<ManifestVersion>, StoreError> {

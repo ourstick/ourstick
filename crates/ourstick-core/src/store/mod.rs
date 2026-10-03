@@ -187,13 +187,23 @@ pub trait Store: Send + Sync {
     /// The files `get` wrote into a joined stick's current folder, by path.
     fn downloaded_files(&self, stick_id: &StickId) -> Result<Vec<DownloadedFile>, StoreError>;
 
-    /// Records (or replaces) one file `get` wrote into the stick's folder.
-    /// Two files of a stick are never recorded at one place (`saved_as`).
+    /// Records (or replaces) files `get` wrote into the stick's folder, in
+    /// order, in one transaction: all of them or none (ADR 0014). Two files
+    /// of a stick are never recorded at one place (`saved_as`).
+    fn record_downloaded_files(
+        &self,
+        stick_id: &StickId,
+        files: &[DownloadedFile],
+    ) -> Result<(), StoreError>;
+
+    /// One file, as [`Store::record_downloaded_files`].
     fn record_downloaded_file(
         &self,
         stick_id: &StickId,
         file: &DownloadedFile,
-    ) -> Result<(), StoreError>;
+    ) -> Result<(), StoreError> {
+        self.record_downloaded_files(stick_id, std::slice::from_ref(file))
+    }
 
     /// The top-level names of a received stick the user chose not to get
     /// (ADR 0012), sorted; empty: everything is got.

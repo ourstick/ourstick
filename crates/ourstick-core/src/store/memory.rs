@@ -12,9 +12,9 @@ mod joined;
 mod life;
 
 use super::{
-    check_device, check_drive_letter, check_owned_file, check_owned_stick, check_seq, check_stamp,
-    path_str, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry,
-    ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
+    check_device, check_drive_letter, check_owned_file, check_owned_stick, check_seq, path_str,
+    ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion,
+    OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -318,27 +318,12 @@ impl Store for MemoryStore {
             .unwrap_or_default())
     }
 
-    fn record_downloaded_file(
+    fn record_downloaded_files(
         &self,
         stick_id: &StickId,
-        file: &DownloadedFile,
+        files: &[DownloadedFile],
     ) -> Result<(), StoreError> {
-        check_stamp(&file.stamp)?;
-        let mut state = self.state();
-        let key = stick_id.to_bytes();
-        if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
-            return Err(StoreError::StickNotFound);
-        }
-        let files = state.downloaded_files.entry(key).or_default();
-        // As the database's unique index: one file at one place.
-        if files
-            .values()
-            .any(|other| other.path != file.path && other.saved_as == file.saved_as)
-        {
-            return Err(StoreError::Inconsistent("two files recorded at one place"));
-        }
-        files.insert(file.path.clone(), file.clone());
-        Ok(())
+        joined::record_files(self, stick_id, files)
     }
 
     fn left_out(&self, stick_id: &StickId) -> Result<Vec<String>, StoreError> {

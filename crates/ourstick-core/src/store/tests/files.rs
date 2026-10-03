@@ -205,7 +205,71 @@ fn two_files_are_never_recorded_at_one_place(store: &dyn Store) {
     assert_eq!(store.downloaded_files(&stick_id).unwrap(), vec![onto]);
 }
 
+fn downloaded_files_are_recorded_in_groups_whole_or_not_at_all(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    let group = [downloaded("a", 1), downloaded("b", 2)];
+    assert!(matches!(
+        store.record_downloaded_files(&stick_id, &group),
+        Err(StoreError::StickNotFound)
+    ));
+    store.add_joined_stick(&joined(1, 10)).unwrap();
+    store.record_downloaded_files(&stick_id, &[]).unwrap();
+    store.record_downloaded_files(&stick_id, &group).unwrap();
+    assert_eq!(store.downloaded_files(&stick_id).unwrap(), group);
+    // A row at another file's place, in the group or already there: none of
+    // the group is kept, also the rows before it.
+    let onto_b = DownloadedFile {
+        saved_as: "b".to_owned(),
+        ..downloaded("c", 3)
+    };
+    for bad in [
+        vec![downloaded("d", 4), onto_b.clone()],
+        vec![
+            downloaded("d", 4),
+            DownloadedFile {
+                saved_as: "d".to_owned(),
+                ..downloaded("e", 5)
+            },
+        ],
+    ] {
+        assert!(matches!(
+            store.record_downloaded_files(&stick_id, &bad),
+            Err(StoreError::Inconsistent(_))
+        ));
+        assert_eq!(store.downloaded_files(&stick_id).unwrap(), group);
+    }
+    // A bad stamp: refused before anything is written.
+    let mut huge = downloaded("f", 6);
+    huge.stamp.size = u64::MAX;
+    assert!(store
+        .record_downloaded_files(&stick_id, &[downloaded("g", 7), huge])
+        .is_err());
+    assert_eq!(store.downloaded_files(&stick_id).unwrap(), group);
+    // In order: a later row of the group replaces an earlier one, and a row
+    // may take a place an earlier row of the group gave up.
+    let b_moves = DownloadedFile {
+        saved_as: "b2".to_owned(),
+        ..downloaded("b", 8)
+    };
+    store
+        .record_downloaded_files(&stick_id, &[b_moves.clone(), onto_b.clone()])
+        .unwrap();
+    assert_eq!(
+        store.downloaded_files(&stick_id).unwrap(),
+        vec![downloaded("a", 1), b_moves, onto_b]
+    );
+    // A stick being forgotten records nothing.
+    store
+        .change_joined_stick(&stick_id, &JoinedChange::Forgetting)
+        .unwrap();
+    assert!(matches!(
+        store.record_downloaded_files(&stick_id, &[downloaded("h", 9)]),
+        Err(StoreError::StickNotFound)
+    ));
+}
+
 for_every_store!(
+    downloaded_files_are_recorded_in_groups_whole_or_not_at_all,
     a_file_saved_under_another_name_is_recorded_so,
     two_files_are_never_recorded_at_one_place,
     downloaded_files_are_recorded_one_by_one,

@@ -189,13 +189,19 @@ fn files_where(
     .collect()
 }
 
-pub(super) fn record_downloaded_file(
-    connection: &Connection,
+pub(super) fn record_downloaded_files(
+    connection: &mut Connection,
     stick_id: &StickId,
-    file: &DownloadedFile,
+    files: &[DownloadedFile],
 ) -> Result<(), StoreError> {
-    check_stamp(&file.stamp)?;
-    let joined: Option<i64> = connection
+    if files.is_empty() {
+        return Ok(());
+    }
+    for file in files {
+        check_stamp(&file.stamp)?;
+    }
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let joined: Option<i64> = transaction
         .query_row(
             "SELECT 1 FROM joined_sticks WHERE stick_id = ?1 AND forgetting = 0",
             [stick_id.to_bytes()],
@@ -205,34 +211,41 @@ pub(super) fn record_downloaded_file(
     if joined.is_none() {
         return Err(StoreError::StickNotFound);
     }
-    // Checked above: every value fits in i64. Another file at its place is
-    // refused by the unique index on `saved_as`, in this one statement.
-    let recorded = connection.execute(
-        "INSERT INTO downloaded_files
-             (stick_id, path, saved_as, size, mtime_ns, ctime_ns, blob_hash)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-         ON CONFLICT (stick_id, path) DO UPDATE SET saved_as = excluded.saved_as,
-             size = excluded.size, mtime_ns = excluded.mtime_ns,
-             ctime_ns = excluded.ctime_ns, blob_hash = excluded.blob_hash",
-        params![
-            stick_id.to_bytes(),
-            file.path,
-            file.saved_as,
-            file.stamp.size as i64,
-            file.stamp.mtime_ns as i64,
-            file.stamp.ctime_ns as i64,
-            file.blob_hash.to_vec(),
-        ],
-    );
-    match recorded {
-        Ok(_) => Ok(()),
-        // The values and the stick are checked above: only another file at
-        // this place is left. The error MemoryStore gives too.
-        Err(error) if super::is_constraint_violation(&error) => {
-            Err(StoreError::Inconsistent("two files recorded at one place"))
+    {
+        let mut insert = transaction.prepare_cached(
+            "INSERT INTO downloaded_files
+                 (stick_id, path, saved_as, size, mtime_ns, ctime_ns, blob_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT (stick_id, path) DO UPDATE SET saved_as = excluded.saved_as,
+                 size = excluded.size, mtime_ns = excluded.mtime_ns,
+                 ctime_ns = excluded.ctime_ns, blob_hash = excluded.blob_hash",
+        )?;
+        for file in files {
+            // Checked above: every value fits in i64. Another file at its
+            // place is refused by the unique index on `saved_as`; dropping
+            // the transaction then undoes the whole group.
+            let recorded = insert.execute(params![
+                stick_id.to_bytes(),
+                file.path,
+                file.saved_as,
+                file.stamp.size as i64,
+                file.stamp.mtime_ns as i64,
+                file.stamp.ctime_ns as i64,
+                file.blob_hash.to_vec(),
+            ]);
+            match recorded {
+                Ok(_) => {}
+                // The values and the stick are checked above: only another
+                // file at this place is left. The error MemoryStore gives too.
+                Err(error) if super::is_constraint_violation(&error) => {
+                    return Err(StoreError::Inconsistent("two files recorded at one place"))
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
-        Err(error) => Err(error.into()),
     }
+    transaction.commit()?;
+    Ok(())
 }
 
 pub(super) fn forget_downloaded_file(

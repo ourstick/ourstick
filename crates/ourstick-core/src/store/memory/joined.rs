@@ -6,8 +6,8 @@ use std::path::Path;
 use super::{sorted, MemoryStore};
 use crate::stick_id::StickId;
 use crate::store::{
-    check_joined_stick, check_seq, path_str, ClaimKind, JoinedChange, JoinedStick, ManifestVersion,
-    StoreError,
+    check_joined_stick, check_seq, check_stamp, path_str, ClaimKind, DownloadedFile, JoinedChange,
+    JoinedStick, ManifestVersion, StoreError,
 };
 
 pub(super) fn add(store: &MemoryStore, stick: &JoinedStick) -> Result<(), StoreError> {
@@ -154,5 +154,39 @@ pub(super) fn set_left_out(
         return Err(StoreError::Inconsistent("a name left out is empty"));
     }
     state.left_out.insert(key, names.iter().cloned().collect());
+    Ok(())
+}
+
+/// As the database records a group: in order, each row checked against
+/// what is there so far, and nothing kept unless all are.
+pub(super) fn record_files(
+    store: &MemoryStore,
+    stick_id: &StickId,
+    files: &[DownloadedFile],
+) -> Result<(), StoreError> {
+    for file in files {
+        check_stamp(&file.stamp)?;
+    }
+    let mut state = store.state();
+    let key = stick_id.to_bytes();
+    if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
+        return Err(StoreError::StickNotFound);
+    }
+    let mut recorded = state
+        .downloaded_files
+        .get(&key)
+        .cloned()
+        .unwrap_or_default();
+    for file in files {
+        // As the database's unique index: one file at one place.
+        if recorded
+            .values()
+            .any(|other| other.path != file.path && other.saved_as == file.saved_as)
+        {
+            return Err(StoreError::Inconsistent("two files recorded at one place"));
+        }
+        recorded.insert(file.path.clone(), file.clone());
+    }
+    state.downloaded_files.insert(key, recorded);
     Ok(())
 }

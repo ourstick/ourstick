@@ -145,7 +145,7 @@ things on it (a few music folders, some documents). The receiver window
    behaviour; nothing on the wire changes), schema.md, todo.md; status
    Accepted.
 
-## Amendment 1: choosing inside a folder (proposed, 2026-10-03)
+## Amendment 1: choosing inside a folder (accepted, 2026-10-03)
 
 ### Context
 
@@ -206,8 +206,10 @@ versions, a second entry added later) and make choices hide each other.
   send hundreds of thousands of entries each time. The receiver keeps the
   latest version's manifest it already has (the preview keeps the one it
   fetched), and `listing.rs` answers one folder's inside from it
-  (`inside(manifest, folder)`: its folders and files, with their bytes and
-  bytes to write), so a folder opens while the sender is away too.
+  (`entries_in(manifest, folder, to_write)`: its folders and files, each
+  named by its whole path, with their bytes and bytes to write), so a
+  folder opens while the sender is away too. What a preview's choice needs
+  is counted by the app from the preview's bytes by path (`preview_needs`).
 - The store: `joined_left_out.name` now holds a path of one or two parts
   (no migration: a one-part name is such a path); `set_left_out` refuses
   bad parts and drops covered paths; `has_files_under` already works on a

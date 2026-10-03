@@ -212,15 +212,20 @@ that left the stick stay, so their files are known as `get`'s own.
 ### `joined_left_out`
 
 What the user chose not to get of a received stick in the window (ADR
-0012): its top-level names, byte-exact as in the stick's manifest. A name
-not here comes, also one the sender adds later. Replaced whole when the user
+0012 and its Amendment 1): paths of one or two parts (`Films`,
+`Disk/MUSIC`), byte-exact as in the stick's manifest; a file under one is
+left out. Each part a plain name (none empty, `.` or `..`, no `\` or control
+character); a path under another one in the set is not kept (both checked
+by `download::LeftOut` on every save; rows from before, a one-part name,
+are such paths, so no migration). A path not here comes, also one the
+sender adds later. Replaced whole when the user
 saves a choice; deleted with the stick when it is forgotten. `ourstick get`
 never reads it.
 
 | Column     | Type    | Meaning                                              |
 |------------|---------|------------------------------------------------------|
 | `stick_id` | BLOB 32 | The received stick (foreign key to `joined_sticks`)  |
-| `name`     | TEXT    | A top-level name of the stick, not empty             |
+| `name`     | TEXT    | A path of one or two parts, as above                 |
 
 Primary key `(stick_id, name)`.
 

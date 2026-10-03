@@ -242,11 +242,13 @@ carries only the key). Every file blob of that stick must use the same cipher.
   are written 256 to a transaction (ADR 0014). Nothing on the wire depends
   on this.
 - Files that left the stick are kept and reported, never deleted.
-- A reader may leave out top-level entries of a stick (ADR 0012): a set of
-  first path components, byte-exact as in the manifest, read at every round.
-  Nothing under them is fetched, counted or given a new place; files of them
-  already here stay where they were recorded and are no longer updated. New
-  top-level entries are fetched. Nothing on the wire changes: the owner
+- A reader may leave out entries of a stick (ADR 0012 and its Amendment 1):
+  a set of paths of one or two parts (a top-level entry, or one inside a
+  top-level folder), byte-exact as in the manifest, read at every round; a
+  file is left out when its path is one of them or lies under one. Nothing
+  left out is fetched, counted or given a new place; files of it already
+  here stay where they were recorded and are no longer updated. New entries
+  are fetched, inside a folder too. Nothing on the wire changes: the owner
   never learns what a reader leaves out.
 - If the owner refuses a blob during a download, most likely because it
   published a new version and stopped serving the old blobs, the reader

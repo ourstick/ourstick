@@ -40,6 +40,8 @@ pub struct AppState {
     pub sticks: tokio::sync::Mutex<HashMap<StickId, Sharing>>,
     /// The disks every shared stick reads, with their turns (ADR 0013).
     pub disks: Arc<Disks>,
+    /// Sticks being copied onto now (a drop): another drop waits.
+    pub copying: std::sync::Mutex<std::collections::HashSet<StickId>>,
 }
 
 impl AppState {
@@ -51,6 +53,7 @@ impl AppState {
             store,
             sticks: tokio::sync::Mutex::new(HashMap::new()),
             disks: Arc::new(Disks::new(Arc::new(SystemTimer::default()))),
+            copying: std::sync::Mutex::default(),
         })
     }
 

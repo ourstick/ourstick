@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 use crate::manifest::ignore::is_ignored;
 use crate::share::{folder_size, ShareError};
 
+mod copy;
+
+pub use copy::{copy_onto, names_taken, Copied, OnConflict};
+
 /// Why a copy onto the stick or a removal failed. Messages are for users.
 #[derive(Debug, thiserror::Error)]
 pub enum DriveError {
@@ -91,90 +95,6 @@ pub(crate) fn free_name_where(name: &str, taken: impl Fn(&str) -> bool) -> Strin
         .expect("some number is free")
 }
 
-/// The bytes of a file or folder to copy (system files left out).
-fn source_size(path: &Path) -> Result<u64, DriveError> {
-    let metadata = std::fs::symlink_metadata(path).map_err(io(path))?;
-    if metadata.is_dir() {
-        Ok(folder_size(path)?)
-    } else if metadata.is_file() {
-        Ok(metadata.len())
-    } else {
-        Err(DriveError::NotCopyable {
-            path: path.to_path_buf(),
-            reason: "only files and folders can go on a stick",
-        })
-    }
-}
-
-fn copy_tree(from: &Path, to: &Path) -> Result<(), DriveError> {
-    let metadata = std::fs::symlink_metadata(from).map_err(io(from))?;
-    if metadata.is_file() {
-        std::fs::copy(from, to).map_err(io(to))?;
-        return Ok(());
-    }
-    if !metadata.is_dir() {
-        // Links inside a folder are skipped, as sharing skips them.
-        return Ok(());
-    }
-    std::fs::create_dir(to).map_err(io(to))?;
-    for entry in std::fs::read_dir(from).map_err(io(from))? {
-        let entry = entry.map_err(io(from))?;
-        let name = entry.file_name();
-        if name.to_str().is_some_and(is_ignored) {
-            continue;
-        }
-        copy_tree(&entry.path(), &to.join(&name))?;
-    }
-    Ok(())
-}
-
-/// Copies files and folders onto the stick, like onto a real USB stick; the
-/// originals are not touched. All or nothing about space: if they need more
-/// than the `left` bytes (what its disk has room for, from the space ledger,
-/// ADR 0008), nothing is copied, as a real stick refuses. A name already on
-/// the stick, or a linked entry's (`linked_names`, ignoring case), gets
-/// " (2)", " (3)"…. Returns the names they got on the stick.
-pub fn copy_onto(
-    root: &Path,
-    left: u64,
-    linked_names: &[String],
-    sources: &[PathBuf],
-) -> Result<Vec<String>, DriveError> {
-    let mut needed = 0;
-    for source in sources {
-        if source.starts_with(root) {
-            return Err(DriveError::NotCopyable {
-                path: source.clone(),
-                reason: "it is already on the stick",
-            });
-        }
-        needed += source_size(source)?;
-    }
-    if needed > left {
-        return Err(DriveError::DoesNotFit { needed, left });
-    }
-    let linked: Vec<String> = linked_names
-        .iter()
-        .map(|name| name.to_lowercase())
-        .collect();
-    let mut names = Vec::new();
-    for source in sources {
-        let name = source
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| DriveError::NotCopyable {
-                path: source.clone(),
-                reason: "its name is not valid text",
-            })?;
-        let name = free_name_where(name, |candidate| {
-            root.join(candidate).exists() || linked.contains(&candidate.to_lowercase())
-        });
-        copy_tree(source, &root.join(&name))?;
-        names.push(name);
-    }
-    Ok(names)
-}
-
 /// Removes a file or folder from the stick's top level (the stick's copy).
 pub fn remove_from(root: &Path, name: &str) -> Result<(), DriveError> {
     let not_on_stick = || DriveError::NotOnStick {
@@ -240,7 +160,15 @@ mod tests {
             elsewhere.path().join("photos"),
         ];
 
-        let names = copy_onto(stick.path(), 100, &["PHOTOS".to_owned()], &sources).unwrap();
+        let names = copy_onto(
+            stick.path(),
+            100,
+            &["PHOTOS".to_owned()],
+            &sources,
+            OnConflict::KeepBoth,
+            &mut |_| {},
+        )
+        .unwrap();
 
         // A linked entry's name is taken too, whatever the case.
         assert_eq!(names, vec!["notes (2).txt", "photos (2)"]);
@@ -272,7 +200,14 @@ mod tests {
             elsewhere.path().join("big.bin"),
         ];
         // What its disk has room for, whatever is on the stick already.
-        let result = copy_onto(stick.path(), 40, &[], &sources);
+        let result = copy_onto(
+            stick.path(),
+            40,
+            &[],
+            &sources,
+            OnConflict::KeepBoth,
+            &mut |_| {},
+        );
         assert!(
             matches!(
                 result,
@@ -290,7 +225,14 @@ mod tests {
     fn the_stick_cannot_be_copied_onto_itself() {
         let stick = tempfile::tempdir().unwrap();
         write(&stick.path().join("a.txt"), 1);
-        let result = copy_onto(stick.path(), 100, &[], &[stick.path().join("a.txt")]);
+        let result = copy_onto(
+            stick.path(),
+            100,
+            &[],
+            &[stick.path().join("a.txt")],
+            OnConflict::KeepBoth,
+            &mut |_| {},
+        );
         assert!(matches!(result, Err(DriveError::NotCopyable { .. })));
     }
 

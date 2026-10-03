@@ -21,6 +21,7 @@ mod share;
 mod sharing;
 mod state;
 mod stick_commands;
+mod stick_drop;
 mod stick_life_commands;
 #[cfg(test)]
 mod testing;
@@ -141,7 +142,7 @@ fn main() {
             receiving::choice::choose_what_to_get,
             problems::dismiss_app_problem,
             stick_life_commands::remove,
-            stick_commands::add_paths,
+            stick_drop::add_paths,
             stick_commands::link_paths,
             stick_commands::remove_entry,
             share::open_share,

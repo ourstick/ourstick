@@ -80,10 +80,18 @@ so Spotlight leaves it alone.
   - Remove: "Its sharing link stops working, and the files copied onto it are
     deleted from this computer. Folders shared as they are (linked) stay
     where they are."
-- Drop zone: "Drop files or folders here", below it `N files · size`.
-  Dropping **copies** into the stick folder, like onto a real stick. A drop
-  that does not fit in what is left is refused, as by a real stick: nothing
-  is copied, and the window says how big it is and how much is left.
+- Drop zone: "Drop files or folders here", below it what is on the stick,
+  `3 folders · 1 file · 6.9 GB`. Dropping **copies** into the stick folder,
+  like onto a real stick. A drop that does not fit in what is left is
+  refused, as by a real stick: nothing is copied, and the window says how
+  big it is and how much is left. While it copies, the zone says `Copying…
+  1.2 GB of 3.1 GB` with a bar, and a second drop meanwhile is refused:
+  "Wait until the copy is done." A name already on the stick is asked about
+  before anything is copied: "“new in” is already on the stick." (or "“new
+  in” and 2 more are…"), "Replace changes only the stick's copy, never the
+  original.", `Cancel`, `Keep both` (the new one as "new in (2)"),
+  `Replace`. A linked entry is never replaced: the new one is kept beside
+  it.
 - A drop that does not fit offers **Share it as it is** (ADR 0008 §2): the
   folders or files are linked, shared from where they are, not copied, taking
   no room on the stick and with no size limit of their own. The message says

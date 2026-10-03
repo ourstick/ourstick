@@ -92,15 +92,26 @@ export function stick(stickId: string): Promise<Stick> {
 /** What became of a drop. */
 export type AddOutcome =
   | { kind: "copied" }
+  /** Names already on the stick: nothing copied; ask, then drop again. */
+  | { kind: "already_there"; names: string[] }
   /** Refused, as by a real stick; nothing was copied. */
   | { kind: "does_not_fit"; needed: number; left: number };
 
-/** Copies dropped files and folders onto the stick, if they fit. */
+/** Copies dropped files and folders onto the stick, if they fit. With
+ * `onConflict` (the answer to "already there"), names already on the stick
+ * are replaced or kept beside. */
 export function addPaths(
   stickId: string,
   paths: string[],
+  onConflict: "replace" | "keep_both" | null = null,
 ): Promise<AddOutcome> {
-  return invoke("add_paths", { stickId, paths });
+  return invoke("add_paths", { stickId, paths, onConflict });
+}
+
+/** How far a drop's copy is (event `copy-progress`). */
+export interface CopyProgress {
+  done: number;
+  total: number;
 }
 
 /** "Share it as it is": links them, shared from where they are. */

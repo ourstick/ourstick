@@ -1,11 +1,11 @@
 //! The stick's own commands: what is on it, copying onto it, linking to it
 //! what does not fit (ADR 0008), removing. Each calls only `ourstick-core`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::drive::{copy_onto, remove_from, top_entries, DriveError};
+use ourstick_core::drive::{remove_from, top_entries};
 use ourstick_core::layout::StickLayout;
 use ourstick_core::linked::plan_link;
 use ourstick_core::share::folder_size;
@@ -67,7 +67,7 @@ pub struct StickView {
 }
 
 /// What can still be copied onto `stick`. Blocking.
-fn left_on(stick: &OwnedStick, store: &dyn Store, data_dir: &Path) -> Result<u64> {
+pub(crate) fn left_on(stick: &OwnedStick, store: &dyn Store, data_dir: &Path) -> Result<u64> {
     let measure_at = drive::measure_at(stick)?;
     Ok(available(&SystemDisks, store, data_dir, &measure_at, None)?)
 }
@@ -184,59 +184,6 @@ fn sharing_view(
         preparing: activity.preparing,
         relay_only: activity.relay_only,
     }
-}
-
-/// What became of a drop.
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AddOutcome {
-    Copied,
-    /// Refused, as by a real stick: nothing was copied. The window offers
-    /// to share it as it is.
-    DoesNotFit {
-        needed: u64,
-        left: u64,
-    },
-}
-
-/// Dropped files and folders: copied onto the stick, like onto a real one,
-/// if they fit in what is left.
-#[tauri::command]
-pub async fn add_paths(
-    stick_id: String,
-    paths: Vec<String>,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<AddOutcome, String> {
-    let stick = state
-        .stick_now(&stick_id_of(&stick_id)?)
-        .await
-        .map_err(shown)?;
-    let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    let store = state.store.clone();
-    let data_dir = state.data_dir.clone();
-    let outcome = blocking(move || {
-        if !drive::folder_is_there(&stick.root_path) {
-            bail!("the stick is ejected; mount it first");
-        }
-        let left = left_on(&stick, store.as_ref(), &data_dir)?;
-        let linked: Vec<String> = store
-            .linked_entries(&stick.stick_id)?
-            .into_iter()
-            .map(|entry| entry.name)
-            .collect();
-        match copy_onto(&stick.root_path, left, &linked, &sources) {
-            Ok(_) => Ok(AddOutcome::Copied),
-            Err(DriveError::DoesNotFit { needed, left }) => {
-                Ok(AddOutcome::DoesNotFit { needed, left })
-            }
-            Err(error) => Err(error.into()),
-        }
-    })
-    .await?;
-    // The watcher publishes; the window can show the files at once.
-    let _ = app.emit("stick-changed", ());
-    Ok(outcome)
 }
 
 /// Tells the running share of `stick_id` to look at the stick now (a

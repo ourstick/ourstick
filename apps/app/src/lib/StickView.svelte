@@ -15,9 +15,11 @@
     type Activity,
     type ShareProblem,
     type Stick,
+    type CopyProgress,
   } from "./api";
   import { files, rate, size } from "./format";
   import DoesNotFit from "./DoesNotFit.svelte";
+  import AlreadyThere from "./AlreadyThere.svelte";
   import EntryList from "./EntryList.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
@@ -35,6 +37,10 @@
   let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, preparing: false, relay_only: null });
   let dropping = $state(false);
   let copying = $state(false);
+  /** How far the copy is, while it runs. */
+  let copied = $state<CopyProgress | null>(null);
+  /** A drop whose names are already on the stick, asked about. */
+  let alreadyThere = $state<{ paths: string[]; names: string[] } | null>(null);
   let failure = $state<string | null>(null);
   /** A drop that does not fit, offered to be shared as it is. */
   let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
@@ -89,22 +95,48 @@
     if (outcome?.kind === "renamed") refresh();
   }
 
-  async function drop(paths: string[]) {
+  async function drop(paths: string[], onConflict: "replace" | "keep_both" | null = null) {
     if (paths.length === 0) return;
+    // One copy at a time: a second drop meanwhile is not taken.
+    if (copying) {
+      failure = "Wait until the copy is done.";
+      return;
+    }
     copying = true;
+    copied = null;
     failure = null;
     tooBig = null;
+    alreadyThere = null;
     try {
-      const outcome = await addPaths(stickId, paths);
+      const outcome = await addPaths(stickId, paths, onConflict);
       if (outcome.kind === "does_not_fit") {
         tooBig = { paths, needed: outcome.needed, left: outcome.left };
+      } else if (outcome.kind === "already_there") {
+        alreadyThere = { paths, names: outcome.names };
       }
     } catch (error) {
       failure = String(error);
     } finally {
       copying = false;
+      copied = null;
       await refresh();
     }
+  }
+
+  function answered(choice: "replace" | "keep_both" | null) {
+    const asked = alreadyThere;
+    alreadyThere = null;
+    if (asked && choice) drop(asked.paths, choice);
+  }
+
+  /** "3 folders · 1 file": what is on the stick's top level. */
+  function contents(entries: { is_dir: boolean }[]): string {
+    const folders = entries.filter((entry) => entry.is_dir).length;
+    const plain = entries.length - folders;
+    const parts = [];
+    if (folders > 0) parts.push(folders === 1 ? "1 folder" : `${folders} folders`);
+    if (plain > 0 || folders === 0) parts.push(files(plain));
+    return parts.join(" · ");
   }
 
   async function tooBigClosed(why: string | null) {
@@ -123,6 +155,9 @@
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
+      listen<About<CopyProgress>>("copy-progress", (event) => {
+        if (event.payload.stick_id === stickId && copying) copied = event.payload;
+      }),
       // Only this stick's.
       listen<About<Activity>>("activity", (event) => {
         if (event.payload.stick_id === stickId) activity = event.payload;
@@ -150,7 +185,6 @@
   let fraction = $derived(
     current && current.used + current.left > 0 ? current.used / (current.used + current.left) : 0,
   );
-  let count = $derived(current?.entries.length ?? 0);
   let sharing = $derived(current?.sharing.state === "on" || current?.sharing.state === "starting");
   let problem = $derived<ShareProblem | null>(current?.problem ?? null);
 </script>
@@ -189,10 +223,19 @@
     <StickAsk {stickId} name={current.name} ask={asking} onDone={asked} />
   {/if}
 
-  <section class="drop" class:dropping aria-label="Drop files or folders here">
-    <strong>{copying ? "Copying…" : "Drop files or folders here"}</strong>
-    <span class="muted">{files(count)} · {size(current?.used ?? 0)}</span>
+  <section class="drop" class:dropping class:busy={copying} aria-label="Drop files or folders here">
+    {#if copying}
+      <strong>Copying…{copied ? ` ${size(copied.done)} of ${size(copied.total)}` : ""}</strong>
+      <progress max={copied?.total || 1} value={copied?.done ?? 0}></progress>
+    {:else}
+      <strong>Drop files or folders here</strong>
+      <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
+    {/if}
   </section>
+
+  {#if alreadyThere}
+    <AlreadyThere names={alreadyThere.names} onAnswer={answered} />
+  {/if}
 
   {#if tooBig}
     <DoesNotFit {stickId} {...tooBig} onClose={tooBigClosed} />

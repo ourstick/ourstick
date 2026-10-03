@@ -84,6 +84,7 @@ mod tests {
             disks: Arc::new(ourstick_core::share::disk_turns::Disks::new(Arc::new(
                 ourstick_core::share::disk_turns::SystemTimer::default(),
             ))),
+            copying: std::sync::Mutex::default(),
         }
     }
 

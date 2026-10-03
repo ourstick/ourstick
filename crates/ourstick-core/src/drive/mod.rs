@@ -9,7 +9,7 @@ use crate::share::{folder_size, ShareError};
 
 mod copy;
 
-pub use copy::{check_sources, copy_onto, names_taken, Copied, OnConflict};
+pub use copy::{check_sources, copy_onto, names_taken, remove_leftovers, Copied, OnConflict};
 
 /// Why a copy onto the stick or a removal failed. Messages are for users.
 #[derive(Debug, thiserror::Error)]

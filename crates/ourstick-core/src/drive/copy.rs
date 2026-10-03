@@ -65,8 +65,9 @@ pub fn check_sources(root: &Path, sources: &[PathBuf]) -> Result<(), DriveError>
 /// what it replaces goes only once it is whole.
 const COPYING: &str = ".ourstick-copying-";
 
-/// Removes what a copy cut short left behind (only a copy's own names).
-fn remove_leftovers(root: &Path) {
+/// Removes what a copy cut short left behind (only a copy's own names):
+/// before the room left is measured, so they never take it. Blocking.
+pub fn remove_leftovers(root: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };

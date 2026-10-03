@@ -157,7 +157,9 @@ pub(super) async fn take_plan(
 }
 
 /// Files are recorded this many in one transaction (ADR 0014): one each,
-/// the commits' syncs were most of the time of a stick of small files.
+/// the commits' syncs were most of the time of a stick of small files. The
+/// owner's catalogue records the same number a transaction; a power cut
+/// loses at most this many records, found again by content.
 pub(super) const RECORD_GROUP: usize = 256;
 
 /// Records that `files` are in the stick's folder as written, all in one

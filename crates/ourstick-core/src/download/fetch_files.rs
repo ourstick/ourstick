@@ -1,8 +1,9 @@
 //! The second half of a download: every file of the plan, batch by batch
 //! (`batches`). A batch's store is used while its files are fetched and
-//! deleted once they are all in place. Each file is placed (decrypted into
-//! the folder) while the next one is received; at most one waits to be
-//! placed.
+//! deleted once they are all in place. Files are placed (decrypted into
+//! the folder) while the next ones are received: small ones up to 16 at
+//! once, a big one alone (`placing_queue`, ADR 0014). They are recorded in
+//! groups, each only once it is in place.
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -139,7 +140,14 @@ pub(super) async fn fetch_files(
                             .await?;
                         }
                         match copied {
-                            Some(written) => done.record(stick_path, entry, written).await?,
+                            Some((written, told)) => {
+                                // In place: recorded even if the user stopped
+                                // at its telling, as a placed file is.
+                                done.record(stick_path, entry, written).await?;
+                                if told.is_break() {
+                                    return Err(DownloadError::Cancelled);
+                                }
+                            }
                             None => {
                                 let received = receive_file(
                                     fetcher,

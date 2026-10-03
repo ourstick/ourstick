@@ -256,7 +256,7 @@ pub(super) async fn copy_file(
     partial: &Path,
     replaceable: Option<FileStamp>,
     on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-) -> Result<Option<Option<FileStamp>>, DownloadError> {
+) -> Result<Option<(Option<FileStamp>, ControlFlow<()>)>, DownloadError> {
     let path = entry.path.as_str();
     let name = data_encoding::HEXLOWER.encode(&entry.hash);
     let plaintext = partial.join(format!("{name}.copy"));
@@ -292,8 +292,8 @@ pub(super) async fn copy_file(
             size: entry.size,
         },
     };
-    if on_event(event).is_break() {
-        return Err(DownloadError::Cancelled);
-    }
-    Ok(copied)
+    // Told after it is in place: whether the user stopped there comes back
+    // beside it, for the caller to record it first.
+    let told = on_event(event);
+    Ok(copied.map(|written| (written, told)))
 }

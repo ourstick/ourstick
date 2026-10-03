@@ -12,8 +12,9 @@ pub(super) const PLACING_AT_ONCE: usize = 16;
 /// Only files of at most this size join others; a bigger one is placed
 /// alone (its one sync is nothing beside its bytes).
 pub(super) const QUEUED_FILE_BYTES: u64 = 4 << 20;
-/// At most this many bytes are placed at once, so a stop waits seconds for
-/// what is in flight, not for many big files.
+/// At most this many bytes are placed at once, so a stop waits for what is
+/// in flight about a second (64 MB, decrypted and written at a few hundred
+/// MB/s), not for many big files.
 pub(super) const QUEUED_BYTES: u64 = 64 << 20;
 
 /// What is in flight, oldest first. `T` is the placement (a task), with

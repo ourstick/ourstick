@@ -9,6 +9,7 @@ use std::ops::ControlFlow;
 
 use common::{keep_going, noise, Owner, Reader};
 use ourstick_core::download::{DownloadError, DownloadEvent};
+use ourstick_core::store::JoinedChange;
 use ourstick_core::transport::Publisher;
 use ourstick_core::Store;
 
@@ -47,10 +48,15 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
     let ticket = owner.ticket(&publication);
     let reader = Reader::new();
 
-    // Stopped after 300 files: one group of 256 written, 44 waiting.
+    // Stopped after 300 files: one group of 256 written, 44 waiting, and
+    // files still being placed.
     let mut done = Vec::new();
+    let mut started = 0;
     let stopped = reader
         .download(&ticket, &mut |event| {
+            if let DownloadEvent::FileStarted { .. } = event {
+                started += 1;
+            }
             if let DownloadEvent::FileDone { path, .. } = event {
                 done.push(path.to_owned());
                 if done.len() == 300 {
@@ -61,6 +67,14 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
         })
         .await;
     assert!(matches!(stopped, Err(DownloadError::Cancelled)));
+    // Every file being placed was waited for and told before the round
+    // returned (only the one just received, not yet given to be placed, is
+    // not): none is left running.
+    assert!(
+        done.len() + 1 >= started && done.len() > 300,
+        "{} told of {started} started",
+        done.len()
+    );
     let kept = recorded(&reader, &owner);
     // Every file told done is recorded, the one whose telling stopped it
     // too (it was in place before it was told).
@@ -83,7 +97,7 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
         })
         .await
         .unwrap();
-    assert!(fetched <= FILES - 300, "{fetched} fetched again");
+    assert!(fetched <= FILES - done.len() + 1, "{fetched} fetched again");
     assert_eq!(recorded(&reader, &owner).len(), FILES);
     for (name, bytes) in &files {
         assert_eq!(&reader.read(name), bytes);
@@ -160,5 +174,52 @@ async fn twins_and_a_big_file_among_small_ones_all_come_whole() {
     }
     assert_eq!(recorded(&reader, &owner).len(), files.len());
     assert!(!reader.exists(".ourstick-partial"));
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stick_forgotten_meanwhile_ends_the_round_with_nothing_left_running() {
+    let files = small_files();
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::new(&listed).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let reader = Reader::new();
+    let stick_id = owner.signing_key.stick_id();
+
+    // Forgotten (as the window's Forget marks it) after 100 files: the next
+    // group is refused, which ends the round with an error.
+    let store = reader.store.clone();
+    let mut done = 0;
+    let mut started = 0;
+    let ended = reader
+        .download(&ticket, &mut |event| {
+            match event {
+                DownloadEvent::FileStarted { .. } => started += 1,
+                DownloadEvent::FileDone { .. } => {
+                    done += 1;
+                    if done == 100 {
+                        store
+                            .change_joined_stick(&stick_id, &JoinedChange::Forgetting)
+                            .unwrap();
+                    }
+                }
+                _ => {}
+            }
+            ControlFlow::Continue(())
+        })
+        .await;
+    assert!(ended.is_err(), "{ended:?}");
+    // It ends at the first group after it (256 files), every file in flight
+    // waited for, and nothing recorded for a stick being forgotten.
+    assert!(
+        done <= 256 + 16,
+        "{done} files placed after it was forgotten"
+    );
+    assert!(done + 1 >= started, "{done} told of {started} started");
+    assert!(store.downloaded_files(&stick_id).unwrap().is_empty());
     owner.publisher.shutdown().await;
 }

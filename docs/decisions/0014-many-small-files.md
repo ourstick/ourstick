@@ -71,16 +71,27 @@ is written only after the file is.
    bytes). So a stop (Pause, Quit, Forget) waits at most for 64 MB of small
    files to be placed, a second or two, plus the one big file it waits for
    today.
-   A file is told done (`FileDone`) and recorded in the order it came, so
-   events and records stay as today, up to 16 files later; the window needs
-   no change. A file whose blob is the same as one in flight (identical
+   The files placed are told done (`FileDone`) and recorded in the order
+   they came, up to 16 files later than today. A file not placed (already
+   here, changed here, left out, a twin copied) is told at once, so it can
+   come before files still in flight; nothing counts on that order (the
+   window and the CLI count bytes as they are received), and the window
+   needs no change. A file is recorded before it is told, so a stop at its
+   telling leaves it recorded. A file whose blob is the same as one in flight (identical
    files, ADR 0003) waits until the last in flight with that blob is
    placed, then is copied from it, as today; before it is fetched as well
    (a twin whose copy fails is fetched, and fetching clears that blob's
    leftovers in the partial folder).
    On every way out (an error, a stop), every file in flight is waited for,
    told done, and its row written in the last group; then the first error
-   is returned. No placing is left running after the round returns.
+   is returned. No placing is left running after the round returns. The
+   app gives a stopping round 10 s (`GRACE`) before it drops it: past that
+   (a slow disk, a Mac's full flushes), files in flight finish on their own
+   and the last group is not written; they are in place and found equal by
+   content at the next round, as after a power cut.
+   A stick forgotten during a round (the window's Forget) is refused at
+   its next group, so up to 256 more files may be placed into its folder
+   before the round ends; Forget leaves the files there anyway.
 3. **Nothing on the wire changes**, nor what is kept, nor where: only when
    syncs and records happen. The owner's side is not changed: its
    catalogue already records 256 files a transaction, and serving does not

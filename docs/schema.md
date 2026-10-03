@@ -200,8 +200,12 @@ fetches only what changed and never overwrites a file changed in the folder.
 Primary key `(stick_id, path)`; unique `(stick_id, saved_as)`: two files of a
 stick are never recorded at one place. From ADR 0010's step 4, a row of a
 file that left the stick keeps its place taken while its file is there; once
-the file is gone the row is forgotten, before a round chooses its places. A row is written after each file is in place,
-so an interrupted `get` keeps what it finished. Moving the stick to another
+the file is gone the row is forgotten, before a round chooses its places.
+Rows are written in groups of up to 256 in one transaction (ADR 0014),
+each only after its file is synced and in place, at the end of each batch
+and on every way out of a round, so an interrupted `get` keeps what it
+finished; a group lost to a power cut leaves files in place that the next
+round finds equal by content and records again. Moving the stick to another
 folder deletes its rows (in the same transaction as the move). Rows of files
 that left the stick stay, so their files are known as `get`'s own.
 

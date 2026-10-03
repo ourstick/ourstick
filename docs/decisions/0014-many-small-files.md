@@ -1,6 +1,6 @@
 # 0014: Receiving many small files
 
-Status: Proposed (2026-10-03)
+Status: Accepted (2026-10-03)
 
 ## Context
 
@@ -77,11 +77,11 @@ is written only after the file is.
    come before files still in flight; nothing counts on that order (the
    window and the CLI count bytes as they are received), and the window
    needs no change. A file is recorded before it is told, so a stop at its
-   telling leaves it recorded. A file whose blob is the same as one in flight (identical
-   files, ADR 0003) waits until the last in flight with that blob is
-   placed, then is copied from it, as today; before it is fetched as well
-   (a twin whose copy fails is fetched, and fetching clears that blob's
-   leftovers in the partial folder).
+   telling leaves it recorded. A file whose blob is the same as one in
+   flight (identical files, ADR 0003) waits until the last in flight with
+   that blob is placed, then is copied from it, as today; before it is
+   fetched as well (a twin whose copy fails is fetched, and fetching clears
+   that blob's leftovers in the partial folder).
    On every way out (an error, a stop), every file in flight is waited for,
    told done, and its row written in the last group; then the first error
    is returned. No placing is left running after the round returns. The
@@ -170,3 +170,28 @@ is written only after the file is.
    schema.md ("a row is written after each file is in place": now in
    groups, still after), todo.md (the numbers); status Accepted. Then the
    scale test again: 100 000 files to Windows and the Mac with the app.
+
+## Measured
+
+10 000 files of 1–8 KB, `ourstick get` before this ADR (79b8496) and after
+(d944016), each from a fresh folder:
+
+| Where | Before | After | |
+|---|---|---|---|
+| Linux, NVMe (sender on the same machine) | 112 s | 19.3 s | 5.8× |
+| Linux, spinning disk `sda` (the same) | 407 s | 136 s | 3.0× |
+| Windows 11 VM, from Linux over the VM's network | 28:38 | 7:59 | 3.6× |
+| Mac, sender on the same Mac | 62 s | 53 s | 1.17× |
+| Mac, from Linux (round trip about 80 ms) | 316 s | 287 s | 1.10× |
+
+- On the Mac, `sync_all` is `F_FULLFSYNC`, a flush of the whole disk
+  cache each time: syncs from 16 threads do not join, as feared, and only
+  the records in groups help. `F_BARRIERFSYNC` (order without a flush)
+  would be enough for rule 2's argument, but it is an `fcntl` call with no
+  safe wrapper in std or our dependencies: `unsafe`, so Giorgos decides.
+- Across a real network the round trip of each blob's request is most of
+  the time (10 000 × about 28 ms from Linux to the Mac): fetching several
+  blobs at once (rule 5) is now the biggest gain left for small files, in
+  its own ADR.
+- Windows' 8 minutes are a VM with a virtual disk and Defender scanning
+  each new file: to measure again on a real Windows computer.

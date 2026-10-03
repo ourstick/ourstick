@@ -228,6 +228,11 @@ carries only the key). Every file blob of that stick must use the same cipher.
   it; then the stick's version is written.
 - Right before a file is moved into place, the file there is checked again:
   it must be absent, or still as planned. Otherwise it is left and reported.
+- Each file is written into the hidden partial folder, synced, then moved
+  into place; only then is it recorded. Small files (at most 4 MB) are
+  placed up to 16 at once and 64 MB in all, a bigger one alone; records
+  are written 256 to a transaction (ADR 0014). Nothing on the wire depends
+  on this.
 - Files that left the stick are kept and reported, never deleted.
 - A reader may leave out top-level entries of a stick (ADR 0012): a set of
   first path components, byte-exact as in the manifest, read at every round.

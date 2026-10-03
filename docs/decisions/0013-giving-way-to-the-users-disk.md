@@ -62,20 +62,24 @@ Nothing gives way to anyone outside OurStick.
    the system reads ahead, and some windows look far faster than the disk
    (365 MB/s on a disk giving 100–150); a best (or a second best) of them
    made every ordinary window look slow, and OurStick gave way to no one;
-   the median does not move for them. Held back for 256 windows in a row
-   (minutes at a tenth of the time), the slower speed is the disk's (a
-   slower disk, not someone else) and is learned. **A window faster than
+   the median does not move for them. Held back for 64 windows in a row
+   (about ten minutes at a tenth of the time), the slower speed is the
+   disk's (a slower disk, not someone else) and is learned. A kind not
+   measured yet (a pass reaching small files after big ones while giving
+   way) changes nothing, and is learned while giving way only after as
+   long. **A window faster than
    any disk tells nothing** (over 1 GB/s, or under 0.2 ms a file): read
    from memory (files just copied in, or read ahead at the end of a part,
    measured at "0 ms"), it is not judged, changes nothing and teaches
-   nothing. Someone else using the disk from OurStick's first windows on
-   is taken for the disk until the disk is seen alone.
+   nothing. Someone else using the disk during OurStick's first three
+   windows is taken for the disk until the disk is seen alone.
 3. **Someone else is there** when two windows in a row took more than
    three times what they should have. Three, not two: the inner tracks of a
    disk are up to half as fast as its outer ones, and a second sequential
    reader on a spinning disk costs far more than that. **They are gone**
-   when one window takes less than one and a half times what it should
-   have. One slow window alone (a drive waking up, a sector read again, a
+   when one window takes less than two and a half times what it should
+   have: more than the inner tracks alone cost, so OurStick alone on them
+   is not taken for someone else still there. One slow window alone (a drive waking up, a sector read again, a
    flash drive pausing to write) is never enough.
 4. **Giving way:** while someone else is there, after each window OurStick
    pauses nine times as long as the window took (it reads a tenth of the

@@ -45,8 +45,13 @@ fn a_busy_stretch_gives_way_after_two_slow_windows_and_back_after_one_fast() {
     assert_eq!(pause, ms(64_000 / 20) * 9);
     // Still slow: still giving way.
     assert!(big(&mut share, 25) > Duration::ZERO);
-    // In between (twice the best): neither, it goes on giving way.
-    assert!(big(&mut share, 60) > Duration::ZERO);
+    // In between (2.7 times the measure): neither, it goes on giving way.
+    assert!(big(&mut share, 45) > Duration::ZERO);
+    // Twice as slow (the disk's inner tracks, alone): someone else is gone.
+    assert_eq!(big(&mut share, 60), Duration::ZERO);
+    big(&mut share, 20);
+    big(&mut share, 20);
+    assert!(share.giving_way());
     // Fast again: full speed at once.
     assert_eq!(big(&mut share, 110), Duration::ZERO);
     assert!(!share.giving_way());
@@ -117,16 +122,16 @@ fn a_slower_stretch_of_the_disk_stops_counting_as_someone_else() {
     big(&mut share, 35);
     big(&mut share, 35);
     assert!(share.giving_way());
-    // …then, as the best fades with reading time (each window here is
-    // nearly 2 s of it; paused or not, only reading counts), the slower
-    // speed is no longer slow, and OurStick goes back to full speed.
+    // …then, held back for 64 windows in a row, the slower speed is taken
+    // for the disk's: learned window by window until it is the median, and
+    // OurStick goes back to full speed.
     let mut windows = 0;
     while share.giving_way() {
         big(&mut share, 35);
         windows += 1;
         assert!(windows < 10_000, "never back to full speed");
     }
-    assert!(windows > 100, "back too soon: {windows} windows");
+    assert!(windows >= 64, "back too soon: {windows} windows");
 }
 
 #[test]
@@ -250,4 +255,32 @@ fn windows_read_ahead_by_the_system_are_no_measure() {
     big(&mut share, 30);
     big(&mut share, 30);
     assert!(share.giving_way());
+}
+
+#[test]
+fn reaching_another_kind_of_files_while_giving_way_goes_on_giving_way() {
+    let mut share = DiskShare::default();
+    // Big files measured, then someone else: giving way.
+    for _ in 0..3 {
+        big(&mut share, 120);
+    }
+    big(&mut share, 20);
+    big(&mut share, 20);
+    assert!(share.giving_way());
+    // The pass reaches small files, never measured: while giving way they
+    // are not learned (they are someone else's speed), and OurStick goes on
+    // giving way…
+    for _ in 0..20 {
+        assert!(small(&mut share, 40) > Duration::ZERO);
+        assert!(share.giving_way());
+    }
+    // …until held back for long: then the slower speed is learned, and it
+    // goes back to full speed.
+    let mut windows = 20;
+    while share.giving_way() {
+        small(&mut share, 40);
+        windows += 1;
+        assert!(windows < 200, "never back to full speed");
+    }
+    assert!(windows >= 64, "back too soon: {windows} windows");
 }

@@ -12,8 +12,10 @@ pub const WINDOW_FILES: u64 = 64;
 
 /// A window took more than this many times what it should have: slow.
 const SLOW_RATIO: f64 = 3.0;
-/// Less than this many times: fast, someone else is gone.
-const FAST_RATIO: f64 = 1.5;
+/// Less than this many times: someone else is gone. Above the inner tracks
+/// of a disk (up to twice as slow as its outer ones), so OurStick alone on
+/// them is not taken for someone else still there.
+const FAST_RATIO: f64 = 2.5;
 /// Slow windows in a row before OurStick gives way: one alone (a drive
 /// waking up, a sector read again) is never enough.
 const SLOW_IN_A_ROW: u32 = 2;
@@ -31,7 +33,7 @@ const RECENT: usize = 16;
 const FIRST_WINDOWS: usize = 3;
 /// Slow this many windows in a row while giving way, the slow speed is the
 /// disk's now (a slower disk, not someone else): it is learned.
-const RELEARN_AFTER: u32 = 256;
+const RELEARN_AFTER: u32 = 64;
 /// Files of at least this size on average make a window of big files (its
 /// cost is its bytes); smaller ones, a window of small files (a seek each).
 const BIG_FILE: u64 = 1 << 20;
@@ -137,11 +139,20 @@ impl DiskShare {
         if from_memory {
             return self.pause(took);
         }
-        let ratio = match expected {
-            Some(expected) if expected > 0.0 => seconds / expected,
-            // Nothing to judge it by yet: fast.
-            _ => 0.0,
+        let Some(expected) = expected.filter(|expected| *expected > 0.0) else {
+            // Nothing to judge it by yet (the first windows of a kind, as
+            // when a pass reaches small files after big ones): it changes
+            // nothing, and is learned only while not giving way (else it is
+            // someone else's speed), or once held back for long.
+            if self.giving_way {
+                self.held_back += 1;
+            }
+            if !self.giving_way || self.held_back >= RELEARN_AFTER {
+                best.learn(per_unit);
+            }
+            return self.pause(took);
         };
+        let ratio = seconds / expected;
         // Learned only while not giving way, and not from a slow window:
         // someone else's reading is not the disk's speed. Unless it lasts:
         // held back for long, the slower speed is the disk's.
@@ -170,7 +181,7 @@ impl DiskShare {
             tracing::debug!(
                 giving_way = self.giving_way,
                 window_ms = took.as_millis() as u64,
-                expected_ms = expected.map(|expected| (expected * 1000.0) as u64),
+                expected_ms = (expected * 1000.0) as u64,
                 files,
                 bytes,
                 "the disk is shared differently"

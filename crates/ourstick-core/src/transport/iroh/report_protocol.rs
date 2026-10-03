@@ -34,6 +34,9 @@ pub(super) const LINGER: std::time::Duration = std::time::Duration::from_secs(10
 /// What a stream is reset with when its report is not taken.
 const NOT_TAKEN: u32 = 1;
 
+/// What a stream is reset with when its request is longer than a report.
+const TOO_LONG: u32 = 2;
+
 /// The owner's side: takes reports for its stick and hands them on.
 #[derive(Debug, Clone)]
 pub(super) struct ReportServer {
@@ -52,11 +55,17 @@ impl ReportServer {
 impl ProtocolHandler for ReportServer {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let (mut send, mut recv) = connection.accept_bi().await?;
-        // Longer than a report can be: refused unread past the limit.
-        let request = recv
-            .read_to_end(MAX_REPORT_BYTES)
-            .await
-            .map_err(AcceptError::from_err)?;
+        // Longer than a report can be: refused unread past the limit, and
+        // said so (a stream merely dropped would end as if taken).
+        let request = match recv.read_to_end(MAX_REPORT_BYTES).await {
+            Ok(request) => request,
+            Err(_) => {
+                tracing::debug!("a request on the report protocol was too long");
+                send.reset(TOO_LONG.into()).ok();
+                linger(&connection).await;
+                return Ok(());
+            }
+        };
         let taken = match self.sealed(&request) {
             Some(sealed) => {
                 let taken = self.reports.try_send(sealed).is_ok();

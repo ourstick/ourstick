@@ -563,7 +563,7 @@ not the connection a download uses), on one bidirectional stream.
 |-----------|----------|-------------------------------------------------------------|
 | Request   | 32       | The StickId, in clear, so the owner knows which key opens it |
 | Request   | ≤ 480    | The sealed report (above)                                   |
-| Response  | 0        | Nothing: the stream ends once the owner has taken the report, or is reset (code 1) if it was not |
+| Response  | 0        | Nothing: the stream ends once the owner has taken the report; it is reset with code 1 if the report was not taken, 2 if the request was longer than 512 bytes |
 
 The owner reads at most 512 bytes; a longer request is never read whole nor
 handed on. A request for another stick, or without a report, is not taken.

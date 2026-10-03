@@ -92,18 +92,35 @@ async fn a_request_longer_than_a_report_is_not_read_past_the_limit() {
             ourstick_core::AddressHint::Relay { .. } => {}
         }
     }
-    let connection = endpoint.connect(addr, REPORT_ALPN).await.unwrap();
+    let connection = endpoint.connect(addr.clone(), REPORT_ALPN).await.unwrap();
     let (mut send, mut recv) = connection.open_bi().await.unwrap();
     let request = [
         &ticket.stick_id.to_bytes()[..],
         &vec![1u8; MAX_REPORT_BYTES],
     ]
     .concat();
-    // The owner stops reading at the limit; what this peer then sees of
-    // its stream does not matter, only that nothing is handed on.
+    // The owner stops reading at the limit and says so: never a clean end,
+    // the sign of a report taken.
     let _ = send.write_all(&request).await;
     let _ = send.finish();
-    let _ = recv.read_to_end(0).await;
+    assert!(recv.read_to_end(0).await.is_err());
+    // The same peer's report of the right size is taken: the owner was
+    // reached, and refused only the long one.
+    let fine = seal(
+        &report(),
+        &ReaderKey::generate(),
+        &ticket.stick_id,
+        &ticket.stick_key,
+    )
+    .unwrap();
+    let connection = endpoint.connect(addr.clone(), REPORT_ALPN).await.unwrap();
+    let (mut send, mut recv) = connection.open_bi().await.unwrap();
+    send.write_all(&[&ticket.stick_id.to_bytes()[..], &fine].concat())
+        .await
+        .unwrap();
+    send.finish().unwrap();
+    recv.read_to_end(0).await.unwrap();
+    assert_eq!(reports.recv().await.unwrap(), fine);
     assert!(
         tokio::time::timeout(Duration::from_millis(500), reports.recv())
             .await

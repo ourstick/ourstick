@@ -1,6 +1,6 @@
 # 0016: Fetching several blobs at once
 
-Status: Proposed (2026-10-04)
+Status: Proposed (2026-10-04), revised after the design reviews
 
 ## Context
 
@@ -25,117 +25,163 @@ What is there already:
 
 - The owner serves every request on its own QUIC stream, at once
   (`BlobsHandler` spawns a task per stream), each decided under one lock
-  (ADR 0007). Nothing on the owner's side limits a reader to one request
-  at a time.
-- iroh-blobs' `fetch` on the reader opens one stream per blob on the same
-  connection; several at once share the connection's congestion control.
-- Blobs are fetched into the current batch's store (ADR 0007), and a
-  batch is dropped only once all its files are placed and recorded.
+  (ADR 0007).
+- iroh-blobs 0.103's `fetch` opens its own stream per blob on the
+  connection and writes through the store's actor: many at once on one
+  connection and one store are supported. QUIC allows 100 streams at once
+  by default (iroh does not lower it) and bounds the bytes in flight per
+  stream and per connection itself.
+- Blobs are fetched into the current batch's store (ADR 0007); switching
+  or dropping a batch shuts its store down.
 - Files are placed up to 16 at once, small ones only (`PlacingQueue`,
-  ADR 0014): `PLACING_AT_ONCE = 16`, at most 4 MB a file, 64 MB in all.
-- Everything a fetch tells (`FileStarted`, `Progress`), the relay limit
-  (ADR 0006), the path check that may connect again (`LookAgain`), and
-  "not ready" (ADR 0007) assume one fetch at a time.
+  ADR 0014: a file of at most 4 MB is small; a bigger one is placed
+  alone).
+- On the reader, everything that watches a fetch lives in its progress
+  callback, which assumes one fetch at a time: the per-file events
+  (`FileStarted`, `Progress`), the user's stop (an event's `Break`), the
+  relay limit (ADR 0006: `RelayLimiter::wait`, which takes the whole debt
+  of whoever calls it), and the path check that may connect again
+  (`LookAgain`).
+- A fetch is stopped by closing the whole connection
+  (`IrohConnection::fetch_blob`, `blobs.close(0, "cancelled")`): every
+  other fetch on it then fails as "interrupted".
+- On the owner, the suitcases' keeper (ADR 0007, `share/keeper/state.rs`)
+  takes each ask: an unserved one puts its suitcase at the front of the
+  preparation queue, and the reader's place becomes the place of its
+  latest ask. With one ask at a time both are stable; with several
+  interleaved across a suitcase's end they are not (below, rule 6).
 
 ## Decision
 
-1. **Small files are fetched several at once, within a batch.** Up to
-   **8 blobs** in flight, each at most 4 MB (the placing queue's small
-   file), at most 32 MB in all. A file bigger than 4 MB is fetched alone,
-   as now: it fills the connection by itself, and its progress is told as
-   it comes. The number is where a measurement stops gaining (step 1 of
-   the order of work measures 1, 4, 8, 16 and 32 from Linux to the Mac,
-   and takes the smallest that gets within 10% of the best).
+1. **Small files are fetched several at once, within a batch.** A small
+   file is what the placing queue calls small (at most 4 MB, one rule for
+   both queues); a bigger file is fetched alone, after the fetches in
+   flight end, as now: it fills the connection by itself, and its
+   progress is told as it comes. How many small ones at once
+   (`FETCHING_AT_ONCE`) is set by measuring (step 1 of the order of work:
+   1, 4, 8, 16, 32 and 64 from Linux to the Mac; the smallest within 10%
+   of the best). No byte limit of our own: QUIC already bounds what is in
+   flight, and each file is at most 4 MB.
 2. **Order stays the plan's where it matters.** Fetches start in the
-   plan's order; they may end in any order. A fetched file goes into the
+   plan's order and may end in any order. A fetched file goes into the
    placing queue as it arrives; records stay in groups after their files
-   are in place (ADR 0014, rule 1, unchanged). A blob is never fetched
-   twice at once: a twin waits for its source, as in the placing queue.
-   A batch is dropped only once every fetch of it has ended and every
-   file of it is placed and recorded (unchanged).
-3. **What a fetched-at-once file tells.** It tells `FileReceived` when its
-   blob is here, and nothing before: no `FileStarted`, no `Progress`
-   (several interleaved would make the window's bar and the CLI's line
-   jump between files). A small file is at most 4 MB, so the bar still
-   moves file by file. A big file tells all three, as now.
-4. **One connection decides for all.** The relay limit (ADR 0006) counts
-   every byte that arrives, whichever fetch it belongs to, and slows all
-   of them together. The path check counts them too; when it wants to look
-   for a direct path again (`LookAgain`), every fetch in flight stops,
-   what arrived stays in the batch's store, and the next connection
-   resumes them. A cancel stops all of them the same way.
+   are in place (ADR 0014, unchanged). A blob is never fetched twice at
+   once: a twin waits for its source to be fetched and placed (the blob's
+   file in `partial/` is named by its hash), then is copied, as today.
+   Every fetch of a batch has ended before its store is switched or
+   dropped.
+3. **What is told, and the stop.** A file fetched with others tells
+   `FileReceived` when its blob is here, and nothing before (several
+   interleaved `FileStarted`/`Progress` would make the window's bar and the
+   CLI's line jump between files); a big file tells all three, as now. The
+   user's stop is checked at every event the round tells, so at each
+   completion too. The CLI prints its "so far" line on `FileReceived` as
+   on `Progress`, under the same throttle, so a stick of small files is
+   not silent.
+4. **One connection decides for all, in one place.** The round, not a
+   fetch, owns the relay limit, the path check and the stop: every fetch's
+   callback adds its bytes to one shared count and returns what the round
+   last decided (go on; pause until an instant the round computed from the
+   relay limit; stop). The round reads the count every time a fetch ends
+   or a short tick passes. When it stops them (the user's stop, or
+   `LookAgain`), it sets the decision first, then waits for every fetch in
+   flight to end and ignores their errors (closing the connection makes
+   them fail as interrupted): the round's outcome comes from the decision,
+   never from whichever error came first. What arrived stays in the
+   batch's store; the next connection resumes it.
 5. **"Not ready" holds back one file, not the others.** A blob the owner
-   is still preparing (ADR 0007) waits with the same backoff as now, while
-   the other fetches go on; the round ends only when every file is done or
-   one has waited too long (unchanged). The owner learns of several blobs
-   at once (its demand), which is what its suitcases are prepared from:
-   it can prepare ahead of the reader instead of one behind it.
-6. **Nothing changes on the wire or on the owner's side.** Each blob is
-   still one plain get on its own stream; the owner decides each as now
-   (ADR 0007). The protocol document says a reader may have several in
-   flight.
+   is still preparing (ADR 0007) waits with the same backoff as now,
+   outside the fetches in flight, which go on; the round ends only when
+   every file is done or one has waited too long (unchanged).
+6. **The owner keeps its order with several asks at once.** In the
+   keeper, a connection's place is the lowest suitcase among its asks not
+   yet served (the place of its latest served ask when none waits), and
+   the unserved asks at the front of the preparation queue are kept in
+   suitcase order. So asks that straddle a suitcase's end prepare the
+   earlier one first, and the earlier one stays held while its blobs are
+   still asked for. Nothing else on the owner changes: each blob is one
+   plain get on its own stream, decided as now. The protocol document
+   says a reader may have several gets in flight.
 
 ## In the code
 
-- `download/fetch_queue.rs` (new, beside `placing_queue.rs`): the blobs in
-  flight (at most `FETCHING_AT_ONCE = 8`, `FETCHED_FILE_BYTES = 4 MB`,
-  `FETCHING_BYTES = 32 MB`), polled together on the round's task
-  (`FuturesUnordered` over futures that borrow the connection; no spawned
-  task, so nothing outlives the round), with the hashes in flight for
-  twins. Its fetches pass a progress closure that only adds the bytes to a
-  shared count and reads a stop flag; the round reads the count between
-  completions for the relay limit and the path check, and sets the flag
-  to stop them all.
-- `download/fetch_files.rs`: a small file goes to the fetch queue; a
-  completed fetch is exported and goes to the placing queue; a big file
-  waits for the fetch queue to empty, then is fetched alone through
-  `receive_file` as now. Its size is near 400 lines: the per-file work
-  moves out with the queue.
-- `download/entry.rs`: the export and the "not ready" backoff are shared
-  by both paths.
+- `download/fetch_queue.rs` (new, beside `placing_queue.rs`; tests in
+  `fetch_queue_tests.rs`): the blobs in flight (at most
+  `FETCHING_AT_ONCE`, small files only by `placing_queue`'s rule), polled
+  together on the round's task (`FuturesUnordered` over futures that
+  borrow the connection: no spawned task, nothing outlives the round),
+  with the hashes in flight for twins, the shared byte count and the
+  round's decision (an atomic the callbacks read). `drain()` waits for all
+  of them and drops their errors.
+- `download/fetch_files.rs`: a small file goes to the fetch queue; each
+  completed fetch is exported and handed to the placing queue; a big file
+  waits for the fetch queue to drain, then is fetched alone through
+  `receive_file` as now. Between completions (and on a tick) it runs the
+  relay limit, the path check and the stop for all of them. Export, the
+  `partial/` checks and the blob store stay off the async threads
+  (`run_blocking`, or the store's own async calls), as now. The per-file
+  steps shared by both ways (export, "not ready" backoff) move to
+  `download/fetch_one.rs`, so neither file passes 400 lines.
+- `download/relay.rs`: the limiter gives a "pause until" for all
+  fetches, instead of each waiting out its own debt.
+- `share/keeper/state.rs`: rule 6.
+- Consumers of the per-file events: `cli/progress.rs` (rule 3's line on
+  `FileReceived`), `apps/app/.../receiving/told.rs` (`Landed` already counts
+  on `FileReceived`), `download/reporter.rs` (already treats the three
+  alike); `download/entry.rs` stops telling `FileStarted` for small files
+  fetched with others.
 - Nothing in `transport/`: `PeerConnection::fetch_blob(&self, ..)` already
-  takes `&self`, and the iroh and in-memory connections allow several at
-  once (the in-memory one is checked in a test).
-- Tests (in memory): 8 at once at most and in the plan's order; a twin
-  never fetched twice at once; a big file alone; "not ready" on one file
-  while the others come; a stop and a `LookAgain` with fetches in flight
-  (what arrived stays, the next round resumes); the relay limit counting
-  every fetch; events: `FileReceived` for small files, all three for a big
-  one. Two iroh peers: 2 000 small files in one round, all identical.
-- Docs: `protocol.md` (a reader may have several gets in flight), this
-  ADR's measurements.
+  allows several at once (the in-memory connection is checked in a test).
+- Tests (in memory): at most `FETCHING_AT_ONCE` at once, started in the
+  plan's order; a twin never fetched twice at once; a big file alone,
+  after the small ones drain, with its `FileStarted` after their
+  `FileReceived`; "not ready" on one file while the others come; a user
+  stop and a `LookAgain` with fetches in flight end as the decision says,
+  however the others fail, and the next round resumes; the relay limit
+  pausing all fetches; the CLI line on `FileReceived`. The keeper: asks
+  straddling a suitcase's end prepare the earlier one first, and keep it
+  held. Two iroh peers: 2 000 small files in one round, all identical.
+- Docs: `protocol.md` (a reader may have several gets in flight), ADR
+  0014's rule 5 points here, `todo.md`, this ADR's measurements.
 
 ## Consequences
 
-- From Linux to the Mac, 10 000 small files should take a few round trips
-  per 8 files instead of one per file: from 287 s to about 40 s if the
-  round trip is what costs (measured in step 1 and 3, written here).
+- From Linux to the Mac, `FETCHING_AT_ONCE` files share each round trip:
+  at 80 ms, 8 at once is about 100 files a second (10 000 in about 100 s),
+  32 at once about 400 (about 25 s, if nothing else limits first). Step 1
+  measures it; the numbers go here.
 - The window's bar moves file by file for small files, without the
   in-file progress it never showed for them anyway (they arrive in
-  milliseconds).
-- More streams at once on the owner: at most 8 per reader, each served as
-  any request is; the owner's budget and suitcases (ADR 0007) are
-  unchanged and decide as before.
+  milliseconds); the CLI's line too.
+- More streams at once on the owner: at most `FETCHING_AT_ONCE` per
+  reader, each served as any request is; its budget and suitcases (ADR
+  0007) decide as before, in a steadier order (rule 6).
 
 ## Considered and not chosen
 
 - **One request for a batch's blobs** (iroh-blobs' get-many or a hash
   sequence): one round trip per batch, but the owner refuses get-many and
-  hash sequences today (ADR 0005, "What an owner serves") for good
-  reasons (each blob decided on its own, "not ready" per blob); changing
-  that is a change of the protocol and of the owner's one decider.
+  hash sequences (protocol.md, "What an owner serves"), so each blob is
+  decided on its own and "not ready" is per blob; changing that is a
+  change of the protocol and of the owner's one decider.
 - **Several connections:** more handshakes and paths to watch, nothing
   gained over streams on one.
 - **Fetching big files at once too:** a big file fills the connection
   alone; at once they would only interleave and make progress harder to
   tell.
+- **A byte limit of our own on what is in flight:** QUIC's flow control
+  already bounds it.
 
 ## Order of work
 
-1. Measure first, with a throwaway branch of `fetch_files` (not kept):
-   10 000 small files Linux → Mac with 1, 4, 8, 16, 32 at once; the number
-   in rule 1 is set from it.
-2. `fetch_queue.rs` with its tests; `fetch_files` uses it; events as rule
-   3; relay limit, path check, stop and "not ready" as rules 4 and 5.
-3. Two iroh peers test; measure again Linux → Mac, Linux → Linux, the
-   Windows VM; the numbers in this ADR. Docs.
+1. Measure first, with a throwaway change of `fetch_files` (not
+   committed): 10 000 small files Linux → Mac at 1, 4, 8, 16, 32 and 64 at
+   once; `FETCHING_AT_ONCE` is set from it, and the numbers written here.
+2. a. `fetch_queue.rs` and `fetch_one.rs` with their tests, used with one
+   fetch at a time: behaviour unchanged, `cargo test` green.
+   b. The keeper's rule 6, with its tests.
+   c. `FETCHING_AT_ONCE` raised; events, the CLI line, the round's
+   decision for the relay limit, the path check and the stop (rules 3
+   and 4), "not ready" (rule 5), with their tests.
+3. Two iroh peers test; measured again Linux → Mac, Linux → Linux, the
+   Windows VM; the numbers here; docs; status Accepted.

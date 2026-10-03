@@ -191,6 +191,9 @@ fn migration_20_starts_every_counter_and_list_empty() {
     assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
     // The new table holds a line, and its checks hold.
     let connection = Connection::open(&path).unwrap();
+    connection
+        .pragma_update(None, "foreign_keys", true)
+        .unwrap();
     let insert = |percent: Option<i64>, state: &str| {
         connection.execute(
             "INSERT INTO reader_reports (stick_id, reader_id, counter, seq, state, percent,

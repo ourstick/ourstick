@@ -15,6 +15,7 @@ use super::activity::Activity;
 use super::handler::BlobsHandler;
 use super::reader_paths::RELAY_ONLY_AFTER;
 use super::record_protocol::{RecordServer, RECORD_ALPN};
+use super::report_protocol::{ReportServer, REPORT_ALPN, WAITING_REPORTS};
 use super::serving::{Serving, StoreId};
 use super::suitcases::Suitcases;
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
@@ -38,6 +39,7 @@ pub struct IrohPublisher {
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
+    reports: Arc<Mutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>>,
     activity: Activity,
     /// Recomputes `activity`; stopped at shutdown.
     reporter: tokio::task::AbortHandle,
@@ -70,6 +72,7 @@ impl IrohPublisher {
         let serving = Serving::default();
         let suitcases = Suitcases::start(cache_dir.join("suitcases"), serving.clone()).await?;
         let (demand_sender, demand) = tokio::sync::mpsc::unbounded_channel();
+        let (report_sender, reports) = tokio::sync::mpsc::channel(WAITING_REPORTS);
         let handler = BlobsHandler::new(
             serving.clone(),
             activity.clone(),
@@ -86,6 +89,13 @@ impl IrohPublisher {
                     record: record.clone(),
                 },
             )
+            .accept(
+                REPORT_ALPN,
+                ReportServer {
+                    stick_id,
+                    reports: report_sender,
+                },
+            )
             .spawn();
         Ok(Self {
             router,
@@ -95,6 +105,7 @@ impl IrohPublisher {
             suitcases: Arc::new(suitcases),
             manifest: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
+            reports: Arc::new(Mutex::new(Some(reports))),
             activity,
             reporter,
         })
@@ -195,6 +206,10 @@ impl Publisher for IrohPublisher {
 
     fn take_demand(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<Demand>> {
         lock(&self.demand).take()
+    }
+
+    fn take_reports(&self) -> Option<tokio::sync::mpsc::Receiver<Vec<u8>>> {
+        lock(&self.reports).take()
     }
 
     fn activity(&self) -> tokio::sync::watch::Receiver<crate::transport::ReaderActivity> {

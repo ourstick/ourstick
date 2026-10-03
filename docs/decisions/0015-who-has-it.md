@@ -33,7 +33,8 @@ Things that hold, from earlier decisions:
 ## Decision
 
 1. **A reader tells the owner how far it is**, in a small report, on a new
-   protocol `ourstick/report/1`, over the connection its round already has.
+   protocol `ourstick/report/1`, to the owner its round already reaches (a
+   connection of its own: one QUIC connection speaks one protocol).
    It sends one when a round has planned, about every 30 seconds while it
    downloads, and when the round ends, each with a deadline of 5 seconds.
    The last state that could not go (most likely the round's end, as its
@@ -151,10 +152,11 @@ Things that hold, from earlier decisions:
   stick_key)` and `open(bytes, stick_id, stick_key) -> Result<Opened,
   ReportError>` (thiserror): checks size, AEAD with the AAD, the signature,
   the name's characters.
-- Transport: `PeerConnection` gains `report(&[u8])`, best effort with a
-  short deadline, on the connection the round has; `IrohPeerConnection`
-  opens `ourstick/report/1` on it (new `report_protocol.rs`, beside
-  `record_protocol.rs`). `Publisher` gains `take_reports()`, a channel of
+- Transport: `PeerConnection` gains `report(stick_id, sealed)`, best
+  effort, the caller bounding it; `IrohConnection` opens
+  `ourstick/report/1` to the same owner on a connection of its own (one
+  QUIC connection speaks one protocol, as `fetch_record` does), in the new
+  `report_protocol.rs` beside `record_protocol.rs`. `Publisher` gains `take_reports()`, a channel of
   raw reports with their StickId, like `take_demand()`; the owner's side
   opens them with the stick's key (the transport holds no StickKey). The
   in-memory fakes (`tests/common/owner_in_memory.rs`) do the same. Reports

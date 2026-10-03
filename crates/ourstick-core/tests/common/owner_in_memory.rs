@@ -27,6 +27,11 @@ pub struct Served {
     pub(crate) demand: Option<UnboundedSender<Demand>>,
     /// When a reader was last told "not ready".
     pub(crate) last_not_ready: Option<std::time::Instant>,
+    /// Where readers' sealed reports go, once the owner's side took them
+    /// (ADR 0015).
+    pub(crate) reports: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    /// The owner cannot be reached for reports (a test of a lost report).
+    pub unreachable_for_reports: bool,
 }
 
 /// Cheap to clone: clones share what is served and the cache folder.
@@ -115,6 +120,15 @@ impl Publisher for MemoryPublisher {
             .unwrap()
             .last_not_ready
             .is_some_and(|at| at.elapsed() < window)
+    }
+    fn take_reports(&self) -> Option<tokio::sync::mpsc::Receiver<Vec<u8>>> {
+        let mut served = self.served.lock().unwrap();
+        if served.reports.is_some() {
+            return None;
+        }
+        let (sender, receiver) = tokio::sync::mpsc::channel(32);
+        served.reports = Some(sender);
+        Some(receiver)
     }
     fn take_demand(&self) -> Option<UnboundedReceiver<Demand>> {
         let mut served = self.served.lock().unwrap();

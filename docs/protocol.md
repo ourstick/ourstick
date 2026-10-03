@@ -533,11 +533,12 @@ reader claims: an owner shows it as that, never as a proof.
 ## Transport (iroh)
 
 Peers are iroh 1.x endpoints; a NodeId is the endpoint's Ed25519 public key.
-An owner serves two protocols on one endpoint:
+An owner serves three protocols on one endpoint:
 
 | ALPN                | Purpose                                                    |
 |---------------------|------------------------------------------------------------|
 | `ourstick/record/1` | The latest signed manifest record of a stick (below)       |
+| `ourstick/report/1` | A reader's sealed report of how far it is (below, ADR 0015) |
 | iroh-blobs ALPN     | Blobs by BLAKE3 hash (verified streaming, range requests)  |
 
 ### `ourstick/record/1`
@@ -552,6 +553,24 @@ One request per connection, on one bidirectional stream.
 
 The record is not trusted because of where it came from: the reader always
 checks it (rules above).
+
+### `ourstick/report/1`
+
+One report per connection (a QUIC connection speaks one protocol, so it is
+not the connection a download uses), on one bidirectional stream.
+
+| Direction | Bytes    | Meaning                                                     |
+|-----------|----------|-------------------------------------------------------------|
+| Request   | 32       | The StickId, in clear, so the owner knows which key opens it |
+| Request   | ≤ 480    | The sealed report (above)                                   |
+| Response  | 0        | Nothing: the stream ends once the owner has taken the report |
+
+The owner reads at most 512 bytes; a longer request is never read whole nor
+handed on. A request for another stick, or without a report, is dropped.
+At most 32 reports wait for the owner to open them; more are dropped. The
+transport opens nothing: the owner's side opens each report with the stick's
+key (`SecretName::StickKey`), and drops one that does not open, saying
+nothing to the reader either way.
 
 ### Relay policy (reader)
 

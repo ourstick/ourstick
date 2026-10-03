@@ -192,6 +192,11 @@ pub trait Publisher: Send + Sync {
     /// What readers ask for, from now on. Only the first call gets it.
     fn take_demand(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>;
 
+    /// Readers' reports on this stick, sealed, from now on (ADR 0015): the
+    /// owner's side opens them with the stick's key. Not demand, not
+    /// activity: a channel of its own. Only the first call gets it.
+    fn take_reports(&self) -> Option<tokio::sync::mpsc::Receiver<Vec<u8>>>;
+
     /// What readers are doing, updated about twice a second while it
     /// changes.
     fn activity(&self) -> tokio::sync::watch::Receiver<ReaderActivity>;
@@ -302,6 +307,14 @@ pub trait PeerConnection: Send + Sync {
         hash: &BlobHash,
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> impl Future<Output = Result<FetchStats, TransportError>> + Send;
+
+    /// Sends a sealed reader report for `stick_id` (ADR 0015) and waits
+    /// until the owner has taken it. Best effort: the caller bounds it.
+    fn report(
+        &self,
+        stick_id: &StickId,
+        sealed: &[u8],
+    ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
     /// Closes the connection.
     fn close(self) -> impl Future<Output = ()> + Send;

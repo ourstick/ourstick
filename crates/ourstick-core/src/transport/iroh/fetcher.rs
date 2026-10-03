@@ -19,6 +19,7 @@ use tokio::sync::watch;
 
 use super::batches::Batches;
 use super::record_protocol::{request_record, RECORD_ALPN};
+use super::report_protocol::{send_report, REPORT_ALPN};
 use super::{absolute, bind, is_relay, network_report, owner_addr, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -292,6 +293,19 @@ impl PeerConnection for IrohConnection {
         let record = request_record(&connection, stick_id).await;
         connection.close(0u32.into(), b"done");
         record
+    }
+
+    /// On a connection of its own, as a record is asked for: one QUIC
+    /// connection speaks one protocol.
+    async fn report(&self, stick_id: &StickId, sealed: &[u8]) -> Result<(), TransportError> {
+        let connection = self
+            .endpoint
+            .connect(self.addr.clone(), REPORT_ALPN)
+            .await
+            .map_err(|error| TransportError::Unreachable(error.to_string()))?;
+        let sent = send_report(&connection, stick_id, sealed).await;
+        connection.close(0u32.into(), b"done");
+        sent
     }
 
     async fn fetch_blob(

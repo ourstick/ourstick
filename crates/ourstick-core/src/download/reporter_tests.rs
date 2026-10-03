@@ -98,7 +98,7 @@ const A_MOMENT: Duration = Duration::from_millis(60);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_round_is_told_as_it_goes_and_when_it_ends() {
-    let (reporter, _store) = reporter(Some("Μαρία"));
+    let (reporter, store) = reporter(Some("Μαρία"));
     let owner = Owner::default();
     let pump = reporter.pump(&owner);
     tokio::pin!(pump);
@@ -126,6 +126,8 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
     );
     step(A_MOMENT).await;
     assert_eq!(owner.told(&ticket()).len(), 1);
+    // The receiver changes the name it gives senders: the next report has it.
+    store.set_receiver_name(Some("Νίκος")).unwrap();
     step(EVERY + A_MOMENT).await;
     reporter.on_event(&ReceiveEvent::UpToDate { seq: 9 }, 100, 100);
     step(A_MOMENT).await;
@@ -147,10 +149,9 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
         .all(|pair| pair[0].counter < pair[1].counter));
     assert_eq!(told[0].name.as_deref(), Some("Μαρία"));
     assert_eq!(told[0].kind, ComputerKind::this());
-    // A name changed meanwhile is in the next report.
     assert!(told[1..]
         .iter()
-        .all(|report| report.name.as_deref() == Some("Μαρία")));
+        .all(|report| report.name.as_deref() == Some("Νίκος")));
 }
 
 #[tokio::test(flavor = "multi_thread")]

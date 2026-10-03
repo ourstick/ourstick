@@ -77,7 +77,7 @@
   }
 
   async function getIt() {
-    if (!preview || adding) return;
+    if (!preview || adding || looking) return;
     adding = true;
     failure = null;
     try {
@@ -142,13 +142,15 @@
   {#if looking}<p class="muted">Looking for the sender… please wait.</p>{/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 
-  {#if preview && !looking}
+  <!-- Kept while another folder is looked at, everything off: what was
+       opened stays open. A new link clears it first (edited). -->
+  {#if preview}
     <h2><bdi>{preview.name}</bdi></h2>
     <p class="row spread">
       <strong>What to get:</strong>
       <span class="row">
-        <button onclick={() => (leftOut = [])} disabled={adding || leftOut.length === 0}>All</button>
-        <button onclick={() => (leftOut = entries.map((entry) => entry.name))} disabled={adding || none}
+        <button onclick={() => (leftOut = [])} disabled={adding || looking || leftOut.length === 0}>All</button>
+        <button onclick={() => (leftOut = entries.map((entry) => entry.name))} disabled={adding || looking || none}
           >None</button
         >
       </span>
@@ -164,7 +166,7 @@
     <p class="muted">New things the sender adds will come too.</p>
     <p class="row spread">
       <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
-      <button onclick={choose} disabled={adding}>Choose…</button>
+      <button onclick={choose} disabled={adding || looking}>Choose…</button>
     </p>
     {#if preview.earlier}
       <p class="muted">You received this stick here before: it goes on in the same folder.</p>
@@ -194,7 +196,7 @@
     {/if}
     {#if adding}<p class="muted">Adding… please wait.</p>{/if}
     <div class="row end">
-      <button class="primary" onclick={getIt} disabled={adding || !fits || none}>Get it</button>
+      <button class="primary" onclick={getIt} disabled={adding || looking || !fits || none}>Get it</button>
     </div>
   {/if}
 </section>

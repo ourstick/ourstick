@@ -90,16 +90,26 @@ What is there already:
    never from whichever error came first. What arrived stays in the
    batch's store; the next connection resumes it.
 5. **"Not ready" holds back one file, not the others.** A blob the owner
-   is still preparing (ADR 0007) waits with the same backoff as now,
-   outside the fetches in flight, which go on; the round ends only when
-   every file is done or one has waited too long (unchanged).
+   is still preparing (ADR 0007) waits with the same backoff as now; the
+   other fetches in flight go on, and the round ends only when every file
+   is done or one has waited too long (unchanged). A file waiting keeps
+   its place in the queue: the reader does not run ahead into later
+   suitcases (files in the plan's order share suitcases, so one not ready
+   usually means its neighbours are not either), and if every place waits,
+   the queue waits, as one fetch at a time waits today. The waiting ones
+   are asked again on the round's tick, each at its own backoff.
 6. **The owner keeps its order with several asks at once.** In the
-   keeper, a connection's place is the lowest suitcase among its asks not
-   yet served (the place of its latest served ask when none waits), and
-   the unserved asks at the front of the preparation queue are kept in
-   suitcase order. So asks that straddle a suitcase's end prepare the
-   earlier one first, and the earlier one stays held while its blobs are
-   still asked for. Nothing else on the owner changes: each blob is one
+   keeper, an ask of a connection waits until its blob is served to that
+   connection, or until `IN_USE` passes without it being asked again. A
+   connection's place is the lowest suitcase among its waiting asks, or,
+   when none waits, the highest suitcase among its asks served (asks end
+   in any order: the highest, never the latest, so the place never moves
+   back). The waiting asks at the front of the preparation queue are kept
+   in suitcase order, and a suitcase is held while any connection has a
+   waiting or recently served ask in it (not only its place and the one
+   after). So asks that straddle a suitcase's end prepare the earlier one
+   first, keep it held while its blobs are still asked for, and never let
+   a suitcase the reader is fetching from be evicted. Nothing else on the owner changes: each blob is one
    plain get on its own stream, decided as now. The protocol document
    says a reader may have several gets in flight.
 

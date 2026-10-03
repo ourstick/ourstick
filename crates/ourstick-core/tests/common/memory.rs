@@ -124,6 +124,21 @@ impl Fetcher for MemoryFetcher {
     fn relay_description(&self) -> String {
         "the test relay".to_owned()
     }
+    /// As the owner's endpoint takes a report: handed on whole, or an error
+    /// if too many wait; before the owner's side takes reports, it is
+    /// accepted and lost. (The stick is not checked: the fake serves one.)
+    async fn report(&self, _ticket: &Ticket, sealed: &[u8]) -> Result<(), TransportError> {
+        let served = self.served.lock().unwrap();
+        if served.unreachable_for_reports {
+            return Err(TransportError::Unreachable("the owner is away".to_owned()));
+        }
+        match &served.reports {
+            Some(reports) if reports.try_send(sealed.to_vec()).is_err() => Err(
+                TransportError::Interrupted("the report was not taken".to_owned()),
+            ),
+            _ => Ok(()),
+        }
+    }
     async fn connect(&self, _ticket: &Ticket) -> Result<MemoryConnection, TransportError> {
         let id = {
             let mut connects = self.connects.lock().unwrap();
@@ -316,21 +331,6 @@ impl PeerConnection for MemoryConnection {
             already_local: already_local as u64,
             received,
         })
-    }
-    /// As the owner's endpoint takes a report: handed on whole, or an error
-    /// if too many wait; before the owner's side takes reports, it is
-    /// accepted and lost. (The stick is not checked: the fake serves one.)
-    async fn report(&self, _stick_id: &StickId, sealed: &[u8]) -> Result<(), TransportError> {
-        let served = self.served.lock().unwrap();
-        if served.unreachable_for_reports {
-            return Err(TransportError::Unreachable("the owner is away".to_owned()));
-        }
-        match &served.reports {
-            Some(reports) if reports.try_send(sealed.to_vec()).is_err() => Err(
-                TransportError::Interrupted("the report was not taken".to_owned()),
-            ),
-            _ => Ok(()),
-        }
     }
     async fn close(self) {
         if let Some(demand) = &self.served.lock().unwrap().demand {

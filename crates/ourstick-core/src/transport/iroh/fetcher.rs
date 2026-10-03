@@ -90,6 +90,19 @@ impl Fetcher for IrohFetcher {
         self.relay_description.clone()
     }
 
+    /// On a connection of its own (one QUIC connection speaks one
+    /// protocol), so a report needs no download going on.
+    async fn report(&self, ticket: &Ticket, sealed: &[u8]) -> Result<(), TransportError> {
+        let connection = self
+            .endpoint
+            .connect(owner_addr(ticket)?, REPORT_ALPN)
+            .await
+            .map_err(|error| TransportError::Unreachable(error.to_string()))?;
+        let sent = send_report(&connection, &ticket.stick_id, sealed).await;
+        connection.close(0u32.into(), b"done");
+        sent
+    }
+
     async fn connect(&self, ticket: &Ticket) -> Result<IrohConnection, TransportError> {
         let addr = owner_addr(ticket)?;
         let blobs = self
@@ -293,19 +306,6 @@ impl PeerConnection for IrohConnection {
         let record = request_record(&connection, stick_id).await;
         connection.close(0u32.into(), b"done");
         record
-    }
-
-    /// On a connection of its own, as a record is asked for: one QUIC
-    /// connection speaks one protocol.
-    async fn report(&self, stick_id: &StickId, sealed: &[u8]) -> Result<(), TransportError> {
-        let connection = self
-            .endpoint
-            .connect(self.addr.clone(), REPORT_ALPN)
-            .await
-            .map_err(|error| TransportError::Unreachable(error.to_string()))?;
-        let sent = send_report(&connection, stick_id, sealed).await;
-        connection.close(0u32.into(), b"done");
-        sent
     }
 
     async fn fetch_blob(

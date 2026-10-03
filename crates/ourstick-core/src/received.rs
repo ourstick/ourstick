@@ -37,6 +37,26 @@ pub enum ReceivedError {
     },
 }
 
+/// This computer's reader key for a received stick (ADR 0015): the one
+/// kept in the secret store, or a new one kept there now (a stick received
+/// before reports, or its first round). Never in a plain file.
+pub fn reader_key(
+    secrets: &dyn SecretStore,
+    stick_id: &StickId,
+) -> Result<crate::report::ReaderKey, SecretError> {
+    let name = SecretName::ReaderKey(*stick_id);
+    if let Some(seed) = secrets.get(&name)? {
+        if let Ok(seed) = <[u8; 32]>::try_from(seed.as_slice()) {
+            return Ok(crate::report::ReaderKey::from_bytes(&seed));
+        }
+        // Damaged: a new key only changes which line the owner shows.
+        tracing::warn!("a received stick's reader key was damaged; a new one is made");
+    }
+    let key = crate::report::ReaderKey::generate();
+    secrets.put(&name, &key.to_bytes())?;
+    Ok(key)
+}
+
 /// Whether the program `kind` may receive the stick `stick_id`: never one of
 /// this device's own sticks (or one it gave a new sharing link); for the
 /// receiver window, not one it already receives (it takes over one `get`
@@ -156,6 +176,7 @@ fn finish(
         .find(|stick| stick.stick_id == *stick_id)
         .map(|stick| stick.output_dir);
     secrets.delete(&SecretName::Ticket(*stick_id))?;
+    secrets.delete(&SecretName::ReaderKey(*stick_id))?;
     let blobs = received_store_dir(data_dir, stick_id);
     match std::fs::remove_dir_all(&blobs) {
         Ok(()) => {}

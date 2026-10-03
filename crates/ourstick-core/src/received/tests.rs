@@ -124,8 +124,18 @@ fn forgetting_keeps_the_files_and_the_floor_and_drops_the_rest() {
     let (store, secrets, dir, output) = world();
     let data = dir.path().join("data");
     let lock = download_lock(&data, &stick_id(6)).unwrap();
+    let reader = reader_key(&secrets, &stick_id(6)).unwrap();
     forget_received(&store, &secrets, &data, &stick_id(6), &lock).unwrap();
     assert!(store.joined_stick(&stick_id(6)).unwrap().is_none());
+    // Its reader key goes too: received again, it is another reader.
+    assert!(secrets
+        .get(&SecretName::ReaderKey(stick_id(6)))
+        .unwrap()
+        .is_none());
+    assert_ne!(
+        reader_key(&secrets, &stick_id(6)).unwrap().reader_id(),
+        reader.reader_id()
+    );
     assert!(store.forgetting_joined_sticks().unwrap().is_empty());
     assert!(secrets
         .get(&SecretName::Ticket(stick_id(6)))
@@ -191,4 +201,29 @@ fn only_its_own_mark_is_taken_out() {
     assert!(!dir.path().join(crate::download::RECEIVED_MARKER).exists());
     // A folder that is not there (an unplugged disk): nothing happens.
     crate::download::unmark_received_folder(&dir.path().join("gone"), &stick_id(1));
+}
+
+#[test]
+fn a_reader_key_is_made_once_and_kept() {
+    let secrets = MemorySecretStore::new();
+    let first = reader_key(&secrets, &stick_id(6)).unwrap();
+    assert_eq!(
+        reader_key(&secrets, &stick_id(6)).unwrap().reader_id(),
+        first.reader_id()
+    );
+    // One per stick, never per device.
+    assert_ne!(
+        reader_key(&secrets, &stick_id(7)).unwrap().reader_id(),
+        first.reader_id()
+    );
+    // Damaged: a new one, kept.
+    secrets
+        .put(&SecretName::ReaderKey(stick_id(6)), b"short")
+        .unwrap();
+    let mended = reader_key(&secrets, &stick_id(6)).unwrap();
+    assert_ne!(mended.reader_id(), first.reader_id());
+    assert_eq!(
+        reader_key(&secrets, &stick_id(6)).unwrap().reader_id(),
+        mended.reader_id()
+    );
 }

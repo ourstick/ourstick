@@ -47,6 +47,9 @@ pub enum SecretName {
     StickKey(StickId),
     /// A ticket a reader holds for a stick.
     Ticket(StickId),
+    /// A reader's own key for a stick it receives, which signs its reports
+    /// to the owner (ADR 0015).
+    ReaderKey(StickId),
     /// A short-lived entry written by [`check_secret_store`].
     HealthCheck([u8; 8]),
 }
@@ -61,6 +64,7 @@ impl SecretName {
             Self::StickKey(id) => format!("stick/{}/stick-key", hex(id)),
             Self::StickNodeKey(id) => format!("stick/{}/node-key", hex(id)),
             Self::Ticket(id) => format!("stick/{}/ticket", hex(id)),
+            Self::ReaderKey(id) => format!("stick/{}/reader-key", hex(id)),
             Self::HealthCheck(nonce) => {
                 format!("health-check/{}", data_encoding::HEXLOWER.encode(nonce))
             }

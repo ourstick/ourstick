@@ -13,7 +13,7 @@ use ourstick_core::report::{
     open, seal, ComputerKind, ReaderKey, ReaderReport, ReportState, MAX_REPORT_BYTES,
 };
 use ourstick_core::transport::iroh::REPORT_ALPN;
-use ourstick_core::transport::{Fetcher, PeerConnection, Publisher};
+use ourstick_core::transport::{Fetcher, Publisher};
 
 fn report() -> ReaderReport {
     ReaderReport {
@@ -35,16 +35,12 @@ async fn a_report_reaches_the_owner_and_opens_with_the_sticks_key() {
     let ticket = owner.ticket(&publication);
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
-    let connection = fetcher.connect(&ticket).await.unwrap();
     let key = ReaderKey::generate();
     let sealed = seal(&report(), &key, &ticket.stick_id, &ticket.stick_key).unwrap();
-    tokio::time::timeout(
-        Duration::from_secs(20),
-        connection.report(&ticket.stick_id, &sealed),
-    )
-    .await
-    .expect("the report was not taken in time")
-    .unwrap();
+    tokio::time::timeout(Duration::from_secs(20), fetcher.report(&ticket, &sealed))
+        .await
+        .expect("the report was not taken in time")
+        .unwrap();
     let taken = tokio::time::timeout(Duration::from_secs(5), reports.recv())
         .await
         .unwrap()
@@ -56,13 +52,16 @@ async fn a_report_reaches_the_owner_and_opens_with_the_sticks_key() {
     // One for another stick is not handed on.
     let other = ourstick_core::StickSigningKey::from_bytes(&[8; 32]).stick_id();
     // The reader is told it was not taken, so it keeps it.
-    assert!(connection.report(&other, &sealed).await.is_err());
+    let elsewhere = ourstick_core::Ticket {
+        stick_id: other,
+        ..ticket.clone()
+    };
+    assert!(fetcher.report(&elsewhere, &sealed).await.is_err());
     // Too long: refused by the reader before it goes.
-    assert!(connection
-        .report(&ticket.stick_id, &vec![1; MAX_REPORT_BYTES])
+    assert!(fetcher
+        .report(&ticket, &vec![1; MAX_REPORT_BYTES])
         .await
         .is_err());
-    connection.close().await;
     fetcher.shutdown(false).await.unwrap();
     assert!(
         tokio::time::timeout(Duration::from_millis(500), reports.recv())
@@ -121,7 +120,6 @@ async fn a_report_not_taken_is_told_so() {
     let ticket = owner.ticket(&publication);
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
-    let connection = fetcher.connect(&ticket).await.unwrap();
     let sealed = seal(
         &report(),
         &ReaderKey::generate(),
@@ -132,10 +130,84 @@ async fn a_report_not_taken_is_told_so() {
     // Never opened: 32 wait (also before the owner's side takes them), the
     // next is not taken.
     for _ in 0..32 {
-        connection.report(&ticket.stick_id, &sealed).await.unwrap();
+        fetcher.report(&ticket, &sealed).await.unwrap();
     }
-    assert!(connection.report(&ticket.stick_id, &sealed).await.is_err());
-    connection.close().await;
+    assert!(fetcher.report(&ticket, &sealed).await.is_err());
+    fetcher.shutdown(false).await.unwrap();
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reader_tells_its_owner_it_has_all_of_it() {
+    use ourstick_core::download::{download, DownloadEvent, ReceiveEvent, Reporter};
+    use ourstick_core::store::{JoinedStick, Store};
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let owner = Owner::new(&[("a.txt", b"hello"), ("b/c.txt", b"world")]).await;
+    let mut reports = owner.publisher.take_reports().unwrap();
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let reader = Reader::new();
+    reader
+        .store
+        .add_joined_stick(&JoinedStick::new(ticket.stick_id, reader.output.path(), 1))
+        .unwrap();
+    let reporter = Reporter::new(
+        ticket.clone(),
+        ReaderKey::generate(),
+        None,
+        reader.store.clone(),
+        Arc::new(ourstick_core::clock::FixedClock::new(5_000)),
+    );
+    let fetcher = reader.fetcher().await;
+    let total = std::sync::atomic::AtomicU64::new(0);
+    let mut on_event = |event: DownloadEvent<'_>| {
+        if let DownloadEvent::Planned { bytes } = event {
+            total.store(bytes, std::sync::atomic::Ordering::SeqCst);
+        }
+        let planned = total.load(std::sync::atomic::Ordering::SeqCst);
+        reporter.on_event(&ReceiveEvent::Download(event), 0, planned);
+        ControlFlow::Continue(())
+    };
+    let downloaded = async {
+        download(
+            &fetcher,
+            reader.store.clone(),
+            &reader.clock,
+            &ticket,
+            reader.output.path(),
+            &ourstick_core::download::RelayPolicy::default(),
+            &mut on_event,
+        )
+        .await
+        .unwrap();
+        let planned = total.load(std::sync::atomic::Ordering::SeqCst);
+        reporter.on_event(
+            &ReceiveEvent::UpToDate {
+                seq: publication.seq,
+            },
+            planned,
+            planned,
+        );
+        // Until the owner has the last one.
+        loop {
+            let taken = tokio::time::timeout(Duration::from_secs(20), reports.recv())
+                .await
+                .expect("no report came")
+                .unwrap();
+            let opened = open(&taken, &ticket.stick_id, &ticket.stick_key).unwrap();
+            if opened.report.state == ReportState::UpToDate {
+                return opened.report;
+            }
+        }
+    };
+    let last = tokio::select! {
+        last = downloaded => last,
+        () = reporter.pump(&fetcher) => unreachable!(),
+    };
+    assert_eq!(last.seq, publication.seq);
+    assert!(last.everything);
     fetcher.shutdown(false).await.unwrap();
     owner.publisher.shutdown().await;
 }

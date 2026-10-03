@@ -640,7 +640,10 @@ from the StickId (below), so SQLite needs no column for it. See
 Secret Service items use service `ourstick` and the secret's name as user:
 `node-key` (the device's, only on a device set up before ADR 0009),
 `stick/<hex StickId>/signing-key`, `stick/<hex StickId>/stick-key`,
-`stick/<hex StickId>/node-key`, `stick/<hex StickId>/ticket`. A stick's node
+`stick/<hex StickId>/node-key`, `stick/<hex StickId>/ticket`,
+`stick/<hex StickId>/reader-key` (a reader's own key for a stick it
+receives, ADR 0015: made at its first round, deleted with its ticket when the
+stick is forgotten). A stick's node
 key must give the node id the database records for it (`owned_sticks.node_id`,
 or `device.node_id` for an older stick); otherwise it is not used.
 

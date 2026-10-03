@@ -233,6 +233,15 @@ pub trait Fetcher: Send + Sync {
         ticket: &Ticket,
     ) -> impl Future<Output = Result<Self::Connection, TransportError>> + Send;
 
+    /// Sends a sealed reader report to the owner named in `ticket` (ADR
+    /// 0015) and waits until the owner has taken it; an error if it was not.
+    /// Best effort: the caller bounds it.
+    fn report(
+        &self,
+        ticket: &Ticket,
+        sealed: &[u8],
+    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
     /// A complete local blob, read into memory. For small blobs (the manifest).
     fn read_blob(
         &self,
@@ -307,14 +316,6 @@ pub trait PeerConnection: Send + Sync {
         hash: &BlobHash,
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> impl Future<Output = Result<FetchStats, TransportError>> + Send;
-
-    /// Sends a sealed reader report for `stick_id` (ADR 0015) and waits
-    /// until the owner has taken it. Best effort: the caller bounds it.
-    fn report(
-        &self,
-        stick_id: &StickId,
-        sealed: &[u8],
-    ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
     /// Closes the connection.
     fn close(self) -> impl Future<Output = ()> + Send;

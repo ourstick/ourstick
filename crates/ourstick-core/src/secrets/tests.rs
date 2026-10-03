@@ -86,6 +86,10 @@ fn secret_names_are_stable_and_distinct() {
         format!("stick/{hex}/ticket")
     );
     assert_eq!(
+        SecretName::ReaderKey(stick_id()).as_key(),
+        format!("stick/{hex}/reader-key")
+    );
+    assert_eq!(
         SecretName::HealthCheck([0xAB; 8]).as_key(),
         "health-check/abababababababab"
     );

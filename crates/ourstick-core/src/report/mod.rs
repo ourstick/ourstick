@@ -6,7 +6,7 @@
 //! Sealed form: version (1 byte), nonce (24), XChaCha20-Poly1305 ciphertext
 //! of `reader id (32) ‖ signature (64) ‖ postcard body`, with the version
 //! and the StickId as associated data. The signature covers
-//! [`SIGNATURE_CONTEXT`], the StickId and the body.
+//! [`SIGNATURE_CONTEXT`], the version, the StickId and the body.
 
 mod reader_key;
 
@@ -247,7 +247,7 @@ fn associated(stick_id: &StickId) -> Vec<u8> {
 }
 
 fn signed_message(stick_id: &StickId, body: &[u8]) -> Vec<u8> {
-    [SIGNATURE_CONTEXT, &stick_id.to_bytes(), body].concat()
+    [SIGNATURE_CONTEXT, &[VERSION], &stick_id.to_bytes(), body].concat()
 }
 
 #[cfg(test)]

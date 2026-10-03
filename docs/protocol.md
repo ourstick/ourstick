@@ -504,13 +504,14 @@ stick, never per device: two owners cannot match their readers.
 | `state`    | enum                | `Downloading { percent: u8 }` (0–99), `UpToDate`, `Waiting(reason)` with `SenderAway`, `NoRoom`, `FolderMissing` or `Other`, `Paused`, `Forgotten` |
 | `everything` | bool              | It gets the whole stick (nothing left out)                     |
 | `kind`     | enum                | `MacOs`, `Windows`, `Linux`, `Other`                           |
-| `name`     | option<string>      | Only one the receiver typed: 1–40 characters, none Cc, Cf, Zl or Zp |
+| `name`     | option<string>      | Only one the receiver typed: 1–40 characters, not blank, none Cc, Cf, Zl or Zp |
 
 No bytes, file counts or paths: the percent is of what the reader gets,
 so the owner learns *that* something is left out, never what or how much.
 
 **Signature.** Ed25519 with the reader key over
-`"OurStick 2026-10-04 report signature" ‖ StickId (32) ‖ body`.
+`"OurStick 2026-10-04 report signature" ‖ version (1) ‖ StickId (32) ‖ body`,
+so a body signed for one version means nothing in another.
 
 **Sealed form**, at most 480 bytes:
 

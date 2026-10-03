@@ -104,11 +104,13 @@ What is there already:
    when none waits, the highest suitcase among its asks served (asks end
    in any order: the highest, never the latest, so the place never moves
    back). The waiting asks at the front of the preparation queue are kept
-   in suitcase order, and a suitcase is held while any connection has a
-   waiting or recently served ask in it (not only its place and the one
-   after). So asks that straddle a suitcase's end prepare the earlier one
-   first, keep it held while its blobs are still asked for, and never let
-   a suitcase the reader is fetching from be evicted. Nothing else on the owner changes: each blob is one
+   in suitcase order, and a suitcase is held while a connection waits on
+   it, is on it, or is on the one before (as before, within `IN_USE`). One
+   it was served from and moved past is not held: a transfer still coming
+   from it holds it itself (ADR 0007), and holding it longer would only
+   keep the next one from being prepared. So asks that straddle a
+   suitcase's end prepare the earlier one first and keep it held while its
+   blobs are still asked for. Nothing else on the owner changes: each blob is one
    plain get on its own stream, decided as now. The protocol document
    says a reader may have several gets in flight.
 

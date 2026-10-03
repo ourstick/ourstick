@@ -126,7 +126,9 @@ fn a_reader_waiting_on_one_suitcase_does_not_hold_the_one_before() {
     let now = Instant::now();
     state.note(1, [0; 32], false, now);
     prepare_next(&mut state, &budget, now).unwrap();
-    // The same reader now waits on 3: 0 may go.
+    // The same reader got 0 and now waits on 3: 0 may go.
+    state.note(1, [0; 32], true, now);
+    state.queue.clear();
     state.note(1, [3; 32], false, now);
     assert_eq!(prepare_next(&mut state, &budget, now), Some(vec![100]));
     // A reader that closed holds nothing either.
@@ -187,7 +189,7 @@ fn identical_files_are_served_from_whichever_suitcase_has_them() {
     prepare_next(&mut state, &budget, now).unwrap();
     // Served from suitcase 0: the reader is placed there, not at the twin's.
     state.note(1, [9; 32], true, now);
-    assert_eq!(state.readers[&1].0, (0, 0));
+    assert_eq!(state.readers[&1].place(), Some((0, 0)));
 }
 
 #[test]
@@ -229,4 +231,36 @@ fn a_place_that_failed_waits_longer_each_time_and_never_spins() {
     // Other places were never held back.
     state.note(2, [2; 32], false, now);
     assert!(prepare_next(&mut state, &budget, now).is_some());
+}
+
+#[test]
+fn asks_across_a_suitcases_end_prepare_the_earlier_one_first() {
+    let (mut state, bytes) = state_with(6, 1_000);
+    let budget = Budget::new(bytes * 2);
+    let now = Instant::now();
+    // Several asks at once (ADR 0016) across 2's end into 3: each not
+    // ready went to the front, so 3 came before 2.
+    state.note(1, [2; 32], false, now);
+    state.note(1, [3; 32], false, now);
+    assert_eq!(state.queue, [2, 3]);
+    assert_eq!(state.readers[&1].place(), Some((0, 2)));
+    let opened =
+        |state: &State| -> Vec<usize> { state.open.iter().map(|open| open.place.1).collect() };
+    prepare_next(&mut state, &budget, now).unwrap();
+    assert_eq!(opened(&state), [2]);
+    prepare_next(&mut state, &budget, now).unwrap();
+    assert_eq!(opened(&state), [2, 3]);
+    // 2 is still asked for while 3's blobs come: it stays held.
+    state.note(1, [3; 32], true, now);
+    assert!(state.is_held((0, 2), now));
+    state.note(1, [5; 32], false, now);
+    assert!(matches!(state.next_job(&budget, now), Next::NoRoom));
+    // Served from 2 too: the reader is at 3 (never back at 2), 2 may go.
+    state.note(1, [2; 32], true, now);
+    assert_eq!(state.readers[&1].place(), Some((0, 5)));
+    assert!(!state.is_held((0, 2), now));
+    // A later served ask never moves the place back.
+    state.note(1, [5; 32], true, now);
+    state.note(1, [3; 32], true, now);
+    assert_eq!(state.readers[&1].place(), Some((0, 5)));
 }

@@ -16,8 +16,8 @@ pub(super) struct State {
     pub(super) preparing: Option<(u64, usize)>,
     /// Suitcases to prepare, in turn (numbers in the current version).
     pub(super) queue: VecDeque<usize>,
-    /// Where each reader is (by connection), and when it last asked.
-    pub(super) readers: HashMap<u64, (Place, Instant)>,
+    /// What each reader (by connection) asks for (ADR 0016, rule 6).
+    pub(super) readers: HashMap<u64, Reader>,
     pub(super) last_reload: Option<Instant>,
     /// Places whose last preparation failed (e.g. a linked folder is gone):
     /// not tried again before the time, and the wait grows.
@@ -31,6 +31,38 @@ const LONGEST_RETRY: Duration = Duration::from_secs(60);
 
 /// A suitcase's place: (generation of the version, number in it).
 pub(super) type Place = (u64, usize);
+
+/// One reader's asks (ADR 0016, rule 6): with several in flight they end in
+/// any order, so its place is not simply its latest ask.
+#[derive(Debug, Default)]
+pub(super) struct Reader {
+    /// Places it asked for and was not served yet, when last asked. An ask
+    /// waits until its blob is served, or until [`IN_USE`] passes.
+    waiting: HashMap<Place, Instant>,
+    /// Places it was served from, when last: the highest is where it is
+    /// when nothing waits.
+    served: HashMap<Place, Instant>,
+}
+
+impl Reader {
+    /// Forgets what is older than [`IN_USE`].
+    fn prune(&mut self, now: Instant) {
+        self.waiting
+            .retain(|_, asked| now.duration_since(*asked) < IN_USE);
+        self.served
+            .retain(|_, asked| now.duration_since(*asked) < IN_USE);
+    }
+
+    /// Where it is: its lowest waiting ask, else its highest served one
+    /// (never moving back as asks end out of order).
+    pub(super) fn place(&self) -> Option<Place> {
+        self.waiting
+            .keys()
+            .min()
+            .or_else(|| self.served.keys().max())
+            .copied()
+    }
+}
 
 impl State {
     pub(super) fn is_underway(&self, number: usize) -> bool {
@@ -96,7 +128,8 @@ impl State {
             return;
         };
         let generation = self.generation;
-        let mut place = (generation, first);
+        let asked = (generation, first);
+        let mut place = asked;
         if served {
             let mut found = None;
             for open in self
@@ -111,29 +144,65 @@ impl State {
             }
             place = found.unwrap_or(place);
         }
-        self.readers.insert(connection, (place, now));
+        let reader = self.readers.entry(connection).or_default();
+        reader.prune(now);
         if served {
-            // Read-ahead: the next suitcase, one per reader.
-            let next = place.1 + 1;
+            reader.waiting.remove(&asked);
+            reader.waiting.remove(&place);
+            reader.served.insert(place, now);
+            // Read-ahead: the one after where the reader is, one per reader.
+            let Some(at) = reader.place() else {
+                return;
+            };
+            let next = at.1 + 1;
             let exists = self
                 .current
                 .as_ref()
                 .is_some_and(|current| next < current.plan.suitcases.len());
-            if place.0 == generation && exists && !self.is_underway(next) {
+            if at.0 == generation && exists && !self.is_underway(next) {
                 self.queue.push_back(next);
             }
-        } else if !self.is_underway(first) {
-            self.queue.push_front(first);
+        } else {
+            reader.waiting.insert(asked, now);
+            self.wanted_first(first);
         }
     }
 
-    /// Whether a reader holds the suitcase at `place`: it is on it, or on
-    /// the one before, and asked for something within [`IN_USE`].
+    /// Puts `number`, which a reader waits on, at the front of the queue,
+    /// behind only the waited-on ones before it in the stick: asks that
+    /// straddle a suitcase's end prepare the earlier one first.
+    fn wanted_first(&mut self, number: usize) {
+        let place = (self.generation, number);
+        if self.preparing == Some(place) || self.open.iter().any(|open| open.place == place) {
+            return;
+        }
+        self.queue.retain(|queued| *queued != number);
+        let waited = |queued: usize| {
+            self.readers
+                .values()
+                .any(|reader| reader.waiting.contains_key(&(place.0, queued)))
+        };
+        let at = self
+            .queue
+            .iter()
+            .take_while(|queued| **queued < number && waited(**queued))
+            .count();
+        self.queue.insert(at, number);
+    }
+
+    /// Whether a reader holds the suitcase at `place` (ADR 0016, rule 6): it
+    /// waits on it, is on it, or is on the one before, and asked within
+    /// [`IN_USE`]. One it was served from and moved past is not held: a
+    /// transfer still coming from it holds it itself (ADR 0007).
     pub(super) fn is_held(&self, place: Place, now: Instant) -> bool {
-        self.readers.values().any(|(at, asked)| {
-            now.duration_since(*asked) < IN_USE
-                && at.0 == place.0
-                && (at.1 == place.1 || at.1 + 1 == place.1)
+        self.readers.values().any(|reader| {
+            let fresh = |asked: &Instant| now.duration_since(*asked) < IN_USE;
+            let asking = reader.waiting.values().any(fresh) || reader.served.values().any(fresh);
+            asking
+                && (reader.waiting.get(&place).is_some_and(fresh)
+                    || reader.place().is_some_and(|at| {
+                        at.0 == place.0 && (at.1 == place.1 || at.1 + 1 == place.1)
+                    }))
         })
     }
 

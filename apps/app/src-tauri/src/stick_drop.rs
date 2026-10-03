@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use ourstick_core::drive::{copy_onto, names_taken, Copied, DriveError, OnConflict};
+use ourstick_core::drive::{check_sources, copy_onto, names_taken, Copied, DriveError, OnConflict};
 use ourstick_core::StickId;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -48,12 +48,7 @@ pub async fn add_paths(
     state: State<'_, AppState>,
 ) -> Result<AddOutcome, String> {
     let id = stick_id_of(&stick_id)?;
-    let on_conflict = match on_conflict.as_deref() {
-        None => None,
-        Some("replace") => Some(OnConflict::Replace),
-        Some("keep_both") => Some(OnConflict::KeepBoth),
-        Some(_) => return Err("That answer is not one of the choices.".to_owned()),
-    };
+    let on_conflict = answer(on_conflict.as_deref())?;
     let stick = state.stick_now(&id).await.map_err(shown)?;
     let _copying = Copying::start(&state, id)?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -70,13 +65,18 @@ pub async fn add_paths(
             .into_iter()
             .map(|entry| entry.name)
             .collect();
-        let Some(on_conflict) = on_conflict.or_else(|| {
-            names_taken(&stick.root_path, &linked, &sources)
-                .is_empty()
-                .then_some(OnConflict::KeepBoth)
-        }) else {
-            let names = names_taken(&stick.root_path, &linked, &sources);
-            return Ok(AddOutcome::AlreadyThere { names });
+        // What is on the stick already is refused before anything is asked:
+        // replacing it would delete what is being copied.
+        check_sources(&stick.root_path, &sources)?;
+        let on_conflict = match on_conflict {
+            Some(answered) => answered,
+            None => {
+                let names = names_taken(&stick.root_path, &sources);
+                if !names.is_empty() {
+                    return Ok(AddOutcome::AlreadyThere { names });
+                }
+                OnConflict::KeepBoth
+            }
         };
         let mut told = std::time::Instant::now();
         let mut progress = |copied: Copied| {
@@ -110,6 +110,16 @@ pub async fn add_paths(
     // The watcher publishes; the window can show the files at once.
     let _ = app.emit("stick-changed", ());
     Ok(outcome)
+}
+
+/// The window's answer to "already on the stick", if any.
+fn answer(answered: Option<&str>) -> Result<Option<OnConflict>, String> {
+    match answered {
+        None => Ok(None),
+        Some("replace") => Ok(Some(OnConflict::Replace)),
+        Some("keep_both") => Ok(Some(OnConflict::KeepBoth)),
+        Some(_) => Err("That answer is not one of the choices.".to_owned()),
+    }
 }
 
 /// How far a drop's copy is, for the window's bar.
@@ -172,6 +182,16 @@ mod tests {
             ))),
             copying: std::sync::Mutex::default(),
         }
+    }
+
+    #[test]
+    fn the_answers_are_the_choices_offered() {
+        assert_eq!(answer(None), Ok(None));
+        assert_eq!(answer(Some("replace")), Ok(Some(OnConflict::Replace)));
+        assert_eq!(answer(Some("keep_both")), Ok(Some(OnConflict::KeepBoth)));
+        assert!(answer(Some("delete everything")).is_err());
+        let view = CopyView::from(Copied { done: 3, total: 9 });
+        assert_eq!((view.done, view.total), (3, 9));
     }
 
     #[test]

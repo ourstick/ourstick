@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+
   // A drop whose names are already on the stick: asked before anything is
   // copied, as a file manager asks.
   let {
@@ -10,10 +12,24 @@
     /** "replace", "keep_both", or null to cancel. */
     onAnswer: (choice: "replace" | "keep_both" | null) => void;
   } = $props();
+
+  // The question takes the keyboard when it comes; Escape cancels.
+  let dialog: HTMLDivElement;
+  onMount(() => dialog.focus());
 </script>
 
-<div class="ask" role="alertdialog" aria-label="Already on the stick" tabindex="-1">
-  <p>
+<div
+  class="ask"
+  role="alertdialog"
+  aria-label="Already on the stick"
+  aria-describedby="already-there-words"
+  tabindex="-1"
+  bind:this={dialog}
+  onkeydown={(event) => {
+    if (event.key === "Escape") onAnswer(null);
+  }}
+>
+  <p id="already-there-words">
     {#if names.length === 1}
       “<bdi>{names[0]}</bdi>” is already on the stick.
     {:else}

@@ -88,10 +88,14 @@ so Spotlight leaves it alone.
   1.2 GB of 3.1 GB` with a bar, and a second drop meanwhile is refused:
   "Wait until the copy is done." A name already on the stick is asked about
   before anything is copied: "“new in” is already on the stick." (or "“new
-  in” and 2 more are…"), "Replace changes only the stick's copy, never the
-  original.", `Cancel`, `Keep both` (the new one as "new in (2)"),
-  `Replace`. A linked entry is never replaced: the new one is kept beside
-  it.
+  in” and 1 more is…", "… and 2 more are…"), "Replace changes only the
+  stick's copy, never the original.", `Cancel` (also Escape), `Keep both`
+  (the new one as "new in (2)"), `Replace`. The copy is made under a hidden
+  name and takes its place only once whole: a failed copy leaves the old
+  one. A linked entry's name is not asked about: it is never replaced, the
+  new one goes beside it. Something already on the stick (also through a
+  link or the stick's drive letter) is refused: "it is already on the
+  stick".
 - A drop that does not fit offers **Share it as it is** (ADR 0008 §2): the
   folders or files are linked, shared from where they are, not copied, taking
   no room on the stick and with no size limit of their own. The message says

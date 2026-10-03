@@ -30,20 +30,68 @@ pub struct Copied {
     pub total: u64,
 }
 
-/// The names of `sources` already on the stick: a copy at its top level,
-/// or a linked entry's name (ignoring case). Asked about before copying.
-pub fn names_taken(root: &Path, linked_names: &[String], sources: &[PathBuf]) -> Vec<String> {
+/// The names of `sources` already on the stick as copies at its top level:
+/// asked about before copying (Replace or Keep both). A linked entry's name
+/// is not asked about: it is never replaced, the new one goes beside it.
+pub fn names_taken(root: &Path, sources: &[PathBuf]) -> Vec<String> {
     sources
         .iter()
         .filter_map(|source| source.file_name()?.to_str())
-        .filter(|name| {
-            std::fs::symlink_metadata(root.join(name)).is_ok()
-                || linked_names
-                    .iter()
-                    .any(|linked| linked.to_lowercase() == name.to_lowercase())
-        })
+        .filter(|name| std::fs::symlink_metadata(root.join(name)).is_ok())
         .map(str::to_owned)
         .collect()
+}
+
+/// Refuses a source that is on the stick already, or holds it, by where it
+/// really is: through a link, or a drive letter that stands for the stick's
+/// folder (Windows' `subst`), a path can look elsewhere. Replacing such a
+/// source would delete what is being copied. Blocking.
+pub fn check_sources(root: &Path, sources: &[PathBuf]) -> Result<(), DriveError> {
+    let real_root = std::fs::canonicalize(root).map_err(io(root))?;
+    for source in sources {
+        let real = std::fs::canonicalize(source).map_err(io(source))?;
+        if real.starts_with(&real_root) || real_root.starts_with(&real) {
+            return Err(DriveError::NotCopyable {
+                path: source.clone(),
+                reason: "it is already on the stick",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A copy is made under this hidden name on the stick first, then takes its
+/// own (sharing never sees it): a failed copy leaves nothing half done, and
+/// what it replaces goes only once it is whole.
+const COPYING: &str = ".ourstick-copying-";
+
+/// Removes what a copy cut short left behind (only a copy's own names).
+fn remove_leftovers(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(COPYING))
+        {
+            remove_any(&entry.path());
+        }
+    }
+}
+
+/// Removes a file or folder this module made, never following a link.
+fn remove_any(path: &Path) {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => {
+            let _ = std::fs::remove_dir_all(path);
+        }
+        Ok(_) => {
+            let _ = std::fs::remove_file(path);
+        }
+        Err(_) => {}
+    }
 }
 
 /// The bytes of a file or folder to copy (system files left out).
@@ -80,8 +128,12 @@ fn copy_file(
         copied.done += read as u64;
         progress(*copied);
     }
-    let permissions = source.metadata().map_err(io(from))?.permissions();
-    std::fs::set_permissions(to, permissions).map_err(io(to))?;
+    // As `std::fs::copy` kept it: its permissions, and its time as it was.
+    let metadata = source.metadata().map_err(io(from))?;
+    if let Ok(modified) = metadata.modified() {
+        target.set_modified(modified).map_err(io(to))?;
+    }
+    std::fs::set_permissions(to, metadata.permissions()).map_err(io(to))?;
     Ok(())
 }
 
@@ -114,10 +166,13 @@ fn copy_tree(
 /// Copies files and folders onto the stick, like onto a real USB stick; the
 /// originals are not touched. All or nothing about space: if they need more
 /// than the `left` bytes (what its disk has room for, from the space ledger,
-/// ADR 0008), nothing is copied, as a real stick refuses. A name already on
-/// the stick, or a linked entry's (`linked_names`, ignoring case), is
-/// replaced or kept beside as `on_conflict` says; `progress` hears the bytes
-/// as they are copied. Returns the names they got on the stick.
+/// ADR 0008), nothing is copied, as a real stick refuses; what a copy
+/// replaces is not counted as room, since both are there until the new one
+/// is whole. A name already on the stick is replaced or kept beside (" (2)")
+/// as `on_conflict` says; a linked entry's name (`linked_names`, ignoring
+/// case) is never replaced. Each copy is made under a hidden name and takes
+/// its own only once whole. `progress` hears the bytes as they are copied.
+/// Returns the names they got on the stick.
 pub fn copy_onto(
     root: &Path,
     left: u64,
@@ -126,38 +181,25 @@ pub fn copy_onto(
     on_conflict: OnConflict,
     progress: &mut dyn FnMut(Copied),
 ) -> Result<Vec<String>, DriveError> {
+    check_sources(root, sources)?;
     let mut needed = 0;
     for source in sources {
-        if source.starts_with(root) {
-            return Err(DriveError::NotCopyable {
-                path: source.clone(),
-                reason: "it is already on the stick",
-            });
-        }
         needed += source_size(source)?;
     }
+    if needed > left {
+        return Err(DriveError::DoesNotFit { needed, left });
+    }
+    remove_leftovers(root);
     let linked: Vec<String> = linked_names
         .iter()
         .map(|name| name.to_lowercase())
         .collect();
-    // What is replaced makes room for what replaces it.
-    let mut freed = 0;
-    if on_conflict == OnConflict::Replace {
-        for name in names_taken(root, &[], sources) {
-            if !linked.contains(&name.to_lowercase()) {
-                freed += source_size(&root.join(&name)).unwrap_or(0);
-            }
-        }
-    }
-    if needed > left.saturating_add(freed) {
-        return Err(DriveError::DoesNotFit { needed, left });
-    }
     let mut copied = Copied {
         done: 0,
         total: needed,
     };
     let mut names = Vec::new();
-    for source in sources {
+    for (number, source) in sources.iter().enumerate() {
         let name = source
             .file_name()
             .and_then(|name| name.to_str())
@@ -165,93 +207,35 @@ pub fn copy_onto(
                 path: source.clone(),
                 reason: "its name is not valid text",
             })?;
+        let copying = root.join(format!("{COPYING}{number}"));
+        if let Err(error) = copy_tree(source, &copying, &mut copied, progress) {
+            remove_any(&copying);
+            return Err(error);
+        }
         let is_linked = linked.contains(&name.to_lowercase());
         if on_conflict == OnConflict::Replace
             && !is_linked
             && std::fs::symlink_metadata(root.join(name)).is_ok()
         {
-            remove_from(root, name)?;
+            if let Err(error) = remove_from(root, name) {
+                remove_any(&copying);
+                return Err(error);
+            }
         }
         let name = free_name_where(name, |candidate| {
-            root.join(candidate).exists() || linked.contains(&candidate.to_lowercase())
+            std::fs::symlink_metadata(root.join(candidate)).is_ok()
+                || linked.contains(&candidate.to_lowercase())
         });
-        copy_tree(source, &root.join(&name), &mut copied, progress)?;
+        let target = root.join(&name);
+        if let Err(error) = std::fs::rename(&copying, &target) {
+            remove_any(&copying);
+            return Err(io(&target)(error));
+        }
         names.push(name);
     }
     Ok(names)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn write(path: &Path, bytes: usize) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, vec![7u8; bytes]).unwrap();
-    }
-
-    #[test]
-    fn names_already_on_the_stick_are_told_before_copying() {
-        let stick = tempfile::tempdir().unwrap();
-        let from = tempfile::tempdir().unwrap();
-        write(&stick.path().join("new in/a.jpg"), 10);
-        for name in ["new in/b.jpg", "Films/c.mkv", "notes.txt"] {
-            write(&from.path().join(name), 10);
-        }
-        let sources: Vec<PathBuf> = ["new in", "Films", "notes.txt"]
-            .iter()
-            .map(|name| from.path().join(name))
-            .collect();
-        // A copy there, and a linked entry's name in another case.
-        let taken = names_taken(stick.path(), &["films".to_owned()], &sources);
-        assert_eq!(taken, ["new in", "Films"]);
-    }
-
-    #[test]
-    fn replace_takes_the_copys_place_and_never_a_linked_entrys() {
-        let stick = tempfile::tempdir().unwrap();
-        let from = tempfile::tempdir().unwrap();
-        write(&stick.path().join("new in/old.jpg"), 50);
-        write(&from.path().join("new in/new.jpg"), 60);
-        write(&from.path().join("Films/c.mkv"), 5);
-        let sources = [from.path().join("new in"), from.path().join("Films")];
-        // 65 bytes needed, 20 left: the 50 replaced make room.
-        let names = copy_onto(
-            stick.path(),
-            20,
-            &["Films".to_owned()],
-            &sources,
-            OnConflict::Replace,
-            &mut |_| {},
-        )
-        .unwrap();
-        assert_eq!(names, ["new in", "Films (2)"]);
-        assert!(!stick.path().join("new in/old.jpg").exists());
-        assert!(stick.path().join("new in/new.jpg").exists());
-        // The originals are where they were.
-        assert!(from.path().join("new in/new.jpg").exists());
-    }
-
-    #[test]
-    fn the_bytes_are_told_as_they_are_copied() {
-        let stick = tempfile::tempdir().unwrap();
-        let from = tempfile::tempdir().unwrap();
-        write(&from.path().join("big.bin"), 3 * PIECE + 5);
-        write(&from.path().join("folder/small.txt"), 10);
-        let mut told = Vec::new();
-        copy_onto(
-            stick.path(),
-            u64::MAX,
-            &[],
-            &[from.path().join("big.bin"), from.path().join("folder")],
-            OnConflict::KeepBoth,
-            &mut |copied| told.push(copied),
-        )
-        .unwrap();
-        let total = (3 * PIECE + 15) as u64;
-        assert!(told.iter().all(|copied| copied.total == total));
-        assert!(told.windows(2).all(|pair| pair[0].done < pair[1].done));
-        assert_eq!(told.last().unwrap().done, total);
-        assert!(told.len() >= 5);
-    }
-}
+#[path = "copy_tests.rs"]
+mod tests;

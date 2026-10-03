@@ -46,6 +46,21 @@ pub async fn keep_reports(
     }
 }
 
+/// The version `stick_id` is served at now, and whether it is partial, in
+/// one read so the two agree; `None` before its first publish or for a
+/// stick not shared here. What [`has`] compares a report with. Blocking.
+pub fn serving_now(
+    store: &dyn Store,
+    stick_id: &StickId,
+) -> Result<Option<(u64, bool)>, crate::store::StoreError> {
+    Ok(store.owned_stick(stick_id)?.and_then(|stick| {
+        stick
+            .latest_record
+            .as_ref()
+            .map(|record| (record.unverified_record().seq, stick.latest_partial))
+    }))
+}
+
 /// What a line tells the sender of one computer (rule 6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Has {
@@ -224,5 +239,15 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].reader, reader.reader_id());
         assert_eq!(has(&lines[0], Some((5, false))), Some(Has::All));
+        // Never published: nothing served yet.
+        assert_eq!(serving_now(store.as_ref(), &stick_id).unwrap(), None);
+        let record = signing.sign_record(5, [1; 32]);
+        store.save_signed_record(&record, true).unwrap();
+        assert_eq!(
+            serving_now(store.as_ref(), &stick_id).unwrap(),
+            Some((5, true))
+        );
+        let other = StickSigningKey::from_bytes(&[7; 32]).stick_id();
+        assert_eq!(serving_now(store.as_ref(), &other).unwrap(), None);
     }
 }

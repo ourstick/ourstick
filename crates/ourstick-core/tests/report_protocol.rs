@@ -174,7 +174,6 @@ async fn a_reader_tells_its_owner_it_has_all_of_it() {
     let reporter = Reporter::new(
         ticket.clone(),
         ReaderKey::generate(),
-        None,
         reader.store.clone(),
         Arc::new(ourstick_core::clock::FixedClock::new(5_000)),
     );

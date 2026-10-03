@@ -63,6 +63,14 @@ fn ticket() -> Ticket {
 fn reporter(name: Option<&str>) -> (Reporter, Arc<MemoryStore>) {
     let store = Arc::new(MemoryStore::new());
     store
+        .create_device(&crate::store::Device {
+            node_id: None,
+            secret_backend: crate::store::SecretBackend::SecretService,
+            created_at_ms: 1,
+        })
+        .unwrap();
+    store.set_receiver_name(name).unwrap();
+    store
         .add_joined_stick(&JoinedStick {
             kind: StickKind::App,
             ..JoinedStick::new(ticket().stick_id, "/d/x", 1)
@@ -71,7 +79,6 @@ fn reporter(name: Option<&str>) -> (Reporter, Arc<MemoryStore>) {
     let reporter = Reporter::new(
         ticket(),
         ReaderKey::generate(),
-        name.map(str::to_owned),
         store.clone(),
         Arc::new(FixedClock::new(1_000)),
     )
@@ -140,6 +147,10 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
         .all(|pair| pair[0].counter < pair[1].counter));
     assert_eq!(told[0].name.as_deref(), Some("Μαρία"));
     assert_eq!(told[0].kind, ComputerKind::this());
+    // A name changed meanwhile is in the next report.
+    assert!(told[1..]
+        .iter()
+        .all(|report| report.name.as_deref() == Some("Μαρία")));
 }
 
 #[tokio::test(flavor = "multi_thread")]

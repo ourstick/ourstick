@@ -27,20 +27,15 @@ pub(super) async fn reporter_for(
     ticket: Ticket,
 ) -> Option<Arc<Reporter>> {
     let store = app.state::<AppState>().store.clone();
-    let kept = store.clone();
     let made = super::work(move || {
         let secrets = open_system_keyring()?;
-        Ok((
-            reader_key(secrets.as_ref(), &stick_id)?,
-            kept.receiver_name()?,
-        ))
+        Ok(reader_key(secrets.as_ref(), &stick_id)?)
     })
     .await;
     match made {
-        Ok((key, name)) => Some(Arc::new(Reporter::new(
+        Ok(key) => Some(Arc::new(Reporter::new(
             ticket,
             key,
-            name,
             store,
             Arc::new(SystemClock),
         ))),
@@ -69,19 +64,13 @@ pub(super) async fn report_once(app: &AppHandle, stick_id: StickId, state: Repor
             .joined_stick(&stick_id)?
             .and_then(|joined| joined.completed)
             .map_or(0, |completed| completed.seq);
-        Ok(Some((key, ticket, seq, store.receiver_name()?)))
+        Ok(Some((key, ticket, seq)))
     })
     .await;
-    let Ok(Some((key, ticket, seq, name))) = known else {
+    let Ok(Some((key, ticket, seq))) = known else {
         return;
     };
-    let reporter = Reporter::new(
-        ticket,
-        key,
-        name,
-        app_state.store.clone(),
-        Arc::new(SystemClock),
-    );
+    let reporter = Reporter::new(ticket, key, app_state.store.clone(), Arc::new(SystemClock));
     reporter.set_version(seq);
     let config = IrohConfig::new(random_key(), Network::Public);
     let Ok(sender) = IrohReportSender::start(&config).await else {
@@ -99,41 +88,80 @@ pub(super) async fn report_once(app: &AppHandle, stick_id: StickId, state: Repor
 
 /// How senders see this computer: its kind, which every report says, and
 /// the name its receiver chose, if any.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
 pub struct SeenAs {
     /// "macos", "windows", "linux", "other", as a report says it.
     kind: &'static str,
     name: Option<String>,
 }
 
+/// How senders see this computer now.
+pub fn seen_as(store: &dyn ourstick_core::store::Store) -> anyhow::Result<SeenAs> {
+    use ourstick_core::report::ComputerKind;
+    let kind = match ComputerKind::this() {
+        ComputerKind::MacOs => "macos",
+        ComputerKind::Windows => "windows",
+        ComputerKind::Linux => "linux",
+        ComputerKind::Other => "other",
+    };
+    Ok(SeenAs {
+        kind,
+        name: store.receiver_name()?,
+    })
+}
+
+/// Sets the name senders see from what the receiver typed: trimmed, empty
+/// clears it, checked as reports check it (ADR 0015, rule 4).
+pub fn set_name(store: &dyn ourstick_core::store::Store, typed: &str) -> anyhow::Result<()> {
+    let name = typed.trim();
+    let name = (!name.is_empty()).then_some(name);
+    if name.is_some_and(|name| !ourstick_core::report::name_is_allowed(name)) {
+        anyhow::bail!("A name is at most 40 characters, with no invisible ones.");
+    }
+    Ok(store.set_receiver_name(name)?)
+}
+
 #[tauri::command]
 pub async fn receiver_name(state: tauri::State<'_, AppState>) -> Result<SeenAs, String> {
     let store = state.store.clone();
-    let name = super::work(move || Ok(store.receiver_name()?)).await?;
-    let kind = match ourstick_core::report::ComputerKind::this() {
-        ourstick_core::report::ComputerKind::MacOs => "macos",
-        ourstick_core::report::ComputerKind::Windows => "windows",
-        ourstick_core::report::ComputerKind::Linux => "linux",
-        ourstick_core::report::ComputerKind::Other => "other",
-    };
-    Ok(SeenAs { kind, name })
+    super::work(move || seen_as(store.as_ref())).await
 }
 
-/// Sets the name senders see, or clears it (empty). Never asked for: the
-/// receiver chooses to (ADR 0015, rule 4).
+/// Never asked for: the receiver chooses to give a name.
 #[tauri::command]
 pub async fn set_receiver_name(
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let store = state.store.clone();
-    super::work(move || {
-        let name = name.trim();
-        let name = (!name.is_empty()).then_some(name);
-        if name.is_some_and(|name| !ourstick_core::report::name_is_allowed(name)) {
-            anyhow::bail!("A name is at most 40 characters, with no invisible ones.");
+    super::work(move || set_name(store.as_ref(), &name)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ourstick_core::store::{Device, MemoryStore, SecretBackend, Store};
+
+    #[test]
+    fn a_name_for_senders_is_the_receivers_own_and_checked() {
+        let store = MemoryStore::new();
+        store
+            .create_device(&Device {
+                node_id: None,
+                secret_backend: SecretBackend::SecretService,
+                created_at_ms: 1,
+            })
+            .unwrap();
+        assert_eq!(seen_as(&store).unwrap().name, None);
+        set_name(&store, "  Μαρία ").unwrap();
+        let seen = seen_as(&store).unwrap();
+        assert_eq!(seen.name.as_deref(), Some("Μαρία"));
+        assert!(["macos", "windows", "linux", "other"].contains(&seen.kind));
+        for bad in ["a\u{202e}b", &"x".repeat(41)] {
+            assert!(set_name(&store, bad).is_err(), "{bad:?}");
         }
-        Ok(store.set_receiver_name(name)?)
-    })
-    .await
+        assert_eq!(seen_as(&store).unwrap().name.as_deref(), Some("Μαρία"));
+        set_name(&store, "   ").unwrap();
+        assert_eq!(seen_as(&store).unwrap().name, None);
+    }
 }

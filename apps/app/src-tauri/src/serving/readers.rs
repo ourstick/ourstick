@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ourstick_core::clock::{Clock, SystemClock};
 use ourstick_core::report::{ComputerKind, ReaderId, WaitReason};
-use ourstick_core::share::{has, keep_reports, latest_hint, Has};
+use ourstick_core::share::{has, keep_reports, serving_now, Has};
 use ourstick_core::store::Store;
 use ourstick_core::untrusted::escape;
 use ourstick_core::{StickId, StickKey};
@@ -69,14 +69,7 @@ pub fn reader_lines(
     stick_id: &StickId,
     now_ms: u64,
 ) -> anyhow::Result<Vec<ReaderLine>> {
-    let latest = latest_hint(store, stick_id)?.map(|hint| {
-        let partial = store
-            .owned_stick(stick_id)
-            .ok()
-            .flatten()
-            .is_some_and(|stick| stick.latest_partial);
-        (hint.seq, partial)
-    });
+    let latest = serving_now(store, stick_id)?;
     let mut lines = Vec::new();
     for kept in store.reports(stick_id, now_ms)? {
         let Some(said) = has(&kept, latest) else {
@@ -142,6 +135,19 @@ fn reader_of(hex: &str) -> Result<ReaderId, String> {
     Ok(ReaderId::from_bytes(bytes))
 }
 
+/// Takes one line off the list, or every line (`reader` none).
+pub fn remove_lines(
+    store: &dyn Store,
+    stick_id: &StickId,
+    reader: Option<&ReaderId>,
+) -> anyhow::Result<()> {
+    match reader {
+        Some(reader) => store.hide_report(stick_id, reader)?,
+        None => store.hide_reports(stick_id)?,
+    }
+    Ok(())
+}
+
 /// The lines under a shared stick.
 #[tauri::command]
 pub async fn readers(
@@ -165,14 +171,8 @@ pub async fn remove_readers(
     let stick_id = stick_id_of(&stick_id)?;
     let reader = reader.as_deref().map(reader_of).transpose()?;
     let store = state.store.clone();
-    crate::receiving::work(move || {
-        match reader {
-            Some(reader) => store.hide_report(&stick_id, &reader)?,
-            None => store.hide_reports(&stick_id)?,
-        }
-        Ok(())
-    })
-    .await?;
+    crate::receiving::work(move || remove_lines(store.as_ref(), &stick_id, reader.as_ref()))
+        .await?;
     let _ = app.emit("readers-changed", StickEvent::new(&stick_id, ()));
     Ok(())
 }
@@ -235,5 +235,13 @@ mod tests {
             .keep_report(&id, &two, &report(2, ReportState::UpToDate, None), 40)
             .unwrap();
         assert_eq!(reader_lines(&store, &id, 50).unwrap()[0].has, "older");
+        // Removed, then cleared.
+        remove_lines(&store, &id, Some(&one)).unwrap();
+        assert_eq!(reader_lines(&store, &id, 50).unwrap().len(), 1);
+        remove_lines(&store, &id, None).unwrap();
+        assert!(reader_lines(&store, &id, 50).unwrap().is_empty());
+        // A stick not shared here has none.
+        let other = ourstick_core::StickSigningKey::from_bytes(&[9; 32]).stick_id();
+        assert!(reader_lines(&store, &other, 50).unwrap().is_empty());
     }
 }

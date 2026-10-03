@@ -22,21 +22,36 @@
     }
   }
 
+  /** Many reports come at once (each reader every 30 s): the list is read
+   * again at most four times a second. */
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  function soon() {
+    pending ??= setTimeout(() => {
+      pending = null;
+      void load();
+    }, 250);
+  }
+
   onMount(() => {
-    void load();
+    // Listening first: a report that comes while the list loads is not
+    // missed.
     const stop = listen<{ stick_id: string }>("readers-changed", (event) => {
-      if (event.payload.stick_id === stickId) void load();
+      if (event.payload.stick_id === stickId) soon();
     });
-    return () => void stop.then((unlisten) => unlisten());
+    void stop.then(() => load());
+    return () => {
+      if (pending) clearTimeout(pending);
+      void stop.then((unlisten) => unlisten());
+    };
   });
 
+  /** The list is read again when the change is told. */
   async function remove(reader: string | null) {
     try {
       await removeReaders(stickId, reader);
     } catch (error) {
       failure = String(error);
     }
-    await load();
   }
 
   function day(ms: number): string {
@@ -83,7 +98,7 @@
           case "folder_missing":
             return "is waiting: its folder is not there.";
           case "sender_away":
-            return "is waiting for this computer.";
+            return "was waiting for this computer.";
           default:
             return "is waiting.";
         }
@@ -97,7 +112,7 @@
 
 <section class="readers" aria-label="Who has it">
   {#if lines.length === 0}
-    <p class="muted">No one has received it yet.</p>
+    <p class="muted">No one on this list yet.</p>
   {:else}
     {#if everyone}<p><strong>Everyone who received it is up to date.</strong></p>{/if}
     <ul>

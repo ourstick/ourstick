@@ -104,7 +104,6 @@ pub struct Reporter {
     ticket: Ticket,
     reader_key: ReaderKey,
     kind: ComputerKind,
-    name: Option<String>,
     store: Arc<dyn Store>,
     clock: Arc<dyn Clock>,
     latest: Mutex<Latest>,
@@ -113,11 +112,12 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    /// `name` is only one the receiver typed (never the computer's).
+    /// Each report names the computer by its kind, and by the name its
+    /// receiver typed (read from `store` as it goes, so a change counts at
+    /// once), never by the computer's own name.
     pub fn new(
         ticket: Ticket,
         reader_key: ReaderKey,
-        name: Option<String>,
         store: Arc<dyn Store>,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -125,7 +125,6 @@ impl Reporter {
             ticket,
             reader_key,
             kind: ComputerKind::this(),
-            name,
             store,
             clock,
             latest: Mutex::new(Latest::default()),
@@ -232,10 +231,11 @@ impl Reporter {
         let store = self.store.clone();
         let stick_id = self.ticket.stick_id;
         let now_ms = self.clock.now_ms();
-        let (counter, everything) = run_blocking(move || {
+        let (counter, everything, name) = run_blocking(move || {
             Ok::<_, StoreError>((
                 store.next_report_counter(&stick_id, now_ms)?,
                 store.left_out(&stick_id)?.is_empty(),
+                store.receiver_name()?,
             ))
         })
         .await?;
@@ -245,7 +245,7 @@ impl Reporter {
             state,
             everything,
             kind: self.kind,
-            name: self.name.clone(),
+            name,
         };
         let sealed = seal(
             &report,

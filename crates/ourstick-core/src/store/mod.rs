@@ -8,6 +8,7 @@
 
 mod checks;
 mod memory;
+pub mod reports;
 mod sqlite;
 mod types;
 
@@ -19,6 +20,7 @@ use crate::stick_id::StickId;
 
 pub(crate) use checks::*;
 pub use memory::MemoryStore;
+pub use reports::{KeepOutcome, KeptReport};
 pub use sqlite::{SqliteStore, SCHEMA_VERSION};
 pub use types::*;
 
@@ -245,6 +247,46 @@ pub trait Store: Send + Sync {
     /// [`StoreError::NotNewer`] unless its `seq` is greater than the stored one
     /// (or none is stored), checked and updated atomically.
     fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError>;
+
+    /// Keeps a reader's opened report on an owned stick (ADR 0015, rule 5):
+    /// replaces that reader's line if its counter is higher; a new reader
+    /// only where [`reports::MAX_READERS`] leaves room (a hidden line, or one
+    /// silent for 30 days, makes room); `Forgotten` hides the line, keeping
+    /// its counter. Drops lines older than 90 days. `StickNotFound` for a
+    /// stick not owned, or being removed.
+    fn keep_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+        report: &crate::report::ReaderReport,
+        now_ms: u64,
+    ) -> Result<KeepOutcome, StoreError>;
+
+    /// The lines the sender sees: not hidden, received in the last 90 days,
+    /// the latest first.
+    fn reports(&self, stick_id: &StickId, now_ms: u64) -> Result<Vec<KeptReport>, StoreError>;
+
+    /// "Remove from this list": hides one reader's line (its counter kept).
+    fn hide_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+    ) -> Result<(), StoreError>;
+
+    /// "Clear this list": hides every line of the stick.
+    fn hide_reports(&self, stick_id: &StickId) -> Result<(), StoreError>;
+
+    /// The name this device's receiver chose to show senders, if any.
+    fn receiver_name(&self) -> Result<Option<String>, StoreError>;
+
+    /// Sets or clears it; refused unless 1-40 characters with none
+    /// invisible, or before the device is set up.
+    fn set_receiver_name(&self, name: Option<&str>) -> Result<(), StoreError>;
+
+    /// The counter of a received stick's next report, kept so it grows
+    /// across restarts and a clock set back: the clock's time, or the last
+    /// one plus one.
+    fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError>;
 }
 
 /// Why the store refused an operation. The messages are meant for users.

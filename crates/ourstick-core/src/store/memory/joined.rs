@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use super::{sorted, MemoryStore};
+use crate::record::ManifestRecord;
 use crate::stick_id::StickId;
 use crate::store::{
     check_joined_stick, check_seq, check_stamp, path_str, ClaimKind, DownloadedFile, JoinedChange,
@@ -125,6 +126,7 @@ pub(super) fn forget(store: &MemoryStore, stick_id: &StickId) -> Result<(), Stor
     state.joined.remove(&key);
     state.downloaded_files.remove(&key);
     state.left_out.remove(&key);
+    state.report_counters.remove(&key);
     for kind in [ClaimKind::Download, ClaimKind::Scratch] {
         state.claims.remove(&super::claim_key(stick_id, kind));
     }
@@ -188,5 +190,31 @@ pub(super) fn record_files(
         recorded.insert(file.path.clone(), file.clone());
     }
     state.downloaded_files.insert(key, recorded);
+    Ok(())
+}
+
+/// As the database raises a record floor: only to a greater `seq`.
+pub(super) fn accept_record(
+    store: &MemoryStore,
+    record: &ManifestRecord,
+) -> Result<(), StoreError> {
+    check_seq(record.seq)?;
+    let mut state = store.state();
+    let key = record.stick_id.to_bytes();
+    if let Some(floor) = state.floors.get(&key) {
+        if record.seq <= floor.seq {
+            return Err(StoreError::NotNewer {
+                seq: record.seq,
+                stored: floor.seq,
+            });
+        }
+    }
+    state.floors.insert(
+        key,
+        ManifestVersion {
+            seq: record.seq,
+            hash: record.manifest_hash,
+        },
+    );
     Ok(())
 }

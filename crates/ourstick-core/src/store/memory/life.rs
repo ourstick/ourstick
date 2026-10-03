@@ -77,6 +77,7 @@ fn forget_stick_rows(state: &mut super::State, key: &[u8; 32]) {
     state.owned_files.remove(key);
     state.linked.remove(key);
     state.claims.retain(|(stick, _), _| stick != key);
+    state.reports.remove(key);
 }
 
 pub(super) fn remove(store: &MemoryStore, stick_id: &StickId) -> Result<(), StoreError> {

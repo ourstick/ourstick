@@ -8,6 +8,7 @@ mod linked;
 mod migrations;
 mod owned;
 mod received;
+mod reports;
 mod rows;
 mod space;
 
@@ -24,8 +25,9 @@ use migrations::{migrate, user_version};
 use rows::{blob32, is_constraint_violation, seq_i64, to_u64, OwnedRow, OWNED_COLUMNS};
 
 use super::{
-    check_owned_stick, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry,
-    ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
+    check_owned_stick, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, KeepOutcome,
+    KeptReport, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim,
+    Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -350,6 +352,44 @@ impl Store for SqliteStore {
             seq: record.seq,
             stored: to_u64(stored, "highest_seq")?,
         })
+    }
+
+    fn keep_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+        report: &crate::report::ReaderReport,
+        now_ms: u64,
+    ) -> Result<KeepOutcome, StoreError> {
+        reports::keep_report(&mut self.connection(), stick_id, reader, report, now_ms)
+    }
+
+    fn reports(&self, stick_id: &StickId, now_ms: u64) -> Result<Vec<KeptReport>, StoreError> {
+        reports::reports(&self.connection(), stick_id, now_ms)
+    }
+
+    fn hide_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+    ) -> Result<(), StoreError> {
+        reports::hide(&self.connection(), stick_id, Some(reader))
+    }
+
+    fn hide_reports(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        reports::hide(&self.connection(), stick_id, None)
+    }
+
+    fn receiver_name(&self) -> Result<Option<String>, StoreError> {
+        reports::receiver_name(&self.connection())
+    }
+
+    fn set_receiver_name(&self, name: Option<&str>) -> Result<(), StoreError> {
+        reports::set_receiver_name(&self.connection(), name)
+    }
+
+    fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
+        reports::next_report_counter(&mut self.connection(), stick_id, now_ms)
     }
 }
 

@@ -83,7 +83,12 @@ pub(super) fn mark_removing(connection: &Connection, stick_id: &StickId) -> Resu
 
 /// Deletes the rows that belong to `stick_id` in other tables, then its own.
 fn delete_stick_rows(connection: &Connection, stick_id: &StickId) -> Result<(), StoreError> {
-    for table in ["owned_files", "linked_entries", "space_claims"] {
+    for table in [
+        "owned_files",
+        "linked_entries",
+        "space_claims",
+        "reader_reports",
+    ] {
         connection.execute(
             &format!("DELETE FROM {table} WHERE stick_id = ?1"),
             [stick_id.to_bytes()],

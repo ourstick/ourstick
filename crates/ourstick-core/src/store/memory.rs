@@ -10,11 +10,12 @@ use std::sync::{Mutex, MutexGuard};
 mod extra;
 mod joined;
 mod life;
+mod reports;
 
 use super::{
-    check_device, check_drive_letter, check_owned_file, check_owned_stick, check_seq, path_str,
-    ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion,
-    OwnedFile, OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
+    check_device, check_drive_letter, check_owned_file, check_owned_stick, path_str, ClaimKind,
+    Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile,
+    OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -37,6 +38,10 @@ struct State {
     forgetting: std::collections::BTreeSet<[u8; 32]>,
     /// Ids retired by a new link, with when.
     retired: BTreeMap<[u8; 32], (u64, StickId)>,
+    /// Readers' latest reports on owned sticks (ADR 0015).
+    reports: BTreeMap<[u8; 32], BTreeMap<crate::report::ReaderId, reports::Line>>,
+    receiver_name: Option<String>,
+    report_counters: BTreeMap<[u8; 32], u64>,
 }
 
 fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {
@@ -346,24 +351,48 @@ impl Store for MemoryStore {
     }
 
     fn accept_record(&self, record: &ManifestRecord) -> Result<(), StoreError> {
-        check_seq(record.seq)?;
-        let mut state = self.state();
-        let key = record.stick_id.to_bytes();
-        if let Some(floor) = state.floors.get(&key) {
-            if record.seq <= floor.seq {
-                return Err(StoreError::NotNewer {
-                    seq: record.seq,
-                    stored: floor.seq,
-                });
-            }
-        }
-        state.floors.insert(
-            key,
-            ManifestVersion {
-                seq: record.seq,
-                hash: record.manifest_hash,
-            },
-        );
-        Ok(())
+        joined::accept_record(self, record)
+    }
+
+    fn keep_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+        report: &crate::report::ReaderReport,
+        now_ms: u64,
+    ) -> Result<super::KeepOutcome, StoreError> {
+        reports::keep(self, stick_id, reader, report, now_ms)
+    }
+
+    fn reports(
+        &self,
+        stick_id: &StickId,
+        now_ms: u64,
+    ) -> Result<Vec<super::KeptReport>, StoreError> {
+        reports::reports(self, stick_id, now_ms)
+    }
+
+    fn hide_report(
+        &self,
+        stick_id: &StickId,
+        reader: &crate::report::ReaderId,
+    ) -> Result<(), StoreError> {
+        reports::hide(self, stick_id, Some(reader))
+    }
+
+    fn hide_reports(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        reports::hide(self, stick_id, None)
+    }
+
+    fn receiver_name(&self) -> Result<Option<String>, StoreError> {
+        Ok(self.state().receiver_name.clone())
+    }
+
+    fn set_receiver_name(&self, name: Option<&str>) -> Result<(), StoreError> {
+        reports::set_receiver_name(self, name)
+    }
+
+    fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
+        reports::next_report_counter(self, stick_id, now_ms)
     }
 }

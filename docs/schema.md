@@ -25,7 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 19
+## Version 20
+
+Version 20 (`0020_reader_reports.sql`, ADR 0015) added `reader_reports`,
+`device.receiver_name` (NULL for every device before) and
+`joined_sticks.report_counter` (0 for every stick before).
 
 Version 19 (`0019_left_out.sql`, ADR 0012) added `joined_left_out`, below.
 
@@ -84,6 +88,7 @@ its node key, which its older sticks use.
 | `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS), `credential-manager` (Windows) or `key-file` |
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
+| `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible; NULL (the usual) shows only the kind of computer |
 
 If a secret that the database says exists is missing from the recorded
 backend, that is an error for the user to resolve, never a reason to generate
@@ -131,6 +136,7 @@ created by the first `get`.
 | `name`                    | TEXT    | Its name as the last verified manifest gave it; NULL before one |
 | `paused`                  | INTEGER | 1 if the user paused it in the receiver window                |
 | `forgetting`              | INTEGER | 1 while it is being forgotten: hidden, finished at the next start |
+| `report_counter`          | INTEGER | The counter of its last report to the owner (ADR 0015), so the next is higher across restarts and a clock set back |
 
 The latest folder wins: a `get` into another folder sets `output_dir` to it and
 clears `completed_*`, because the new folder holds nothing yet; but `get` never
@@ -228,6 +234,40 @@ never reads it.
 | `name`     | TEXT    | A path of one or two parts, as above                 |
 
 Primary key `(stick_id, name)`.
+
+### `reader_reports`
+
+The latest report of each reader of an owned stick (ADR 0015), as
+`report::open` gave it: what the reader claims, never a proof. Written by
+`Store::keep_report` only, which decides by `store::reports`:
+
+- a report replaces its reader's row only if its `counter` is higher (an
+  old report sent again changes nothing);
+- a new reader is kept while the stick has fewer than 200 rows; else in
+  place of a hidden row, else of the one silent longest if silent for 30
+  days; else refused (a flood fills only the free places);
+- `forgotten` hides the row and keeps its counter;
+- rows received more than 90 days ago are deleted, and never read.
+
+Deleted with the stick (removed, or a new link).
+
+| Column        | Type    | Meaning                                                        |
+|---------------|---------|----------------------------------------------------------------|
+| `stick_id`    | BLOB 32 | The owned stick (foreign key to `owned_sticks`)                |
+| `reader_id`   | BLOB 32 | The reader's public key for this stick                         |
+| `counter`     | INTEGER | Its report's counter                                           |
+| `seq`         | INTEGER | The version it reports on                                      |
+| `state`       | TEXT    | `downloading`, `up_to_date`, `waiting`, `paused`, `forgotten`  |
+| `percent`     | INTEGER | 0–99, only while `downloading`                                 |
+| `reason`      | TEXT    | `sender_away`, `no_room`, `folder_missing`, `other`, only while `waiting` |
+| `everything`  | INTEGER | 1 if it gets the whole stick                                   |
+| `kind`        | TEXT    | `macos`, `windows`, `linux`, `other`                           |
+| `name`        | TEXT    | A name its receiver typed, or NULL                             |
+| `first_ms`    | INTEGER | When this owner first heard from it (its own clock)            |
+| `received_ms` | INTEGER | When this owner received the report (its own clock)            |
+| `hidden`      | INTEGER | 1 if off the sender's list (removed, cleared, or forgotten by the reader) |
+
+Primary key `(stick_id, reader_id)`; index `(stick_id, received_ms)`.
 
 ### `linked_entries`
 

@@ -156,3 +156,37 @@ fn migration_19_leaves_nothing_out() {
     store.set_left_out(&stick, &["Films".to_owned()]).unwrap();
     assert_eq!(store.left_out(&stick).unwrap(), ["Films"]);
 }
+
+#[test]
+fn migration_20_starts_every_counter_and_list_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    {
+        // A database as version 19 left it, with a device and a received
+        // stick.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..19] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 19).unwrap();
+        connection
+            .execute(
+                "INSERT INTO device (id, node_id, secret_backend, created_at_ms)
+                 VALUES (1, ?1, 'secret-service', 1)",
+                [[9u8; 32]],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO joined_sticks (stick_id, output_dir, joined_at_ms) VALUES (?1, '/d/x', 4)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert_eq!(store.receiver_name().unwrap(), None);
+    assert_eq!(store.next_report_counter(&stick, 5).unwrap(), 5);
+    store.set_receiver_name(Some("Μαρία")).unwrap();
+    assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
+}

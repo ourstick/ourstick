@@ -14,7 +14,8 @@ things on it (a few music folders, some documents). The receiver window
 
 ## Decision
 
-1. **The choice is by top-level entry**: each folder and file directly on
+1. **The choice is by top-level entry** (amended: a top-level folder can
+   be opened, Amendment 1): each folder and file directly on
    the stick, as the preview already lists them (name, size). Ticked or not.
    Deeper choices (a folder inside a folder) are not in v1.
 2. **What is left out is recorded, not what is taken.** A stick's choice is

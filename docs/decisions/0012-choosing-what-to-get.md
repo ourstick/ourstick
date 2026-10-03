@@ -144,7 +144,7 @@ things on it (a few music folders, some documents). The receiver window
    behaviour; nothing on the wire changes), schema.md, todo.md; status
    Accepted.
 
-## Amendment 1: choosing inside one big folder (proposed, 2026-10-03)
+## Amendment 1: choosing inside a folder (proposed, 2026-10-03)
 
 ### Context
 
@@ -152,49 +152,68 @@ The big-folder test: a stick whose top level is one linked folder (a whole disk
 shared, 979 GB) showed the receiver one tick, all or nothing. Sharing one
 big folder as it is ("Share it as it is", ADR 0008) is the common way to
 share a disk, so rule 1's choice by top-level entry chooses nothing there.
+A first draft chose "one level deeper when the top level is one folder";
+the reviews showed that level would flip from version to version (partial
+versions, a second entry added later) and make choices hide each other.
 
 ### Decision
 
-1. **The choice is made where there is more than one thing.** When a
-   stick's top level holds exactly one entry and it is a folder, the choice
-   lists what is inside that folder instead (its folders and files, each
-   with a tick); otherwise, as before, the top level. Not deeper: a folder
-   inside the one folder inside the one folder is chosen whole.
-2. **What is left out is a path, not only a name.** A left-out entry is a
-   path of one or two parts, byte-exact as in the manifest
-   (`Rescued_Disk/MUSIC`); a file is left out when its path is
-   one of them or lies under one. Everything else of rule 2 stays: an empty
-   set gets everything, new things come (a new folder inside the one
-   folder comes too), un-ticked entries keep their recorded places.
-3. **When the stick changes shape, choices stay.** If the sender adds a
-   second top-level entry, the choice lists the top level again; entries
-   left out inside the first folder stay left out, and the list shows them
-   among the rest (as "not on the stick now" only if they are gone).
-4. **The words do not change**: "What to get:", the ticks, "Not getting:
-   Rescued_Disk/MUSIC." (the path, isolated), "Not updating:
-   …". The preview's title says which folder the ticks are inside: "Inside
-   Rescued_Disk:".
+1. **A folder at the top level can be opened, and what is inside it
+   chosen.** The ticks list the top level as before; each folder there has
+   an arrow that shows its folders and files, one level down, each with a
+   tick of its own. When the top level is one folder, it is shown open.
+   Not deeper: a folder inside an opened folder is chosen whole. What is
+   shown open is the window's alone: the core never decides a "level", so
+   nothing flips when the stick changes.
+2. **What is left out is a path of one or two parts**, byte-exact as in
+   the manifest (`Films`, `Rescued_Disk/MUSIC`); a file is left
+   out when its path is one of them or lies under one. Each part is a plain
+   name (no empty part, `.`, `..`, or `/` at either end), checked when it is
+   saved. Everything else of the original rule 2 stays: an empty set gets
+   everything, new things come (a new folder inside an opened one too),
+   un-ticked entries keep their recorded places.
+3. **The set is kept simple:** saving drops a path that lies under another
+   one in the set (an un-ticked folder covers its inside). An un-ticked
+   folder shows its inside un-ticked; ticking one thing inside it ticks the
+   folder back with everything else in it un-ticked. A save still sends
+   the whole set, every path shown or not (rule 3 of the original).
+4. **"Not on the stick now"** is said of a left-out path only when the
+   sender's list (the latest round's) no longer has it, at either depth.
+5. **Words.** The ticks are a tree: `Rescued_Disk/` with its
+   folders and files indented below it. "Not getting: MUSIC, Pictures
+   (inside Rescued_Disk)." Every name is the sender's: escaped
+   and isolated as before.
 
 ### In the code
 
-- `download/choice_level.rs` (new): `choice_path(path, deep) -> &str`, the
-  first one or two parts of a path; `is_deep(manifest)`: one top-level
-  entry, a folder. Every place that today takes `path.split('/').next()`
-  for the choice (`folder.rs` planning, `bytes_by_top`, `listing.rs`
-  `top_entries`, the `Contents` and `NotChosen` events) takes it from here,
-  so one place decides.
-- The left-out set matches by prefix (`path == entry` or starts with
-  `entry/`), in `plan_folder_by`; `Store::has_files_under` already does.
-- The app: `save_choice` accepts a path of two plain parts; the preview and
-  "Choose what to get…" show the folder's name above the ticks.
-- Tests: a one-folder stick lists its inside; leaving out
-  `Folder/Sub` gets everything else; a second top-level entry later shows
-  the top level and keeps `Folder/Sub` left out; a deep stick's new
-  subfolder comes.
+- `download/left_out.rs` (new): `LeftOut`, the set, with `covers(path) ->
+  Option<&str>` (the entry that leaves a path out). Planning
+  (`plan_folder_by`), the bytes per entry (`bytes_by_top`), the plan's
+  `not_chosen` and the `NotChosen` event all use it, so one place decides
+  what is out, and the sums and words group by what was left out, not by
+  the first part.
+- `listing.rs`: `TopEntry` gains `inside: Vec<TopEntry>` for a folder (its
+  folders and files one level down, with their bytes and bytes to write);
+  the `Contents` event and the preview carry it, so the window can open a
+  folder while the sender is away.
+- The store: `joined_left_out.name` now holds a path of one or two parts
+  (no migration: a one-part name is such a path); `set_left_out` refuses
+  bad parts and drops covered paths; `has_files_under` already works on a
+  path.
+- The app: `save_choice` the same; `choice_entries` lists the tree and the
+  left-out paths; the windows (AddLink, ChooseWhat) draw the tree; the CLI
+  gets everything, as before.
+- Tests: a path inside a folder left out, everything else got; a folder
+  un-ticked covering its inside (normalised); a shape change (a second
+  top-level entry later) keeping `Folder/Sub` left out and on the stick;
+  bad paths refused; sums and "Not getting" grouped by what was left out;
+  the CLI and the window's words with paths.
 
 ### Order of work
 
-1. Core: the choice level and prefix matching, with tests.
-2. App: the two-part names, the folder's name above the ticks.
-3. Docs; status Accepted. A manual test with a one-folder stick (a linked
-   folder of a few subfolders).
+1. Core: `LeftOut`, the listing's inside, with tests.
+2. Store and app: paths saved and normalised; the tree in both windows.
+3. Docs: gui-spec.md (the tree, the words), protocol.md (a reader may
+   leave out paths of two parts; nothing on the wire), schema.md (what
+   `joined_left_out.name` holds), todo.md; status Accepted. A manual test
+   with a one-folder stick.

@@ -217,8 +217,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **Next, in this order (agreed 2026-10-02):**
   1. ~~ADR 0012, choosing what to get~~ (done 2026-10-03, tried Linux → Mac:
      a 104 GB folder left out, a file un-ticked kept and no longer updated).
-  2. ADR 0014, receiving many small files (proposed 2026-10-03: records in
-     groups, 16 files placed at once; first, by Giorgos' choice).
+  2. ADR 0014, receiving many small files (Giorgos agreed 2026-10-03;
+     steps 1-3 done and reviewed). Measured, 10 000 files of 1-8 KB with the
+     CLI, before and after: Linux NVMe 112 s → 19.3 s, Linux HDD 407 s →
+     136 s, Windows VM (from Linux) 28:38 → 7:59. Left: the Mac (it was off),
+     then the docs (step 5).
   3. ADR 0013, giving way to the user's disk (written and reviewed; Giorgos
      agreed 2026-10-03): OurStick times its own reads in windows and, when
      they get far slower (someone else is using the disk), reads a tenth of

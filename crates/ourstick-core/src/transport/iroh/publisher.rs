@@ -39,6 +39,7 @@ pub struct IrohPublisher {
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
+    /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
     reports: Arc<Mutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>>,
     activity: Activity,
     /// Recomputes `activity`; stopped at shutdown.

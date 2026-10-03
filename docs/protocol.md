@@ -563,11 +563,13 @@ not the connection a download uses), on one bidirectional stream.
 |-----------|----------|-------------------------------------------------------------|
 | Request   | 32       | The StickId, in clear, so the owner knows which key opens it |
 | Request   | ≤ 480    | The sealed report (above)                                   |
-| Response  | 0        | Nothing: the stream ends once the owner has taken the report |
+| Response  | 0        | Nothing: the stream ends once the owner has taken the report, or is reset (code 1) if it was not |
 
 The owner reads at most 512 bytes; a longer request is never read whole nor
-handed on. A request for another stick, or without a report, is dropped.
-At most 32 reports wait for the owner to open them; more are dropped. The
+handed on. A request for another stick, or without a report, is not taken.
+At most 32 reports wait for the owner to open them; more are not taken. A
+reader keeps a report that was not taken and sends it again later. An owner
+closes a connection 10 seconds after its answer if the peer has not. The
 transport opens nothing: the owner's side opens each report with the stick's
 key (`SecretName::StickKey`), and drops one that does not open, saying
 nothing to the reader either way.

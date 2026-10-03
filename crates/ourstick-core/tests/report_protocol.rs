@@ -55,7 +55,8 @@ async fn a_report_reaches_the_owner_and_opens_with_the_sticks_key() {
     assert_eq!(opened.report, report());
     // One for another stick is not handed on.
     let other = ourstick_core::StickSigningKey::from_bytes(&[8; 32]).stick_id();
-    connection.report(&other, &sealed).await.unwrap();
+    // The reader is told it was not taken, so it keeps it.
+    assert!(connection.report(&other, &sealed).await.is_err());
     // Too long: refused by the reader before it goes.
     assert!(connection
         .report(&ticket.stick_id, &vec![1; MAX_REPORT_BYTES])
@@ -110,5 +111,31 @@ async fn a_request_longer_than_a_report_is_not_read_past_the_limit() {
         "a request past the limit was handed on"
     );
     endpoint.close().await;
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_report_not_taken_is_told_so() {
+    let owner = Owner::new(&[("a.txt", b"hello")]).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let reader = Reader::new();
+    let fetcher = reader.fetcher().await;
+    let connection = fetcher.connect(&ticket).await.unwrap();
+    let sealed = seal(
+        &report(),
+        &ReaderKey::generate(),
+        &ticket.stick_id,
+        &ticket.stick_key,
+    )
+    .unwrap();
+    // Never opened: 32 wait (also before the owner's side takes them), the
+    // next is not taken.
+    for _ in 0..32 {
+        connection.report(&ticket.stick_id, &sealed).await.unwrap();
+    }
+    assert!(connection.report(&ticket.stick_id, &sealed).await.is_err());
+    connection.close().await;
+    fetcher.shutdown(false).await.unwrap();
     owner.publisher.shutdown().await;
 }

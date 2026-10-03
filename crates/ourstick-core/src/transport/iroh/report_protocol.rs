@@ -3,24 +3,33 @@
 //!
 //! One bidirectional stream. Request: the StickId (32 bytes), then the
 //! sealed report; at most [`MAX_REPORT_BYTES`] in all, read with that limit.
-//! Answer: nothing, the stream finished once the report is taken (or
-//! dropped), so the reader knows it arrived. The transport opens nothing:
+//! Answer: nothing, the stream finished once the report is taken, so the
+//! reader knows it arrived; reset when it is not taken (another stick, too
+//! many waiting, no one taking reports), so the reader keeps it to send
+//! again. The transport opens nothing:
 //! it hands the sealed bytes to the owner's side, which holds the key.
 
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use tokio::sync::mpsc;
 
-use crate::report::MAX_REPORT_BYTES;
+use crate::report::{MAX_REPORT_BYTES, MAX_SEALED_BYTES};
 use crate::stick_id::StickId;
 use crate::transport::TransportError;
 
 /// ALPN of the report protocol.
 pub const REPORT_ALPN: &[u8] = b"ourstick/report/1";
 
-/// How many reports may wait for the owner's side; more are dropped, so a
+/// How many reports may wait for the owner's side; more are refused, so a
 /// flood costs the owner no memory and no work beyond reading them.
 pub(super) const WAITING_REPORTS: usize = 32;
+
+/// How long a peer may keep a connection open after its report: a peer
+/// that never closes holds nothing longer (shared with the record server).
+pub(super) const LINGER: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What a stream is reset with when its report is not taken.
+const NOT_TAKEN: u32 = 1;
 
 /// The owner's side: takes reports for its stick and hands them on.
 #[derive(Debug, Clone)]
@@ -45,28 +54,47 @@ impl ProtocolHandler for ReportServer {
             .read_to_end(MAX_REPORT_BYTES)
             .await
             .map_err(AcceptError::from_err)?;
-        match self.sealed(&request) {
+        let taken = match self.sealed(&request) {
             Some(sealed) => {
-                if self.reports.try_send(sealed).is_err() {
-                    tracing::debug!("a reader's report dropped: too many waiting");
+                let taken = self.reports.try_send(sealed).is_ok();
+                if !taken {
+                    tracing::debug!("a reader's report not taken: too many waiting");
                 }
+                taken
             }
-            None => tracing::debug!("a request on the report protocol not for this stick"),
+            None => {
+                tracing::debug!("a request on the report protocol not for this stick");
+                false
+            }
+        };
+        if taken {
+            send.finish()?;
+        } else {
+            send.reset(NOT_TAKEN.into()).ok();
         }
-        send.finish()?;
-        connection.closed().await;
+        linger(&connection).await;
         Ok(())
     }
 }
 
+/// Waits for the peer to close, at most [`LINGER`], then closes.
+pub(super) async fn linger(connection: &Connection) {
+    if tokio::time::timeout(LINGER, connection.closed())
+        .await
+        .is_err()
+    {
+        connection.close(0u32.into(), b"done");
+    }
+}
+
 /// The reader's side: sends one sealed report and waits until the owner
-/// has taken it.
+/// has taken it; an error if it was not.
 pub(super) async fn send_report(
     connection: &Connection,
     stick_id: &StickId,
     sealed: &[u8],
 ) -> Result<(), TransportError> {
-    if 32 + sealed.len() > MAX_REPORT_BYTES {
+    if sealed.len() > MAX_SEALED_BYTES {
         return Err(TransportError::Protocol("a report is too long".to_owned()));
     }
     let interrupted =
@@ -78,7 +106,8 @@ pub(super) async fn send_report(
     send.write_all(&[&stick_id.to_bytes()[..], sealed].concat())
         .await
         .map_err(|error| interrupted(&error))?;
-    send.finish().map_err(|error| interrupted(&error))?;
+    send.finish()
+        .map_err(|error| TransportError::Protocol(error.to_string()))?;
     recv.read_to_end(0)
         .await
         .map_err(|error| interrupted(&error))?;

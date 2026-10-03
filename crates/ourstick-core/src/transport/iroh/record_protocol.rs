@@ -52,7 +52,7 @@ impl ProtocolHandler for RecordServer {
             .await
             .map_err(AcceptError::from_err)?;
         send.finish()?;
-        connection.closed().await;
+        super::report_protocol::linger(&connection).await;
         Ok(())
     }
 }

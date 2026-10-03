@@ -157,7 +157,8 @@ Things that hold, from earlier decisions:
   `ourstick/report/1` to the same owner on a connection of its own (one
   QUIC connection speaks one protocol, as `fetch_record` does), in the new
   `report_protocol.rs` beside `record_protocol.rs`. `Publisher` gains `take_reports()`, a channel of
-  raw reports with their StickId, like `take_demand()`; the owner's side
+  sealed reports (one publisher serves one stick, so the StickId is known),
+  like `take_demand()`; the owner's side
   opens them with the stick's key (the transport holds no StickKey). The
   in-memory fakes (`tests/common/owner_in_memory.rs`) do the same. Reports
   are not `Demand` and not `ReaderActivity` (ADR 0007): a separate channel.

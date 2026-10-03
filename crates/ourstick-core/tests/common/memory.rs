@@ -317,18 +317,20 @@ impl PeerConnection for MemoryConnection {
             received,
         })
     }
-    /// As the owner's endpoint takes a report: for its stick, handed on
-    /// whole; dropped if the owner's side does not take reports or too many
-    /// wait.
+    /// As the owner's endpoint takes a report: handed on whole, or an error
+    /// if too many wait; before the owner's side takes reports, it is
+    /// accepted and lost. (The stick is not checked: the fake serves one.)
     async fn report(&self, _stick_id: &StickId, sealed: &[u8]) -> Result<(), TransportError> {
         let served = self.served.lock().unwrap();
         if served.unreachable_for_reports {
             return Err(TransportError::Unreachable("the owner is away".to_owned()));
         }
-        if let Some(reports) = &served.reports {
-            reports.try_send(sealed.to_vec()).ok();
+        match &served.reports {
+            Some(reports) if reports.try_send(sealed.to_vec()).is_ok() => Ok(()),
+            _ => Err(TransportError::Interrupted(
+                "the report was not taken".to_owned(),
+            )),
         }
-        Ok(())
     }
     async fn close(self) {
         if let Some(demand) = &self.served.lock().unwrap().demand {

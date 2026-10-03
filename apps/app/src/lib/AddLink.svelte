@@ -1,6 +1,15 @@
 <script lang="ts">
-  import { addReceived, chooseFolder, previewLink, type PreviewView } from "./api";
+  import {
+    addReceived,
+    chooseFolder,
+    previewInside,
+    previewLink,
+    previewNeeds,
+    type PreviewEntry,
+    type PreviewView,
+  } from "./api";
   import { size } from "./format";
+  import ChoiceTree, { type ChoiceRow } from "./ChoiceTree.svelte";
   import PathText from "./PathText.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
 
@@ -17,8 +26,12 @@
   let looked = "";
   let parent = $state<string | null>(null);
   let preview = $state<PreviewView | null>(null);
-  /** The top-level names un-ticked (ADR 0012), exactly as the stick names them. */
-  let unticked = $state<Set<string>>(new Set());
+  /** The paths left out (ADR 0012 and its Amendment 1), exactly as the
+   * stick names them. */
+  let leftOut = $state<string[]>([]);
+  let none = $state(false);
+  /** What would be written with this choice, as the core counts it. */
+  let needs = $state(0);
   let looking = $state(false);
   let adding = $state(false);
   let failure = $state<string | null>(null);
@@ -31,7 +44,7 @@
     try {
       const seen = await previewLink(asked, parent);
       // Another link starts with everything ticked; another folder keeps the ticks.
-      if (asked !== looked) unticked = new Set();
+      if (asked !== looked) leftOut = [];
       preview = seen;
       looked = asked;
     } catch (error) {
@@ -68,7 +81,7 @@
     adding = true;
     failure = null;
     try {
-      onAdded(await addReceived(looked, preview.folder, preview.name, [...unticked]));
+      onAdded(await addReceived(looked, preview.folder, preview.name, leftOut));
     } catch (error) {
       failure = String(error);
     } finally {
@@ -76,23 +89,34 @@
     }
   }
 
+  /** A preview's entry as the ticks list it: its last part shown. */
+  function row(entry: PreviewEntry): ChoiceRow {
+    return { ...entry, shown: entry.name.slice(entry.name.lastIndexOf("/") + 1) };
+  }
+
   /** Largest first: size is why the list is opened. */
-  let entries = $derived(preview ? [...preview.entries].sort((a, b) => b.bytes - a.bytes) : []);
-  let chosen = $derived(entries.filter((entry) => !unticked.has(entry.name)));
-  /** Entries listed, none ticked: nothing would come. (None listed yet, as
-   * while the sender starts counting, is not a choice: everything comes.) */
-  let none = $derived(entries.length > 0 && chosen.length === 0);
-  let needs = $derived(chosen.reduce((sum, entry) => sum + entry.to_write, 0));
+  let entries = $derived(preview ? [...preview.entries].sort((a, b) => b.bytes - a.bytes).map(row) : []);
+
+  async function loadInside(folder: string): Promise<ChoiceRow[]> {
+    return (await previewInside(folder)).sort((a, b) => b.bytes - a.bytes).map(row);
+  }
+
+  // What the choice needs, asked of the core whenever it or the preview
+  // changes; only the latest answer counts.
+  let askedNeeds = 0;
+  $effect(() => {
+    if (!preview) return;
+    const set = [...leftOut];
+    const mine = ++askedNeeds;
+    previewNeeds(set)
+      .then((answer) => {
+        if (mine === askedNeeds) needs = answer;
+      })
+      .catch((error) => (failure = String(error)));
+  });
   // While the sender still counts, what is known is the least it needs:
   // more than is left already does not fit.
   let fits = $derived(preview !== null && needs <= preview.left);
-
-  function tick(name: string, on: boolean) {
-    const next = new Set(unticked);
-    if (on) next.delete(name);
-    else next.add(name);
-    unticked = next;
-  }
 </script>
 
 <section class="add">
@@ -123,29 +147,20 @@
     <p class="row spread">
       <strong>What to get:</strong>
       <span class="row">
-        <button onclick={() => (unticked = new Set())} disabled={adding || unticked.size === 0}>All</button>
-        <button
-          onclick={() => (unticked = new Set(entries.map((entry) => entry.name)))}
-          disabled={adding || chosen.length === 0}>None</button
+        <button onclick={() => (leftOut = [])} disabled={adding || leftOut.length === 0}>All</button>
+        <button onclick={() => (leftOut = entries.map((entry) => entry.name))} disabled={adding || none}
+          >None</button
         >
       </span>
     </p>
-    <ul class="entries">
-      {#each entries as entry (entry.name)}
-        <li>
-          <label class="tick">
-            <input
-              type="checkbox"
-              checked={!unticked.has(entry.name)}
-              onchange={(event) => tick(entry.name, event.currentTarget.checked)}
-              disabled={adding}
-            />
-            <bdi class="name">{entry.name}{entry.is_dir ? "/" : ""}</bdi>
-          </label>
-          <span class="muted size">{size(entry.bytes)}</span>
-        </li>
-      {/each}
-    </ul>
+    <ChoiceTree
+      rows={entries}
+      bind:leftOut
+      bind:none
+      {loadInside}
+      disabled={adding}
+      onFailure={(why) => (failure = why)}
+    />
     <p class="muted">New things the sender adds will come too.</p>
     <p class="row spread">
       <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
@@ -212,37 +227,6 @@
   .spread {
     justify-content: space-between;
   }
-  .entries {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    overflow-y: auto;
-    min-height: 0;
-    flex: 1 1 auto;
-  }
-  .entries li {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 4px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--button-radius);
-  }
-  .tick {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-  .size {
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  .name,
   .path {
     overflow: hidden;
     text-overflow: ellipsis;

@@ -119,21 +119,33 @@ async fn a_released_stick_keeps_no_names_of_its_last_round() {
 fn a_round_s_contents_are_kept_until_the_stick_is_let_go() {
     let receivers = Receivers::default();
     assert!(receivers.contents(&stick(3)).is_none());
-    let entry = ourstick_core::download::TopEntry {
-        name: "Films".to_owned(),
-        is_dir: true,
-        files: 2,
-        bytes: 9,
-        to_write: 9,
+    let manifest = ourstick_core::Manifest {
+        name: "Holiday".to_owned(),
+        ..ourstick_core::Manifest::default()
     };
-    receivers.contents_now(stick(3), std::slice::from_ref(&entry));
-    assert_eq!(receivers.contents(&stick(3)), Some(vec![entry]));
+    receivers.contents_now(stick(3), &manifest);
+    assert_eq!(receivers.contents(&stick(3)).as_deref(), Some(&manifest));
+}
+
+#[test]
+fn the_latest_preview_is_kept_for_opening_its_folders() {
+    let receivers = Receivers::default();
+    assert!(receivers.previewed().is_none());
+    let previewed = super::holder::Previewed {
+        manifest: std::sync::Arc::new(ourstick_core::Manifest::default()),
+        to_write: std::sync::Arc::new([("Disk/a".to_owned(), 3)].into()),
+    };
+    receivers.previewed_now(previewed);
+    assert_eq!(
+        receivers.previewed().unwrap().to_write.get("Disk/a"),
+        Some(&3)
+    );
 }
 
 #[tokio::test]
 async fn a_released_stick_keeps_no_contents() {
     let receivers = Receivers::default();
-    receivers.contents_now(stick(4), &[]);
+    receivers.contents_now(stick(4), &ourstick_core::Manifest::default());
     receivers.release(&stick(4)).await;
     assert!(receivers.contents(&stick(4)).is_none());
 }

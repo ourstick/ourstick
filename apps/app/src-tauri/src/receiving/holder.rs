@@ -43,11 +43,22 @@ pub struct Receivers {
     /// from its plan, so only names in the stick now; none before a round
     /// has planned (the window then reads what is recorded).
     saved_as: Mutex<HashMap<StickId, Vec<ourstick_core::download::SavedAs>>>,
-    /// What each stick's latest round found at its top level (ADR 0012),
-    /// for choosing what to get with the sender away.
-    contents: Mutex<HashMap<StickId, Vec<ourstick_core::download::TopEntry>>>,
+    /// Each stick's latest round's manifest (ADR 0012 and its Amendment 1),
+    /// for choosing what to get, at the top level or inside a folder, with
+    /// the sender away.
+    contents: Mutex<HashMap<StickId, Arc<ourstick_core::Manifest>>>,
+    /// The latest preview's manifest and bytes to write by path, for what
+    /// is inside a folder when the window opens it there.
+    previewed: Mutex<Option<Previewed>>,
     /// Quit began: nothing starts any more.
     pub(super) quitting: std::sync::atomic::AtomicBool,
+}
+
+/// A preview's manifest and what each path would write.
+#[derive(Debug, Clone)]
+pub struct Previewed {
+    pub manifest: Arc<ourstick_core::Manifest>,
+    pub to_write: Arc<std::collections::BTreeMap<String, u64>>,
 }
 
 impl Receivers {
@@ -78,17 +89,22 @@ impl Receivers {
 
     /// What `stick_id`'s latest round found at its top level, if a round
     /// has read its manifest since the app started.
-    pub fn contents(&self, stick_id: &StickId) -> Option<Vec<ourstick_core::download::TopEntry>> {
+    pub fn contents(&self, stick_id: &StickId) -> Option<Arc<ourstick_core::Manifest>> {
         lock(&self.contents).get(stick_id).cloned()
     }
 
-    /// A round read the stick's manifest: what is at its top level now.
-    pub(super) fn contents_now(
-        &self,
-        stick_id: StickId,
-        entries: &[ourstick_core::download::TopEntry],
-    ) {
-        lock(&self.contents).insert(stick_id, entries.to_vec());
+    /// A round read the stick's manifest: what is on it now.
+    pub(super) fn contents_now(&self, stick_id: StickId, manifest: &ourstick_core::Manifest) {
+        lock(&self.contents).insert(stick_id, Arc::new(manifest.clone()));
+    }
+
+    /// The latest preview, kept for opening its folders.
+    pub fn previewed(&self) -> Option<Previewed> {
+        lock(&self.previewed).clone()
+    }
+
+    pub(super) fn previewed_now(&self, previewed: Previewed) {
+        *lock(&self.previewed) = Some(previewed);
     }
 
     /// A round planned: what it saves under another name starts empty.

@@ -93,6 +93,7 @@ pub async fn preview_link(
     text: String,
     parent: Option<String>,
     state: State<'_, AppState>,
+    receivers: State<'_, super::Receivers>,
 ) -> Result<PreviewView, String> {
     let ticket = ticket_of(&text)?;
     let store = state.store.clone();
@@ -153,20 +154,15 @@ pub async fn preview_link(
         )?)
     })
     .await?;
+    // Kept for opening its folders (ADR 0012, Amendment 1).
+    receivers.previewed_now(super::holder::Previewed {
+        manifest: std::sync::Arc::new(previewed.manifest),
+        to_write: std::sync::Arc::new(previewed.to_write_by_path),
+    });
     Ok(PreviewView {
         name: previewed.name,
         partial: previewed.partial,
-        entries: previewed
-            .entries
-            .into_iter()
-            .map(|entry| EntryView {
-                name: entry.name,
-                is_dir: entry.is_dir,
-                files: entry.files,
-                bytes: entry.bytes,
-                to_write: entry.to_write,
-            })
-            .collect(),
+        entries: previewed.entries.into_iter().map(EntryView::from).collect(),
         total: previewed.total,
         to_write: previewed.to_write,
         earlier: earlier.as_ref() == Some(&previewed.folder),
@@ -181,9 +177,84 @@ pub async fn preview_link(
     })
 }
 
+impl From<ourstick_core::download::TopEntry> for EntryView {
+    fn from(entry: ourstick_core::download::TopEntry) -> Self {
+        Self {
+            name: entry.name,
+            is_dir: entry.is_dir,
+            files: entry.files,
+            bytes: entry.bytes,
+            to_write: entry.to_write,
+        }
+    }
+}
+
+/// What is inside a top-level `folder` of the latest preview, when the
+/// window opens it: each named by its whole path, with what it would write.
+#[tauri::command]
+pub fn preview_inside(
+    folder: String,
+    receivers: State<'_, super::Receivers>,
+) -> Result<Vec<EntryView>, String> {
+    let previewed = receivers
+        .previewed()
+        .ok_or_else(|| "Look at the sharing link again.".to_owned())?;
+    Ok(ourstick_core::download::entries_in(
+        &previewed.manifest,
+        Some(&folder),
+        Some(&previewed.to_write),
+    )
+    .into_iter()
+    .map(EntryView::from)
+    .collect())
+}
+
+/// What the latest preview would write with `left_out` not got: its whole
+/// bytes to write, less each path left out (a set the core accepts).
+#[tauri::command]
+pub fn preview_needs(
+    left_out: Vec<String>,
+    receivers: State<'_, super::Receivers>,
+) -> Result<u64, String> {
+    let previewed = receivers
+        .previewed()
+        .ok_or_else(|| "Look at the sharing link again.".to_owned())?;
+    let left_out = ourstick_core::download::LeftOut::normalised(&left_out)
+        .map_err(|_| "That choice cannot be used. Choose again.".to_owned())?;
+    Ok(needs(&previewed.to_write, &left_out.paths()))
+}
+
+/// Bytes to write by path (top-level keys and keys inside one), less the
+/// paths left out: `left_out` normalised, so none lies under another.
+fn needs(to_write: &std::collections::BTreeMap<String, u64>, left_out: &[String]) -> u64 {
+    let all: u64 = to_write
+        .iter()
+        .filter(|(path, _)| !path.contains('/'))
+        .map(|(_, bytes)| *bytes)
+        .sum();
+    let out: u64 = left_out.iter().filter_map(|path| to_write.get(path)).sum();
+    all.saturating_sub(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_a_choice_needs_leaves_out_each_path_once() {
+        let to_write: std::collections::BTreeMap<String, u64> = [
+            ("Disk".to_owned(), 10),
+            ("Disk/MUSIC".to_owned(), 6),
+            ("Disk/Pictures".to_owned(), 3),
+            ("note".to_owned(), 1),
+        ]
+        .into();
+        assert_eq!(needs(&to_write, &[]), 11);
+        assert_eq!(needs(&to_write, &["Disk/MUSIC".to_owned()]), 5);
+        assert_eq!(needs(&to_write, &["Disk".to_owned(), "note".to_owned()]), 0);
+        // A path the plan writes nothing of (already there, or gone).
+        assert_eq!(needs(&to_write, &["Disk/old".to_owned()]), 11);
+    }
 
     #[test]
     fn a_stick_goes_into_a_folder_named_after_it_never_one_taken() {

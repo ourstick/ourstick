@@ -84,3 +84,29 @@ fn a_set_to_save_is_checked_and_simplified() {
         assert_eq!(LeftOut::normalised(&strings(&[bad])), Err(why), "{bad:?}");
     }
 }
+
+#[test]
+fn only_what_is_in_the_folder_is_taken_for_its_inside() {
+    let mut left = set(&["Disk"]);
+    let given = strings(&[
+        "Disk/a",
+        "Disk/b",
+        "Films",
+        "Other/x",
+        "Disk/a/deeper",
+        "Diskette/y",
+    ]);
+    left.tick("Disk/a", true, &given);
+    assert_eq!(left.paths(), strings(&["Disk/b"]));
+}
+
+#[test]
+fn rows_a_check_now_refuses_are_dropped_not_fatal() {
+    let rows = strings(&["Films", "a\u{1b}", "Disk/MUSIC", "x/y/z"]);
+    assert_eq!(
+        LeftOut::valid_only(&rows),
+        strings(&["Films", "Disk/MUSIC"])
+    );
+    assert!(LeftOut::normalised(&LeftOut::valid_only(&rows)).is_ok());
+    assert!(LeftOut::default().is_empty() && !set(&["Films"]).is_empty());
+}

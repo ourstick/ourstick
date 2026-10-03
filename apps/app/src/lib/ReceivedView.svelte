@@ -8,6 +8,7 @@
   } from "./api";
   import { since, size } from "./format";
   import PathText from "./PathText.svelte";
+  import LeftOutWords from "./LeftOutWords.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
   import ChooseWhat from "./ChooseWhat.svelte";
 
@@ -135,17 +136,12 @@
     {@const getting = entry.left_out.filter((name) => !name.here)}
     {@const updating = entry.left_out.filter((name) => name.here)}
     {#if getting.length > 0}
-      <p class="muted">
-        Not getting: {#each getting.slice(0, 3) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name.shown}</bdi
-          >{/each}{getting.length > 3 ? ` and ${getting.length - 3} more` : ""}.
-      </p>
+      <p class="muted">Not getting: <LeftOutWords list={getting} />.</p>
     {/if}
     {#if updating.length > 0}
       <p class="muted">
-        Not updating: {#each updating.slice(0, 3) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name.shown}</bdi
-          >{/each}{updating.length > 3 ? ` and ${updating.length - 3} more` : ""} ({updating.length === 1
-          ? "it stays"
-          : "they stay"} in the folder).
+        Not updating: <LeftOutWords list={updating} /> ({updating.length === 1 ? "it stays" : "they stay"} in the
+        folder).
       </p>
     {/if}
   {/if}

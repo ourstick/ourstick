@@ -70,9 +70,10 @@ pub enum DownloadEvent<'a> {
         entries: &'a [super::TopEntry],
         manifest: &'a crate::manifest::Manifest,
     },
-    /// A top-level name the user chose not to get, on the stick with its
-    /// `files` and `bytes`: not fetched. Told once per name, before the
-    /// files come (ADR 0012).
+    /// A path the user chose not to get (a top-level name, or a path inside
+    /// a top-level folder), on the stick with its `files` and `bytes`: not
+    /// fetched. Told once per path, before the files come (ADR 0012 and its
+    /// Amendment 1).
     NotChosen {
         name: &'a str,
         files: usize,

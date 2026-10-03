@@ -232,9 +232,29 @@ pub async fn preview(
         to_write,
         folder,
         saved_as,
-        to_write_by_path: by_top.unwrap_or_default(),
+        // No plan when the folder is new: everything is written.
+        to_write_by_path: by_top.unwrap_or_else(|| all_bytes_by_path(&manifest)),
         manifest,
     })
+}
+
+/// Every file's bytes by each top-level path and each path inside one (as
+/// `FolderPlan::bytes_by_top`, with every file to write).
+fn all_bytes_by_path(manifest: &Manifest) -> BTreeMap<String, u64> {
+    let mut by_path: BTreeMap<String, u64> = BTreeMap::new();
+    for file in &manifest.entries {
+        let mut parts = file.path.splitn(3, '/');
+        let first = parts.next().unwrap_or_default();
+        let mut keys = vec![first.to_owned()];
+        if let Some(second) = parts.next() {
+            keys.push(format!("{first}/{second}"));
+        }
+        for key in keys {
+            let bytes = by_path.entry(key).or_default();
+            *bytes = bytes.saturating_add(file.size);
+        }
+    }
+    by_path
 }
 
 /// The manifest's files grouped by their first component, in name order.
@@ -339,5 +359,10 @@ mod tests {
         assert_eq!(inside[0].to_write, 2);
         assert_eq!(inside[1].to_write, 0);
         assert!(entries_in(&stick, Some("Nothing"), None).is_empty());
+        // A new folder: no plan, every file written.
+        let all = all_bytes_by_path(&stick);
+        assert_eq!(all.get("Disk"), Some(&7));
+        assert_eq!(all.get("Disk/MUSIC"), Some(&6));
+        assert_eq!(all.get("Films/a.mkv"), Some(&7));
     }
 }

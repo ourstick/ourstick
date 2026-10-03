@@ -88,13 +88,30 @@ impl LeftOut {
         self.paths.retain(|left| !left.starts_with(&inside));
         if let Some((folder, _)) = path.rsplit_once('/') {
             if self.paths.remove(folder) {
+                // Only what is in that folder: a list of anything else is
+                // not taken for its inside.
+                let inside = format!("{folder}/");
                 for sibling in siblings {
-                    if sibling != path {
+                    if sibling != path
+                        && sibling.starts_with(&inside)
+                        && !sibling[inside.len()..].contains('/')
+                    {
                         self.paths.insert(sibling.clone());
                     }
                 }
             }
         }
+    }
+
+    /// The paths of `paths` a choice may hold, the others dropped: a row
+    /// saved before a check refused it can match no manifest (they refuse
+    /// such names too), and must not make every later save fail.
+    pub fn valid_only(paths: &[String]) -> Vec<String> {
+        paths
+            .iter()
+            .filter(|path| check(path).is_ok())
+            .cloned()
+            .collect()
     }
 
     /// Checks and simplifies a set to save: every path a plain one of at

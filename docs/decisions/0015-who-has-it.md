@@ -1,6 +1,6 @@
 # 0015: Who has it
 
-Status: Proposed (2026-10-04), revised after the design reviews and their confirmation
+Status: Accepted (2026-10-04), after the design reviews and their confirmation
 
 ## Context
 

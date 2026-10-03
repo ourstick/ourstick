@@ -143,3 +143,58 @@ things on it (a few music folders, some documents). The receiver window
 5. Docs: gui-spec.md (the receiver side), protocol.md (the reader's
    behaviour; nothing on the wire changes), schema.md, todo.md; status
    Accepted.
+
+## Amendment 1: choosing inside one big folder (proposed, 2026-10-03)
+
+### Context
+
+The big-folder test: a stick whose top level is one linked folder (a whole disk
+shared, 979 GB) showed the receiver one tick, all or nothing. Sharing one
+big folder as it is ("Share it as it is", ADR 0008) is the common way to
+share a disk, so rule 1's choice by top-level entry chooses nothing there.
+
+### Decision
+
+1. **The choice is made where there is more than one thing.** When a
+   stick's top level holds exactly one entry and it is a folder, the choice
+   lists what is inside that folder instead (its folders and files, each
+   with a tick); otherwise, as before, the top level. Not deeper: a folder
+   inside the one folder inside the one folder is chosen whole.
+2. **What is left out is a path, not only a name.** A left-out entry is a
+   path of one or two parts, byte-exact as in the manifest
+   (`Rescued_Disk/MUSIC`); a file is left out when its path is
+   one of them or lies under one. Everything else of rule 2 stays: an empty
+   set gets everything, new things come (a new folder inside the one
+   folder comes too), un-ticked entries keep their recorded places.
+3. **When the stick changes shape, choices stay.** If the sender adds a
+   second top-level entry, the choice lists the top level again; entries
+   left out inside the first folder stay left out, and the list shows them
+   among the rest (as "not on the stick now" only if they are gone).
+4. **The words do not change**: "What to get:", the ticks, "Not getting:
+   Rescued_Disk/MUSIC." (the path, isolated), "Not updating:
+   …". The preview's title says which folder the ticks are inside: "Inside
+   Rescued_Disk:".
+
+### In the code
+
+- `download/choice_level.rs` (new): `choice_path(path, deep) -> &str`, the
+  first one or two parts of a path; `is_deep(manifest)`: one top-level
+  entry, a folder. Every place that today takes `path.split('/').next()`
+  for the choice (`folder.rs` planning, `bytes_by_top`, `listing.rs`
+  `top_entries`, the `Contents` and `NotChosen` events) takes it from here,
+  so one place decides.
+- The left-out set matches by prefix (`path == entry` or starts with
+  `entry/`), in `plan_folder_by`; `Store::has_files_under` already does.
+- The app: `save_choice` accepts a path of two plain parts; the preview and
+  "Choose what to get…" show the folder's name above the ticks.
+- Tests: a one-folder stick lists its inside; leaving out
+  `Folder/Sub` gets everything else; a second top-level entry later shows
+  the top level and keeps `Folder/Sub` left out; a deep stick's new
+  subfolder comes.
+
+### Order of work
+
+1. Core: the choice level and prefix matching, with tests.
+2. App: the two-part names, the folder's name above the ticks.
+3. Docs; status Accepted. A manual test with a one-folder stick (a linked
+   folder of a few subfolders).

@@ -220,6 +220,15 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   speed). The rate counts `RequestUpdate::Progress` of iroh-blobs' get
   events (`transport/iroh/handler.rs`, mode `NotifyLog`): find whether
   progress comes for long blobs, or only at their end.
+- **Dropping onto a stick, from the big-folder test (2026-10-03):** (1) while a
+  drop copies (3 GB, half a minute) only the zone's title says "Copying…":
+  no progress, nothing else changes, so Giorgos dropped the folder again
+  and again; (2) a drop while one copies is taken, and the same folder
+  comes in again silently as "new in (2)", "new in (3)"; a real stick asks
+  ("already there: replace?"); (3) "4 files · 12.3 GB" counts top-level
+  entries as files (they were four folders). Also: one big linked folder
+  (a whole disk shared) leaves the receiver nothing to choose (ADR 0012
+  chooses at the top level only): choose inside it when it is alone.
 - **The big-folder test, what it showed so far (2026-10-03):** a VM whose disk
   is a file on the sender's own disk made the sender give way to its own
   reader (ADR 0013 doing its job, in a test layout no two real computers

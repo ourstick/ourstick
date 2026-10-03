@@ -5,7 +5,9 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use ourstick_core::drive::{check_sources, copy_onto, names_taken, Copied, DriveError, OnConflict};
+use ourstick_core::drive::{
+    check_sources, copy_onto, names_taken, remove_leftovers, Copied, DriveError, OnConflict,
+};
 use ourstick_core::StickId;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -59,6 +61,8 @@ pub async fn add_paths(
         if !drive::folder_is_there(&stick.root_path) {
             bail!("the stick is ejected; mount it first");
         }
+        // What a copy cut short left takes no room from this one.
+        remove_leftovers(&stick.root_path);
         let left = left_on(&stick, store.as_ref(), &data_dir)?;
         let linked: Vec<String> = store
             .linked_entries(&stick.stick_id)?

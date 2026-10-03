@@ -148,7 +148,9 @@ impl DiskShare {
             // Nothing to judge it by yet, or read from memory: fast.
             _ => 0.0,
         };
-        if !from_memory {
+        // A slow window teaches nothing either: someone else's reading is
+        // not the disk's speed.
+        if !from_memory && ratio <= SLOW_RATIO {
             let seen = Seen {
                 per_unit,
                 seen_at: self.reading,

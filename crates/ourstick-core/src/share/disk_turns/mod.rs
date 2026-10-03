@@ -205,6 +205,10 @@ impl Disk {
                 self.turn_free.notify_all();
                 return Err(error);
             }
+            // A turn given back while it was asked is not waited for.
+            if !state.held && state.chosen() == Some(ticket) {
+                break;
+            }
             state = self
                 .turn_free
                 .wait_timeout(state, QUEUE_CHECK)

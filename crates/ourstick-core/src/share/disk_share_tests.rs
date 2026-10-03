@@ -190,3 +190,13 @@ fn disk_share_is_a_disk_load() {
     assert!(load.giving_way());
     assert_eq!(load.pause_for(ms(500)), ms(4500));
 }
+
+#[test]
+fn someone_from_the_second_window_on_is_seen_too() {
+    let mut share = DiskShare::default();
+    // One window alone at the disk's speed, then someone else at once.
+    big(&mut share, 120);
+    big(&mut share, 30);
+    big(&mut share, 30);
+    assert!(share.giving_way(), "a slow window became the measure");
+}

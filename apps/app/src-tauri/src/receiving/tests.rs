@@ -125,6 +125,13 @@ fn a_round_s_contents_are_kept_until_the_stick_is_let_go() {
     };
     receivers.contents_now(stick(3), &manifest);
     assert_eq!(receivers.contents(&stick(3)).as_deref(), Some(&manifest));
+    // The same again is not copied again.
+    let kept = receivers.contents(&stick(3)).unwrap();
+    receivers.contents_now(stick(3), &manifest);
+    assert!(std::sync::Arc::ptr_eq(
+        &kept,
+        &receivers.contents(&stick(3)).unwrap()
+    ));
 }
 
 #[test]

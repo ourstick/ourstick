@@ -94,8 +94,15 @@ impl Receivers {
     }
 
     /// A round read the stick's manifest: what is on it now.
+    /// Copied only when it changed (a big stick's manifest is tens of MB),
+    /// and never while the lock is held.
     pub(super) fn contents_now(&self, stick_id: StickId, manifest: &ourstick_core::Manifest) {
-        lock(&self.contents).insert(stick_id, Arc::new(manifest.clone()));
+        let kept = lock(&self.contents).get(&stick_id).cloned();
+        if kept.is_some_and(|kept| *kept == *manifest) {
+            return;
+        }
+        let manifest = Arc::new(manifest.clone());
+        lock(&self.contents).insert(stick_id, manifest);
     }
 
     /// The latest preview, kept for opening its folders.

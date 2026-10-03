@@ -19,6 +19,7 @@
   // The ticks as a tree (ADR 0012, Amendment 1): the top level, and what is
   // inside a top-level folder once it is opened. The core decides every
   // tick: the window keeps the set of paths left out and asks it.
+  import { untrack } from "svelte";
   import { choiceTick, choiceTicks, type Tick } from "./api";
   import { size } from "./format";
 
@@ -51,8 +52,9 @@
   let inside = $state<Map<string, ChoiceRow[]>>(new Map());
   let ticks = $state<Record<string, Tick>>({});
   let busy = $state(false);
-  /** The rows the single folder was opened for: opened once per list. */
-  let openedFor: ChoiceRow[] | null = null;
+  /** The names of the list last shown: another list (not the same one
+   * again, as for another folder) forgets what was opened. */
+  let openedFor: string | null = null;
 
   let all = $derived(rows.flatMap((row) => [row, ...(open.has(row.name) ? (inside.get(row.name) ?? []) : [])]));
 
@@ -63,11 +65,14 @@
   // A new list (another look at the link, another folder) forgets what was
   // opened and read of the last one; a stick of one folder is shown open.
   $effect(() => {
-    if (rows === openedFor) return;
-    openedFor = rows;
-    open = new Set();
-    inside = new Map();
-    if (rows.length === 1 && rows[0].is_dir && loadInside) void toggle(rows[0].name);
+    const names = rows.map((row) => row.name).join("\n");
+    if (names === openedFor) return;
+    openedFor = names;
+    untrack(() => {
+      open = new Set();
+      inside = new Map();
+      if (rows.length === 1 && rows[0].is_dir && loadInside) void toggle(rows[0].name);
+    });
   });
 
   // The ticks of every row shown, asked again whenever the set or the rows
@@ -112,13 +117,17 @@
     open = new Set(open).add(folder);
   }
 
-  async function tick(row: ChoiceRow, on: boolean) {
+  async function tick(row: ChoiceRow, on: boolean, box: HTMLInputElement) {
+    const was = tickOf(row);
     const slash = row.name.indexOf("/");
     const siblings = slash < 0 ? [] : (inside.get(row.name.slice(0, slash)) ?? []).map((sibling) => sibling.name);
     busy = true;
     try {
       leftOut = await choiceTick([...leftOut], row.name, on, siblings);
     } catch (error) {
+      // Nothing changed: the box shows what it showed.
+      box.checked = was === "on";
+      box.indeterminate = was === "part";
       onFailure(String(error));
     } finally {
       busy = false;
@@ -128,7 +137,7 @@
 
 <ul class="entries">
   {#each all as row (row.name)}
-    {@const deeper = row.name.includes("/")}
+    {@const deeper = known && row.name.includes("/")}
     {@const state = tickOf(row)}
     <li class:deeper>
       <span class="tick">
@@ -137,6 +146,7 @@
             class="arrow"
             aria-expanded={open.has(row.name)}
             aria-label={open.has(row.name) ? "Hide what is inside" : "Show what is inside"}
+            {disabled}
             onclick={() => toggle(row.name)}>{open.has(row.name) ? "▾" : "▸"}</button
           >
         {:else if !deeper}
@@ -147,7 +157,7 @@
             type="checkbox"
             checked={state === "on"}
             indeterminate={state === "part"}
-            onchange={(event) => tick(row, event.currentTarget.checked)}
+            onchange={(event) => tick(row, event.currentTarget.checked, event.currentTarget)}
             disabled={disabled || busy}
           />
           <bdi class="name">{row.shown}{row.is_dir ? "/" : ""}</bdi>

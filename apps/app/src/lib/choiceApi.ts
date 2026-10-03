@@ -28,6 +28,8 @@ export interface ChoiceView {
   known: boolean;
   /** Every path left out, shown or not: a save sends it all. */
   left_out: string[];
+  /** Those of them whose files are already here. */
+  staying: { name: string; shown: string }[];
 }
 
 /** "Choose what to get…": a received stick's top-level entries, or a

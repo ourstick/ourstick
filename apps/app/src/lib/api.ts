@@ -280,7 +280,10 @@ export function received(): Promise<ReceivedEntry[]> {
 }
 
 export interface PreviewEntry {
+  /** Exactly as the stick names it, its whole path: send this back. */
   name: string;
+  /** Its last part, escaped: show this (isolated). */
+  shown: string;
   is_dir: boolean;
   files: number;
   bytes: number;

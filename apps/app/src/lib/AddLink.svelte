@@ -91,7 +91,7 @@
 
   /** A preview's entry as the ticks list it: its last part shown. */
   function row(entry: PreviewEntry): ChoiceRow {
-    return { ...entry, shown: entry.name.slice(entry.name.lastIndexOf("/") + 1) };
+    return entry;
   }
 
   /** Largest first: size is why the list is opened. */
@@ -158,7 +158,7 @@
       bind:leftOut
       bind:none
       {loadInside}
-      disabled={adding}
+      disabled={adding || looking}
       onFailure={(why) => (failure = why)}
     />
     <p class="muted">New things the sender adds will come too.</p>

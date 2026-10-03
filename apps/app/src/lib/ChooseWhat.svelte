@@ -24,6 +24,8 @@
   let leftOut = $state<string[]>([]);
   let none = $state(false);
   let shownRows = $state<ChoiceRow[]>([]);
+  /** Paths left out when the window opened whose files are here. */
+  let stayingBefore = $state<{ name: string; shown: string }[]>([]);
 
   onMount(async () => {
     try {
@@ -33,6 +35,7 @@
       // Every path left out, also inside folders not opened: a save sends
       // the whole set.
       leftOut = view.left_out;
+      stayingBefore = view.staying;
     } catch (error) {
       failure = String(error);
       unread = true;
@@ -45,8 +48,14 @@
     return (await receivedContents(stickId, folder)).entries;
   }
 
-  /** What is left out now and already here: it stays, no longer updated. */
-  let staying = $derived(shownRows.filter((row) => leftOut.includes(row.name) && row.here));
+  /** What is left out now and already here: it stays, no longer updated
+   * (inside a folder not opened too). */
+  let staying = $derived.by(() => {
+    const here = new Map<string, string>();
+    for (const row of shownRows) if (row.here && leftOut.includes(row.name)) here.set(row.name, row.shown);
+    for (const path of stayingBefore) if (leftOut.includes(path.name)) here.set(path.name, path.shown);
+    return [...here].map(([name, shown]) => ({ name, shown }));
+  });
 
   async function save() {
     saving = true;

@@ -24,9 +24,11 @@ const PREVIEW_WAIT: Duration = Duration::from_secs(30);
 /// A top-level entry of a previewed stick.
 #[derive(Debug, Serialize)]
 pub struct EntryView {
-    /// Exactly as the stick names it: what a choice is made with (shown
-    /// isolated; the window escapes nothing, Svelte writes text only).
+    /// Exactly as the stick names it, its whole path: what a choice is
+    /// made with.
     name: String,
+    /// Its last part, escaped for the window (the sender's text).
+    shown: String,
     is_dir: bool,
     files: u64,
     bytes: u64,
@@ -180,6 +182,9 @@ pub async fn preview_link(
 impl From<ourstick_core::download::TopEntry> for EntryView {
     fn from(entry: ourstick_core::download::TopEntry) -> Self {
         Self {
+            shown: ourstick_core::untrusted::escape(
+                entry.name.rsplit('/').next().unwrap_or(&entry.name),
+            ),
             name: entry.name,
             is_dir: entry.is_dir,
             files: entry.files,

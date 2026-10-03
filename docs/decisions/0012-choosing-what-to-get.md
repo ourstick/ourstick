@@ -169,21 +169,29 @@ versions, a second entry added later) and make choices hide each other.
 2. **What is left out is a path of one or two parts**, byte-exact as in
    the manifest (`Films`, `Rescued_Disk/MUSIC`); a file is left
    out when its path is one of them or lies under one. Each part is a plain
-   name (no empty part, `.`, `..`, or `/` at either end), checked when it is
-   saved. Everything else of the original rule 2 stays: an empty set gets
+   name, checked when it is saved: no more than two parts, none empty, `.`
+   or `..`, no `/` at either end, no `\`, NUL or other control character. Everything else of the original rule 2 stays: an empty set gets
    everything, new things come (a new folder inside an opened one too),
    un-ticked entries keep their recorded places.
 3. **The set is kept simple:** saving drops a path that lies under another
    one in the set (an un-ticked folder covers its inside). An un-ticked
-   folder shows its inside un-ticked; ticking one thing inside it ticks the
-   folder back with everything else in it un-ticked. A save still sends
-   the whole set, every path shown or not (rule 3 of the original).
+   folder shows its inside un-ticked; a folder with some of its inside
+   un-ticked shows a part tick. Ticking one thing inside an un-ticked folder
+   ticks the folder back with everything else in it un-ticked: its siblings
+   are then left out one by one, so what the sender adds to that folder
+   later comes (rule 2: new things come), and a folder of many loose files
+   makes as many rows (thousands, still small). A save still sends the
+   whole set, every path shown or not (rule 3 of the original). The ticks'
+   rules are the core's (`LeftOut`): the window asks it for each change, and
+   `save_choice` normalises with it, so one place decides.
 4. **"Not on the stick now"** is said of a left-out path only when the
    sender's list (the latest round's) no longer has it, at either depth.
 5. **Words.** The ticks are a tree: `Rescued_Disk/` with its
-   folders and files indented below it. "Not getting: MUSIC, Pictures
-   (inside Rescued_Disk)." Every name is the sender's: escaped
-   and isolated as before.
+   folders and files indented below it once opened. "Not getting" groups
+   by folder: "Not getting: Films; MUSIC and Pictures (inside
+   Rescued_Disk)." Every name is the sender's: escaped and
+   isolated as before. Every entry is listed, inside a folder too, as rule 3
+   of the original says for the top level.
 
 ### In the code
 
@@ -193,10 +201,13 @@ versions, a second entry added later) and make choices hide each other.
   `not_chosen` and the `NotChosen` event all use it, so one place decides
   what is out, and the sums and words group by what was left out, not by
   the first part.
-- `listing.rs`: `TopEntry` gains `inside: Vec<TopEntry>` for a folder (its
-  folders and files one level down, with their bytes and bytes to write);
-  the `Contents` event and the preview carry it, so the window can open a
-  folder while the sender is away.
+- What is inside a folder is asked for when the window opens it, not sent
+  every round: a stick of a thousand top-level folders would otherwise
+  send hundreds of thousands of entries each time. The receiver keeps the
+  latest version's manifest it already has (the preview keeps the one it
+  fetched), and `listing.rs` answers one folder's inside from it
+  (`inside(manifest, folder)`: its folders and files, with their bytes and
+  bytes to write), so a folder opens while the sender is away too.
 - The store: `joined_left_out.name` now holds a path of one or two parts
   (no migration: a one-part name is such a path); `set_left_out` refuses
   bad parts and drops covered paths; `has_files_under` already works on a
@@ -207,8 +218,9 @@ versions, a second entry added later) and make choices hide each other.
 - Tests: a path inside a folder left out, everything else got; a folder
   un-ticked covering its inside (normalised); a shape change (a second
   top-level entry later) keeping `Folder/Sub` left out and on the stick;
-  bad paths refused; sums and "Not getting" grouped by what was left out;
-  the CLI and the window's words with paths.
+  bad paths refused (three parts, a control character, `..`); sums and
+  "Not getting" grouped by what was left out; a part tick; one folder's
+  inside asked for. (The CLI gets everything and says nothing of choices.)
 
 ### Order of work
 

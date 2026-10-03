@@ -26,7 +26,7 @@ pub mod choice;
 pub mod commands;
 mod holder;
 pub mod preview;
-mod reports;
+pub mod reports;
 pub mod ticks;
 mod told;
 mod words;

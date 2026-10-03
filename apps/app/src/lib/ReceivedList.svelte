@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ReceivedEntry } from "./api";
   import { receivedShort } from "./format";
+  import SendersSeeYou from "./SendersSeeYou.svelte";
 
   let {
     entries,
@@ -33,6 +34,7 @@
     {/each}
   </ul>
   <button class="add" class:selected={adding} onclick={onAdd}>+ Add a sharing link…</button>
+  {#if entries.length > 0}<SendersSeeYou />{/if}
 </section>
 
 <style>

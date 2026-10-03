@@ -24,6 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, watch};
 
 mod events;
+pub mod readers;
 
 pub use events::{ActivityView, ShareProblem, StickEvent};
 
@@ -84,6 +85,16 @@ pub async fn start(
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
     let config = IrohConfig::new(keys.node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir).await?;
+    // Who has it (ADR 0015): readers' reports kept from the start.
+    if let Some(reports) = publisher.take_reports() {
+        readers::keep(
+            &app,
+            reports,
+            store.clone(),
+            stick_id,
+            keys.stick_key.clone(),
+        );
+    }
     // Whatever fails from here stops the endpoint before the locks go: no
     // second start may bind this node key while it still runs.
     let (current, link, read_again) =

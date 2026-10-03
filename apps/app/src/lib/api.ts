@@ -346,6 +346,7 @@ export function addReceived(
 }
 
 export * from "./choiceApi";
+export * from "./readersApi";
 
 export function pauseReceived(stickId: string): Promise<void> {
   return invoke("pause_received", { stickId });

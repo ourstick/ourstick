@@ -96,3 +96,44 @@ pub(super) async fn report_once(app: &AppHandle, stick_id: StickId, state: Repor
     }
     sender.close().await;
 }
+
+/// How senders see this computer: its kind, which every report says, and
+/// the name its receiver chose, if any.
+#[derive(Debug, serde::Serialize)]
+pub struct SeenAs {
+    /// "macos", "windows", "linux", "other", as a report says it.
+    kind: &'static str,
+    name: Option<String>,
+}
+
+#[tauri::command]
+pub async fn receiver_name(state: tauri::State<'_, AppState>) -> Result<SeenAs, String> {
+    let store = state.store.clone();
+    let name = super::work(move || Ok(store.receiver_name()?)).await?;
+    let kind = match ourstick_core::report::ComputerKind::this() {
+        ourstick_core::report::ComputerKind::MacOs => "macos",
+        ourstick_core::report::ComputerKind::Windows => "windows",
+        ourstick_core::report::ComputerKind::Linux => "linux",
+        ourstick_core::report::ComputerKind::Other => "other",
+    };
+    Ok(SeenAs { kind, name })
+}
+
+/// Sets the name senders see, or clears it (empty). Never asked for: the
+/// receiver chooses to (ADR 0015, rule 4).
+#[tauri::command]
+pub async fn set_receiver_name(
+    name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let store = state.store.clone();
+    super::work(move || {
+        let name = name.trim();
+        let name = (!name.is_empty()).then_some(name);
+        if name.is_some_and(|name| !ourstick_core::report::name_is_allowed(name)) {
+            anyhow::bail!("A name is at most 40 characters, with no invisible ones.");
+        }
+        Ok(store.set_receiver_name(name)?)
+    })
+    .await
+}

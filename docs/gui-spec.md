@@ -130,9 +130,22 @@ so Spotlight leaves it alone.
   at a time). While readers wait for their files to be got ready (told
   "not ready", nothing sent since): `● Someone downloading · getting their
   files ready`.
-  Readers have no names, and the owner cannot tell how much a reader still
-  needs (see "Open questions"). `· direct` / `· relay` is added only if iroh
-  gives it cheaply on the owner's side.
+  `· direct` / `· relay` is added only if iroh gives it cheaply on the
+  owner's side.
+- Who has it (ADR 0015), under the activity: one line per computer that
+  received the stick, in its receiver's own words (what each computer
+  says of itself, never a proof), the latest first, at most 5 then "and 12
+  more": "A Mac has all of it, up to date.", "A Windows PC has what it
+  chose, up to date.", "A Mac has everything so far; you are still reading
+  your folder.", "A Linux PC had all of it at 14:30; not what changed
+  since.", "A Mac is downloading: 60%.", "A Mac is waiting: no room
+  there.", "A Mac paused it." A computer is named by its kind; only if its
+  receiver typed a name is it shown, "Maria (Mac)"; two of a kind with no
+  name are told apart by when first heard, "A Mac (since 3 Oct)". When
+  all are up to date: "Everyone who received it is up to date."; with none:
+  "No one has received it yet." Each line has `×` (Remove from this list);
+  `Clear this list` under them. Never "safe to delete": what was received
+  stays with the receivers.
 - `⤴ Share` button → panel 2.
 
 ### 2 · Share popup
@@ -315,6 +328,10 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
   is no longer kept up to date. Its files stay in <folder>." When there is
   not room, its wait says to leave something out with `Choose what to
   get…`.
+- Under the received sticks: "Senders see you as: a Mac. `Change…`" —
+  the one place a receiver may give a name (optional, at most 40
+  characters; "Your computer's own name is never sent."). Never asked for
+  by a popup or a step. Not a settings page (there is none in stage 1).
 - Received sticks are kept up to date in the background while the app
   runs, each going on where it was after a restart; files the sender
   removes stay here; a folder whose disk is unplugged is never filled on

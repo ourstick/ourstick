@@ -21,6 +21,7 @@
   import DoesNotFit from "./DoesNotFit.svelte";
   import AlreadyThere from "./AlreadyThere.svelte";
   import EntryList from "./EntryList.svelte";
+  import ReaderList from "./ReaderList.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
 
@@ -253,6 +254,7 @@
       ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {activity.preparing ? "getting their files ready" : rate(activity.bytes_per_second)}
     </p>
   {/if}
+  <ReaderList {stickId} />
   {#if activity.relay_only}
     <p class="error">{activity.relay_only}</p>
   {/if}

@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::batches::{plan_batches, BATCH_BYTES, BATCH_FILES};
-use super::entry::{copy_file, finish_placing, receive_file, start_placing, Placing};
+use super::entry::{copy_file, finish_placing, start_placing, Placing};
+use super::fetch_one::receive_file;
 use super::folder::FilePlan;
 use super::path::ReceivingPath;
 use super::placing_queue::PlacingQueue;

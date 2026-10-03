@@ -86,6 +86,22 @@ pub async fn run_pass(
     options: PassOptions,
     on_event: &mut (dyn FnMut(PassEvent<'_>) + Send),
 ) -> Result<PassOutcome, ShareError> {
+    let mut giving_way = false;
+    let outcome = pass(owner, options, on_event, &mut giving_way).await;
+    // However it ended, a pass that was giving way says it no longer is.
+    if giving_way {
+        on_event(PassEvent::GivingWay(false));
+    }
+    outcome
+}
+
+/// [`run_pass`]; `giving_way` is what it last told.
+async fn pass(
+    owner: &Owner<'_, impl Publisher>,
+    options: PassOptions,
+    on_event: &mut (dyn FnMut(PassEvent<'_>) + Send),
+    giving_way: &mut bool,
+) -> Result<PassOutcome, ShareError> {
     let stick_id = owner.signing_key.stick_id();
     let owned = {
         let store = owner.store.clone();
@@ -163,7 +179,6 @@ pub async fn run_pass(
             Ok(())
         }))
     };
-    let mut giving_way = false;
 
     let mut entries: Vec<Entry> = Vec::new();
     let mut skipped = 0;
@@ -216,8 +231,8 @@ pub async fn run_pass(
             total: catalogue.len(),
         });
         let now = readers.as_ref().is_some_and(Readers::giving_way);
-        if now != giving_way {
-            giving_way = now;
+        if now != *giving_way {
+            *giving_way = now;
             on_event(PassEvent::GivingWay(now));
         }
         if let (Some(timing), Some(due)) = (timing, next_partial) {
@@ -233,10 +248,6 @@ pub async fn run_pass(
                 next_partial = Some(Instant::now() + timing.every);
             }
         }
-    }
-
-    if giving_way {
-        on_event(PassEvent::GivingWay(false));
     }
 
     let paths: Vec<String> = entries.iter().map(|entry| entry.path.clone()).collect();

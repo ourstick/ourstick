@@ -62,6 +62,11 @@ impl DiskReader {
         }
     }
 
+    /// Whether this reader's next turns are urgent (readers wait for it).
+    pub fn set_urgent(&mut self, urgent: bool) {
+        self.urgent = urgent;
+    }
+
     /// Gives the turn back now (the end of a part), judging what was read.
     pub fn end_window(&mut self) {
         if let Some(window) = self.window.take() {
@@ -205,6 +210,14 @@ impl Readers {
         self.readers
             .entry(id.clone())
             .or_insert_with(|| DiskReader::new(disks.get(id), urgent, move || go_on()))
+    }
+
+    /// Whether the next turns are urgent, for every disk.
+    pub fn set_urgent(&mut self, urgent: bool) {
+        self.urgent = urgent;
+        for reader in self.readers.values_mut() {
+            reader.set_urgent(urgent);
+        }
     }
 
     /// Gives back every turn held (the end of a part).

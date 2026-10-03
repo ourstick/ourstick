@@ -57,10 +57,9 @@ What is there already:
    file is what the placing queue calls small (at most 4 MB, one rule for
    both queues); a bigger file is fetched alone, after the fetches in
    flight end, as now: it fills the connection by itself, and its
-   progress is told as it comes. How many small ones at once
-   (`FETCHING_AT_ONCE`) is set by measuring (step 1 of the order of work:
-   1, 4, 8, 16, 32 and 64 from Linux to the Mac; the smallest within 10%
-   of the best). No byte limit of our own: QUIC already bounds what is in
+   progress is told as it comes. **32 small ones at once**
+   (`FETCHING_AT_ONCE`), set by measuring (step 1, below: the smallest
+   within 10% of the best). No byte limit of our own: QUIC already bounds what is in
    flight, and each file is at most 4 MB.
 2. **Order stays the plan's where it matters.** Fetches start in the
    plan's order and may end in any order. A fetched file goes into the
@@ -195,3 +194,25 @@ What is there already:
    and 4), "not ready" (rule 5), with their tests.
 3. Two iroh peers test; measured again Linux → Mac, Linux → Linux, the
    Windows VM; the numbers here; docs; status Accepted.
+
+## Measured
+
+Step 1, 2026-10-04: 10 000 files of 1–8 KB, `ourstick get` on the Mac from
+an `ourstick share` on Linux (direct, over the home network, round trip
+about 80 ms), each run from a fresh folder, with a throwaway change that
+fetched a batch's small blobs N at once before placing them as before
+(not committed):
+
+| At once | Time |
+|---|---|
+| 1 | 264 s |
+| 4 | 121 s |
+| 8 | 90 s |
+| 16 | 69 s |
+| 32 | 60 s |
+| 64 | 56 s |
+
+32 is within 10% of the best (64): `FETCHING_AT_ONCE = 32`. What is left
+at 32 and 64, about 55 s, is placing the files on the Mac (each synced
+with `F_FULLFSYNC`), as from the Mac to itself in ADR 0014 (53 s): the
+network's waiting is gone.

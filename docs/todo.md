@@ -224,12 +224,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
      287 s for 10 000 files from Linux to the Mac, 80 ms apart; its own
      ADR), and on the Mac **`F_BARRIERFSYNC`** instead of `F_FULLFSYNC`
      (an `unsafe` `fcntl`: Giorgos decides).
-  3. ADR 0013, giving way to the user's disk (written and reviewed; Giorgos
-     agreed 2026-10-03): OurStick times its own reads in windows and, when
-     they get far slower (someone else is using the disk), reads a tenth of
-     the time until they are fast again. No OS priority: on this Linux
-     machine the HDD's scheduler (`mq-deadline`) ignores `ionice` classes,
-     and Windows' and macOS's background I/O modes need unsafe calls.
+  3. ~~ADR 0013, giving way to the user's disk~~ (done 2026-10-03; on the
+     spinning disk a 5 GB copy beside OurStick took 1.06-1.15× its time
+     alone, 1.7× before). Not on Windows or the Mac yet (no spinning disk
+     there to try).
   4. Send `Rescued_Disk` (980 GB, 146 297 files, 10 levels deep,
      no name Windows refuses, 1 579 paths over 260 characters in a Windows
      Downloads folder) as the first real scale test.

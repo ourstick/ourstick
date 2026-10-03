@@ -104,6 +104,10 @@ so Spotlight leaves it alone.
   sharing**, which removes only the link, never its files.
 - If some folders cannot be watched (e.g. the system's limit on watches), a
   line says their changes are seen within a minute.
+- While the stick's folder is read and another program uses the same disk,
+  a line says "Reading your folder slowly, so another program can use the
+  disk." (ADR 0013), until OurStick reads at full speed again. It is a note,
+  not a problem: the event `giving-way`, told at each change.
 - Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
   used out of used + left. "Left" is what the computer has room for once its
   reserve and every share's and download's claim are counted (the space

@@ -215,6 +215,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   over 1 s, then runs a pass as above. Opening and reading files are not
   changes. A failed pass (e.g. an unreadable file), or one that left files
   out, is reported and tried again at the next change or after 30 s.
+- The owner gives way to other programs using its disk (ADR 0013): every
+  read of a stick's files (the catalogue, the suitcases) goes through its
+  disk's turns, one reader a window (64 MB or 64 files) at a time, and is
+  timed; when windows take over three times their usual time twice in a
+  row, the owner reads a tenth of the time until one takes under two and a
+  half times. A suitcase that readers wait for goes first, three windows to
+  one. Nothing on the wire changes: a reader may wait longer, told "not
+  ready" as before.
 
 ### Reader-side rules for the output folder
 

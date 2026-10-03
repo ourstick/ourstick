@@ -1,6 +1,6 @@
 # 0013: Giving way to the user's disk
 
-Status: Proposed (2026-10-03)
+Status: Accepted (2026-10-03)
 
 ## Context
 
@@ -224,3 +224,25 @@ Nothing gives way to anyone outside OurStick.
    2–4 are tuned with the logged numbers, and the ADR says so.
 5. Docs: protocol.md (the owner's behaviour; nothing on the wire changes),
    gui-spec.md (the words), todo.md; status Accepted. Then Rescued_Disk.
+
+## Measured
+
+Step 4, on this machine's spinning disk (`sda`, ext4, `mq-deadline`): a
+made-up folder of 4 000 files of 5 MB and one of 10 GB, read by `ourstick
+share` (a first pass); beside it, a 5 GB file copied on the same disk with
+`dd` (direct I/O), each file's cache dropped before each run
+(`posix_fadvise`, so no `sudo` was needed). Three copies each:
+
+| The copy | Times | |
+|---|---|---|
+| Alone | 87, 85, 85 s | |
+| Beside OurStick before this ADR | 144, 148, 152 s | 1.7× |
+| Beside OurStick with it | 98, 90, 91 s | 1.06–1.15× |
+
+OurStick said "Reading your folder slowly" 17 s after the copies began
+and "Reading at full speed again" 9 s after they ended (with the last
+fixes, as the copy starts and as it ends). The first runs found what rule
+2 now says (the system reading ahead made some windows look far faster
+than the disk, and a window read from memory undid the giving way), and
+an older fault: `ourstick share` ignored Ctrl-C during its first pass.
+

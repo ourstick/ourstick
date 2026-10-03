@@ -34,19 +34,79 @@ const BIG_FILE: u64 = 1 << 20;
 const FASTEST_BYTES_PER_SECOND: f64 = 1e9;
 const FASTEST_FILE: Duration = Duration::from_micros(200);
 
-/// The best of recent windows of one kind, per unit (a file, or a byte),
-/// in seconds, and when it was seen (in reading time).
+/// What judges how a disk is shared (ADR 0013): the timing of OurStick's
+/// own windows ([`DiskShare`]) today; the system's disk counters could
+/// take its place without changing its callers.
+pub trait DiskLoad: Send {
+    /// A window read: the pause before the next (zero at full speed).
+    fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration;
+    /// The pause after reading that is not judged (a second read).
+    fn pause_for(&self, took: Duration) -> Duration;
+    /// Whether OurStick gives way now.
+    fn giving_way(&self) -> bool;
+}
+
+impl DiskLoad for DiskShare {
+    fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration {
+        DiskShare::after_window(self, files, bytes, took)
+    }
+
+    fn pause_for(&self, took: Duration) -> Duration {
+        DiskShare::pause_for(self, took)
+    }
+
+    fn giving_way(&self) -> bool {
+        DiskShare::giving_way(self)
+    }
+}
+
+/// A recent window of one kind, per unit (a file, or a byte), in seconds,
+/// and when it was seen (in reading time).
 #[derive(Debug, Clone, Copy)]
-struct Best {
+struct Seen {
     per_unit: f64,
     seen_at: Duration,
+}
+
+impl Seen {
+    /// Its time per unit, faded by the reading done since.
+    fn faded(&self, reading: Duration) -> f64 {
+        let since = (reading - self.seen_at).as_secs_f64() / FADE.as_secs_f64();
+        self.per_unit * 2f64.powf(since)
+    }
+}
+
+/// The two best recent windows of one kind. What a window should take is
+/// the second best: one window read partly from memory (a few files just
+/// copied in) is not a speed the disk keeps.
+#[derive(Debug, Default, Clone, Copy)]
+struct Best {
+    first: Option<Seen>,
+    second: Option<Seen>,
+}
+
+impl Best {
+    fn expected_per_unit(&self, reading: Duration) -> Option<f64> {
+        self.second.or(self.first).map(|seen| seen.faded(reading))
+    }
+
+    fn learn(&mut self, seen: Seen, reading: Duration) {
+        let beats =
+            |other: Option<Seen>| other.is_none_or(|other| seen.per_unit < other.faded(reading));
+        if beats(self.first) {
+            self.second = self.first;
+            self.first = Some(seen);
+        } else if beats(self.second) {
+            self.second = Some(seen);
+        }
+    }
 }
 
 /// One disk's judgement (ADR 0013, rules 2–4).
 #[derive(Debug, Default)]
 pub struct DiskShare {
-    per_file: Option<Best>,
-    per_byte: Option<Best>,
+    per_file: Best,
+    per_byte: Best,
     /// The sum of every window's time.
     reading: Duration,
     slow_in_a_row: u32,
@@ -80,20 +140,20 @@ impl DiskShare {
         } else {
             per_unit < FASTEST_FILE.as_secs_f64()
         };
-        let expected = best.map(|best| {
-            let faded = (self.reading - best.seen_at).as_secs_f64() / FADE.as_secs_f64();
-            best.per_unit * 2f64.powf(faded) * units as f64
-        });
+        let expected = best
+            .expected_per_unit(self.reading)
+            .map(|per_unit| per_unit * units as f64);
         let ratio = match expected {
             Some(expected) if expected > 0.0 && !from_memory => seconds / expected,
             // Nothing to judge it by yet, or read from memory: fast.
             _ => 0.0,
         };
-        if !from_memory && expected.is_none_or(|expected| seconds < expected) {
-            *best = Some(Best {
+        if !from_memory {
+            let seen = Seen {
                 per_unit,
                 seen_at: self.reading,
-            });
+            };
+            best.learn(seen, self.reading);
         }
         let was = self.giving_way;
         if ratio > SLOW_RATIO {

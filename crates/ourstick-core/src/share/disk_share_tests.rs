@@ -73,6 +73,7 @@ fn a_window_of_big_files_or_inside_one_counts_bytes() {
     let mut share = DiskShare::default();
     // Inside one big file, no file begins.
     share.after_window(0, 64 * MB, ms(500));
+    share.after_window(0, 64 * MB, ms(500));
     share.after_window(0, 64 * MB, ms(2000));
     assert!(!share.giving_way());
     share.after_window(0, 64 * MB, ms(2000));
@@ -103,6 +104,7 @@ fn what_is_read_from_memory_is_fast_but_teaches_nothing() {
 fn a_slower_stretch_of_the_disk_stops_counting_as_someone_else() {
     let mut share = DiskShare::default();
     big(&mut share, 150);
+    big(&mut share, 150);
     // Four times slower for good (another, slower part of the disk): it
     // gives way at first…
     big(&mut share, 35);
@@ -124,20 +126,24 @@ fn a_slower_stretch_of_the_disk_stops_counting_as_someone_else() {
 fn the_pause_is_nine_times_the_window_within_bounds() {
     let mut share = DiskShare::default();
     small(&mut share, 1);
+    small(&mut share, 1);
     // Slow small windows of 64 × 4 ms = 256 ms: nine times is 2.3 s.
     small(&mut share, 4);
     assert_eq!(small(&mut share, 4), ms(64 * 4) * 9);
     // A very short window still pauses a second…
     let mut short = DiskShare::default();
     short.after_window(64, 64 * 1000, ms(64));
+    short.after_window(64, 64 * 1000, ms(64));
     short.after_window(64, 64 * 1000, ms(64 * 5));
     assert_eq!(short.after_window(64, 64 * 1000, ms(64 * 5)), ms(2880));
     let mut tiny = DiskShare::default();
+    tiny.after_window(1, 1000, ms(1));
     tiny.after_window(1, 1000, ms(1));
     tiny.after_window(1, 1000, ms(10));
     assert_eq!(tiny.after_window(1, 1000, ms(10)), SHORTEST_PAUSE);
     // …and a very long one at most 30 s.
     let mut long = DiskShare::default();
+    big(&mut long, 120);
     big(&mut long, 120);
     big(&mut long, 5);
     assert_eq!(big(&mut long, 5), LONGEST_PAUSE);
@@ -148,9 +154,39 @@ fn an_empty_window_changes_nothing() {
     let mut share = DiskShare::default();
     assert_eq!(share.after_window(0, 0, ms(5)), Duration::ZERO);
     big(&mut share, 120);
+    big(&mut share, 120);
     big(&mut share, 20);
     big(&mut share, 20);
     assert!(share.giving_way());
     assert!(share.after_window(0, 0, ms(5)) >= SHORTEST_PAUSE);
     assert!(share.giving_way());
+}
+
+#[test]
+fn one_window_read_partly_from_memory_sets_no_speed_to_keep() {
+    let mut share = DiskShare::default();
+    for _ in 0..5 {
+        big(&mut share, 120);
+    }
+    // Half of a window was still in memory: 600 MB/s, under the floor of
+    // what only memory does, so it is taken as the disk's.
+    big(&mut share, 600);
+    // The disk's own speed after it is not slow: what a window should take
+    // is the second best, still the disk's.
+    for _ in 0..10 {
+        assert_eq!(big(&mut share, 110), Duration::ZERO);
+    }
+    assert!(!share.giving_way());
+}
+
+#[test]
+fn disk_share_is_a_disk_load() {
+    let mut load: Box<dyn DiskLoad> = Box::new(DiskShare::default());
+    for _ in 0..3 {
+        load.after_window(2, 64 * MB, ms(500));
+    }
+    load.after_window(2, 64 * MB, ms(3000));
+    assert!(load.after_window(2, 64 * MB, ms(3000)) > Duration::ZERO);
+    assert!(load.giving_way());
+    assert_eq!(load.pause_for(ms(500)), ms(4500));
 }

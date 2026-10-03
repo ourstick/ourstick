@@ -1,4 +1,5 @@
 use super::*;
+use std::io::{Read, Seek, SeekFrom};
 
 const MB: usize = 1 << 20;
 
@@ -104,7 +105,7 @@ fn only_the_first_read_of_a_file_is_judged() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 64 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
     // Read twice, as `encrypt_blob` does: a slow second read (the file was
     // not in memory) is not someone else.
     for _ in 0..4 {
@@ -124,15 +125,33 @@ fn small_files_close_a_window_every_64() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    // 64 files of 100 KB at 100 ms a MB (10 ms each): one window, its best.
-    for _ in 0..64 {
+    // 128 files of 100 KB at 100 ms a MB (10 ms each): two windows, the
+    // bests.
+    for _ in 0..128 {
         read_through(&mut reader, FakeFile::new(&timer, 100 * 1024, 100));
     }
     // Then four times slower, 128 files: two windows, giving way.
     for _ in 0..128 {
         read_through(&mut reader, FakeFile::new(&timer, 100 * 1024, 400));
     }
+    // The last window is given back at the end of a part.
+    reader.end_window();
     assert!(disk.giving_way());
+    assert_eq!(lock(&disk.state).windows, 4);
+    // Exactly 64 files are one window, the 65th begins the next.
+    let (timer, disks) = setup();
+    let disk = disks.get(DiskId::Unknown);
+    let mut reader = DiskReader::new(disk.clone(), false, go_on);
+    for _ in 0..64 {
+        read_through(&mut reader, FakeFile::new(&timer, 100 * 1024, 100));
+    }
+    reader.end_window();
+    assert_eq!(lock(&disk.state).windows, 1);
+    for _ in 0..65 {
+        read_through(&mut reader, FakeFile::new(&timer, 100 * 1024, 100));
+    }
+    reader.end_window();
+    assert_eq!(lock(&disk.state).windows, 3);
 }
 
 #[test]
@@ -140,7 +159,7 @@ fn the_pause_is_the_disks_and_the_next_turn_waits_for_it() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut first = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut first, FakeFile::new(&timer, 64 * MB, 8));
+    read_through(&mut first, FakeFile::new(&timer, 128 * MB, 8));
     // Exactly two slow windows, the turn given back at the end of a part,
     // before the file's end is read.
     let mut timed = first.open(FakeFile::new(&timer, 128 * MB, 40), 128 * MB as u64);
@@ -158,19 +177,18 @@ fn the_pause_is_the_disks_and_the_next_turn_waits_for_it() {
     timed.read_exact(&mut buffer).unwrap();
     let window = Duration::from_millis(64 * 40);
     assert!(timer.elapsed() - ended >= window * 9);
-    // A turn that reads nothing (a file's end) does not set a new pause.
+    // A turn that reads nothing (a file's end) leaves the disk's pause as
+    // it was.
     drop(timed);
     second.end_window();
-    let mut third = DiskReader::new(disk, false, go_on);
-    let mut timed = third.open(FakeFile::new(&timer, 0, 40), 0);
-    let before = timer.elapsed();
-    let _ = timed.read(&mut buffer).unwrap();
+    let pause = lock(&disk.state).not_before;
+    let mut third = DiskReader::new(disk.clone(), false, go_on);
+    let mut timed = third.open(FakeFile::new(&timer, 0, 40), u64::MAX);
+    assert_eq!(timed.read(&mut buffer).unwrap(), 0);
     drop(timed);
     third.end_window();
-    let mut fourth = DiskReader::new(disks.get(DiskId::Unknown), false, go_on);
-    let mut timed = fourth.open(FakeFile::new(&timer, MB, 40), MB as u64);
-    timed.read_exact(&mut buffer).unwrap();
-    assert!(timer.elapsed() - before <= window * 9);
+    assert_eq!(lock(&disk.state).not_before, pause);
+    assert!(disk.giving_way(), "an empty turn is no fast window");
 }
 
 #[test]
@@ -178,7 +196,7 @@ fn reading_a_files_end_waits_for_no_pause() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 64 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
     // The second slow window closes exactly at the file's end: the read
     // that finds the end does not wait for the pause that follows.
     let before = timer.elapsed();
@@ -195,7 +213,7 @@ fn a_reader_told_to_stop_during_a_pause_stops_and_frees_the_disk() {
     let (timer, disks) = setup();
     let disk = disks.get(DiskId::Unknown);
     let mut reader = DiskReader::new(disk.clone(), false, go_on);
-    read_through(&mut reader, FakeFile::new(&timer, 64 * MB, 8));
+    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
     let mut timed = reader.open(FakeFile::new(&timer, 128 * MB, 40), 128 * MB as u64);
     let mut buffer = vec![0; MB];
     for _ in 0..128 {
@@ -297,4 +315,79 @@ fn folders_on_one_filesystem_are_one_disk() {
         &disks.of(folder.path()),
         &disks.of(&folder.path().join("a"))
     ));
+}
+
+#[test]
+fn a_reader_stopped_while_queued_leaves_the_queue_at_once() {
+    let disks = Disks::new(Arc::new(SystemTimer::default()));
+    let disk = disks.get(DiskId::Unknown);
+    // One reader holds the turn (a window open)…
+    let mut holder = DiskReader::new(disk.clone(), false, go_on);
+    let mut timed = holder.open(std::io::Cursor::new(vec![0u8; 10]), 10);
+    timed.read_exact(&mut [0; 5]).unwrap();
+    // …another waits for it, and is stopped while it waits.
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let told = stopped.clone();
+    let waiter = std::thread::spawn(move || {
+        let mut reader = DiskReader::new(disk, false, move || {
+            if told.load(std::sync::atomic::Ordering::SeqCst) {
+                Err(io::Error::other("stopped"))
+            } else {
+                Ok(())
+            }
+        });
+        let mut timed = reader.open(std::io::Cursor::new(vec![0u8; 10]), 10);
+        let started = Instant::now();
+        let read = timed.read(&mut [0; 10]);
+        (read.map_err(|error| error.to_string()), started.elapsed())
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (read, waited) = waiter.join().unwrap();
+    assert_eq!(read, Err("stopped".to_owned()));
+    // Asked every half second: gone well before the holder gives its turn.
+    assert!(waited < Duration::from_secs(2), "{waited:?}");
+}
+
+#[test]
+fn a_file_grown_since_its_length_was_taken_is_read_in_turns() {
+    let (timer, disks) = setup();
+    let disk = disks.get(DiskId::Unknown);
+    let mut reader = DiskReader::new(disk.clone(), false, go_on);
+    read_through(&mut reader, FakeFile::new(&timer, 128 * MB, 8));
+    // Its length was 1 MB when it was opened; it is 128 MB now, and slow.
+    let mut timed = reader.open(FakeFile::new(&timer, 128 * MB, 40), MB as u64);
+    std::io::copy(&mut timed, &mut std::io::sink()).unwrap();
+    drop(timed);
+    reader.end_window();
+    // Read past its first length in turns, and judged: giving way.
+    assert!(disk.giving_way());
+}
+
+#[test]
+fn urgent_turns_and_others_alternate_three_to_one_for_good() {
+    let mut state = DiskState::default();
+    let ask = |state: &mut DiskState, urgent: bool| {
+        let ticket = state.next_ticket;
+        state.next_ticket += 1;
+        state.waiting.push_back((ticket, urgent));
+        ticket
+    };
+    // A suitcase and a catalogue, each asking again as soon as served.
+    let mut urgent_ticket = ask(&mut state, true);
+    let mut other_ticket = ask(&mut state, false);
+    let mut served = String::new();
+    for _ in 0..16 {
+        let chosen = state.chosen().unwrap();
+        state.grant(chosen);
+        if chosen == urgent_ticket {
+            served.push('u');
+            urgent_ticket = ask(&mut state, true);
+        } else {
+            assert_eq!(chosen, other_ticket);
+            served.push('o');
+            other_ticket = ask(&mut state, false);
+        }
+    }
+    assert_eq!(served, "uuuouuuouuuouuuo");
 }

@@ -6,12 +6,17 @@
 //! after it whoever takes it.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use super::disk_share::{DiskShare, WINDOW_BYTES, WINDOW_FILES};
+use super::disk_share::{DiskLoad, DiskShare};
+
+mod timed;
+
+use timed::Window;
+pub use timed::{DiskReader, Timed};
 
 /// A clock that never goes back, and a way to wait (blocking): real in the
 /// app and the CLI, a fake in tests. Not the core's `Clock`, which tells
@@ -48,13 +53,18 @@ const PAUSE_SLICE: Duration = Duration::from_secs(5);
 /// A suitcase that readers wait for goes first, but at most this many
 /// windows in a row while a catalogue waits, so new files still come.
 const URGENT_IN_A_ROW: u32 = 3;
+/// A reader waiting in the queue asks this often (real time) whether to go
+/// on, so a stopped stick leaves the queue at once, not at its turn.
+const QUEUE_CHECK: Duration = Duration::from_millis(500);
 
 /// Which disk a folder is on: its filesystem.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DiskId {
     /// The device id of a filesystem (Linux, macOS).
     Device(u64),
-    /// A Windows volume, by its path's prefix (`C:`).
+    /// A Windows volume, by its path's prefix (`C:`, also for `\\?\C:`).
+    /// A `subst` letter is another prefix for a folder of another volume:
+    /// OurStick reads sticks by their folders' own paths, not the letter.
     Volume(String),
     /// Not known: every such folder shares one.
     Unknown,
@@ -68,15 +78,22 @@ impl DiskId {
             use std::os::unix::fs::MetadataExt;
             match std::fs::metadata(folder) {
                 Ok(metadata) => Self::Device(metadata.dev()),
-                Err(_) => Self::Unknown,
+                Err(error) => {
+                    tracing::debug!(%error, "a folder's disk is not known");
+                    Self::Unknown
+                }
             }
         }
         #[cfg(not(unix))]
         {
+            use std::path::{Component, Prefix};
             match folder.components().next() {
-                Some(std::path::Component::Prefix(prefix)) => {
-                    Self::Volume(prefix.as_os_str().to_string_lossy().to_uppercase())
-                }
+                Some(Component::Prefix(prefix)) => match prefix.kind() {
+                    Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                        Self::Volume(format!("{}:", (letter as char).to_ascii_uppercase()))
+                    }
+                    _ => Self::Volume(prefix.as_os_str().to_string_lossy().to_uppercase()),
+                },
                 _ => Self::Unknown,
             }
         }
@@ -124,9 +141,8 @@ pub struct Disk {
     turn_free: Condvar,
 }
 
-#[derive(Default)]
 struct DiskState {
-    share: DiskShare,
+    load: Box<dyn DiskLoad>,
     /// Waiting for a turn, in the order they asked: (ticket, urgent).
     waiting: VecDeque<(u64, bool)>,
     next_ticket: u64,
@@ -134,6 +150,22 @@ struct DiskState {
     /// The disk's pause: no turn starts before this (timer time).
     not_before: Duration,
     urgent_in_a_row: u32,
+    /// Windows judged, for tests.
+    windows: u64,
+}
+
+impl Default for DiskState {
+    fn default() -> Self {
+        Self {
+            load: Box::new(DiskShare::default()),
+            waiting: VecDeque::new(),
+            next_ticket: 0,
+            held: false,
+            not_before: Duration::ZERO,
+            urgent_in_a_row: 0,
+            windows: 0,
+        }
+    }
 }
 
 impl Disk {
@@ -147,11 +179,12 @@ impl Disk {
 
     /// Whether OurStick gives way on this disk now.
     pub fn giving_way(&self) -> bool {
-        lock(&self.state).share.giving_way()
+        lock(&self.state).load.giving_way()
     }
 
-    /// Waits for this reader's turn, then for the disk's pause (in slices,
-    /// asking `go_on` between them). Blocking.
+    /// Waits for this reader's turn, then for the disk's pause, asking
+    /// `go_on` meanwhile: an error leaves the queue (or gives the turn
+    /// back) at once. Blocking.
     fn take_turn(&self, urgent: bool, go_on: &dyn Fn() -> io::Result<()>) -> io::Result<()> {
         let mut state = lock(&self.state);
         let ticket = state.next_ticket;
@@ -161,15 +194,28 @@ impl Disk {
             if !state.held && state.chosen() == Some(ticket) {
                 break;
             }
+            // Asked without the disk's lock: it may look at a drive.
+            drop(state);
+            let asked = go_on();
+            state = lock(&self.state);
+            if let Err(error) = asked {
+                state.waiting.retain(|(waiting, _)| *waiting != ticket);
+                drop(state);
+                // Its leaving may make another the chosen one.
+                self.turn_free.notify_all();
+                return Err(error);
+            }
             state = self
                 .turn_free
-                .wait(state)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .wait_timeout(state, QUEUE_CHECK)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
         }
         state.grant(ticket);
         let not_before = state.not_before;
         drop(state);
-        // The pause, held by the turn: no one reads meanwhile anyway.
+        // The disk's pause, slept holding the turn: no one would read
+        // meanwhile anyway, and the turn's order is kept.
         loop {
             if let Err(error) = go_on() {
                 self.give_back(None);
@@ -187,18 +233,19 @@ impl Disk {
     /// disk's pause.
     fn give_back(&self, window: Option<&Window>) {
         let mut state = lock(&self.state);
-        // A turn that read nothing (only a file's end) leaves the pause as
-        // it was.
-        if let Some(window) = window.filter(|window| window.bytes > 0 || window.timed_files > 0) {
+        // A turn that read nothing (only a file's end) leaves the pause, and
+        // the judgement, as they were.
+        if let Some(window) = window.filter(|window| window.bytes > 0) {
             let pause = if window.timed_files > 0 || window.timed_bytes > 0 {
+                state.windows += 1;
                 state
-                    .share
+                    .load
                     .after_window(window.timed_files, window.timed_bytes, window.timed)
             } else {
                 Duration::ZERO
             };
             // The untimed part (a second read) paused for as well.
-            let pause = pause.max(state.share.pause_for(window.took));
+            let pause = pause.max(state.load.pause_for(window.took));
             state.not_before = self.timer.elapsed() + pause;
         }
         state.held = false;
@@ -238,136 +285,6 @@ impl DiskState {
     }
 }
 
-/// What one turn has read.
-#[derive(Debug, Default)]
-struct Window {
-    /// Files begun and their first reads' bytes and time: what is judged.
-    timed_files: u64,
-    timed_bytes: u64,
-    timed: Duration,
-    /// Every read's time, the second reads' too: what is paused for.
-    took: Duration,
-    bytes: u64,
-}
-
-/// One reader of a disk (a catalogue pass, a keeper's suitcase): its turn
-/// and its current window. Files are read through [`DiskReader::open`].
-pub struct DiskReader {
-    disk: Arc<Disk>,
-    urgent: bool,
-    go_on: Box<dyn Fn() -> io::Result<()> + Send>,
-    window: Option<Window>,
-}
-
-impl DiskReader {
-    /// `urgent`: a suitcase that readers wait for. `go_on` is asked before
-    /// each turn and between slices of a pause: an error (a stick stopped,
-    /// its drive gone) ends the read with it.
-    pub fn new(
-        disk: Arc<Disk>,
-        urgent: bool,
-        go_on: impl Fn() -> io::Result<()> + Send + 'static,
-    ) -> Self {
-        Self {
-            disk,
-            urgent,
-            go_on: Box::new(go_on),
-            window: None,
-        }
-    }
-
-    /// Reads `file`, of `len` bytes, through this reader's turns. Reading
-    /// at its end takes no turn, so a reader does not wait for the disk's
-    /// pause only to learn that a file has ended.
-    pub fn open<R: Read + Seek>(&mut self, file: R, len: u64) -> Timed<'_, R> {
-        Timed {
-            file,
-            reader: self,
-            len,
-            at: 0,
-            begun: false,
-            second: false,
-        }
-    }
-
-    /// Gives the turn back now (the end of a part), judging what was read.
-    pub fn end_window(&mut self) {
-        if let Some(window) = self.window.take() {
-            self.disk.give_back(Some(&window));
-        }
-    }
-
-    /// The window to read into, taking a turn first if none is held.
-    fn window(&mut self) -> io::Result<&mut Window> {
-        if self.window.is_none() {
-            self.disk.take_turn(self.urgent, self.go_on.as_ref())?;
-            self.window = Some(Window::default());
-        }
-        Ok(self.window.as_mut().expect("just set"))
-    }
-}
-
-impl Drop for DiskReader {
-    fn drop(&mut self) {
-        self.end_window();
-    }
-}
-
-/// A file read through a [`DiskReader`]: its first read is timed into the
-/// reader's windows, and a seek back to its start (as `encrypt_blob` reads
-/// twice) makes the rest a second read, paused for but not judged.
-pub struct Timed<'a, R> {
-    file: R,
-    reader: &'a mut DiskReader,
-    len: u64,
-    at: u64,
-    begun: bool,
-    second: bool,
-}
-
-impl<R: Read + Seek> Read for Timed<'_, R> {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        if self.at >= self.len || buffer.is_empty() {
-            // Its end (or a file grown since: read, but not as the disk's).
-            let read = self.file.read(buffer)?;
-            self.at += read as u64;
-            return Ok(read);
-        }
-        let timer = self.reader.disk.timer.clone();
-        let window = self.reader.window()?;
-        let first = !self.second;
-        if first && !self.begun {
-            self.begun = true;
-            window.timed_files += 1;
-        }
-        let started = timer.elapsed();
-        let read = self.file.read(buffer)?;
-        let took = timer.elapsed().saturating_sub(started);
-        self.at += read as u64;
-        window.took += took;
-        window.bytes += read as u64;
-        if first {
-            window.timed += took;
-            window.timed_bytes += read as u64;
-        }
-        if window.bytes >= WINDOW_BYTES || window.timed_files >= WINDOW_FILES {
-            self.reader.end_window();
-        }
-        Ok(read)
-    }
-}
-
-impl<R: Read + Seek> Seek for Timed<'_, R> {
-    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        let at = self.file.seek(position)?;
-        if at == 0 && self.begun {
-            self.second = true;
-        }
-        self.at = at;
-        Ok(at)
-    }
-}
-
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -375,5 +292,4 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 #[cfg(test)]
-#[path = "disk_turns_tests.rs"]
 mod tests;

@@ -214,6 +214,18 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   file: 100 MB for a million files, at each change). If the scale test shows
   it matters: send only what changed since the reader's version (a protocol
   change; its own ADR).
+- **The sender's speed reads 0 KB/s while it sends** (Rescued_Disk to the Windows
+  VM, 2026-10-03: "Someone downloading · 0 KB/s" while the VM received
+  about 45 MB/s of big files; with 100 000 small files the CLI showed a
+  speed). The rate counts `RequestUpdate::Progress` of iroh-blobs' get
+  events (`transport/iroh/handler.rs`, mode `NotifyLog`): find whether
+  progress comes for long blobs, or only at their end.
+- **The big-folder test, what it showed so far (2026-10-03):** a VM whose disk
+  is a file on the sender's own disk made the sender give way to its own
+  reader (ADR 0013 doing its job, in a test layout no two real computers
+  have); with the VM's disks on another drive the sender read at 115-143
+  MB/s and the VM received about 45 MB/s. A file name with U+0080 was saved
+  under another name (ADR 0010), as it should.
 - **Next, in this order (agreed 2026-10-02):**
   1. ~~ADR 0012, choosing what to get~~ (done 2026-10-03, tried Linux → Mac:
      a 104 GB folder left out, a file un-ticked kept and no longer updated).

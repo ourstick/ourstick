@@ -71,7 +71,7 @@ impl Manifest {
 /// Whether `c` is a format character (Unicode category Cf), or a line or
 /// paragraph separator (Zl, Zp): invisible, or able to reorder or break text
 /// shown to a user.
-fn is_format_or_separator(c: char) -> bool {
+pub(crate) fn is_format_or_separator(c: char) -> bool {
     matches!(c,
         '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}'
         | '\u{0890}'..='\u{0891}' | '\u{08E2}' | '\u{180E}' | '\u{200B}'..='\u{200F}'

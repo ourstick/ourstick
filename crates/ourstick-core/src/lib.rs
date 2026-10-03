@@ -17,6 +17,7 @@ pub mod manifest;
 pub mod places;
 pub mod received;
 pub mod record;
+pub mod report;
 pub mod secrets;
 pub mod share;
 pub mod space;

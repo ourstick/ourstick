@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use catalogue::{Catalogue, Catalogued, CataloguedFile};
+pub(crate) use encoding::is_format_or_separator;
 pub use encoding::{name_for_manifest, validate_name, MANIFEST_FORMAT_VERSION};
 pub use stamp::FileStamp;
 

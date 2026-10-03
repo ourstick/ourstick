@@ -137,7 +137,7 @@ impl Progress {
             // Room is checked by `get` itself (the space ledger).
             DownloadEvent::Planned { .. } => Vec::new(),
             DownloadEvent::WaitingForMore { .. } => vec![format!(
-                "[{at}] Everything listed so far is here; waiting for the sender to list more."
+                "[{at}] Up to date so far. Anything more the sender adds will come by itself."
             )],
             DownloadEvent::OwnerUnreachable { reason } => vec![format!(
                 "[{at}] The owner cannot be reached ({}); still trying.",

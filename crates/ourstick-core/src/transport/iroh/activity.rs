@@ -17,8 +17,9 @@ const TICK: Duration = Duration::from_millis(500);
 /// test, ADR 0007), and a two-second rate read 0 most of the time.
 const RATE_WINDOW: Duration = Duration::from_secs(10);
 /// A reader told "not ready" waits for its suitcase this long at most
-/// before it asks again (its pauses grow to a minute): so long, with nothing
-/// sent since, the owner is getting files ready for it.
+/// before it asks again (its pauses grow to a minute,
+/// `download::not_ready::LONGEST_PAUSE`): so long it counts as a reader, and,
+/// with nothing sent since, the owner is getting files ready for it.
 const PREPARING: Duration = Duration::from_secs(70);
 /// A reader whose last transfer ended counts as downloading this much longer:
 /// between two files it decrypts the last one into place, seconds for a big
@@ -31,6 +32,9 @@ struct Counters {
     active: HashMap<u64, usize>,
     /// Connections with no transfer in progress, since when (see [`LINGER`]).
     idle_since: HashMap<u64, Instant>,
+    /// Connections told "not ready" and waiting, since when (see
+    /// [`PREPARING`]).
+    waiting_since: HashMap<u64, Instant>,
     /// Bytes sent, over all transfers.
     sent: u64,
     /// A reader reached us directly, at least once.
@@ -43,16 +47,24 @@ struct Counters {
 }
 
 impl Counters {
-    /// Readers downloading at `now`: a transfer in progress, or one that
-    /// ended less than [`LINGER`] ago. Forgets the ones idle for longer.
+    /// Readers downloading at `now`: a transfer in progress, one that ended
+    /// less than [`LINGER`] ago, or one told "not ready" less than
+    /// [`PREPARING`] ago. Forgets the others.
     fn readers(&mut self, now: Instant) -> usize {
         self.idle_since
             .retain(|_, since| now.duration_since(*since) < LINGER);
-        self.active.len() + self.idle_since.len()
+        self.waiting_since
+            .retain(|_, since| now.duration_since(*since) < PREPARING);
+        let waiting = self
+            .waiting_since
+            .keys()
+            .filter(|connection| {
+                !self.active.contains_key(connection) && !self.idle_since.contains_key(connection)
+            })
+            .count();
+        self.active.len() + self.idle_since.len() + waiting
     }
 
-    /// Readers came only through the relay: one stayed on it for a while,
-    /// and none came directly.
     /// Readers wait for files being got ready: the last thing that happened
     /// was a "not ready", not long ago.
     fn preparing(&self, now: Instant) -> bool {
@@ -61,6 +73,8 @@ impl Counters {
         })
     }
 
+    /// Readers came only through the relay: one stayed on it for a while,
+    /// and none came directly.
     fn only_relayed(&self) -> bool {
         self.relay_only && !self.direct
     }
@@ -97,6 +111,7 @@ impl Activity {
     pub(super) fn started(&self, connection: u64) {
         let mut counters = self.counters();
         counters.idle_since.remove(&connection);
+        counters.waiting_since.remove(&connection);
         *counters.active.entry(connection).or_default() += 1;
     }
 
@@ -120,9 +135,7 @@ impl Activity {
     fn told_not_ready_at(&self, connection: u64, now: Instant) {
         let mut counters = self.counters();
         counters.not_ready_at = Some(now);
-        if !counters.active.contains_key(&connection) {
-            counters.idle_since.insert(connection, now);
-        }
+        counters.waiting_since.insert(connection, now);
     }
 
     /// A reader reached us directly.
@@ -146,6 +159,7 @@ impl Activity {
         let mut counters = self.counters();
         counters.active.remove(&connection);
         counters.idle_since.remove(&connection);
+        counters.waiting_since.remove(&connection);
     }
 
     fn ended_at(&self, connection: u64, now: Instant) {
@@ -268,6 +282,14 @@ mod tests {
         activity.told_not_ready_at(7, at(1));
         assert_eq!(activity.counters().readers(at(2)), 1);
         assert!(activity.counters().preparing(at(2)));
+        // Still a reader while it waits, past LINGER, up to its longest
+        // pause (it asks again within a minute).
+        assert_eq!(
+            activity
+                .counters()
+                .readers(at(1) + LINGER + Duration::from_secs(20)),
+            1
+        );
         // Bytes leave: no longer only waiting.
         activity.sent_at(1000, at(3));
         assert!(!activity.counters().preparing(at(4)));
@@ -277,10 +299,15 @@ mod tests {
             .counters()
             .preparing(at(5) + PREPARING - Duration::from_secs(1)));
         assert!(!activity.counters().preparing(at(5) + PREPARING));
-        // A transfer in progress on that connection is not made idle.
+        // A transfer in progress on that connection is not made idle, and
+        // counts once.
         activity.started(8);
         activity.told_not_ready_at(8, at(6));
         assert_eq!(activity.counters().active.get(&8), Some(&1));
+        // A reader that leaves stops counting at once.
+        activity.closed(7);
+        activity.closed(8);
+        assert_eq!(activity.counters().readers(at(7)), 0);
     }
 
     #[test]

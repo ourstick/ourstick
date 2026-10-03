@@ -301,7 +301,7 @@ fn files_not_downloaded_are_accounted_for() {
     assert_eq!(progress.so_far(), 300);
     assert_eq!(
         progress.on_event(DownloadEvent::WaitingForMore { seq: 1 }, secs(2)),
-        vec!["[00:02] Everything listed so far is here; waiting for the sender to list more."]
+        vec!["[00:02] Up to date so far. Anything more the sender adds will come by itself."]
     );
     assert_eq!(
         progress.on_event(

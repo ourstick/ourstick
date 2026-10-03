@@ -100,4 +100,16 @@ mod tests {
         assert_eq!(event.stick_id, crate::state::stick_hex(&id));
         assert_eq!(event.stick_id.len(), 64);
     }
+
+    #[test]
+    fn the_view_tells_readers_waiting_for_their_files() {
+        let waiting = ReaderActivity {
+            readers: 1,
+            preparing: true,
+            ..ReaderActivity::default()
+        };
+        let view = ActivityView::from(waiting);
+        assert!(view.preparing && view.readers == 1 && view.relay_only.is_none());
+        assert!(!ActivityView::from(ReaderActivity::default()).preparing);
+    }
 }

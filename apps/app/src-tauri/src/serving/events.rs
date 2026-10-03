@@ -50,6 +50,9 @@ impl<T: Serialize> StickEvent<T> {
 pub struct ActivityView {
     pub readers: usize,
     pub bytes_per_second: u64,
+    /// Readers wait while their files are got ready (ADR 0007): nothing
+    /// leaves, and that is no fault.
+    pub preparing: bool,
     /// What to do when readers reach this computer only through the relay
     /// (see [`relay_only_message`]); `None` otherwise.
     pub relay_only: Option<&'static str>,
@@ -60,6 +63,7 @@ impl From<ReaderActivity> for ActivityView {
         Self {
             readers: activity.readers,
             bytes_per_second: activity.bytes_per_second,
+            preparing: activity.preparing,
             relay_only: activity.only_relayed.then(relay_only_message),
         }
     }

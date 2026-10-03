@@ -54,16 +54,16 @@ pub(super) fn readers_line(
         return None;
     }
     let at = clock(elapsed);
+    // Nothing leaves while their files are got ready: say that, not "0 B/s".
+    let how = if now.preparing {
+        "getting their files ready".to_owned()
+    } else {
+        format!("{}/s", bytes(now.bytes_per_second))
+    };
     Some(match now.readers {
         0 => format!("[{at}] Nobody is downloading now."),
-        1 => format!(
-            "[{at}] Someone is downloading ({}/s).",
-            bytes(now.bytes_per_second)
-        ),
-        readers => format!(
-            "[{at}] {readers} are downloading ({}/s).",
-            bytes(now.bytes_per_second)
-        ),
+        1 => format!("[{at}] Someone is downloading ({how})."),
+        readers => format!("[{at}] {readers} are downloading ({how})."),
     })
 }
 
@@ -279,6 +279,7 @@ mod tests {
             readers,
             bytes_per_second: 2_100_000,
             only_relayed: false,
+            preparing: false,
         };
         assert_eq!(
             readers_line(0, &busy(1), at).unwrap(),
@@ -292,6 +293,15 @@ mod tests {
         assert_eq!(
             readers_line(2, &busy(0), at).unwrap(),
             "[00:05] Nobody is downloading now."
+        );
+        let waiting = ReaderActivity {
+            readers: 1,
+            preparing: true,
+            ..ReaderActivity::default()
+        };
+        assert_eq!(
+            readers_line(0, &waiting, at).unwrap(),
+            "[00:05] Someone is downloading (getting their files ready)."
         );
     }
 

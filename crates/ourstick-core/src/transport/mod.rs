@@ -105,8 +105,11 @@ pub enum TransportError {
 pub struct ReaderActivity {
     /// Readers with a transfer in progress (connections, strictly).
     pub readers: usize,
-    /// How fast data leaves, over the last couple of seconds.
+    /// How fast data leaves, over the last ten seconds.
     pub bytes_per_second: u64,
+    /// Readers wait while the owner gets their files ready (they were told
+    /// "not ready", and nothing was sent since).
+    pub preparing: bool,
     /// Readers reach this owner only through the relay: one stayed on it
     /// for a while, and none has ever come directly since sharing started.
     /// Most likely a firewall drops what others send (see

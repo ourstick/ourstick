@@ -113,7 +113,11 @@ so Spotlight leaves it alone.
   reserve and every share's and download's claim are counted (the space
   ledger, ADR 0008); several sticks on one disk share it.
 - Activity line (only while someone downloads):
-  `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`.
+  `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`: the
+  rate over the last ten seconds (a big stick is sent in bursts, a suitcase
+  at a time). While readers wait for their files to be got ready (told
+  "not ready", nothing sent since): `● Someone downloading · getting their
+  files ready`.
   Readers have no names, and the owner cannot tell how much a reader still
   needs (see "Open questions"). `· direct` / `· relay` is added only if iroh
   gives it cheaply on the owner's side.

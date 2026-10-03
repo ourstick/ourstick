@@ -32,7 +32,7 @@
   } = $props();
 
   let current = $state<Stick | null>(null);
-  let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, relay_only: null });
+  let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, preparing: false, relay_only: null });
   let dropping = $state(false);
   let copying = $state(false);
   let failure = $state<string | null>(null);
@@ -207,7 +207,7 @@
 
   {#if activity.readers > 0}
     <p class="activity">
-      ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {rate(activity.bytes_per_second)}
+      ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {activity.preparing ? "getting their files ready" : rate(activity.bytes_per_second)}
     </p>
   {/if}
   {#if activity.relay_only}

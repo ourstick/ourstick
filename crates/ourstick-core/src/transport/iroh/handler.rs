@@ -159,7 +159,10 @@ async fn serve_stream(
             // The store may leave now.
             drop(guard);
         }
-        Decision::NotReady => refuse(&mut writer, ERR_LIMIT),
+        Decision::NotReady => {
+            handler.activity.told_not_ready(connection);
+            refuse(&mut writer, ERR_LIMIT);
+        }
         Decision::Refuse => {
             tracing::debug!("refused a request for a blob that is not served");
             refuse(&mut writer, ERR_PERMISSION);

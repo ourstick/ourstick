@@ -38,6 +38,7 @@ export interface Sharing {
   has_link: boolean;
   readers: number;
   bytes_per_second: number;
+  preparing: boolean;
   /** What to do when people can download only through the relay. */
   relay_only: string | null;
 }
@@ -78,6 +79,8 @@ export function dismissAppProblem(): Promise<void> {
 export interface Activity {
   readers: number;
   bytes_per_second: number;
+  /** Readers wait while their files are got ready: nothing leaves. */
+  preparing: boolean;
   /** What to do when people can download only through the relay. */
   relay_only: string | null;
 }

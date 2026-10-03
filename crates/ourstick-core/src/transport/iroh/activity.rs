@@ -11,8 +11,15 @@ use crate::transport::ReaderActivity;
 
 /// How often the activity is recomputed.
 const TICK: Duration = Duration::from_millis(500);
-/// The rate is taken over this long, so it does not jump with every chunk.
-const RATE_WINDOW: Duration = Duration::from_secs(2);
+/// The rate is taken over this long, so it does not jump with every chunk,
+/// nor fall to nothing between suitcases: a big stick is sent in bursts,
+/// each suitcase in seconds after tens of seconds getting it ready (the Rescued_Disk
+/// test, ADR 0007), and a two-second rate read 0 most of the time.
+const RATE_WINDOW: Duration = Duration::from_secs(10);
+/// A reader told "not ready" waits for its suitcase this long at most
+/// before it asks again (its pauses grow to a minute): so long, with nothing
+/// sent since, the owner is getting files ready for it.
+const PREPARING: Duration = Duration::from_secs(70);
 /// A reader whose last transfer ended counts as downloading this much longer:
 /// between two files it decrypts the last one into place, seconds for a big
 /// one, and "nobody, someone, nobody" at every file says nothing true.
@@ -30,6 +37,9 @@ struct Counters {
     direct: bool,
     /// A reader stayed on the relay for a while, at least once.
     relay_only: bool,
+    /// When bytes last left, and when a reader was last told "not ready".
+    sent_at: Option<Instant>,
+    not_ready_at: Option<Instant>,
 }
 
 impl Counters {
@@ -43,6 +53,14 @@ impl Counters {
 
     /// Readers came only through the relay: one stayed on it for a while,
     /// and none came directly.
+    /// Readers wait for files being got ready: the last thing that happened
+    /// was a "not ready", not long ago.
+    fn preparing(&self, now: Instant) -> bool {
+        self.not_ready_at.is_some_and(|told| {
+            now.duration_since(told) < PREPARING && self.sent_at.is_none_or(|sent| sent < told)
+        })
+    }
+
     fn only_relayed(&self) -> bool {
         self.relay_only && !self.direct
     }
@@ -84,7 +102,27 @@ impl Activity {
 
     /// `bytes` more were sent.
     pub(super) fn sent(&self, bytes: u64) {
-        self.counters().sent += bytes;
+        self.sent_at(bytes, Instant::now());
+    }
+
+    fn sent_at(&self, bytes: u64, now: Instant) {
+        let mut counters = self.counters();
+        counters.sent += bytes;
+        counters.sent_at = Some(now);
+    }
+
+    /// A reader on `connection` was told "not ready": it is waiting for a
+    /// suitcase, and counts as a reader meanwhile.
+    pub(super) fn told_not_ready(&self, connection: u64) {
+        self.told_not_ready_at(connection, Instant::now());
+    }
+
+    fn told_not_ready_at(&self, connection: u64, now: Instant) {
+        let mut counters = self.counters();
+        counters.not_ready_at = Some(now);
+        if !counters.active.contains_key(&connection) {
+            counters.idle_since.insert(connection, now);
+        }
     }
 
     /// A reader reached us directly.
@@ -128,12 +166,13 @@ impl Activity {
         loop {
             ticker.tick().await;
             let now = Instant::now();
-            let (readers, sent, only_relayed) = {
+            let (readers, sent, only_relayed, preparing) = {
                 let mut counters = self.counters();
                 (
                     counters.readers(now),
                     counters.sent,
                     counters.only_relayed(),
+                    counters.preparing(now),
                 )
             };
             samples.push_back((now, sent));
@@ -147,6 +186,7 @@ impl Activity {
                 readers,
                 bytes_per_second: rate(&samples),
                 only_relayed,
+                preparing: readers > 0 && preparing,
             };
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;
@@ -216,6 +256,31 @@ mod tests {
         activity.closed(1);
         activity.closed(2);
         assert_eq!(activity.counters().readers(start), 0);
+    }
+
+    #[test]
+    fn a_reader_told_not_ready_is_waiting_for_files_got_ready() {
+        let start = Instant::now();
+        let activity = Activity::new();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        assert!(!activity.counters().preparing(at(0)));
+        // Told "not ready": a reader, waiting while its files are got ready.
+        activity.told_not_ready_at(7, at(1));
+        assert_eq!(activity.counters().readers(at(2)), 1);
+        assert!(activity.counters().preparing(at(2)));
+        // Bytes leave: no longer only waiting.
+        activity.sent_at(1000, at(3));
+        assert!(!activity.counters().preparing(at(4)));
+        // Told again later, and waiting as long as a reader's longest pause.
+        activity.told_not_ready_at(7, at(5));
+        assert!(activity
+            .counters()
+            .preparing(at(5) + PREPARING - Duration::from_secs(1)));
+        assert!(!activity.counters().preparing(at(5) + PREPARING));
+        // A transfer in progress on that connection is not made idle.
+        activity.started(8);
+        activity.told_not_ready_at(8, at(6));
+        assert_eq!(activity.counters().active.get(&8), Some(&1));
     }
 
     #[test]

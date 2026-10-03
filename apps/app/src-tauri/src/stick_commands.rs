@@ -28,6 +28,8 @@ pub struct SharingView {
     has_link: bool,
     readers: usize,
     bytes_per_second: u64,
+    /// Readers wait while their files are got ready.
+    preparing: bool,
     /// What to do when readers come only through the relay.
     relay_only: Option<&'static str>,
 }
@@ -179,6 +181,7 @@ fn sharing_view(
         has_link,
         readers: activity.readers,
         bytes_per_second: activity.bytes_per_second,
+        preparing: activity.preparing,
         relay_only: activity.relay_only,
     }
 }

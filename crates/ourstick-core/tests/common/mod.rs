@@ -55,6 +55,14 @@ pub struct Owner {
     pub cache: TempDir,
 }
 
+/// The disks a test's owner reads (ADR 0013), at their real speed.
+#[allow(dead_code)]
+pub fn disks() -> Arc<ourstick_core::share::disk_turns::Disks> {
+    Arc::new(ourstick_core::share::disk_turns::Disks::new(Arc::new(
+        ourstick_core::share::disk_turns::SystemTimer::default(),
+    )))
+}
+
 impl Owner {
     /// An owner sharing a folder with `files`, not yet published, on loopback.
     pub async fn new(files: &[(&str, &[u8])]) -> Self {
@@ -81,6 +89,7 @@ impl Owner {
             self.signing_key.stick_id(),
             self.stick_key.clone(),
             Budget::new(1 << 33),
+            disks(),
         ));
     }
 

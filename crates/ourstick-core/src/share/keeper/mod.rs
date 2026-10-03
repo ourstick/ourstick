@@ -24,6 +24,7 @@ pub use budget::{Budget, MAX_BUDGET, MIN_BUDGET};
 use self::plan::{plan, Plan, SUITCASE_BYTES};
 use self::prepare::{prepare, FileJob, Prepared};
 use self::state::State;
+use super::disk_turns::Disks;
 use super::latest::load_latest_manifest;
 use super::ShareError;
 use crate::blob::decrypt_blob;
@@ -53,6 +54,7 @@ pub async fn keep_suitcases<P: Publisher + 'static>(
     stick_id: StickId,
     stick_key: StickKey,
     budget: Budget,
+    disks: Arc<Disks>,
 ) -> Result<(), ShareError> {
     let mut demand = publisher.take_demand().ok_or(ShareError::KeeperRunning)?;
     let owned = {
@@ -79,6 +81,7 @@ pub async fn keep_suitcases<P: Publisher + 'static>(
                     job = Some(Box::pin(run_job(
                         publisher,
                         context.cipher.clone(),
+                        disks.clone(),
                         budget.clone(),
                         Forget {
                             store: context.store.clone(),
@@ -169,6 +172,7 @@ struct Forget {
 async fn run_job(
     publisher: &impl Publisher,
     cipher: Arc<dyn Cipher>,
+    disks: Arc<Disks>,
     budget: Budget,
     forget: Forget,
     job: Job,
@@ -188,7 +192,7 @@ async fn run_job(
             result: Ok(None),
         };
     }
-    let result = prepare(publisher, &cipher, job.files).await;
+    let result = prepare(publisher, &cipher, &disks, job.files).await;
     match &result {
         Err(_) => budget.release(job.bytes),
         // Their record no longer matches them (a change that kept size and

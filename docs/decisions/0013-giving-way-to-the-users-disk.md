@@ -156,10 +156,12 @@ Nothing gives way to anyone outside OurStick.
 - A trait for the judgement (`DiskLoad`), so a better source (the system's
   disk counters, see Consequences) can replace the timing later without
   changing the callers.
-- `PassEvent::GivingWay(bool)` and the keeper's matching event come from
-  the disks' `DiskShare`s, so a stick has one state (giving way if any of
-  its disks is: a stick with linked folders on two disks has two); the CLI
-  and the app show it (rule 6).
+- `PassEvent::GivingWay(bool)` (and `WatchEvent::GivingWay`) comes from
+  the disks a pass reads, after each part, so a stick has one state
+  (giving way if any of its disks is: a stick with linked folders on two
+  disks has two); the CLI and the app show it (rule 6), and a pass that
+  ends giving way says so. A suitcase gives way too but tells nothing: it
+  is short, and its reader already sees "the sender is getting it ready".
 - A drive ejected during a pause: the pause sleeps in slices of at most
   5 s and checks the drive's mark between them, as the pass does between
   parts, so `DriveMissing` is not a pause late.

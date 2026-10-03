@@ -41,6 +41,7 @@ fn describe(event: WatchEvent<'_>) -> String {
         WatchEvent::Failed { .. } => "failed".to_owned(),
         WatchEvent::Ejected => "ejected".to_owned(),
         WatchEvent::SeenSlowly => "seen slowly".to_owned(),
+        WatchEvent::GivingWay(now) => format!("giving way {now}"),
         WatchEvent::Reading { done, total } => format!("reading {done}/{total}"),
         WatchEvent::Roots { gone, left_out } => format!("roots -{gone:?} ~{left_out:?}"),
         WatchEvent::Published {
@@ -81,6 +82,7 @@ async fn watch_with(
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,
@@ -266,6 +268,7 @@ async fn reading_first_publishes_what_changed_while_stopped() {
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

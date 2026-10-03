@@ -17,6 +17,7 @@ use super::build::{hash_file_telling_plaintext, regular_files, relative_path};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
 use crate::layout::StickLayout;
+use crate::share::disk_turns::{DiskId, Readers};
 use crate::store::OwnedFile;
 
 /// One file of the catalogue.
@@ -183,19 +184,37 @@ impl Catalogue {
     }
 
     /// The next files, up to `max_files` of them, stopping once `max_bytes`
-    /// were read. Blocking.
+    /// were read. With `readers`, files are read through their disks' turns
+    /// (ADR 0013), every turn given back before it returns. Blocking.
     pub fn next_part(
         &mut self,
         cipher: &dyn Cipher,
         max_files: usize,
         max_bytes: u64,
+        mut readers: Option<&mut Readers>,
+    ) -> Result<Vec<Catalogued>, ManifestError> {
+        let part = self.read_part(cipher, max_files, max_bytes, readers.as_deref_mut());
+        if let Some(readers) = readers {
+            readers.end_windows();
+        }
+        part
+    }
+
+    fn read_part(
+        &mut self,
+        cipher: &dyn Cipher,
+        max_files: usize,
+        max_bytes: u64,
+        mut readers: Option<&mut Readers>,
     ) -> Result<Vec<Catalogued>, ManifestError> {
         let mut part = Vec::new();
         let mut read = 0u64;
         while part.len() < max_files && read < max_bytes && !self.is_finished() {
             let (relative, source) = &self.files[self.next];
             let catalogued = match source {
-                Source::Disk(path) => self.catalogue(relative, path, cipher)?,
+                Source::Disk(path) => {
+                    self.catalogue(relative, path, cipher, readers.as_deref_mut())?
+                }
                 Source::Carried(file) => Catalogued::File(carried(file)),
             };
             if let Catalogued::File(file) = &catalogued {
@@ -214,6 +233,7 @@ impl Catalogue {
         relative: &str,
         path: &Path,
         cipher: &dyn Cipher,
+        readers: Option<&mut Readers>,
     ) -> Result<Catalogued, ManifestError> {
         let skipped = || Catalogued::Skipped {
             path: relative.to_owned(),
@@ -248,7 +268,8 @@ impl Catalogue {
                 read: false,
             }));
         }
-        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, None) {
+        let reader = readers.map(|readers| readers.on(DiskId::of_file(path, &metadata)));
+        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, None, reader) {
             Ok((entry, _, plaintext_hash)) => Ok(Catalogued::File(CataloguedFile {
                 entry,
                 stamp,

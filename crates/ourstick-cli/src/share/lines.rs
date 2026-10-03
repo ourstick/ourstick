@@ -90,6 +90,17 @@ pub(super) fn relay_only_line(
     ))
 }
 
+/// Said once when OurStick begins giving way to another program using the
+/// disk, and once when it stops (ADR 0013).
+pub(super) fn giving_way_line(now: bool, elapsed: Duration) -> String {
+    let at = clock(elapsed);
+    if now {
+        format!("[{at}] Reading your folder slowly, so another program can use the disk.")
+    } else {
+        format!("[{at}] Reading at full speed again.")
+    }
+}
+
 /// Lines for what the watcher did. Nothing when signs of change changed
 /// nothing (e.g. a file saved with the same content).
 pub(super) fn watch_lines(
@@ -106,6 +117,7 @@ pub(super) fn watch_lines(
             "[{at}] The stick's drive is not there (ejected?); readers keep getting \
              the last version until it is back."
         )],
+        WatchEvent::GivingWay(now) => vec![giving_way_line(*now, elapsed)],
         WatchEvent::SeenSlowly => vec![format!(
             "[{at}] Some folders cannot be watched (too many?); their changes are \
              seen every {} s.",
@@ -179,6 +191,19 @@ mod tests {
             new_version: true,
             reused: 0,
         }
+    }
+
+    #[test]
+    fn giving_way_is_said_when_it_starts_and_when_it_stops() {
+        let at = Duration::from_secs(75);
+        assert_eq!(
+            watch_lines(&WatchEvent::GivingWay(true), at, WatchTiming::default()),
+            ["[01:15] Reading your folder slowly, so another program can use the disk."]
+        );
+        assert_eq!(
+            giving_way_line(false, at),
+            "[01:15] Reading at full speed again."
+        );
     }
 
     #[test]

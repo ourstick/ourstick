@@ -20,7 +20,7 @@ use ourstick_core::watcher::{
     PeriodicEvents, WatchEvent, WatchTiming,
 };
 use ourstick_core::{Manifest, ManifestHint, StickId, Store, Ticket};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, watch};
 
 mod events;
@@ -148,6 +148,7 @@ async fn first_publication(
 ) -> Result<(Manifest, Option<String>, bool)> {
     let stick_id = keys.stick.stick_id;
     let cache_dir = publisher.cache_dir().to_path_buf();
+    let disks = app.state::<crate::state::AppState>().disks.clone();
     // ADR 0007: files are encrypted into suitcases as readers ask for them,
     // within a budget. With too little free space, sharing does not start
     // and the error says why.
@@ -173,6 +174,7 @@ async fn first_publication(
             stick_id,
             keys.stick_key.clone(),
             budget,
+            disks.clone(),
         );
         async move {
             if let Err(error) = keeper.await {
@@ -186,6 +188,7 @@ async fn first_publication(
     let latest = serve_latest(&Owner {
         publisher,
         store: store.clone(),
+        disks,
         clock: &SystemClock,
         signing_key: &keys.signing_key,
         stick_key: &keys.stick_key,
@@ -272,6 +275,7 @@ impl Shared {
             let owner = Owner {
                 publisher: &publisher,
                 store,
+                disks: app.state::<crate::state::AppState>().disks.clone(),
                 clock: &SystemClock,
                 signing_key: &keys.signing_key,
                 stick_key: &keys.stick_key,
@@ -331,6 +335,12 @@ fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
             message: crate::words::told_one(*error),
         },
         WatchEvent::Ejected => ShareProblem::Ejected,
+        // Not a problem: a note while it lasts, told at each change.
+        WatchEvent::GivingWay(now) => {
+            let view = events::GivingWayView { giving_way: *now };
+            let _ = app.emit("giving-way", StickEvent::new(stick_id, view));
+            return;
+        }
     };
     crate::problems::tell(app, Some(*stick_id), problem);
 }

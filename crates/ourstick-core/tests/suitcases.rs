@@ -163,6 +163,7 @@ async fn two_readers_get_everything_through_a_small_budget() {
         owner.signing_key.stick_id(),
         owner.stick_key.clone(),
         Budget::new(one * 6),
+        common::disks(),
     ));
 
     let first = Reader::new();

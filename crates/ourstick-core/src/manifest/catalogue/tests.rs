@@ -34,14 +34,16 @@ fn parts_follow_manifest_order_and_hash_like_a_full_encryption() {
     assert_eq!(catalogue.len(), 3);
     assert_eq!(catalogue.last_done(), None);
     assert_eq!(catalogue.paths(), vec!["a-c", "a/b", "z"]);
-    let mut all = files(&catalogue.next_part(&cipher(), 2, u64::MAX).unwrap());
+    let mut all = files(&catalogue.next_part(&cipher(), 2, u64::MAX, None).unwrap());
     assert_eq!(catalogue.done(), 2);
     assert_eq!(catalogue.last_done(), Some("a/b"));
     assert!(!catalogue.is_finished());
-    all.extend(files(&catalogue.next_part(&cipher(), 2, u64::MAX).unwrap()));
+    all.extend(files(
+        &catalogue.next_part(&cipher(), 2, u64::MAX, None).unwrap(),
+    ));
     assert!(catalogue.is_finished());
     assert!(catalogue
-        .next_part(&cipher(), 2, u64::MAX)
+        .next_part(&cipher(), 2, u64::MAX, None)
         .unwrap()
         .is_empty());
 
@@ -63,8 +65,20 @@ fn a_part_stops_once_enough_was_read() {
     }
     let mut catalogue = Catalogue::start(dir.path(), Vec::new()).unwrap();
     // The file that reaches the limit is the last of the part.
-    assert_eq!(catalogue.next_part(&cipher(), 10, 1500).unwrap().len(), 2);
-    assert_eq!(catalogue.next_part(&cipher(), 10, 1500).unwrap().len(), 1);
+    assert_eq!(
+        catalogue
+            .next_part(&cipher(), 10, 1500, None)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        catalogue
+            .next_part(&cipher(), 10, 1500, None)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -73,10 +87,11 @@ fn a_file_as_recorded_is_not_read() {
     write(dir.path(), "kept", b"old");
     write(dir.path(), "changed", b"new");
     let mut first = Catalogue::start(dir.path(), Vec::new()).unwrap();
-    let mut recorded: Vec<OwnedFile> = files(&first.next_part(&cipher(), 10, u64::MAX).unwrap())
-        .iter()
-        .map(CataloguedFile::owned_file)
-        .collect();
+    let mut recorded: Vec<OwnedFile> =
+        files(&first.next_part(&cipher(), 10, u64::MAX, None).unwrap())
+            .iter()
+            .map(CataloguedFile::owned_file)
+            .collect();
     // A recorded hash no file would give, to see that it is trusted.
     recorded[1].blob_hash = [9; 32];
     recorded[1].plaintext_hash = None;
@@ -84,7 +99,7 @@ fn a_file_as_recorded_is_not_read() {
     recorded[0].stamp.size += 1;
 
     let mut second = Catalogue::start(dir.path(), recorded).unwrap();
-    let part = files(&second.next_part(&cipher(), 10, u64::MAX).unwrap());
+    let part = files(&second.next_part(&cipher(), 10, u64::MAX, None).unwrap());
     assert_eq!(part[0].entry.path, "changed");
     assert!(part[0].read);
     assert_eq!(part[1].entry.path, "kept");
@@ -101,7 +116,7 @@ fn a_file_gone_since_the_walk_is_skipped() {
     write(dir.path(), "stays", b"y");
     let mut catalogue = Catalogue::start(dir.path(), Vec::new()).unwrap();
     std::fs::remove_file(dir.path().join("gone")).unwrap();
-    let part = catalogue.next_part(&cipher(), 10, u64::MAX).unwrap();
+    let part = catalogue.next_part(&cipher(), 10, u64::MAX, None).unwrap();
     assert_eq!(
         part[0],
         Catalogued::Skipped {

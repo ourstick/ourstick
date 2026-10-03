@@ -2,11 +2,12 @@
 //! suitcase) holds a turn for one window at a time, and [`Timed`] times the
 //! first read of each file into it (ADR 0013, rules 1 and 2).
 
+use std::collections::HashMap;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::Disk;
+use super::{Disk, DiskId, Disks};
 use crate::share::disk_share::{WINDOW_BYTES, WINDOW_FILES};
 
 /// What one turn has read.
@@ -152,5 +153,79 @@ impl<R: Read + Seek> Seek for Timed<'_, R> {
         }
         self.at = at;
         Ok(at)
+    }
+}
+
+/// Whether to go on reading, shared by every reader of one task.
+type GoOn = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
+
+/// The readers of one task (a part of a catalogue) over every disk it
+/// reads: one [`DiskReader`] per disk, and one turn held at a time, so a
+/// task never waits for a disk while it holds another's turn.
+pub struct Readers {
+    disks: Arc<Disks>,
+    urgent: bool,
+    go_on: GoOn,
+    readers: HashMap<DiskId, DiskReader>,
+    current: Option<DiskId>,
+}
+
+impl Readers {
+    /// See [`DiskReader::new`] for `urgent` and `go_on`.
+    pub fn new(
+        disks: Arc<Disks>,
+        urgent: bool,
+        go_on: impl Fn() -> io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            disks,
+            urgent,
+            go_on: Arc::new(go_on),
+            readers: HashMap::new(),
+            current: None,
+        }
+    }
+
+    /// The reader of the disk `id`; another disk's turn is given back
+    /// first.
+    pub fn on(&mut self, id: DiskId) -> &mut DiskReader {
+        if self.current.as_ref() != Some(&id) {
+            if let Some(reader) = self
+                .current
+                .take()
+                .and_then(|current| self.readers.get_mut(&current))
+            {
+                reader.end_window();
+            }
+            self.current = Some(id.clone());
+        }
+        let disks = &self.disks;
+        let urgent = self.urgent;
+        let go_on = self.go_on.clone();
+        self.readers
+            .entry(id.clone())
+            .or_insert_with(|| DiskReader::new(disks.get(id), urgent, move || go_on()))
+    }
+
+    /// Gives back every turn held (the end of a part).
+    pub fn end_windows(&mut self) {
+        for reader in self.readers.values_mut() {
+            reader.end_window();
+        }
+        self.current = None;
+    }
+
+    /// Whether OurStick gives way on any disk these readers read.
+    pub fn giving_way(&self) -> bool {
+        self.readers.values().any(|reader| reader.disk.giving_way())
+    }
+}
+
+impl std::fmt::Debug for Readers {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Readers")
+            .field("disks", &self.readers.len())
+            .finish_non_exhaustive()
     }
 }

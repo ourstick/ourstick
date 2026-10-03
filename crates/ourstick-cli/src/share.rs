@@ -4,12 +4,14 @@
 
 use std::io::IsTerminal;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
 use ourstick_core::places::{check_new_stick_folder, comparable};
+use ourstick_core::share::disk_turns::{Disks, SystemTimer};
 use ourstick_core::share::{
     keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
     Publication, PARTIAL_TIMING,
@@ -31,7 +33,9 @@ use crate::setup::{self, hex};
 
 mod lines;
 
-use lines::{catalogue_line, network_line, readers_line, relay_only_line, watch_lines};
+use lines::{
+    catalogue_line, giving_way_line, network_line, readers_line, relay_only_line, watch_lines,
+};
 
 /// How long `share` waits, once online, for the network measurement.
 const NETWORK_REPORT_WAIT: Duration = Duration::from_secs(10);
@@ -158,12 +162,15 @@ pub async fn run(
         bytes(budget.total()),
         cache_dir.display()
     );
+    // Every reading of the disk goes through its turns (ADR 0013).
+    let disks = Arc::new(Disks::new(Arc::new(SystemTimer::default())));
     let keeper = tokio::spawn(keep_suitcases(
         publisher.clone(),
         setup.store.clone(),
         stick.stick_id,
         stick_key.clone(),
         budget,
+        disks.clone(),
     ));
     // Before the first version, so the ticket carries the relay's address.
     if !publisher.online(Duration::from_secs(30)).await {
@@ -175,6 +182,7 @@ pub async fn run(
     let owner = Owner {
         publisher: &publisher,
         store: setup.store.clone(),
+        disks,
         clock: &SystemClock,
         signing_key: &signing_key,
         stick_key: &stick_key,
@@ -237,6 +245,7 @@ pub async fn run(
             }
             // `share <folder>` links nothing (linked entries are the app's).
             PassEvent::Roots { .. } => {}
+            PassEvent::GivingWay(now) => println!("{}", giving_way_line(now, started.elapsed())),
         };
         let outcome = tokio::select! {
             outcome = run_pass(&owner, options, &mut on_pass) => outcome?,

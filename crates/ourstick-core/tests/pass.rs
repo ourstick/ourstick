@@ -40,6 +40,7 @@ fn publishing(owner: &Owner) -> Publishing<'_, ourstick_core::transport::iroh::I
     Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,
@@ -61,6 +62,7 @@ async fn a_first_share_is_published_as_its_catalogue_grows() {
         }
         PassEvent::Progress { done, total } => progress.push((done, total)),
         PassEvent::Roots { .. } => panic!("nothing is linked"),
+        PassEvent::GivingWay(_) => {}
     })
     .await
     .unwrap();

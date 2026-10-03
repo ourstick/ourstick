@@ -10,6 +10,7 @@ use std::io::{BufReader, BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::super::disk_turns::{DiskReader, Disks, StopOnDrop};
 use crate::blob::{encrypt_blob, encrypt_blob_hashed_before};
 use crate::blocking::run_blocking;
 use crate::cipher::{Cipher, CipherError};
@@ -17,6 +18,17 @@ use crate::layout::Root;
 use crate::manifest::Entry;
 use crate::share::ShareError;
 use crate::transport::{BlobHash, Publisher, SuitcaseId};
+
+/// A reader told "not ready" this recently is still waiting (its pauses
+/// grow to a minute): a suitcase for it goes first on the disk.
+const READERS_WAIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// How a suitcase's files are read: through their disks' turns.
+pub(super) struct Reading {
+    pub(super) disks: Arc<Disks>,
+    pub(super) urgent: bool,
+    pub(super) stopped: Arc<std::sync::atomic::AtomicBool>,
+}
 
 /// One file to put in a suitcase.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,10 +58,11 @@ pub(super) struct Prepared {
 pub(super) async fn prepare(
     publisher: &impl Publisher,
     cipher: &Arc<dyn Cipher>,
+    disks: &Arc<Disks>,
     files: Vec<FileJob>,
 ) -> Result<Prepared, ShareError> {
     let (id, folder) = publisher.open_suitcase().await?;
-    match fill(publisher, cipher, files, id, &folder).await {
+    match fill(publisher, cipher, disks, files, id, &folder).await {
         Ok(prepared) => Ok(prepared),
         Err(error) => {
             // Half a suitcase is not kept: it is prepared again later.
@@ -64,10 +77,13 @@ pub(super) async fn prepare(
 async fn fill(
     publisher: &impl Publisher,
     cipher: &Arc<dyn Cipher>,
+    disks: &Arc<Disks>,
     files: Vec<FileJob>,
     id: SuitcaseId,
     folder: &std::path::Path,
 ) -> Result<Prepared, ShareError> {
+    // A suitcase dropped (its stick stopped) stops waiting for the disk.
+    let stop_on_drop = StopOnDrop::default();
     let mut prepared = Prepared {
         id,
         ready: HashSet::new(),
@@ -83,7 +99,14 @@ async fn fill(
         let written = {
             let cipher = cipher.clone();
             let blob_file = blob_file.clone();
-            run_blocking(move || write_blob(cipher.as_ref(), &file, &blob_file)).await?
+            // Readers waiting for it: it goes first on the disk (ADR 0013).
+            let urgent = publisher.readers_waiting(READERS_WAIT_WINDOW);
+            let reading = Reading {
+                disks: disks.clone(),
+                urgent,
+                stopped: stop_on_drop.flag(),
+            };
+            run_blocking(move || write_blob(cipher.as_ref(), &file, &blob_file, &reading)).await?
         };
         if !written {
             prepared.changed.push(path);
@@ -105,6 +128,7 @@ fn write_blob(
     cipher: &dyn Cipher,
     file: &FileJob,
     blob_file: &std::path::Path,
+    reading: &Reading,
 ) -> Result<bool, ShareError> {
     let io = |path: &std::path::Path| {
         let path = path.to_path_buf();
@@ -119,7 +143,15 @@ fn write_blob(
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(io(&file.on_disk)(error)),
     };
-    let mut plaintext = BufReader::new(plaintext);
+    let len = plaintext.metadata().map_err(io(&file.on_disk))?.len();
+    let stopped = reading.stopped.clone();
+    let mut reader = DiskReader::new(reading.disks.of(&file.on_disk), reading.urgent, move || {
+        if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(std::io::Error::other("the stick stopped"));
+        }
+        Ok(())
+    });
+    let mut plaintext = BufReader::new(reader.open(plaintext, len));
     let mut out = BufWriter::new(File::create_new(blob_file).map_err(io(blob_file))?);
     let encrypted = match &file.plaintext_hash {
         Some(hash) => encrypt_blob_hashed_before(cipher, &mut plaintext, &mut out, hash),
@@ -158,6 +190,16 @@ mod tests {
     use super::*;
     use crate::cipher::{ChaChaCipher, StickKey};
 
+    fn reading() -> Reading {
+        Reading {
+            disks: Arc::new(Disks::new(Arc::new(
+                super::super::super::disk_turns::SystemTimer::default(),
+            ))),
+            urgent: false,
+            stopped: Arc::default(),
+        }
+    }
+
     fn cipher() -> ChaChaCipher {
         ChaChaCipher::new(&StickKey::from_bytes([4; 32]))
     }
@@ -193,7 +235,7 @@ mod tests {
         let blob_file = dir.path().join("blob");
         // Deleted from a root that is there: changed (its record goes).
         std::fs::remove_file(&file.on_disk).unwrap();
-        assert!(!write_blob(&cipher(), &file, &blob_file).unwrap());
+        assert!(!write_blob(&cipher(), &file, &blob_file, &reading()).unwrap());
         // Its root gone (a linked disk unplugged): out of reach, kept.
         file.root = Root {
             name: Some("Films".to_owned()),
@@ -203,7 +245,7 @@ mod tests {
         };
         file.on_disk = dir.path().join("Films/file");
         assert!(matches!(
-            write_blob(&cipher(), &file, &blob_file),
+            write_blob(&cipher(), &file, &blob_file, &reading()),
             Err(ShareError::SourceGone { name }) if name.as_deref() == Some("Films")
         ));
         assert!(!blob_file.exists());
@@ -214,7 +256,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = job(dir.path(), b"the contents", None);
         let blob_file = dir.path().join("blob");
-        assert!(write_blob(&cipher(), &file, &blob_file).unwrap());
+        assert!(write_blob(&cipher(), &file, &blob_file, &reading()).unwrap());
         let blob = std::fs::read(&blob_file).unwrap();
         assert_eq!(*blake3::hash(&blob).as_bytes(), file.entry.hash);
     }
@@ -225,12 +267,12 @@ mod tests {
         // Same size, other bytes: the nonce would belong to the old ones.
         let file = job(dir.path(), b"the CONTENTS", Some(b"the contents"));
         let blob_file = dir.path().join("blob");
-        assert!(!write_blob(&cipher(), &file, &blob_file).unwrap());
+        assert!(!write_blob(&cipher(), &file, &blob_file, &reading()).unwrap());
         assert!(!blob_file.exists());
 
         let mut gone = job(dir.path(), b"x", None);
         gone.on_disk = dir.path().join("missing");
-        assert!(!write_blob(&cipher(), &gone, &blob_file).unwrap());
+        assert!(!write_blob(&cipher(), &gone, &blob_file, &reading()).unwrap());
         assert!(!blob_file.exists());
     }
 
@@ -240,7 +282,7 @@ mod tests {
         let mut file = job(dir.path(), b"the contents", None);
         file.plaintext_hash = None;
         let blob_file = dir.path().join("blob");
-        assert!(write_blob(&cipher(), &file, &blob_file).unwrap());
+        assert!(write_blob(&cipher(), &file, &blob_file, &reading()).unwrap());
         let blob = std::fs::read(&blob_file).unwrap();
         assert_eq!(*blake3::hash(&blob).as_bytes(), file.entry.hash);
     }

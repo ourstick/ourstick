@@ -5,8 +5,10 @@
 //! each keeps the files not read yet as the last pass left them
 //! ([`super::partial`]), and one that changes nothing is not published.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use super::disk_turns::{Readers, StopOnDrop};
 use super::partial::Previous;
 use super::version::{Signed, Versions};
 use super::{check_drive, drive_present, Owner, Publication, ShareError};
@@ -22,14 +24,6 @@ const PART_FILES: usize = 256;
 /// …or once this many bytes were read, so the pass looks up often enough to
 /// publish on time and to notice an ejected drive.
 const PART_BYTES: u64 = 256 * 1024 * 1024;
-
-/// A reader told "not ready" this recently is still waiting (its pauses
-/// grow to a minute).
-const READERS_WAIT_WINDOW: Duration = Duration::from_secs(60);
-/// While readers wait, the catalogue pauses after each part as long as the
-/// part took, at most this: suitcases for them (the same disk) go first, and
-/// the catalogue still goes on, or new files would never reach anyone.
-const LONGEST_YIELD: Duration = Duration::from_secs(10);
 
 /// When partial versions are published.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +56,9 @@ pub enum PassEvent<'a> {
     Progress { done: usize, total: usize },
     /// A partial version was published.
     Published(&'a Publication),
+    /// OurStick began (`true`) or stopped giving way to another program
+    /// using the disk (ADR 0013). Told at each change only.
+    GivingWay(bool),
     /// At the start, if any: linked entries that are gone (their files are
     /// offered as last published), and top-level names of the stick's own
     /// folder left out because a linked entry has them (ADR 0008). Names
@@ -149,6 +146,25 @@ pub async fn run_pass(
         on_event(PassEvent::Published(&publication));
     }
 
+    // Read through the disks' turns (ADR 0013), giving way to other
+    // programs; a pause is cut short when the pass is dropped (its stick
+    // stopped) or the stick's drive is gone.
+    let stop_on_drop = StopOnDrop::default();
+    let stopped = stop_on_drop.flag();
+    let mut readers = {
+        let root = root.clone();
+        Some(Readers::new(owner.disks.clone(), false, move || {
+            if stopped.load(Ordering::Relaxed) {
+                return Err(std::io::Error::other("the stick stopped"));
+            }
+            if is_drive && !drive_present(&root, &stick_id) {
+                return Err(std::io::Error::other("the stick's drive is gone"));
+            }
+            Ok(())
+        }))
+    };
+    let mut giving_way = false;
+
     let mut entries: Vec<Entry> = Vec::new();
     let mut skipped = 0;
     let mut reused = 0;
@@ -159,16 +175,25 @@ pub async fn run_pass(
                 return Err(ShareError::DriveMissing { path: root.clone() });
             }
         }
-        let part_started = Instant::now();
-        let (returned, part) = {
+        let (returned, returned_readers, part) = {
             let cipher = cipher.clone();
+            let mut readers = readers.take();
             run_blocking(move || {
-                let part = catalogue.next_part(cipher.as_ref(), PART_FILES, PART_BYTES);
-                (catalogue, part)
+                let part =
+                    catalogue.next_part(cipher.as_ref(), PART_FILES, PART_BYTES, readers.as_mut());
+                (catalogue, readers, part)
             })
             .await
         };
         catalogue = returned;
+        readers = returned_readers;
+        // A drive ejected during a pause says so, not "a file failed".
+        if part.is_err() && is_drive {
+            let marker_root = root.clone();
+            if !run_blocking(move || drive_present(&marker_root, &stick_id)).await {
+                return Err(ShareError::DriveMissing { path: root.clone() });
+            }
+        }
         let mut recorded = Vec::new();
         for item in part? {
             let file = match item {
@@ -190,8 +215,10 @@ pub async fn run_pass(
             done: catalogue.done(),
             total: catalogue.len(),
         });
-        if owner.publisher.readers_waiting(READERS_WAIT_WINDOW) {
-            tokio::time::sleep(part_started.elapsed().min(LONGEST_YIELD)).await;
+        let now = readers.as_ref().is_some_and(Readers::giving_way);
+        if now != giving_way {
+            giving_way = now;
+            on_event(PassEvent::GivingWay(now));
         }
         if let (Some(timing), Some(due)) = (timing, next_partial) {
             if Instant::now() >= due && !catalogue.is_finished() {
@@ -206,6 +233,10 @@ pub async fn run_pass(
                 next_partial = Some(Instant::now() + timing.every);
             }
         }
+    }
+
+    if giving_way {
+        on_event(PassEvent::GivingWay(false));
     }
 
     let paths: Vec<String> = entries.iter().map(|entry| entry.path.clone()).collect();

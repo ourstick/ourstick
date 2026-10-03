@@ -31,6 +31,8 @@ pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PAR
 pub struct Owner<'a, P> {
     pub publisher: &'a P,
     pub store: Arc<dyn Store>,
+    /// The disks OurStick reads, shared by every stick (ADR 0013).
+    pub disks: Arc<disk_turns::Disks>,
     pub clock: &'a dyn Clock,
     pub signing_key: &'a StickSigningKey,
     pub stick_key: &'a StickKey,
@@ -139,9 +141,15 @@ pub async fn publish_folder(
     stick_key: &StickKey,
     rescan: bool,
 ) -> Result<Publication, ShareError> {
+    // One pass alone: its own disks (a sharing program gives every stick
+    // the same ones instead).
+    let disks = Arc::new(disk_turns::Disks::new(Arc::new(
+        disk_turns::SystemTimer::default(),
+    )));
     let owner = Owner {
         publisher,
         store,
+        disks,
         clock,
         signing_key,
         stick_key,

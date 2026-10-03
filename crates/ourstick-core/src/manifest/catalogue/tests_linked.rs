@@ -27,7 +27,7 @@ fn linked(name: &str, path: &Path) -> LinkedEntry {
 /// Every file of a catalogue run to its end, by path.
 fn all(catalogue: &mut Catalogue) -> Vec<CataloguedFile> {
     let part = catalogue
-        .next_part(&cipher(), usize::MAX, u64::MAX)
+        .next_part(&cipher(), usize::MAX, u64::MAX, None)
         .unwrap();
     part.into_iter()
         .map(|item| match item {

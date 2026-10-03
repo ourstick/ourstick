@@ -113,6 +113,9 @@
     await refresh();
   }
 
+  /** OurStick gives way to another program reading the same disk. */
+  let givingWay = $state(false);
+
   // A view per stick (the list makes it anew for another one).
   onMount(() => {
     refresh();
@@ -123,6 +126,10 @@
       // Only this stick's.
       listen<About<Activity>>("activity", (event) => {
         if (event.payload.stick_id === stickId) activity = event.payload;
+      }),
+      // Told at each change only (ADR 0013).
+      listen<About<{ giving_way: boolean }>>("giving-way", (event) => {
+        if (event.payload.stick_id === stickId) givingWay = event.payload.giving_way;
       }),
       listen("problems-changed", refresh),
       getCurrentWebview().onDragDropEvent((event) => {
@@ -216,6 +223,9 @@
     <p class="muted">Getting ready to share…</p>
   {:else if current?.sharing.state === "failed"}
     <p class="error">Not sharing: {current.sharing.message}</p>
+  {/if}
+  {#if givingWay && sharing}
+    <p class="muted">Reading your folder slowly, so another program can use the disk.</p>
   {/if}
   {#if problem?.kind === "ejected"}
     <p class="muted">The stick is ejected; people still get its last version.</p>

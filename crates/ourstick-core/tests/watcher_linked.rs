@@ -47,6 +47,7 @@ async fn added_while(
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

@@ -110,6 +110,9 @@ pub enum WatchEvent<'a> {
     /// limit on watches is reached): their changes are seen by looking
     /// again every `retry`. Reported when it starts.
     SeenSlowly,
+    /// A pass began (`true`) or stopped giving way to another program using
+    /// the disk (ADR 0013), at each change.
+    GivingWay(bool),
     /// Linked entries that are gone, and own top-level names left out for
     /// a linked one's, as a pass found them ([`PassEvent::Roots`]).
     Roots {
@@ -264,6 +267,7 @@ async fn follow(
         let passed = run_pass(owner, options, &mut |event| match event {
             PassEvent::Progress { done, total } => on_event(WatchEvent::Reading { done, total }),
             PassEvent::Roots { gone, left_out } => on_event(WatchEvent::Roots { gone, left_out }),
+            PassEvent::GivingWay(now) => on_event(WatchEvent::GivingWay(now)),
             PassEvent::Published(publication) => {
                 let changes = ChangeSummary::between(&current, &publication.manifest);
                 on_event(WatchEvent::Published {

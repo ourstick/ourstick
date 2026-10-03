@@ -81,6 +81,9 @@ mod tests {
             data_dir: std::env::temp_dir(),
             store: Arc::new(ourstick_core::MemoryStore::new()),
             sticks: tokio::sync::Mutex::new(HashMap::new()),
+            disks: Arc::new(ourstick_core::share::disk_turns::Disks::new(Arc::new(
+                ourstick_core::share::disk_turns::SystemTimer::default(),
+            ))),
         }
     }
 

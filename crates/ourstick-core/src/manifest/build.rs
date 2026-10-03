@@ -1,5 +1,6 @@
 //! Building a manifest by walking a folder on disk.
 
+use crate::share::disk_turns::DiskReader;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -109,17 +110,19 @@ pub(crate) fn hash_file(
     cipher: &dyn Cipher,
     blob_dir: Option<&Path>,
 ) -> Result<(Entry, Option<PathBuf>), ManifestError> {
-    hash_file_telling_plaintext(relative_path(root, path)?, path, cipher, blob_dir)
+    hash_file_telling_plaintext(relative_path(root, path)?, path, cipher, blob_dir, None)
         .map(|(entry, kept, _)| (entry, kept))
 }
 
 /// [`hash_file`] for the file at `path` whose manifest path is `relative`,
 /// also returning the plaintext hash (the nonce prefix's source, ADR 0003).
+/// With `reader`, the file is read through its disk's turns (ADR 0013).
 pub(crate) fn hash_file_telling_plaintext(
     relative: String,
     path: &Path,
     cipher: &dyn Cipher,
     blob_dir: Option<&Path>,
+    reader: Option<&mut DiskReader>,
 ) -> Result<(Entry, Option<PathBuf>, [u8; 32]), ManifestError> {
     let file = File::open(path).map_err(|e| ManifestError::io(path, e))?;
     let metadata = file.metadata().map_err(|e| ManifestError::io(path, e))?;
@@ -136,21 +139,31 @@ pub(crate) fn hash_file_telling_plaintext(
         hasher: &mut blob_hasher,
         file: kept_file,
     };
-    let encrypted = encrypt_blob(cipher, &mut BufReader::new(file), &mut sink)
-        .and_then(|info| {
-            if let Some(file) = sink.file.take() {
-                let file = file.into_inner().map_err(|error| error.into_error())?;
-                file.sync_all()?;
-            }
-            Ok(info)
-        })
-        .map_err(|error| match error {
-            CipherError::Io(source) => ManifestError::io(path, source),
-            source => ManifestError::Blob {
-                path: path.to_path_buf(),
-                source,
-            },
-        });
+    let encrypted = match reader {
+        Some(reader) => {
+            let len = metadata.len();
+            encrypt_blob(
+                cipher,
+                &mut BufReader::new(reader.open(file, len)),
+                &mut sink,
+            )
+        }
+        None => encrypt_blob(cipher, &mut BufReader::new(file), &mut sink),
+    }
+    .and_then(|info| {
+        if let Some(file) = sink.file.take() {
+            let file = file.into_inner().map_err(|error| error.into_error())?;
+            file.sync_all()?;
+        }
+        Ok(info)
+    })
+    .map_err(|error| match error {
+        CipherError::Io(source) => ManifestError::io(path, source),
+        source => ManifestError::Blob {
+            path: path.to_path_buf(),
+            source,
+        },
+    });
     let info = match encrypted {
         Ok(info) => info,
         Err(error) => {

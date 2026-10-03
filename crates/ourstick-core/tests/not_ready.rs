@@ -31,10 +31,12 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
         owner.signing_key.stick_id(),
         owner.stick_key.clone(),
         Budget::new(1 << 30),
+        common::disks(),
     ));
     let publishing = ourstick_core::share::Owner {
         publisher: &publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,
@@ -75,6 +77,7 @@ async fn a_stick_never_published_has_no_latest_version() {
     let publishing = ourstick_core::share::Owner {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

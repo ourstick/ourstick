@@ -20,7 +20,14 @@ pub enum ShareProblem {
     Cleared,
 }
 
-/// An event about one stick (`activity`, `share-problem`): the window
+/// OurStick began or stopped giving way to another program using the disk
+/// (event `giving-way`, ADR 0013), told at each change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct GivingWayView {
+    pub giving_way: bool,
+}
+
+/// An event about one stick (`activity`, `share-problem`, `giving-way`): the window
 /// shows only its own stick's.
 #[derive(Debug, Clone, Serialize)]
 pub struct StickEvent<T: Serialize> {

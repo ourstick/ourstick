@@ -16,7 +16,7 @@ use super::disk_share::{DiskLoad, DiskShare};
 mod timed;
 
 use timed::Window;
-pub use timed::{DiskReader, Timed};
+pub use timed::{DiskReader, Readers, Timed};
 
 /// A clock that never goes back, and a way to wait (blocking): real in the
 /// app and the CLI, a fake in tests. Not the core's `Clock`, which tells
@@ -71,6 +71,21 @@ pub enum DiskId {
 }
 
 impl DiskId {
+    /// The disk of the file at `path`, from its `metadata` (already taken).
+    pub fn of_file(path: &Path, metadata: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let _ = path;
+            Self::Device(metadata.dev())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            Self::of(path)
+        }
+    }
+
     /// The disk `folder` is on. Blocking.
     pub fn of(folder: &Path) -> Self {
         #[cfg(unix)]
@@ -177,7 +192,8 @@ impl Disk {
         }
     }
 
-    /// Whether OurStick gives way on this disk now.
+    /// Whether OurStick gives way on this disk now. (A disk's own, not
+    /// [`Readers::giving_way`]'s, which asks every disk a reader used.)
     pub fn giving_way(&self) -> bool {
         lock(&self.state).load.giving_way()
     }
@@ -286,6 +302,24 @@ impl DiskState {
             0
         };
         self.held = true;
+    }
+}
+
+/// A flag set when this is dropped: a task whose future is dropped (its
+/// stick stopped) stops waiting for a disk, through its `go_on`.
+#[derive(Debug, Default)]
+pub struct StopOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl StopOnDrop {
+    /// Whether the task was dropped, for its `go_on`.
+    pub fn flag(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.0.clone()
+    }
+}
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

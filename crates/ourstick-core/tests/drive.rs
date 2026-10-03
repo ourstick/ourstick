@@ -127,6 +127,7 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

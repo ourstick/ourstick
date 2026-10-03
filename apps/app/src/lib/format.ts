@@ -39,7 +39,7 @@ export function receivedShort(entry: { state: string; done: number; total: numbe
     case "downloading":
       return entry.total > 0 ? `Downloading ${Math.floor((entry.done / entry.total) * 100)}%` : "Downloading…";
     case "getting_more":
-      return "Getting more…";
+      return "Up to date so far";
     case "up_to_date":
       return "Up to date";
     case "waiting":

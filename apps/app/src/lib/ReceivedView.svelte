@@ -51,7 +51,9 @@
       case "downloading":
         return entry.total > 0 ? `Downloading: ${size(entry.done)} of ${size(entry.total)}` : "Downloading…";
       case "getting_more":
-        return "Getting more as the sender prepares it…";
+        // The sender is still reading its folder: all it has said so far is
+        // here, and nothing is being fetched now.
+        return "Up to date so far. Anything more the sender adds will come by itself.";
       case "up_to_date":
         return "Up to date. New files from the sender come by themselves while OurStick is open.";
       case "waiting":

@@ -256,8 +256,8 @@ Rules:
 The window's left column has a second group, **Received** (step 7b): the
 sticks someone sent this device, each with its name (the sender's, shown
 isolated so its writing direction never spills over) and what it is doing
-in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
-`Stopped`. Below it, `+ Add a sharing link…`.
+in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
+`Waiting`, `Paused`, `Stopped`. Below it, `+ Add a sharing link…`.
 
 - **Add a sharing link:** a field to paste the link (never shown back,
   logged or put in a message: it holds the stick's key) → `Look at it` →
@@ -277,7 +277,9 @@ in a few words: `Downloading 45%`, `Up to date`, `Waiting`, `Paused`,
 - **A received stick:** its name, `Saved in <folder>` with `Open folder`,
   and what it is doing in a sentence: "Downloading: 1.2 GB of 2.6 GB" with
   a bar; "Up to date. New files from the sender come by themselves while
-  OurStick is open."; "Waiting since 14:30. The sender's computer is off,
+  OurStick is open."; while the sender still reads its folder and all it
+  has said so far is here, "Up to date so far. Anything more the sender
+  adds will come by itself." (not "getting more": nothing is being fetched); "Waiting since 14:30. The sender's computer is off,
   or OurStick is not open there. It goes on by itself when they are back."
   (or why else it waits: no room, its folder's disk unplugged, the sender
   no longer sharing it with this link); "Paused: …"; or, in red, why it

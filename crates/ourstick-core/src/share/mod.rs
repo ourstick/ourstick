@@ -15,6 +15,7 @@ use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
+pub mod disk_share;
 mod keeper;
 mod latest;
 mod partial;

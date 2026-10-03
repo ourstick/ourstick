@@ -134,6 +134,10 @@ pub struct Preview {
     pub folder: PathBuf,
     /// What would be saved under another name there (ADR 0010).
     pub saved_as: Vec<super::SavedAs>,
+    /// The manifest, kept for what is inside a folder when the window opens
+    /// it ([`entries_in`]), and what each path would write.
+    pub manifest: Manifest,
+    pub to_write_by_path: BTreeMap<String, u64>,
 }
 
 /// Fetches and verifies the stick's manifest and says what adding it would
@@ -214,7 +218,7 @@ pub async fn preview(
         })
         .await?
     };
-    if let Some(by_top) = by_top {
+    if let Some(by_top) = &by_top {
         for entry in &mut entries {
             entry.to_write = by_top.get(&entry.name).copied().unwrap_or(0);
         }
@@ -228,19 +232,47 @@ pub async fn preview(
         to_write,
         folder,
         saved_as,
+        to_write_by_path: by_top.unwrap_or_default(),
+        manifest,
     })
 }
 
 /// The manifest's files grouped by their first component, in name order.
 pub(super) fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
-    let mut entries: BTreeMap<&str, TopEntry> = BTreeMap::new();
+    entries_in(manifest, None, None)
+}
+
+/// What is in `folder` (a top-level folder of the stick), or at the top
+/// level with `None`: its folders and files, in name order, each named by
+/// its whole path (`Folder/Sub`), so a choice is made with it as it is
+/// (ADR 0012, Amendment 1). `to_write`, a preview's bytes to write by path
+/// (`FolderPlan::bytes_by_top`), fills what each would write; else its
+/// bytes.
+pub fn entries_in(
+    manifest: &Manifest,
+    folder: Option<&str>,
+    to_write: Option<&BTreeMap<String, u64>>,
+) -> Vec<TopEntry> {
+    let inside = folder.map(|folder| format!("{folder}/"));
+    let mut entries: BTreeMap<String, TopEntry> = BTreeMap::new();
     for file in &manifest.entries {
-        let (first, deeper) = match file.path.split_once('/') {
-            Some((first, _)) => (first, true),
-            None => (file.path.as_str(), false),
+        let rest = match &inside {
+            Some(inside) => match file.path.strip_prefix(inside.as_str()) {
+                Some(rest) => rest,
+                None => continue,
+            },
+            None => file.path.as_str(),
         };
-        let entry = entries.entry(first).or_insert_with(|| TopEntry {
-            name: first.to_owned(),
+        let (first, deeper) = match rest.split_once('/') {
+            Some((first, _)) => (first, true),
+            None => (rest, false),
+        };
+        let name = match folder {
+            Some(folder) => format!("{folder}/{first}"),
+            None => first.to_owned(),
+        };
+        let entry = entries.entry(name.clone()).or_insert_with(|| TopEntry {
+            name,
             is_dir: deeper,
             files: 0,
             bytes: 0,
@@ -249,7 +281,63 @@ pub(super) fn top_entries(manifest: &Manifest) -> Vec<TopEntry> {
         entry.is_dir |= deeper;
         entry.files += 1;
         entry.bytes = entry.bytes.saturating_add(file.size);
-        entry.to_write = entry.bytes;
     }
-    entries.into_values().collect()
+    let mut entries: Vec<TopEntry> = entries.into_values().collect();
+    for entry in &mut entries {
+        entry.to_write = match to_write {
+            Some(by_path) => by_path.get(&entry.name).copied().unwrap_or(0),
+            None => entry.bytes,
+        };
+    }
+    entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::Entry;
+
+    fn manifest(paths: &[(&str, u64)]) -> Manifest {
+        Manifest {
+            entries: paths
+                .iter()
+                .map(|(path, size)| Entry {
+                    path: (*path).to_owned(),
+                    size: *size,
+                    mtime: 0,
+                    hash: [0; 32],
+                })
+                .collect(),
+            ..Manifest::default()
+        }
+    }
+
+    #[test]
+    fn what_is_in_one_folder_is_named_by_its_whole_path() {
+        let stick = manifest(&[
+            ("Disk/MUSIC/a.flac", 4),
+            ("Disk/MUSIC/deeper/b.flac", 2),
+            ("Disk/readme.txt", 1),
+            ("Diskette/x", 9),
+            ("Films/a.mkv", 7),
+        ]);
+        let top = entries_in(&stick, None, None);
+        let names: Vec<&str> = top.iter().map(|entry| entry.name.as_str()).collect();
+        assert_eq!(names, ["Disk", "Diskette", "Films"]);
+        let inside = entries_in(&stick, Some("Disk"), None);
+        let named: Vec<(&str, bool, u64, u64)> = inside
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.is_dir, entry.files, entry.bytes))
+            .collect();
+        assert_eq!(
+            named,
+            [("Disk/MUSIC", true, 2, 6), ("Disk/readme.txt", false, 1, 1)]
+        );
+        // What a preview says each would write.
+        let to_write: BTreeMap<String, u64> = [("Disk/MUSIC".to_owned(), 2)].into();
+        let inside = entries_in(&stick, Some("Disk"), Some(&to_write));
+        assert_eq!(inside[0].to_write, 2);
+        assert_eq!(inside[1].to_write, 0);
+        assert!(entries_in(&stick, Some("Nothing"), None).is_empty());
+    }
 }

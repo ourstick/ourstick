@@ -100,3 +100,54 @@ async fn un_ticking_what_came_leaves_its_files_and_stops_updating_them() {
     assert_eq!(report.not_chosen, 1);
     owner.publisher.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inside_one_big_folder_a_choice_holds_as_the_stick_grows() {
+    // A disk shared as one folder (ADR 0012, Amendment 1).
+    let owner = Owner::new(&[
+        ("Disk/MUSIC/a.flac", b"music"),
+        ("Disk/Pictures/p.jpg", b"pict"),
+        ("Disk/readme.txt", b"read"),
+    ])
+    .await;
+    let first = owner.publish().await;
+    let ticket = owner.ticket(&first);
+    let reader = Reader::new();
+    reader
+        .store
+        .add_joined_stick(&JoinedStick::new(ticket.stick_id, reader.output.path(), 1))
+        .unwrap();
+    reader
+        .store
+        .set_left_out(&ticket.stick_id, &names(&["Disk/MUSIC"]))
+        .unwrap();
+    let told = Mutex::new(Vec::new());
+    reader
+        .download(&ticket, &mut |event| {
+            if let DownloadEvent::NotChosen { name, files, .. } = event {
+                told.lock().unwrap().push((name.to_owned(), files));
+            }
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+    assert!(!reader.exists("Disk/MUSIC"));
+    assert_eq!(reader.read("Disk/Pictures/p.jpg"), b"pict");
+    assert_eq!(reader.read("Disk/readme.txt"), b"read");
+    assert_eq!(told.into_inner().unwrap(), [("Disk/MUSIC".to_owned(), 1)]);
+
+    // The sender adds a folder inside it, and a second top-level entry:
+    // both come, and the choice inside still holds.
+    write_file(owner.folder.path(), "Disk/new in/n.txt", b"new");
+    write_file(owner.folder.path(), "Notes/x.txt", b"x");
+    owner.clock.set(5_000);
+    let second = owner.publish().await;
+    reader
+        .download(&owner.ticket(&second), &mut keep_going)
+        .await
+        .unwrap();
+    assert_eq!(reader.read("Disk/new in/n.txt"), b"new");
+    assert_eq!(reader.read("Notes/x.txt"), b"x");
+    assert!(!reader.exists("Disk/MUSIC"));
+    owner.publisher.shutdown().await;
+}

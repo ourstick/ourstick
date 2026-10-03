@@ -65,3 +65,61 @@ fn a_previews_bytes_per_entry_leave_out_what_is_already_here() {
     // `c.mp3` is already here with this content: only `d.mp3` is written.
     assert_eq!(by_top.get("Music"), Some(&2));
 }
+
+#[test]
+fn what_is_left_out_inside_one_folder_does_not_come_and_the_rest_does() {
+    let out = tempfile::tempdir().unwrap();
+    let entries = || {
+        vec![
+            entry("Disk/MUSIC/a.flac", b"aaaa"),
+            entry("Disk/MUSIC/deeper/b.flac", b"bb"),
+            entry("Disk/MUSICAL/c.flac", b"c"),
+            entry("Disk/Pictures/p.jpg", b"ppp"),
+            entry("Disk/readme.txt", b"r"),
+        ]
+    };
+    let plan = plan_folder(
+        out.path(),
+        &manifest(entries()),
+        &[],
+        &["Disk/MUSIC".to_owned()],
+        &cipher(),
+    )
+    .unwrap();
+    assert_eq!(&plan.files[..2], [FilePlan::NotChosen, FilePlan::NotChosen]);
+    assert!(plan.files[2..]
+        .iter()
+        .all(|file| matches!(file, FilePlan::Download { .. })));
+    // Told by what was left out, not by the first part ("Disk").
+    assert_eq!(plan.not_chosen, [("Disk/MUSIC".to_owned(), 2, 6)]);
+    // Bytes to write by each top-level entry and each entry inside one.
+    let by_path = plan.bytes_by_top(&manifest(entries()));
+    assert_eq!(by_path.get("Disk"), Some(&5));
+    assert_eq!(by_path.get("Disk/Pictures"), Some(&3));
+    assert_eq!(by_path.get("Disk/MUSIC"), None);
+    assert_eq!(by_path.get("Disk/readme.txt"), Some(&1));
+}
+
+#[test]
+fn a_folder_left_out_whole_still_covers_what_a_choice_inside_it_said() {
+    let out = tempfile::tempdir().unwrap();
+    // A top-level choice kept from before the stick became one folder, and
+    // one inside: both out, each told once.
+    let plan = plan_folder(
+        out.path(),
+        &manifest(vec![
+            entry("Films/a.mkv", b"a"),
+            entry("Disk/MUSIC/b.flac", b"bb"),
+            entry("Disk/new/c.txt", b"c"),
+        ]),
+        &[],
+        &["Films".to_owned(), "Disk/MUSIC".to_owned()],
+        &cipher(),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.not_chosen,
+        [("Disk/MUSIC".to_owned(), 1, 2), ("Films".to_owned(), 1, 1)]
+    );
+    assert!(matches!(plan.files[2], FilePlan::Download { .. }));
+}

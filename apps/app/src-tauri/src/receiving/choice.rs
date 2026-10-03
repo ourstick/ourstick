@@ -220,7 +220,7 @@ mod tests {
         let id = received(&store, 7);
         assert!(left_out_views(&store, &id).unwrap().is_empty());
         store
-            .set_left_out(&id, &["Films".to_owned(), "a\u{1b}".to_owned()])
+            .set_left_out(&id, &["Films".to_owned(), "a\u{202e}".to_owned()])
             .unwrap();
         let file = DownloadedFile {
             path: "Films/x".to_owned(),
@@ -241,7 +241,7 @@ mod tests {
                     here: true
                 },
                 LeftOutView {
-                    shown: "a\\u{1b}".to_owned(),
+                    shown: "a\\u{202e}".to_owned(),
                     here: false
                 },
             ]

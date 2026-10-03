@@ -102,11 +102,13 @@ pub(super) fn set_left_out(
     if !live {
         return Err(StoreError::StickNotFound);
     }
-    if names.iter().any(String::is_empty) {
-        return Err(StoreError::Inconsistent("a name left out is empty"));
-    }
+    // Paths of one or two plain parts, a path under another dropped
+    // (ADR 0012, Amendment 1): checked by the one place that decides.
+    let names = crate::download::LeftOut::normalised(names)
+        .map_err(|_| StoreError::Inconsistent("a path left out is not a plain one"))?
+        .paths();
     transaction.execute("DELETE FROM joined_left_out WHERE stick_id = ?1", [id])?;
-    for name in names {
+    for name in &names {
         transaction.execute(
             "INSERT OR IGNORE INTO joined_left_out (stick_id, name) VALUES (?1, ?2)",
             params![id, name],

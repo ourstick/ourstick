@@ -14,6 +14,7 @@ pub(crate) mod files;
 mod folder;
 mod follow;
 mod joined;
+mod left_out;
 mod listing;
 mod not_ready;
 mod path;
@@ -34,7 +35,8 @@ use relay::RelayLimiter;
 
 pub use batches::SCRATCH_BYTES;
 pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
-pub use listing::{list, preview, Listing, Preview, TopEntry};
+pub use left_out::{LeftOut, PathProblem, Tick};
+pub use listing::{entries_in, list, preview, Listing, Preview, TopEntry};
 pub use receive::*;
 pub use relay::RelayPolicy;
 pub use saved_lines::saved_elsewhere;
@@ -304,7 +306,12 @@ async fn download_over(
         return Err(DownloadError::Cancelled);
     }
     let top = listing::top_entries(&manifest);
-    if on_event(DownloadEvent::Contents { entries: &top }).is_break() {
+    if on_event(DownloadEvent::Contents {
+        entries: &top,
+        manifest: &manifest,
+    })
+    .is_break()
+    {
         return Err(DownloadError::Cancelled);
     }
 

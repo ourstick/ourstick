@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::files::component_problem;
+use super::left_out::LeftOut;
 use super::saved_paths::{saved_paths, OnDisk, Recorded, Rules, SavedAs};
 use super::{io_error, DownloadError};
 use crate::cipher::Cipher;
@@ -54,18 +55,27 @@ pub(super) struct FolderPlan {
 }
 
 impl FolderPlan {
-    /// The bytes this plan writes, by the top-level name of the stick they
-    /// are under (a preview's per-entry "needs up to", ADR 0012).
+    /// The bytes this plan writes, by each top-level entry of the stick
+    /// and each entry inside a top-level folder they are under (a preview's
+    /// per-entry "needs up to", ADR 0012 and its Amendment 1): keys of one
+    /// part and of two.
     pub(super) fn bytes_by_top(&self, manifest: &Manifest) -> BTreeMap<String, u64> {
-        let mut by_top: BTreeMap<String, u64> = BTreeMap::new();
+        let mut by_path: BTreeMap<String, u64> = BTreeMap::new();
         for (plan, entry) in self.files.iter().zip(&manifest.entries) {
             if matches!(plan, FilePlan::Download { .. }) {
-                let first = entry.path.split('/').next().unwrap_or_default();
-                let bytes = by_top.entry(first.to_owned()).or_default();
-                *bytes = bytes.saturating_add(entry.size);
+                let mut parts = entry.path.splitn(3, '/');
+                let first = parts.next().unwrap_or_default();
+                let mut keys = vec![first.to_owned()];
+                if let Some(second) = parts.next() {
+                    keys.push(format!("{first}/{second}"));
+                }
+                for key in keys {
+                    let bytes = by_path.entry(key).or_default();
+                    *bytes = bytes.saturating_add(entry.size);
+                }
             }
         }
-        by_top
+        by_path
     }
 
     /// The bytes this plan writes into the folder: the files to download.
@@ -109,14 +119,15 @@ pub(super) fn plan_folder_by(
     cipher: &dyn Cipher,
     rules: Rules,
 ) -> Result<FolderPlan, DownloadError> {
-    // What the user chose not to get, by its top-level name exactly as the
-    // stick names it (ADR 0012).
-    let left_out: BTreeSet<&str> = left_out.iter().map(String::as_str).collect();
+    // What the user chose not to get: paths of one or two parts exactly as
+    // the stick names them (ADR 0012 and its Amendment 1), decided by
+    // `LeftOut` alone.
+    let left_out = LeftOut::new(left_out);
     let not_chosen: std::collections::HashSet<usize> = manifest
         .entries
         .iter()
         .enumerate()
-        .filter(|(_, entry)| left_out.contains(entry.path.split('/').next().unwrap_or_default()))
+        .filter(|(_, entry)| left_out.covers(&entry.path).is_some())
         .map(|(index, _)| index)
         .collect();
     let looked = Looked {
@@ -275,11 +286,12 @@ pub(super) fn plan_folder_by(
         .values()
         .filter(|file| !in_stick.contains(file.path.as_str()))
         .count();
+    // Told by what was left out, not by the first part of each path.
     let mut by_name: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
     for index in &not_chosen {
         let entry = &manifest.entries[*index];
-        let first = entry.path.split('/').next().unwrap_or_default();
-        let counted = by_name.entry(first).or_default();
+        let left = left_out.covers(&entry.path).unwrap_or_default();
+        let counted = by_name.entry(left).or_default();
         counted.0 += 1;
         counted.1 = counted.1.saturating_add(entry.size);
     }

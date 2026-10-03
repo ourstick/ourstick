@@ -150,10 +150,10 @@ pub(super) fn set_left_out(
     if !state.joined.contains_key(&key) || state.forgetting.contains(&key) {
         return Err(StoreError::StickNotFound);
     }
-    if names.iter().any(String::is_empty) {
-        return Err(StoreError::Inconsistent("a name left out is empty"));
-    }
-    state.left_out.insert(key, names.iter().cloned().collect());
+    let names = crate::download::LeftOut::normalised(names)
+        .map_err(|_| StoreError::Inconsistent("a path left out is not a plain one"))?
+        .paths();
+    state.left_out.insert(key, names.into_iter().collect());
     Ok(())
 }
 

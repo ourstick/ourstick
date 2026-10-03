@@ -118,6 +118,24 @@ fn what_is_left_out_is_kept_whole_and_replaced_whole(store: &dyn Store) {
     // An empty name is not a name.
     assert!(store.set_left_out(&id, &names(&[""])).is_err());
     assert!(store.left_out(&id).unwrap().is_empty());
+    // Paths inside a folder (ADR 0012, Amendment 1); one under another left
+    // out is covered by it, and not kept.
+    store
+        .set_left_out(&id, &names(&["Disk/MUSIC", "Films/a", "Films"]))
+        .unwrap();
+    assert_eq!(
+        store.left_out(&id).unwrap(),
+        names(&["Disk/MUSIC", "Films"])
+    );
+    // Deeper, or not plain: refused, the last choice kept.
+    for bad in ["a/b/c", "a/..", "a\\b", "/a"] {
+        assert!(store.set_left_out(&id, &names(&[bad])).is_err(), "{bad}");
+    }
+    assert_eq!(
+        store.left_out(&id).unwrap(),
+        names(&["Disk/MUSIC", "Films"])
+    );
+    store.set_left_out(&id, &[]).unwrap();
     // The choice is the stick's, not its folder's: moved, it stays.
     store.set_left_out(&id, &names(&["Films"])).unwrap();
     store

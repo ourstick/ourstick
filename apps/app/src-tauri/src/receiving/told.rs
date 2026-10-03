@@ -99,7 +99,7 @@ impl Told {
             ReceiveEvent::Download(DownloadEvent::Planned { .. }) => {
                 receivers.round_planned(self.stick_id)
             }
-            ReceiveEvent::Download(DownloadEvent::Contents { entries }) => {
+            ReceiveEvent::Download(DownloadEvent::Contents { entries, .. }) => {
                 receivers.contents_now(self.stick_id, entries)
             }
             ReceiveEvent::Download(DownloadEvent::SavedAs {

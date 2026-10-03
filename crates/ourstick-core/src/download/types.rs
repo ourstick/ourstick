@@ -63,9 +63,12 @@ pub enum DownloadEvent<'a> {
     },
     /// What is on the stick at its top level, as this round's version has
     /// it (ADR 0012): told after the manifest is read, for a window that
-    /// lets the user choose.
+    /// lets the user choose; with the manifest itself, for what is inside a
+    /// folder when the window opens it (Amendment 1,
+    /// [`super::entries_in`]).
     Contents {
         entries: &'a [super::TopEntry],
+        manifest: &'a crate::manifest::Manifest,
     },
     /// A top-level name the user chose not to get, on the stick with its
     /// `files` and `bytes`: not fetched. Told once per name, before the

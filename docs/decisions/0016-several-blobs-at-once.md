@@ -1,6 +1,6 @@
 # 0016: Fetching several blobs at once
 
-Status: Proposed (2026-10-04), revised after the design reviews
+Status: Accepted (2026-10-04)
 
 ## Context
 
@@ -229,3 +229,19 @@ fetched a batch's small blobs N at once before placing them as before
 at 32 and 64, about 55 s, is placing the files on the Mac (each synced
 with `F_FULLFSYNC`), as from the Mac to itself in ADR 0014 (53 s): the
 network's waiting is gone.
+
+Step 3, 2026-10-04: the same 10 000 files with the code as committed
+(e027bc1), `ourstick get` from an `ourstick share` on Linux, each from a
+fresh folder after one run to warm the owner:
+
+| Where | Before (ADR 0014) | After | |
+|---|---|---|---|
+| Linux, sender on the same machine | 19.3 s | 16.6 s | 1.2× |
+| Mac, from Linux (round trip about 80 ms) | 264 s | 54 s | 4.9× |
+| Windows 11 VM, from Linux | 7:59 | 2:20 | 3.4× |
+
+- The Mac's 54 s is what placing costs there (`F_FULLFSYNC`, ADR 0014):
+  the network waits nothing any more.
+- The VM's disks moved since ADR 0014 measured it (to another drive than
+  the sender's, 2026-10-03), so its "before" is not the same setting:
+  part of the gain is the move.

@@ -247,3 +247,127 @@ sharing a small budget.
 - **Optional encryption for big sticks.** No time gained (the network
   decides), and the public part of a link, which passes through the
   ourstick.com page and link previews, would be enough to read everything.
+
+## Amendment 1: a suitcase no one is on sleeps (proposed, 2026-10-04)
+
+Reviewed by two other models against the keeper, the iroh transport and
+iroh-blobs 0.103's source; this version takes in their changes.
+
+### Context
+
+A suitcase leaves only when the budget needs its room (rule "What readers
+hold" above). With the device's budget (42.9 GB on the test PC) that is
+rarely: the suitcases a reader went past stay open for hours. Each open
+suitcase is an iroh-blobs `FsStore`, and each `FsStore` runs its own tokio
+runtime (8 worker threads since `threads.rs`) and its own redb database,
+whose cache keeps the pages it wrote. Measured on the owner of 100 000 small
+files (1.7 GB), one local reader, after the fixes of 2026-10-04 (4 096 blobs
+per suitcase, nothing inlined, 8 workers per store): RSS grows about 20 MB
+and 8 threads per suitcase the reader goes through, while the heap in use
+stays near 80 MB. A stick of that size cut into 25 suitcases would hold
+about 500 MB and 200 threads once one reader has it all, and keep them until
+the program stops. Their disk space is what the budget is for; their memory
+and threads are not.
+
+### Decision
+
+A suitcase is **open** (its store runs and serves), **asleep** (its store
+is shut down; its folder, database and blob files stay on disk and in the
+budget) or **gone** (evicted, as before). Invariant: a suitcase is asleep
+only once its store has shut down; it is never asleep and waking at once.
+
+0. **Measured first.** Before the code, the passed suitcases' stores are
+   shut down by hand in a test build and RSS is checked to fall; if it does
+   not, this amendment is withdrawn.
+1. **Falling asleep.** The keeper gets a timer (a tick at the earliest
+   `last_used + SLEEP_AFTER`). An open suitcase that no reader holds
+   (`is_held`), that served nothing for `SLEEP_AFTER` (60 s, twice
+   `IN_USE`), and that has no transfer in progress falls asleep:
+   `Serving::retire_if_idle` takes its store out under the serving lock
+   only if nothing is in flight, else does nothing and the keeper tries at
+   the next tick. So sleeping never makes a request "not ready" while a
+   transfer from it goes on, and never waits. A suitcase being prepared
+   never sleeps. The `FsStore` itself is kept only by `Suitcases`, which
+   shuts it down and keeps its folder (`asleep: id → folder`).
+2. **Waking.** The keeper keeps each asleep suitcase's blob hashes (its
+   `ready` set), whatever version it was cut from: `Serving` serves a blob
+   from any store that holds it. A request for a blob that only an asleep
+   suitcase holds gets `NotReady` (ADR 0007's "not ready yet, retry"), and
+   the keeper wakes that suitcase — before it would prepare anything for
+   that blob, and for the suitcase after the one a reader is on (read-ahead
+   wakes too). Waking runs as its own task, not in the single preparing
+   slot (a 1 GB preparation must not hold it up); a suitcase already waking
+   is not woken twice. It opens the store again on the existing `blobs.db`,
+   checks that the database still lists each blob it had and that each
+   blob file is there with its size, and gives it back to `Serving`.
+   A store that does not open, or lacks a blob, is evicted; a suitcase of
+   the current version is then prepared again, and a blob of an older
+   version is served by the current version's suitcases if it is still in
+   it. Waking never serves less than preparing would.
+3. **The budget does not change.** An asleep suitcase keeps its bytes in the
+   budget (and the space ledger). When room is needed, asleep suitcases
+   leave first (those of older versions first, then the oldest), before open
+   ones that are not held; one that is asleep has only its folder to remove.
+   "Never one a reader holds" stays.
+4. **At most `AWAKE_MAX` (4) suitcases open per stick.** Held suitcases never
+   sleep. When more than 4 are open, unheld ones fall asleep (as in rule 1,
+   if nothing is in flight), used longest ago first, until 4 remain or none
+   is unheld. The cap is per stick: a device sharing N sticks has up to 4N
+   open, more while readers hold more.
+5. **Stop and start.** Stopping a stick shuts its open stores and leaves the
+   asleep folders, as today's suitcases; at the next start every suitcase
+   folder of an earlier run is removed (`Suitcases::start`). Sleeping is for
+   one run.
+6. **The `Publisher` trait** gets `sleep(id)` (false if a transfer is in
+   flight) and `wake(id)` (the blobs it serves again, or an error); `evict`
+   covers asleep suitcases too. The in-memory publisher of the tests moves a
+   suitcase's ready set to an asleep map and back.
+
+### What it costs
+
+- A reader that comes back to an asleep suitcase waits for one store to
+  open (a database open and a runtime start, milliseconds to a second on a
+  slow disk) instead of a whole preparation (reading and encrypting up to
+  1 GB, longer while ADR 0013 gives way). A second reader of the stick an
+  hour later is served from disk as before. Waking reads only the cache, so
+  it takes no disk turn (ADR 0013).
+- New code: the asleep state, the tick and the waking task in the keeper;
+  `Suitcases` keeps asleep folders and opens them again; `Serving` takes a
+  store out only when idle. The handler's single decision point is
+  unchanged (an asleep suitcase is not in `Serving`, so its blobs are "not
+  ready").
+
+### Tests to write
+
+- A suitcase no one holds falls asleep after `SLEEP_AFTER` (store shut
+  down, folder there); a request for one of its blobs wakes it and is
+  served, the blob identical.
+- A suitcase with a transfer in progress (a reader on a slow big file) does
+  not fall asleep; it does once the transfer ends.
+- More than `AWAKE_MAX` open: the unheld ones used longest ago fall asleep;
+  held ones never.
+- Room needed: an asleep suitcase leaves before an open unheld one, one of
+  an older version first.
+- A new version while suitcases sleep: a blob it shares is woken, not
+  prepared again.
+- A request in the same tick as falling asleep, and two readers asking for
+  the same asleep suitcase: each ends served, the store opened once.
+- A store that does not open again (its database removed by hand): evicted,
+  prepared again, the reader gets the blob; for an older version's
+  suitcase, the blob comes from the current version.
+- Stop while a suitcase is asleep or waking: nothing left running.
+- Measured again on the 100 000-file test: memory and threads stay flat
+  while the reader goes through the stick.
+
+### Alternatives considered
+
+- **Evict a suitcase no one is on after a while** (no asleep state). The
+  least code, but a second reader, or the same one coming back, makes the
+  owner read and encrypt it all again (on a hard disk, minutes; longer
+  while ADR 0013 gives way): the cache would be no cache.
+- **Only a cap on open suitcases.** Bounds memory, but suitcases above the
+  cap would have to leave, as above.
+- **One store per stick for every suitcase.** One runtime and one database,
+  but iroh-blobs 0.103 cannot delete one blob (the reason suitcases exist).
+- **Fewer threads per store (1 or 2).** Measured: 4 already made a download
+  20–50 % slower; and the database caches stay.

@@ -81,7 +81,9 @@ What is there already:
    fetch, owns the path check and the stop: every fetch's callback adds
    its bytes to one shared count and returns what was last decided (go on;
    pause until an instant; stop). The round reads the count every time a
-   fetch ends or a short tick passes. The relay limit is one too, but asked
+   fetch ends or a short tick passes. A stop waits at most 3 seconds for
+   the fetches (one still waiting for its first byte sees the stop only
+   when bytes come), then drops what is left. The relay limit is one too, but asked
    as the bytes come, not only at the round's looks (a blob that arrives
    within one look would go unlimited): while the round polls the fetches
    the limiter is theirs, one of them asks it every 256 KB of all of them,
@@ -158,6 +160,9 @@ What is there already:
   pausing all fetches; the CLI line on `FileReceived`. The keeper: asks
   straddling a suitcase's end prepare the earlier one first, and keep it
   held. Two iroh peers: 2 000 small files in one round, all identical.
+  (`LookAgain` takes a minute on the relay to come, so it has no test with
+  peers, as before; in the queue it takes the stop's way, which is tested,
+  and the reader connects again as before.)
 - Docs: `protocol.md` (a reader may have several gets in flight), ADR
   0014's rule 5 points here, `todo.md`, this ADR's measurements.
 
@@ -166,7 +171,7 @@ What is there already:
 - From Linux to the Mac, `FETCHING_AT_ONCE` files share each round trip:
   at 80 ms, 8 at once is about 100 files a second (10 000 in about 100 s),
   32 at once about 400 (about 25 s, if nothing else limits first). Step 1
-  measures it; the numbers go here.
+  measured 60 s at 32: the rest is placing on the Mac (below).
 - The window's bar moves file by file for small files, without the
   in-file progress it never showed for them anyway (they arrive in
   milliseconds); the CLI's line too.

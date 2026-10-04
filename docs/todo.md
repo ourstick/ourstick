@@ -198,8 +198,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
     `sync_all`, a rename and a store commit, each in turn. Measure where the
     10 ms a file go (timing logs; `strace` is not allowed here), then
     likely: fetch several blobs of a batch at once, and sync and record per
-    batch rather than per file. Its own ADR if the order of writing (ADR
-    0007) changes.
+    batch rather than per file. Done: ADR 0014 (placing and records) and
+    ADR 0016 (fetching).
   - **Memory:** 1.24 GB for the sender of 100 000 files is too much
     (Rescued_Disk has 146 297, a million is not absurd). Find what holds it (the
     catalogue's `Vec`, the manifest kept whole, the suitcase plans).
@@ -238,11 +238,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
      a 104 GB folder left out, a file un-ticked kept and no longer updated).
   2. ~~ADR 0014, receiving many small files~~ (done 2026-10-03; measured
      in the ADR: Linux 5.8× and 3×, Windows VM 3.6×, the Mac 1.17×). It
-     leaves two things for small files: **fetching several blobs at once**
-     (across a real network each request's round trip is most of the time:
-     287 s for 10 000 files from Linux to the Mac, 80 ms apart; its own
-     ADR), and on the Mac **`F_BARRIERFSYNC`** instead of `F_FULLFSYNC`
-     (an `unsafe` `fcntl`: Giorgos decides).
+     leaves two things for small files: ~~**fetching several blobs at
+     once**~~ (ADR 0016, 2026-10-04: 32 at once, 264 s → 60 s for 10 000
+     files from Linux to the Mac), and on the Mac **`F_BARRIERFSYNC`**
+     instead of `F_FULLFSYNC` (an `unsafe` `fcntl`: Giorgos decides; it is
+     most of what is left there now).
   3. ~~ADR 0013, giving way to the user's disk~~ (done 2026-10-03; on the
      spinning disk a 5 GB copy beside OurStick took 1.06-1.15× its time
      alone, 1.7× before). Not on Windows or the Mac yet (no spinning disk

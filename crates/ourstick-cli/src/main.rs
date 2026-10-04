@@ -133,8 +133,20 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     })
 }
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
+    // Before any thread starts: few threads per blob store.
+    let worker_threads = ourstick_core::threads::limit_store_threads();
+    let runtime = match ourstick_core::threads::program_runtime(worker_threads) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("Error: cannot start: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(run_main())
+}
+
+async fn run_main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)

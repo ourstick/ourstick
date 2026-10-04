@@ -41,6 +41,17 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     }
+    // Also before any thread starts: few threads per blob store, and the
+    // app's own runtime (Tauri's) small too.
+    let worker_threads = ourstick_core::threads::limit_store_threads();
+    let runtime = match ourstick_core::threads::program_runtime(worker_threads) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("OurStick cannot start: {error}");
+            std::process::exit(1);
+        }
+    };
+    tauri::async_runtime::set(runtime.handle().clone());
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

@@ -40,6 +40,10 @@ and iroh-blobs 0.103; these points changed on the way:
   cache, up to 1 GiB, not settable through iroh-blobs 0.103), and one
   suitcase of 100 000 small files held about 300 MB of them. Nothing is
   inlined in a suitcase's database either: a blob stays the file it is.
+  Each suitcase's store also runs its own tokio runtime, a worker per core
+  (32 on the test PC, about 290 threads in all): `threads.rs` sets
+  `TOKIO_WORKER_THREADS` to 8 before any runtime starts, and the program's
+  own runtime has at most 4 workers.
 - **The keeper** (the policy) runs as a task per stick and learns from the
   transport which blobs readers ask for (`Demand`); a file bigger than the
   budget gets a suitcase alone once all others can go.

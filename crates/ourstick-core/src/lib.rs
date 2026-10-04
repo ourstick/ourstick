@@ -25,6 +25,7 @@ pub mod stick_id;
 pub mod stick_life;
 pub mod stick_names;
 pub mod store;
+pub mod threads;
 pub mod ticket;
 pub mod transport;
 pub mod untrusted;

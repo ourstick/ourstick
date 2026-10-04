@@ -35,10 +35,10 @@ const NAMES: &[&str] = &[
 /// (`.ourstick-received.new`), as a receiver treats them (ADR 0010).
 const PREFIXES: &[&str] = &["._", ".Trash-", ".ourstick-"];
 
-/// Whether a file or folder with this name is left out of every stick.
 /// The start of OurStick's own names, in any letter case.
 const OURSTICK_PREFIX: &[u8] = b".ourstick-";
 
+/// Whether a file or folder with this name is left out of every stick.
 pub fn is_ignored(name: &str) -> bool {
     NAMES.contains(&name)
         || PREFIXES.iter().any(|prefix| name.starts_with(prefix))

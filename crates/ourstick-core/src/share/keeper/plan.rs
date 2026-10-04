@@ -2,7 +2,7 @@
 //! order, each up to a size on disk (ADR 0007). A reader goes through the
 //! manifest in order, so it goes through suitcases one after the other.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use crate::blob::blob_len;
@@ -52,7 +52,7 @@ pub(super) fn plan(entries: &[Entry], cipher: &dyn Cipher, max_bytes: u64) -> Pl
     let mut by_hash: HashMap<BlobHash, Vec<usize>> = HashMap::new();
     let mut start = 0;
     let mut bytes = 0u64;
-    let mut held: Vec<BlobHash> = Vec::new();
+    let mut held: HashSet<BlobHash> = HashSet::new();
     for (index, entry) in entries.iter().enumerate() {
         let len = stored_len(cipher, entry.size);
         let new_blob = !held.contains(&entry.hash);
@@ -69,8 +69,7 @@ pub(super) fn plan(entries: &[Entry], cipher: &dyn Cipher, max_bytes: u64) -> Pl
         let number = suitcases.len();
         let places = by_hash.entry(entry.hash).or_default();
         // Identical files share a blob: once per suitcase.
-        if !held.contains(&entry.hash) {
-            held.push(entry.hash);
+        if held.insert(entry.hash) {
             bytes += len;
             places.push(number);
         }

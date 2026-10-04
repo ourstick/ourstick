@@ -205,8 +205,17 @@ impl Catalogue {
         let root = &self.roots[index as usize];
         match &root.name {
             _ if !root.is_dir => root.path.clone(),
-            None => root.path.join(relative),
-            Some(name) => root.path.join(&relative[name.len() + 1..]),
+            None => {
+                let mut path = root.path.clone();
+                path.extend(relative.split('/'));
+                path
+            }
+            // Part by part, so the separators are the system's.
+            Some(name) => {
+                let mut path = root.path.clone();
+                path.extend(relative[name.len() + 1..].split('/'));
+                path
+            }
         }
     }
 

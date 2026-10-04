@@ -131,6 +131,7 @@ async fn pass(
     let mut catalogue = {
         let recorded = recorded.clone();
         let rescan = options.rescan;
+        let layout = layout.clone();
         run_blocking(move || Catalogue::start_layout(&layout, recorded, rescan)).await?
     };
     if !catalogue.gone().is_empty() || !catalogue.left_out().is_empty() {
@@ -209,8 +210,12 @@ async fn pass(
                 return Err(ShareError::DriveMissing { path: root.clone() });
             }
         }
+        let part = part?;
+        // A linked entry removed meanwhile: its files are neither recorded
+        // again nor published (ADR 0008).
+        same_layout(owner, &layout).await?;
         let mut recorded = Vec::new();
-        for item in part? {
+        for item in part {
             let file = match item {
                 Catalogued::File(file) => file,
                 Catalogued::Skipped { .. } => {
@@ -239,6 +244,7 @@ async fn pass(
             if Instant::now() >= due && !catalogue.is_finished() {
                 let merged = previous.merged(&entries, catalogue.last_done());
                 if previous.changes(&merged) {
+                    same_layout(owner, &layout).await?;
                     let publication = versions
                         .publish(&mut signed, partial_manifest(&name, merged.clone()), reused)
                         .await?;
@@ -256,6 +262,7 @@ async fn pass(
         name: name.clone(),
         entries,
     };
+    same_layout(owner, &layout).await?;
     let publication = versions.publish(&mut signed, manifest, reused).await?;
     // Only now, with the complete version out: what the pass did not keep
     // leaves the record.
@@ -267,6 +274,22 @@ async fn pass(
         publication,
         skipped,
     })
+}
+
+/// [`ShareError::LayoutChanged`] if the stick's roots are no longer
+/// `layout` (an entry linked or removed since the pass began).
+async fn same_layout(
+    owner: &Owner<'_, impl Publisher>,
+    layout: &StickLayout,
+) -> Result<(), ShareError> {
+    let store = owner.store.clone();
+    let stick_id = owner.signing_key.stick_id();
+    let now = run_blocking(move || StickLayout::load(store.as_ref(), &stick_id)).await?;
+    if &now == layout {
+        Ok(())
+    } else {
+        Err(ShareError::LayoutChanged)
+    }
 }
 
 fn partial_manifest(name: &str, entries: Vec<Entry>) -> Manifest {

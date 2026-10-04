@@ -289,6 +289,8 @@ async fn follow(
             Err(error) => Err(error),
         };
         match published {
+            // A linked entry added or removed while it read: read again now.
+            Err(ShareError::LayoutChanged) => pass_now = true,
             Err(ShareError::DriveMissing { .. }) => {
                 if !ejected {
                     ejected = true;

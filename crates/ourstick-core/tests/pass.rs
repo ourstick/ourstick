@@ -253,3 +253,74 @@ async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
     assert_eq!(report.files, 2);
     owner.publisher.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_unlinked_while_it_is_read_is_neither_recorded_nor_published() {
+    // A linked folder of more files than a part holds, read first ("Films"
+    // sorts before "a.txt").
+    let elsewhere = tempfile::tempdir().unwrap();
+    let films = elsewhere.path().join("Films");
+    for index in 0..400 {
+        common::write_file(&films, &format!("{index:03}.mkv"), b"film");
+    }
+    let owner = Owner::new(&[("a.txt", b"a")]).await;
+    let stick_id = owner.signing_key.stick_id();
+    let entry = ourstick_core::linked::plan_link(
+        owner.store.as_ref(),
+        &stick_id,
+        owner.cache.path(),
+        &[],
+        &films,
+        1,
+    )
+    .unwrap();
+    owner.store.add_linked_entry(&stick_id, &entry).unwrap();
+
+    // Removed once the first part is recorded, as the window's Remove does.
+    let store = owner.store.clone();
+    let mut published = Vec::new();
+    let ended = run_pass(&publishing(&owner), AT_ONCE, &mut |event| match event {
+        PassEvent::Progress { done, .. } if done > 0 => {
+            if !store.linked_entries(&stick_id).unwrap().is_empty() {
+                store.remove_linked_entry(&stick_id, "Films").unwrap();
+            }
+        }
+        PassEvent::Published(publication) => published.push(publication.manifest.clone()),
+        _ => {}
+    })
+    .await;
+    assert!(
+        matches!(ended, Err(ourstick_core::share::ShareError::LayoutChanged)),
+        "{ended:?}"
+    );
+    // Nothing of it was published after it was removed, nor recorded again.
+    for manifest in published.iter().skip(1) {
+        assert!(
+            manifest
+                .entries
+                .iter()
+                .all(|entry| !entry.path.starts_with("Films/")),
+            "a version after the removal has Films"
+        );
+    }
+    assert!(owner
+        .store
+        .owned_files(&stick_id)
+        .unwrap()
+        .iter()
+        .all(|file| !file.path.starts_with("Films/")));
+
+    // The next pass reads the stick as it is now.
+    let outcome = run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
+        .await
+        .unwrap();
+    let paths: Vec<&str> = outcome
+        .publication
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(paths, ["a.txt"]);
+    owner.publisher.shutdown().await;
+}

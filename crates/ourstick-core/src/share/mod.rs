@@ -110,6 +110,11 @@ pub enum ShareError {
     SourceGone { name: Option<String> },
     #[error("the stick's suitcases already have a keeper")]
     KeeperRunning,
+    /// A linked entry was added or removed while the pass read: it ends
+    /// without recording or publishing more, and another pass reads the
+    /// stick as it is now.
+    #[error("the stick's folders changed while they were read; reading again")]
+    LayoutChanged,
     #[error(transparent)]
     Manifest(#[from] ManifestError),
     #[error(transparent)]

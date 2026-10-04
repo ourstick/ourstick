@@ -8,6 +8,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use super::fetch_decision::LimitSampler;
 use super::files::{partial_there, target_path};
 use super::not_ready::Waiting;
 use super::path::ReceivingPath;
@@ -16,9 +17,6 @@ use super::{cancelled, io_error, DownloadError, DownloadEvent};
 use crate::blocking::run_blocking;
 use crate::manifest::Entry;
 use crate::transport::{Fetcher, PathKind, PeerConnection, TransportError, GO};
-
-/// How often, in received bytes, the relay limit looks at the relay count.
-const LIMIT_SAMPLE: u64 = 256 * 1024;
 
 /// A file whose blob is here, out of the store, not placed yet.
 #[derive(Debug)]
@@ -58,7 +56,7 @@ pub(super) async fn receive_file(
     let mut waiting: Option<Waiting> = None;
     let stats = loop {
         let mut previous = 0;
-        let mut unsampled = 0;
+        let sampler = LimitSampler::default();
         let mut look_again = false;
         let mut on_progress = |received: u64| {
             let new_bytes = received.saturating_sub(previous);
@@ -84,10 +82,8 @@ pub(super) async fn receive_file(
             on_event(DownloadEvent::Progress { path, received })?;
             // ADR 0006: data through a relay is slowed to the limit, never
             // stopped. Sampled now and then: `usage` is not free.
-            unsampled += new_bytes;
             match limiter.as_mut() {
-                Some(limiter) if unsampled >= LIMIT_SAMPLE => {
-                    unsampled = 0;
+                Some(limiter) if sampler.due(new_bytes) => {
                     ControlFlow::Continue(limiter.wait(connection.usage().relay, Instant::now()))
                 }
                 _ => GO,

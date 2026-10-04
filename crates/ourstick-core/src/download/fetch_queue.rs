@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 
-use super::fetch_decision::{Decision, LIMIT_SAMPLE};
+use super::fetch_decision::Decision;
 use super::fetch_one::{take_out, Received};
 use super::not_ready::Waiting;
 use super::path::ReceivingPath;
@@ -130,8 +130,7 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
                 if decision.stop.load(Ordering::Relaxed) {
                     return ControlFlow::Break(());
                 }
-                let before = decision.sampled.fetch_add(new_bytes, Ordering::Relaxed);
-                if before / LIMIT_SAMPLE != (before + new_bytes) / LIMIT_SAMPLE {
+                if decision.sampler.due(new_bytes) && decision.limiter().is_some() {
                     decision.limit(connection.usage().relay);
                 }
                 let until = *decision.pause_until();

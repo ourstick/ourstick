@@ -86,7 +86,7 @@ What is there already:
    when bytes come), then drops what is left. The relay limit is one too, but asked
    as the bytes come, not only at the round's looks (a blob that arrives
    within one look would go unlimited): while the round polls the fetches
-   the limiter is theirs, one of them asks it every 64 KB of all of them,
+   the limiter is theirs, one of them asks it every 64 KB of all of them (at most every 20 ms),
    and the pause it gives holds them all. When it stops them (the user's stop, or
    `LookAgain`), it sets the decision first, then waits for every fetch in
    flight to end and ignores their errors (closing the connection makes
@@ -140,7 +140,7 @@ What is there already:
   `download/fetch_one.rs`, so neither file passes 400 lines.
 - The relay limiter (`relay.rs`, unchanged) moves into the queue's shared
   decision while the round polls the fetches and back after; asked every
-  64 KB of all of them and at each look, its pause is the "pause until"
+  64 KB of all of them (at most every 20 ms) and at each look, its pause is the "pause until"
   every fetch reads. As before, "the relay limit applies" is told at a path
   check (every 4 MB).
 - `share/keeper/state.rs`: rule 6.

@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import {
+    chooseForStick,
     eject,
     mount,
     openDialog,
@@ -40,7 +41,7 @@
   let drops = $derived(dropsOf(stickId));
   let failure = $state<string | null>(null);
   /** The one menu open, if any: the drive pill's or the stick's "⋯". */
-  let openMenu = $state<"pill" | "more" | null>(null);
+  let openMenu = $state<"pill" | "more" | "add" | null>(null);
   let asking = $state<Ask | null>(null);
 
   async function act(action: (stickId: string) => Promise<void>) {
@@ -88,6 +89,16 @@
     asking = null;
     onOutcome(outcome);
     if (outcome?.kind === "renamed") refresh();
+  }
+
+  /** "Click to choose": what the system's picker gives is added as a drop. */
+  async function choose(pick: "files" | "folders") {
+    openMenu = null;
+    try {
+      await dropOn(stickId, await chooseForStick(pick));
+    } catch (error) {
+      failure = String(error);
+    }
   }
 
   /** "3 folders · 1 file": what is on the stick's top level. */
@@ -180,15 +191,32 @@
     <StickAsk {stickId} name={current.name} ask={asking} onDone={asked} />
   {/if}
 
-  <section class="drop" class:dropping class:busy={drops.copying} aria-label="Drop files or folders here">
-    {#if drops.copying}
-      <strong>Copying…{drops.copied ? ` ${size(drops.copied.done)} of ${size(drops.copied.total)}` : ""}</strong>
-      <progress max={drops.copied?.total || 1} value={drops.copied?.done ?? 0}></progress>
-    {:else}
-      <strong>Drop files or folders here</strong>
-      <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
+  <!-- Dropped onto, or clicked: the system's picker, for files or for
+       folders; either way it is added as a drop is. -->
+  <div class="menu-box drop-box">
+    <button
+      class="drop"
+      class:dropping
+      class:busy={drops.copying}
+      aria-haspopup="menu"
+      aria-expanded={openMenu === "add"}
+      onclick={() => (openMenu = openMenu === "add" ? null : "add")}
+    >
+      {#if drops.copying}
+        <strong>Copying…{drops.copied ? ` ${size(drops.copied.done)} of ${size(drops.copied.total)}` : ""}</strong>
+        <progress max={drops.copied?.total || 1} value={drops.copied?.done ?? 0}></progress>
+      {:else}
+        <strong>Drop files or folders here, or click to choose</strong>
+        <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
+      {/if}
+    </button>
+    {#if openMenu === "add"}
+      <div class="menu add-menu" role="menu">
+        <button role="menuitem" onclick={() => choose("files")}>Add files…</button>
+        <button role="menuitem" onclick={() => choose("folders")}>Add folders…</button>
+      </div>
     {/if}
-  </section>
+  </div>
 
   {#if drops.queue.length > 0}
     <p class="row spread queued">
@@ -271,8 +299,15 @@
   .drive {
     font-weight: 400;
   }
-  .drop {
+  .drop-box {
     flex-shrink: 0;
+  }
+  .drop {
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    background: none;
+    cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -281,6 +316,11 @@
     min-height: 110px;
     border: 2px dashed var(--border);
     border-radius: var(--radius);
+  }
+  .add-menu {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
   }
   .drop.dropping {
     border-color: var(--accent);

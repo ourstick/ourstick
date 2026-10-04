@@ -80,8 +80,12 @@ so Spotlight leaves it alone.
   - Remove: "Its sharing link stops working, and the files copied onto it are
     deleted from this computer. Folders shared as they are (linked) stay
     where they are."
-- Drop zone: "Drop files or folders here", below it what is on the stick,
-  `3 folders · 1 file · 6.9 GB`. Dropping **copies** into the stick folder,
+- Drop zone: "Drop files or folders here, or click to choose", below it
+  what is on the stick, `3 folders · 1 file · 6.9 GB`. A click (or Enter:
+  it is a button) opens `Add files…` / `Add folders…`, the system's picker
+  for several at once (Linux's and Windows' pickers do not take files and
+  folders together); what is chosen is added as a drop is, the same queue
+  and questions. Dropping **copies** into the stick folder,
   like onto a real stick. A drop that does not fit in what is left is
   refused, as by a real stick: nothing is copied, and the window says how
   big it is and how much is left. While it copies, the zone says `Copying…

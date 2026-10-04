@@ -117,6 +117,37 @@ pub async fn add_paths(
     outcome
 }
 
+/// What to choose with the system's picker for a stick: files, or folders
+/// (Linux's and Windows' pickers do not take both at once).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Pick {
+    Files,
+    Folders,
+}
+
+/// "Click to choose": the system's picker, several at once; what is chosen
+/// is then added as a drop is. Empty if the user cancelled.
+#[tauri::command]
+pub async fn choose_for_stick(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let dialog = app.dialog().file().set_title("Add to the stick");
+        match pick {
+            Pick::Files => dialog.blocking_pick_files(),
+            Pick::Folders => dialog.blocking_pick_folders(),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|picked| picked.into_path().ok())
+        .map(|path| path.display().to_string())
+        .collect())
+}
+
 /// The window's answer to "already on the stick", if any.
 fn answer(answered: Option<&str>) -> Result<Option<OnConflict>, String> {
     match answered {

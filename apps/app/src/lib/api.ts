@@ -108,6 +108,12 @@ export function addPaths(
   return invoke("add_paths", { stickId, paths, onConflict });
 }
 
+/** "Click to choose": the system's picker for files or for folders,
+ * several at once; empty if cancelled. */
+export function chooseForStick(pick: "files" | "folders"): Promise<string[]> {
+  return invoke("choose_for_stick", { pick });
+}
+
 /** How far a drop's copy is (event `copy-progress`). */
 export interface CopyProgress {
   done: number;

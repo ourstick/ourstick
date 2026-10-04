@@ -126,8 +126,8 @@ async fn a_file_not_ready_yet_is_waited_for() {
         .all(|left| *left == 0));
 }
 
-/// A file is placed while the next one is received: the next one starts
-/// (and arrives) before the one before it is reported in place.
+/// A file is placed while the next ones are received: they arrive before
+/// the one before them is reported in place.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_next_file_is_received_while_one_is_placed() {
     let first = noise(200_000, 5);
@@ -155,17 +155,11 @@ async fn the_next_file_is_received_while_one_is_placed() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        events,
-        vec![
-            "start a.bin",
-            "here a.bin",
-            "start b.bin",
-            "here b.bin",
-            "placed a.bin",
-            "placed b.bin"
-        ]
-    );
+    // Small files are fetched together (ADR 0016): told only when here,
+    // in any order, and both are here before the first is placed.
+    let at = |event: &str| events.iter().position(|told| told == event).unwrap();
+    assert!(!events.iter().any(|told| told.starts_with("start")));
+    assert!(at("here a.bin") < at("placed a.bin") && at("here b.bin") < at("placed a.bin"));
     assert_eq!(std::fs::read(output.path().join("a.bin")).unwrap(), first);
     assert_eq!(std::fs::read(output.path().join("b.bin")).unwrap(), second);
 }

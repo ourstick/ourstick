@@ -32,6 +32,12 @@ pub struct Served {
     pub(crate) reports: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     /// The owner cannot be reached for reports (a test of a lost report).
     pub unreachable_for_reports: bool,
+    /// Fetches going on now, the most at once, every blob asked for in
+    /// order, and how many others were going on when each started.
+    pub fetching_now: usize,
+    pub most_fetching: usize,
+    pub asked: Vec<BlobHash>,
+    pub others_at_start: HashMap<BlobHash, usize>,
 }
 
 /// Cheap to clone: clones share what is served and the cache folder.

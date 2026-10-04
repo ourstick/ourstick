@@ -31,6 +31,9 @@ pub struct Link {
     pub delivered: u64,
     /// Once this many bytes have arrived, the connection is lost, once.
     pub lose_connection_after: Option<u64>,
+    /// Each fetch waits this long before its data comes, as a round trip
+    /// does (so several fetches overlap, ADR 0016).
+    pub latency: Option<std::time::Duration>,
 }
 
 /// The reader's blobs (complete or partial), one map per batch as with iroh,
@@ -257,6 +260,26 @@ impl PeerConnection for MemoryConnection {
             }
             blob.ok_or(TransportError::NotReady)?
         };
+        // Counted while it goes, however it ends.
+        struct Going<'a>(&'a std::sync::Mutex<Served>);
+        impl Drop for Going<'_> {
+            fn drop(&mut self) {
+                self.0.lock().unwrap().fetching_now -= 1;
+            }
+        }
+        let _going = {
+            let mut served = self.served.lock().unwrap();
+            served.asked.push(*hash);
+            let others = served.fetching_now;
+            served.others_at_start.insert(*hash, others);
+            served.fetching_now += 1;
+            served.most_fetching = served.most_fetching.max(served.fetching_now);
+            Going(&self.served)
+        };
+        let latency = self.link.lock().unwrap().latency;
+        if let Some(latency) = latency {
+            tokio::time::sleep(latency).await;
+        }
         {
             let mut link = self.link.lock().unwrap();
             if link.punch_during_first_fetch {

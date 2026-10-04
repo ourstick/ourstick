@@ -94,6 +94,34 @@ impl Progress {
         self.finished_network + self.current_received
     }
 
+    /// "1.2 GB of 2.6 GB (46%), 12 MB/s, direct", at most every
+    /// [`PROGRESS_EVERY`].
+    fn so_far_line(&mut self, at: &str, elapsed: Duration) -> Vec<String> {
+        let since = elapsed.saturating_sub(self.last_line_at);
+        if since < PROGRESS_EVERY {
+            return Vec::new();
+        }
+        let now = self.so_far();
+        let network = self.network();
+        let speed = rate(network.saturating_sub(self.network_at_last_line), since);
+        self.last_line_at = elapsed;
+        self.network_at_last_line = network;
+        let percent = (now.min(self.total) * 100)
+            .checked_div(self.total)
+            .unwrap_or(100);
+        let path = match (self.path, self.relay_limit) {
+            // The limit stays in view while it applies (ADR 0006).
+            (Some(PathKind::Relay), Some(limit)) => format!(", relay, up to {}", mbps(limit)),
+            (Some(path), _) => format!(", {path}"),
+            (None, _) => String::new(),
+        };
+        vec![format!(
+            "[{at}] {} of {} ({percent}%), {speed}{path}",
+            bytes(now),
+            bytes(self.total)
+        )]
+    }
+
     /// Lines to print for `event`, which happened `elapsed` after the start.
     pub fn on_event(&mut self, event: DownloadEvent<'_>, elapsed: Duration) -> Vec<String> {
         let at = clock(elapsed);
@@ -158,31 +186,7 @@ impl Progress {
             }
             DownloadEvent::Progress { received, .. } => {
                 self.current_received = received;
-                let since = elapsed.saturating_sub(self.last_line_at);
-                if since < PROGRESS_EVERY {
-                    return Vec::new();
-                }
-                let now = self.so_far();
-                let network = self.network();
-                let speed = rate(network.saturating_sub(self.network_at_last_line), since);
-                self.last_line_at = elapsed;
-                self.network_at_last_line = network;
-                let percent = (now.min(self.total) * 100)
-                    .checked_div(self.total)
-                    .unwrap_or(100);
-                let path = match (self.path, self.relay_limit) {
-                    // The limit stays in view while it applies (ADR 0006).
-                    (Some(PathKind::Relay), Some(limit)) => {
-                        format!(", relay, up to {}", mbps(limit))
-                    }
-                    (Some(path), _) => format!(", {path}"),
-                    (None, _) => String::new(),
-                };
-                vec![format!(
-                    "[{at}] {} of {} ({percent}%), {speed}{path}",
-                    bytes(now),
-                    bytes(self.total)
-                )]
+                self.so_far_line(&at, elapsed)
             }
             DownloadEvent::ConnectionLost { reason } => vec![format!(
                 "[{at}] The connection was lost ({}); connecting again (the download goes on \
@@ -212,13 +216,15 @@ impl Progress {
                 "[{at}]   {}: changed in this folder while it downloaded, left as it is",
                 untrusted(path)
             )],
+            // Small files come several at once and tell only this (ADR
+            // 0016): the line moves with them too.
             DownloadEvent::FileReceived { size, received, .. } => {
                 self.finished += size;
                 self.finished_network += received;
                 self.current_size = 0;
                 self.current_local = 0;
                 self.current_received = 0;
-                Vec::new()
+                self.so_far_line(&at, elapsed)
             }
             DownloadEvent::FileCopiedHere { path, size } => {
                 self.finished += size;
@@ -343,3 +349,6 @@ mod tests;
 
 #[cfg(test)]
 mod saved_as_tests;
+
+#[cfg(test)]
+mod fetch_tests;

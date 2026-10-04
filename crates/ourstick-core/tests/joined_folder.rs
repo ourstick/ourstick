@@ -14,7 +14,8 @@ use ourstick_core::download::{download, DownloadError, DownloadEvent, RelayPolic
 use ourstick_core::{MemoryStore, Store};
 
 /// Downloads into `output`; returns the `unchanged` of the Manifest event, and
-/// whether it finished. With `stop_early` it cancels at the first progress.
+/// whether it finished. With `stop_early` it cancels at the first progress,
+/// or when the file is here (a small file tells only that, ADR 0016).
 async fn get(
     stick: &Published,
     store: &Arc<MemoryStore>,
@@ -41,7 +42,9 @@ async fn get(
                 unchanged = Some(now);
                 ControlFlow::Continue(())
             }
-            DownloadEvent::Progress { .. } if stop_early => ControlFlow::Break(()),
+            DownloadEvent::Progress { .. } | DownloadEvent::FileReceived { .. } if stop_early => {
+                ControlFlow::Break(())
+            }
             _ => ControlFlow::Continue(()),
         },
     )

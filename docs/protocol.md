@@ -595,6 +595,10 @@ it was; if it is still on the relay, the next look waits twice as long, up to
 
 ### What an owner serves
 
+A reader may have several gets in flight on one connection, each on its own
+stream (ADR 0016: up to 32 blobs of small files at once); each is decided
+on its own, as below.
+
 An owner answers a blob request only if it is a plain get of a raw blob whose
 hash is the current manifest blob or a file blob of the current manifest. It
 refuses everything else: other hashes, hash sequences, get-many, observe, and

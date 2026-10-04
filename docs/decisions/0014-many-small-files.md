@@ -104,7 +104,8 @@ is written only after the file is.
    placing without syncs and syncing a whole directory or filesystem
    (`syncfs`) at a batch's end: an unsynced file could be in place, short,
    after a power cut, and `syncfs` is Linux only.
-5. **Fetching stays one blob at a time** for now. It is 1.5 ms a file
+5. **Fetching stays one blob at a time** for now (since ADR 0016, small
+   files' blobs are fetched several at once). It is 1.5 ms a file
    here (more across a real network: a round trip each), and fetching
    several at once is a change of the transport (iroh-blobs requests in
    parallel, or one request for a batch's blobs). It gets its own ADR if,

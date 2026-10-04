@@ -116,8 +116,8 @@ What is there already:
 
 ## In the code
 
-- `download/fetch_queue.rs` (new, beside `placing_queue.rs`; tests in
-  `fetch_queue_tests.rs`): the blobs in flight (at most
+- `download/fetch_queue.rs` (new, beside `placing_queue.rs`; tested with
+  in-memory peers in `tests/several_at_once.rs`): the blobs in flight (at most
   `FETCHING_AT_ONCE`, small files only by `placing_queue`'s rule), polled
   together on the round's task (`FuturesUnordered` over futures that
   borrow the connection: no spawned task, nothing outlives the round),
@@ -133,8 +133,10 @@ What is there already:
   (`run_blocking`, or the store's own async calls), as now. The per-file
   steps shared by both ways (export, "not ready" backoff) move to
   `download/fetch_one.rs`, so neither file passes 400 lines.
-- `download/relay.rs`: the limiter gives a "pause until" for all
-  fetches, instead of each waiting out its own debt.
+- The relay limiter is asked by the round alone, at every look, and its
+  pause becomes the "pause until" every fetch reads (`relay.rs` is
+  unchanged). As before, "the relay limit applies" is told at a path
+  check (every 4 MB).
 - `share/keeper/state.rs`: rule 6.
 - Consumers of the per-file events: `cli/progress.rs` (rule 3's line on
   `FileReceived`), `apps/app/.../receiving/told.rs` (`Landed` already counts

@@ -11,16 +11,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::batches::{plan_batches, BATCH_BYTES, BATCH_FILES};
-use super::entry::{copy_file, finish_placing, start_placing, Placing};
-use super::fetch_one::receive_file;
+use super::entry::{copy_file, start_placing, Placing};
+use super::fetch_one::{check_place, receive_file};
+use super::fetch_queue::{FetchQueue, Queued, Watch};
 use super::folder::FilePlan;
+use super::landing::{land_all, place_landed, Done};
 use super::path::ReceivingPath;
-use super::placing_queue::PlacingQueue;
+use super::placing_queue::{PlacingQueue, QUEUED_FILE_BYTES};
 use super::relay::RelayLimiter;
-use super::{record_downloaded, DownloadError, DownloadEvent, RECORD_GROUP};
+use super::{DownloadError, DownloadEvent};
 use crate::cipher::Cipher;
 use crate::manifest::{Entry, FileStamp, Manifest};
-use crate::store::{DownloadedFile, Store};
+use crate::store::Store;
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PeerConnection};
 
@@ -34,7 +36,7 @@ pub(super) struct FileCounts {
 }
 
 /// Where an entry lands under `output_dir` (its path was checked before).
-fn place_of(output_dir: &Path, path: &str) -> PathBuf {
+pub(super) fn place_of(output_dir: &Path, path: &str) -> PathBuf {
     path.split('/')
         .fold(output_dir.to_path_buf(), |place, part| place.join(part))
 }
@@ -67,6 +69,8 @@ pub(super) async fn fetch_files(
     // copied from them.
     let mut written_here: HashMap<[u8; 32], (PathBuf, FileStamp)> = HashMap::new();
     let mut placing: PlacingQueue<Placing> = PlacingQueue::default();
+    // Small files' blobs, several at once (ADR 0016).
+    let mut fetching = FetchQueue::new(fetcher, connection, partial);
     let mut done = Done {
         store,
         ticket,
@@ -121,6 +125,26 @@ pub(super) async fn fetch_files(
                         }
                     }
                     FilePlan::Download { replaceable } => {
+                        // The same blob as a file being fetched: wait for it
+                        // to land (it is then placed, and copied below).
+                        while fetching.holds(&entry.hash) {
+                            let mut watch = Watch {
+                                receiving: &mut *receiving,
+                                limiter: &mut *limiter,
+                                received_total: &mut *received_total,
+                            };
+                            if let Some(landed) = fetching.next(&mut watch, on_event).await? {
+                                place_landed(
+                                    landed,
+                                    cipher,
+                                    output_dir,
+                                    &mut placing,
+                                    &mut done,
+                                    on_event,
+                                )
+                                .await?;
+                            }
+                        }
                         // The same blob as a file being placed: wait for the
                         // last of them, then copy it (and never share its file
                         // in `partial`, which a fetch would clear too).
@@ -149,7 +173,49 @@ pub(super) async fn fetch_files(
                                     return Err(DownloadError::Cancelled);
                                 }
                             }
+                            None if entry.size <= QUEUED_FILE_BYTES => {
+                                // Small: fetched with others (ADR 0016).
+                                check_place(output_dir, &entry.path).await?;
+                                while !fetching.has_room() {
+                                    let mut watch = Watch {
+                                        receiving: &mut *receiving,
+                                        limiter: &mut *limiter,
+                                        received_total: &mut *received_total,
+                                    };
+                                    if let Some(landed) =
+                                        fetching.next(&mut watch, on_event).await?
+                                    {
+                                        place_landed(
+                                            landed,
+                                            cipher,
+                                            output_dir,
+                                            &mut placing,
+                                            &mut done,
+                                            on_event,
+                                        )
+                                        .await?;
+                                    }
+                                }
+                                fetching.push(Queued::new(
+                                    entry.clone(),
+                                    stick_path.to_owned(),
+                                    replaceable,
+                                ));
+                            }
                             None => {
+                                // Big: alone, once the small ones landed.
+                                land_all(
+                                    &mut fetching,
+                                    receiving,
+                                    limiter,
+                                    received_total,
+                                    cipher,
+                                    output_dir,
+                                    &mut placing,
+                                    &mut done,
+                                    on_event,
+                                )
+                                .await?;
                                 let received = receive_file(
                                     fetcher,
                                     connection,
@@ -186,7 +252,20 @@ pub(super) async fn fetch_files(
                 }
             }
             // Every file of the batch is in place (or left as the user changed
-            // it) and recorded: its blobs are no longer needed.
+            // it) and recorded: its blobs are no longer needed. Every fetch of
+            // it has ended before its store goes.
+            land_all(
+                &mut fetching,
+                receiving,
+                limiter,
+                received_total,
+                cipher,
+                output_dir,
+                &mut placing,
+                &mut done,
+                on_event,
+            )
+            .await?;
             done.finish_all(&mut placing, on_event).await?;
             done.record_now().await?;
             if fetches {
@@ -196,6 +275,11 @@ pub(super) async fn fetch_files(
         Ok(())
     }
     .await;
+    // On an error, every fetch still going is stopped and waited for: none
+    // outlives the round (what arrived stays in the batch's store).
+    if result.is_err() && !fetching.is_empty() {
+        let _ = fetching.stop(DownloadError::Cancelled).await;
+    }
     // On an error too, every file being placed is finished and recorded, so
     // none is left running and the next run finds them in place.
     let finished = done.finish_all(&mut placing, on_event).await;
@@ -205,92 +289,4 @@ pub(super) async fn fetch_files(
     finished?;
     recorded?;
     Ok(counts)
-}
-
-/// What a placed file leaves behind: its record, and its place for twins.
-struct Done<'a> {
-    store: &'a Arc<dyn Store>,
-    ticket: &'a Ticket,
-    output_dir: &'a Path,
-    written_here: &'a mut HashMap<[u8; 32], (PathBuf, FileStamp)>,
-    counts: &'a mut FileCounts,
-    /// Files placed and not recorded yet: recorded in groups (ADR 0014).
-    unrecorded: Vec<DownloadedFile>,
-}
-
-impl Done<'_> {
-    /// Waits for `placing`, if any, and records the file.
-    async fn finish(
-        &mut self,
-        placing: Option<Placing>,
-        on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-    ) -> Result<(), DownloadError> {
-        let Some(placing) = placing else {
-            return Ok(());
-        };
-        let entry = placing.entry().clone();
-        let stick_path = placing.stick_path().to_owned();
-        let (written, told) = finish_placing(placing, on_event).await?;
-        // In place: recorded even if the user stopped at its telling.
-        self.record(&stick_path, &entry, written).await?;
-        if told.is_break() {
-            return Err(DownloadError::Cancelled);
-        }
-        Ok(())
-    }
-
-    /// Waits for every file being placed, oldest first, finishing each even
-    /// after one failed; the first failure is returned.
-    async fn finish_all(
-        &mut self,
-        placing: &mut PlacingQueue<Placing>,
-        on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
-    ) -> Result<(), DownloadError> {
-        let mut first = Ok(());
-        while !placing.is_empty() {
-            let finished = self.finish(placing.pop(), on_event).await;
-            if first.is_ok() {
-                first = finished;
-            }
-        }
-        first
-    }
-
-    /// Records the files placed so far.
-    async fn record_now(&mut self) -> Result<(), DownloadError> {
-        let files = std::mem::take(&mut self.unrecorded);
-        record_downloaded(self.store, self.ticket, files).await
-    }
-
-    /// Records the stick's `stick_path`, saved as `entry` (its place here),
-    /// as written with `stamp`, or as left changed (`None`): with the next
-    /// group, once [`RECORD_GROUP`] are waiting.
-    async fn record(
-        &mut self,
-        stick_path: &str,
-        entry: &Entry,
-        stamp: Option<FileStamp>,
-    ) -> Result<(), DownloadError> {
-        match stamp {
-            Some(stamp) => {
-                self.written_here
-                    .insert(entry.hash, (place_of(self.output_dir, &entry.path), stamp));
-                let file = DownloadedFile {
-                    path: stick_path.to_owned(),
-                    saved_as: entry.path.clone(),
-                    stamp,
-                    blob_hash: entry.hash,
-                };
-                self.unrecorded.push(file);
-                if self.unrecorded.len() >= RECORD_GROUP {
-                    self.record_now().await?;
-                }
-                Ok(())
-            }
-            None => {
-                self.counts.changed_here += 1;
-                Ok(())
-            }
-        }
-    }
 }

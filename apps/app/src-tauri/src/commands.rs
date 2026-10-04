@@ -102,6 +102,10 @@ pub async fn eject(
     if crate::sharing::is_busy(&state, &id).await {
         return Err("the stick is busy; try again in a moment".to_owned());
     }
+    // Ejected under a copy, the copy would fail half way.
+    if crate::stick_drop::is_copying(&state, &id) {
+        return Err("a copy onto the stick is still going on; eject it once it is done".to_owned());
+    }
     let stick = state.stick_now(&id).await.map_err(shown)?;
     blocking(move || drive::eject(&stick)).await?;
     let _ = app.emit("mount-changed", ());

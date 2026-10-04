@@ -205,10 +205,12 @@ pub async fn link_paths(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let stick = state
-        .stick_now(&stick_id_of(&stick_id)?)
-        .await
-        .map_err(shown)?;
+    let id = stick_id_of(&stick_id)?;
+    // Not into a stick being renamed, moved, given a new link or removed.
+    if crate::busy::is_busy(&state, &id).await {
+        return Err("The stick is being changed; share it as it is once that is done.".to_owned());
+    }
+    let stick = state.stick_now(&id).await.map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     blocking(move || {

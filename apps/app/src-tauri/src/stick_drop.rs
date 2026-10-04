@@ -51,8 +51,10 @@ pub async fn add_paths(
 ) -> Result<AddOutcome, String> {
     let id = stick_id_of(&stick_id)?;
     let on_conflict = answer(on_conflict.as_deref())?;
-    let stick = state.stick_now(&id).await.map_err(shown)?;
+    // Marked first, the stick read after: a change that ended in between
+    // (a removal) is seen, never copied into the folder it left.
     let _copying = Copying::may_start(&state, id).await?;
+    let stick = state.stick_now(&id).await.map_err(shown)?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -174,6 +176,15 @@ impl From<Copied> for CopyView {
     }
 }
 
+/// Whether a drop is copying onto `stick_id` now.
+pub fn is_copying(state: &AppState, stick_id: &StickId) -> bool {
+    state
+        .copying
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(stick_id)
+}
+
 /// A stick being copied onto, until dropped: one copy at a time per stick.
 struct Copying<'a> {
     state: &'a AppState,
@@ -269,6 +280,7 @@ mod tests {
         let one = ourstick_core::StickSigningKey::from_bytes(&[1; 32]).stick_id();
         let two = ourstick_core::StickSigningKey::from_bytes(&[2; 32]).stick_id();
         let copying = Copying::start(&state, one).unwrap();
+        assert!(is_copying(&state, &one) && !is_copying(&state, &two));
         assert_eq!(
             Copying::start(&state, one).err().as_deref(),
             Some("Wait until the copy is done.")

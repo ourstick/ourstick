@@ -322,9 +322,11 @@ async fn a_connection_lost_with_fetches_in_flight_is_made_again_and_the_round_en
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_relay_limit_slows_every_fetch_together() {
-    // 200 kB through a relay limited to 100 kB/s (half a second of burst):
-    // at least a second and a half, however many fetches go at once.
-    let files = small_files(100);
+    // 600 kB through a relay limited to 100 kB/s (half a second of burst):
+    // at least five and a half seconds, however many fetches go at once.
+    let files: Vec<(String, Vec<u8>)> = (0..100)
+        .map(|index| (format!("small/{index:03}.txt"), noise(6_000, index + 1)))
+        .collect();
     let stick = publish(&files).await;
     let link = Link {
         direct: false,
@@ -347,7 +349,7 @@ async fn the_relay_limit_slows_every_fetch_together() {
     .await
     .unwrap();
     let took = started.elapsed();
-    assert!(took >= Duration::from_millis(1_300), "{took:?}");
+    assert!(took >= Duration::from_millis(4_500), "{took:?}");
     for (path, data) in &files {
         assert_eq!(&std::fs::read(output.path().join(path)).unwrap(), data);
     }

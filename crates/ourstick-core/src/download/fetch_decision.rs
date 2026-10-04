@@ -8,7 +8,9 @@ use std::time::Instant;
 use super::relay::RelayLimiter;
 
 /// How often, in bytes received by all fetches, the relay limit is asked.
-pub(super) const LIMIT_SAMPLE: u64 = 256 * 1024;
+/// Small next to the limit's burst (half a second: 625 KB at the default
+/// 10 Mbps), so small files are held to it too.
+pub(super) const LIMIT_SAMPLE: u64 = 64 * 1024;
 
 /// What the round decided, read by every fetch.
 #[derive(Debug, Default)]

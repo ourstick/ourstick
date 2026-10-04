@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 mod batches;
 mod entry;
+mod fetch_decision;
 mod fetch_files;
 mod fetch_one;
 mod fetch_queue;

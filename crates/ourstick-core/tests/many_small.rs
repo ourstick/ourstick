@@ -224,3 +224,40 @@ async fn a_stick_forgotten_meanwhile_ends_the_round_with_nothing_left_running() 
     assert!(store.downloaded_files(&stick_id).unwrap().is_empty());
     owner.publisher.shutdown().await;
 }
+
+/// ADR 0016 with two iroh peers: 2 000 small files fetched several at once
+/// in one round, every one identical.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_thousand_small_files_come_whole_fetched_together() {
+    let files: Vec<(String, Vec<u8>)> = (0..2000)
+        .map(|index| {
+            let name = format!("{}/{}/{index:04}.txt", index % 13, index % 5);
+            (name, noise(500 + index % 3000, (index % 251) as u8))
+        })
+        .collect();
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::new(&listed).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let reader = Reader::new();
+    let mut received = 0;
+    let report = reader
+        .download(&ticket, &mut |event| {
+            if let DownloadEvent::FileReceived { .. } = event {
+                received += 1;
+            }
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(report.files, 2000);
+    assert_eq!(received, 2000);
+    for (name, bytes) in &files {
+        assert_eq!(&reader.read(name), bytes, "{name}");
+    }
+    assert_eq!(recorded(&reader, &owner).len(), 2000);
+    owner.publisher.shutdown().await;
+}

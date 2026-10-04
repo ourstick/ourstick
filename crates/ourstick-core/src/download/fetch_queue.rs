@@ -10,13 +10,14 @@
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 
+use super::fetch_decision::{Decision, LIMIT_SAMPLE};
 use super::fetch_one::{take_out, Received};
 use super::not_ready::Waiting;
 use super::path::ReceivingPath;
@@ -64,49 +65,6 @@ impl Queued {
 pub(super) struct Landed {
     pub(super) queued: Queued,
     pub(super) received: Received,
-}
-
-/// How often, in bytes received by all fetches, the relay limit is asked.
-const LIMIT_SAMPLE: u64 = 256 * 1024;
-
-/// What the round decided, read by every fetch.
-#[derive(Debug, Default)]
-struct Decision {
-    /// Bytes since the round last looked.
-    bytes: AtomicU64,
-    /// Bytes in all, for asking the relay limit every [`LIMIT_SAMPLE`].
-    sampled: AtomicU64,
-    stop: AtomicBool,
-    pause_until: Mutex<Option<Instant>>,
-    /// The round's relay limiter (ADR 0006), here while the round polls the
-    /// fetches: a fetch asks it every [`LIMIT_SAMPLE`] bytes of all of them,
-    /// and its pause holds every fetch.
-    limiter: Mutex<Option<RelayLimiter>>,
-}
-
-impl Decision {
-    fn pause_until(&self) -> std::sync::MutexGuard<'_, Option<Instant>> {
-        self.pause_until
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn limiter(&self) -> std::sync::MutexGuard<'_, Option<RelayLimiter>> {
-        self.limiter
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Asks the relay limit how long every fetch pauses, from the relay
-    /// bytes `relay_now` of the connection.
-    fn limit(&self, relay_now: u64) {
-        let now = Instant::now();
-        let pause = match self.limiter().as_mut() {
-            Some(limiter) => limiter.wait(relay_now, now),
-            None => return,
-        };
-        *self.pause_until() = (!pause.is_zero()).then_some(now + pause);
-    }
 }
 
 /// What the round watches with, for all the fetches.

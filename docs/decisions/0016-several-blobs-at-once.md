@@ -78,11 +78,14 @@ What is there already:
    on `Progress`, under the same throttle, so a stick of small files is
    not silent.
 4. **One connection decides for all, in one place.** The round, not a
-   fetch, owns the relay limit, the path check and the stop: every fetch's
-   callback adds its bytes to one shared count and returns what the round
-   last decided (go on; pause until an instant the round computed from the
-   relay limit; stop). The round reads the count every time a fetch ends
-   or a short tick passes. When it stops them (the user's stop, or
+   fetch, owns the path check and the stop: every fetch's callback adds
+   its bytes to one shared count and returns what was last decided (go on;
+   pause until an instant; stop). The round reads the count every time a
+   fetch ends or a short tick passes. The relay limit is one too, but asked
+   as the bytes come, not only at the round's looks (a blob that arrives
+   within one look would go unlimited): while the round polls the fetches
+   the limiter is theirs, one of them asks it every 256 KB of all of them,
+   and the pause it gives holds them all. When it stops them (the user's stop, or
    `LookAgain`), it sets the decision first, then waits for every fetch in
    flight to end and ignores their errors (closing the connection makes
    them fail as interrupted): the round's outcome comes from the decision,
@@ -133,9 +136,10 @@ What is there already:
   (`run_blocking`, or the store's own async calls), as now. The per-file
   steps shared by both ways (export, "not ready" backoff) move to
   `download/fetch_one.rs`, so neither file passes 400 lines.
-- The relay limiter is asked by the round alone, at every look, and its
-  pause becomes the "pause until" every fetch reads (`relay.rs` is
-  unchanged). As before, "the relay limit applies" is told at a path
+- The relay limiter (`relay.rs`, unchanged) moves into the queue's shared
+  decision while the round polls the fetches and back after; asked every
+  256 KB of all of them and at each look, its pause is the "pause until"
+  every fetch reads. As before, "the relay limit applies" is told at a path
   check (every 4 MB).
 - `share/keeper/state.rs`: rule 6.
 - Consumers of the per-file events: `cli/progress.rs` (rule 3's line on

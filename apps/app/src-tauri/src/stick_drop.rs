@@ -110,10 +110,11 @@ pub async fn add_paths(
             Err(error) => Err(error.into()),
         }
     })
-    .await?;
-    // The watcher publishes; the window can show the files at once.
+    .await;
+    // The watcher publishes; the window can show the files at once. Also
+    // after a copy that failed: what came of it is on the stick.
     let _ = app.emit("stick-changed", ());
-    Ok(outcome)
+    outcome
 }
 
 /// The window's answer to "already on the stick", if any.

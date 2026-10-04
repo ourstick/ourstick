@@ -248,7 +248,16 @@ sharing a small budget.
   decides), and the public part of a link, which passes through the
   ourstick.com page and link previews, would be enough to read everything.
 
-## Amendment 1: a suitcase no one is on sleeps (proposed, 2026-10-04)
+## Amendment 1: a suitcase no one is on sleeps (withdrawn, 2026-10-04)
+
+**Withdrawn by its own step 0.** A test build shut the store of every
+suitcase no reader held after 60 s unused. Threads stayed flat (15 → 20
+instead of 15 → 48), but RSS grew as before or faster (237 → 366 MB over
+19 000 files served, against 243 → 327 MB without it). The same build
+without that change, with glibc's `MALLOC_ARENA_MAX=2`, stayed near flat
+(196 → 222 MB over 30 000 files): what grows is glibc keeping freed memory
+in its per-thread arenas, not the stores. That is addressed elsewhere; the
+text below stays for the record.
 
 Reviewed by two other models against the keeper, the iroh transport and
 iroh-blobs 0.103's source; this version takes in their changes.

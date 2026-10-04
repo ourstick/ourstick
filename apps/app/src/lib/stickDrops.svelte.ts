@@ -17,7 +17,9 @@ export interface Drops {
   alreadyThere: { paths: string[]; names: string[] } | null;
   /** A drop that does not fit, offered to be shared as it is. */
   tooBig: { paths: string[]; needed: number; left: number } | null;
-  failure: string | null;
+  /** What went wrong since the user last dropped onto an idle stick, each
+   * with the drop it was: kept while the queue goes on, so none is missed. */
+  failures: string[];
 }
 
 const all = $state<Record<string, Drops>>({});
@@ -29,7 +31,7 @@ const NONE: Drops = Object.freeze({
   queue: [],
   alreadyThere: null,
   tooBig: null,
-  failure: null,
+  failures: [],
 }) as Drops;
 
 /** The stick's drops, for showing (never changes anything). */
@@ -38,7 +40,7 @@ export function dropsOf(stickId: string): Drops {
 }
 
 function of(stickId: string): Drops {
-  all[stickId] ??= { ...NONE, queue: [] };
+  all[stickId] ??= { ...NONE, queue: [], failures: [] };
   return all[stickId];
 }
 
@@ -57,6 +59,7 @@ export async function dropOn(
   stickId: string,
   paths: string[],
   onConflict: "replace" | "keep_both" | null = null,
+  fromQueue = false,
 ): Promise<void> {
   if (paths.length === 0) return;
   const drops = of(stickId);
@@ -64,9 +67,10 @@ export async function dropOn(
     drops.queue.push(paths);
     return;
   }
+  // A new start (not one from the queue): what failed before is old news.
+  if (!fromQueue && drops.queue.length === 0) drops.failures = [];
   drops.copying = true;
   drops.copied = null;
-  drops.failure = null;
   try {
     const outcome = await addPaths(stickId, paths, onConflict);
     if (outcome.kind === "does_not_fit") {
@@ -75,7 +79,7 @@ export async function dropOn(
       drops.alreadyThere = { paths, names: outcome.names };
     }
   } catch (error) {
-    drops.failure = String(error);
+    drops.failures.push(`${namesOf(paths).join(", ")}: ${String(error)}`);
   } finally {
     drops.copying = false;
     drops.copied = null;
@@ -88,23 +92,30 @@ function next(stickId: string) {
   const drops = of(stickId);
   if (held(drops)) return;
   const paths = drops.queue.shift();
-  if (paths) void dropOn(stickId, paths);
+  if (paths) void dropOn(stickId, paths, null, true);
 }
 
 /** The answer to "already on the stick"; none cancels that drop only. */
-export function answerAlreadyThere(stickId: string, choice: "replace" | "keep_both" | null) {
+export function answerAlreadyThere(
+  stickId: string,
+  choice: "replace" | "keep_both" | null,
+) {
   const drops = of(stickId);
   const asked = drops.alreadyThere;
   drops.alreadyThere = null;
-  if (asked && choice) void dropOn(stickId, asked.paths, choice);
+  if (asked && choice) void dropOn(stickId, asked.paths, choice, true);
   else next(stickId);
 }
 
 /** "Does not fit" closed (shared as it is, or not); `why` if it failed. */
 export function closeTooBig(stickId: string, why: string | null) {
   const drops = of(stickId);
+  const asked = drops.tooBig;
   drops.tooBig = null;
-  drops.failure = why;
+  if (why)
+    drops.failures.push(
+      asked ? `${namesOf(asked.paths).join(", ")}: ${why}` : why,
+    );
   next(stickId);
 }
 
@@ -113,7 +124,12 @@ export function cancelQueued(stickId: string) {
   of(stickId).queue = [];
 }
 
-/** The names a queue line shows: each drop's last parts. */
+/** The names a drop shows: each path's last part. */
+function namesOf(paths: string[]): string[] {
+  return paths.map((path) => path.split(/[\\/]/).filter(Boolean).pop() ?? path);
+}
+
+/** The names a queue line shows. */
 export function queuedNames(drops: Drops): string[] {
-  return drops.queue.flatMap((paths) => paths.map((path) => path.split(/[\\/]/).filter(Boolean).pop() ?? path));
+  return drops.queue.flatMap(namesOf);
 }

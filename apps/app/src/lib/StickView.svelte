@@ -90,14 +90,6 @@
     if (outcome?.kind === "renamed") refresh();
   }
 
-  // A copy ending changes what is on the stick.
-  let wasCopying = false;
-  $effect(() => {
-    const now = drops.copying;
-    if (wasCopying && !now) void refresh();
-    wasCopying = now;
-  });
-
   /** "3 folders · 1 file": what is on the stick's top level. */
   function contents(entries: { is_dir: boolean }[]): string {
     const folders = entries.filter((entry) => entry.is_dir).length;
@@ -201,7 +193,7 @@
   {#if drops.queue.length > 0}
     <p class="row spread queued">
       <span class="muted">Next: {#each queuedNames(drops) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name}</bdi>{/each}</span>
-      <button onclick={() => cancelQueued(stickId)}>Cancel</button>
+      <button onclick={() => cancelQueued(stickId)}>Don't add these</button>
     </p>
   {/if}
 
@@ -251,7 +243,7 @@
     <p class="muted">This stick has so many folders that changes in some of them show up within a minute, not at once.</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
-  {#if drops.failure}<p class="error">{drops.failure}</p>{/if}
+  {#each drops.failures as why, index (index)}<p class="error">{why}</p>{/each}
 
   <button class="share" onclick={() => openShare(stickId).catch((error) => (failure = String(error)))}>⤴ Share</button>
 </section>

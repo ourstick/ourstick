@@ -3,7 +3,6 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import {
-    addPaths,
     eject,
     mount,
     openDialog,
@@ -15,7 +14,6 @@
     type Activity,
     type ShareProblem,
     type Stick,
-    type CopyProgress,
   } from "./api";
   import { files, rate, size } from "./format";
   import DoesNotFit from "./DoesNotFit.svelte";
@@ -24,6 +22,7 @@
   import ReaderList from "./ReaderList.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
+  import { answerAlreadyThere, cancelQueued, closeTooBig, dropOn, dropsOf, queuedNames } from "./stickDrops.svelte";
 
   let {
     stickId,
@@ -37,14 +36,9 @@
   let current = $state<Stick | null>(null);
   let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, preparing: false, relay_only: null });
   let dropping = $state(false);
-  let copying = $state(false);
-  /** How far the copy is, while it runs. */
-  let copied = $state<CopyProgress | null>(null);
-  /** A drop whose names are already on the stick, asked about. */
-  let alreadyThere = $state<{ paths: string[]; names: string[] } | null>(null);
+  /** The stick's drops: kept per stick, so they survive this view. */
+  let drops = $derived(dropsOf(stickId));
   let failure = $state<string | null>(null);
-  /** A drop that does not fit, offered to be shared as it is. */
-  let tooBig = $state<{ paths: string[]; needed: number; left: number } | null>(null);
   /** The one menu open, if any: the drive pill's or the stick's "⋯". */
   let openMenu = $state<"pill" | "more" | null>(null);
   let asking = $state<Ask | null>(null);
@@ -96,39 +90,13 @@
     if (outcome?.kind === "renamed") refresh();
   }
 
-  async function drop(paths: string[], onConflict: "replace" | "keep_both" | null = null) {
-    if (paths.length === 0) return;
-    // One copy at a time: a second drop meanwhile is not taken.
-    if (copying) {
-      failure = "Wait until the copy is done.";
-      return;
-    }
-    copying = true;
-    copied = null;
-    failure = null;
-    tooBig = null;
-    alreadyThere = null;
-    try {
-      const outcome = await addPaths(stickId, paths, onConflict);
-      if (outcome.kind === "does_not_fit") {
-        tooBig = { paths, needed: outcome.needed, left: outcome.left };
-      } else if (outcome.kind === "already_there") {
-        alreadyThere = { paths, names: outcome.names };
-      }
-    } catch (error) {
-      failure = String(error);
-    } finally {
-      copying = false;
-      copied = null;
-      await refresh();
-    }
-  }
-
-  function answered(choice: "replace" | "keep_both" | null) {
-    const asked = alreadyThere;
-    alreadyThere = null;
-    if (asked && choice) drop(asked.paths, choice);
-  }
+  // A copy ending changes what is on the stick.
+  let wasCopying = false;
+  $effect(() => {
+    const now = drops.copying;
+    if (wasCopying && !now) void refresh();
+    wasCopying = now;
+  });
 
   /** "3 folders · 1 file": what is on the stick's top level. */
   function contents(entries: { is_dir: boolean }[]): string {
@@ -141,8 +109,7 @@
   }
 
   async function tooBigClosed(why: string | null) {
-    tooBig = null;
-    failure = why;
+    closeTooBig(stickId, why);
     await refresh();
   }
 
@@ -156,9 +123,6 @@
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
-      listen<About<CopyProgress>>("copy-progress", (event) => {
-        if (event.payload.stick_id === stickId && copying) copied = event.payload;
-      }),
       // Only this stick's.
       listen<About<Activity>>("activity", (event) => {
         if (event.payload.stick_id === stickId) activity = event.payload;
@@ -173,7 +137,7 @@
           dropping = true;
         } else if (event.payload.type === "drop") {
           dropping = false;
-          drop(event.payload.paths);
+          void dropOn(stickId, event.payload.paths);
         } else {
           dropping = false;
         }
@@ -224,22 +188,29 @@
     <StickAsk {stickId} name={current.name} ask={asking} onDone={asked} />
   {/if}
 
-  <section class="drop" class:dropping class:busy={copying} aria-label="Drop files or folders here">
-    {#if copying}
-      <strong>Copying…{copied ? ` ${size(copied.done)} of ${size(copied.total)}` : ""}</strong>
-      <progress max={copied?.total || 1} value={copied?.done ?? 0}></progress>
+  <section class="drop" class:dropping class:busy={drops.copying} aria-label="Drop files or folders here">
+    {#if drops.copying}
+      <strong>Copying…{drops.copied ? ` ${size(drops.copied.done)} of ${size(drops.copied.total)}` : ""}</strong>
+      <progress max={drops.copied?.total || 1} value={drops.copied?.done ?? 0}></progress>
     {:else}
       <strong>Drop files or folders here</strong>
       <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
     {/if}
   </section>
 
-  {#if alreadyThere}
-    <AlreadyThere names={alreadyThere.names} onAnswer={answered} />
+  {#if drops.queue.length > 0}
+    <p class="row spread queued">
+      <span class="muted">Next: {#each queuedNames(drops) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name}</bdi>{/each}</span>
+      <button onclick={() => cancelQueued(stickId)}>Cancel</button>
+    </p>
   {/if}
 
-  {#if tooBig}
-    <DoesNotFit {stickId} {...tooBig} onClose={tooBigClosed} />
+  {#if drops.alreadyThere}
+    <AlreadyThere names={drops.alreadyThere.names} onAnswer={(choice) => answerAlreadyThere(stickId, choice)} />
+  {/if}
+
+  {#if drops.tooBig}
+    <DoesNotFit {stickId} {...drops.tooBig} onClose={tooBigClosed} />
   {/if}
 
   <EntryList {stickId} entries={current?.entries ?? []} onChanged={refresh} onFailure={(why) => (failure = why)} />
@@ -280,11 +251,16 @@
     <p class="muted">This stick has so many folders that changes in some of them show up within a minute, not at once.</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
+  {#if drops.failure}<p class="error">{drops.failure}</p>{/if}
 
   <button class="share" onclick={() => openShare(stickId).catch((error) => (failure = String(error)))}>⤴ Share</button>
 </section>
 
 <style>
+  .queued {
+    margin: 0;
+    gap: 8px;
+  }
   .view {
     display: flex;
     flex-direction: column;

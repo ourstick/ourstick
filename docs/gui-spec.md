@@ -85,8 +85,13 @@ so Spotlight leaves it alone.
   like onto a real stick. A drop that does not fit in what is left is
   refused, as by a real stick: nothing is copied, and the window says how
   big it is and how much is left. While it copies, the zone says `Copying…
-  1.2 GB of 3.1 GB` with a bar, and a second drop meanwhile is refused:
-  "Wait until the copy is done." A name already on the stick is asked about
+  1.2 GB of 3.1 GB` with a bar. A drop meanwhile waits its turn: one copy
+  at a time, the next once the one before is done, in the order dropped;
+  under the bar, in grey, "Next: Wallpaper, 2021-08" with `Cancel` (for
+  the ones not started). A drop that asks something ("already on the
+  stick", "does not fit") holds the queue until it is answered or
+  cancelled. The queue is the stick's: another stick's view and back finds
+  it as it was; Quit drops what has not started. A name already on the stick is asked about
   before anything is copied: "“new in” is already on the stick." (or "“new
   in” and 1 more is…", "… and 2 more are…"), "Replace changes only the
   stick's copy, never the original.", `Cancel` (also Escape), `Keep both`

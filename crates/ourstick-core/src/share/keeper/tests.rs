@@ -14,25 +14,13 @@ fn entry(number: u8, size: u64) -> Entry {
 }
 
 fn state_of(entries: &[Entry], max_bytes: u64) -> State {
-    let files = entries
-        .iter()
-        .map(|entry| FileJob {
-            entry: entry.clone(),
-            on_disk: PathBuf::from(&entry.path),
-            root: crate::layout::Root {
-                name: None,
-                path: PathBuf::from("/"),
-                is_dir: true,
-                disk: None,
-            },
-            plaintext_hash: None,
-        })
-        .collect();
     State {
         current: Some(Current {
             manifest_hash: [0xee; 32],
             plan: plan(entries, &NoCipher, max_bytes),
-            files,
+            entries: entries.to_vec(),
+            plaintext_hashes: vec![None; entries.len()],
+            layout: StickLayout::new(std::path::Path::new("/"), &[]),
         }),
         ..State::default()
     }
@@ -277,4 +265,20 @@ fn a_new_version_forgets_where_readers_were_in_the_old_one() {
     // A place asked for long ago is no place.
     let later = now + IN_USE + Duration::from_secs(1);
     assert_eq!(state.readers[&1].place(later), None);
+}
+
+#[test]
+fn a_suitcase_s_files_are_placed_from_the_layout_when_it_is_prepared() {
+    let mut state = state_of(&[entry(1, 10), entry(2, 10)], 1 << 20);
+    let current = state.current.as_mut().unwrap();
+    current.layout = StickLayout::new(std::path::Path::new("/stick"), &[]);
+    current.plaintext_hashes[1] = Some([9; 32]);
+    let jobs = current.jobs(0..2);
+    assert_eq!(jobs[0].on_disk, std::path::Path::new("/stick/f001"));
+    assert_eq!(jobs[1].entry, entry(2, 10));
+    assert_eq!(
+        (jobs[0].plaintext_hash, jobs[1].plaintext_hash),
+        (None, Some([9; 32]))
+    );
+    assert_eq!(jobs[1].root.path, std::path::Path::new("/stick"));
 }

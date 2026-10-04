@@ -36,11 +36,18 @@ const NAMES: &[&str] = &[
 const PREFIXES: &[&str] = &["._", ".Trash-", ".ourstick-"];
 
 /// Whether a file or folder with this name is left out of every stick.
+/// The start of OurStick's own names, in any letter case.
+const OURSTICK_PREFIX: &[u8] = b".ourstick-";
+
 pub fn is_ignored(name: &str) -> bool {
     NAMES.contains(&name)
         || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
-        // OurStick's own names in any letter case, as a receiver takes them.
-        || name.to_ascii_lowercase().starts_with(".ourstick-")
+        // OurStick's own names in any letter case, as a receiver takes them
+        // (compared in place: this runs for every file of a walk).
+        || name
+            .as_bytes()
+            .get(..OURSTICK_PREFIX.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(OURSTICK_PREFIX))
 }
 
 #[cfg(test)]

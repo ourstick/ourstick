@@ -125,3 +125,33 @@ fn a_file_gone_since_the_walk_is_skipped() {
     );
     assert!(matches!(&part[1], Catalogued::File(file) if file.entry.path == "stays"));
 }
+
+#[test]
+fn recorded_entries_are_those_still_found_in_manifest_order() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "b", b"b");
+    write(dir.path(), "a", b"a");
+    let recorded = |path: &str, fill: u8| OwnedFile {
+        path: path.to_owned(),
+        stamp: FileStamp {
+            size: 10,
+            mtime_ns: 1_700_000_000_900_000_000,
+            ctime_ns: 0,
+        },
+        blob_hash: [fill; 32],
+        plaintext_hash: None,
+    };
+    // "gone" is no longer there; "a" was never recorded.
+    let catalogue =
+        Catalogue::start(dir.path(), vec![recorded("gone", 9), recorded("b", 2)]).unwrap();
+    assert_eq!(
+        catalogue.recorded_entries(),
+        vec![Entry {
+            path: "b".to_owned(),
+            size: 10,
+            // Whole seconds, as the catalogue records them.
+            mtime: 1_700_000_000,
+            hash: [2; 32],
+        }]
+    );
+}

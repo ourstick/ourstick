@@ -47,11 +47,24 @@ impl Manifest {
 /// not returned; other non-regular files are skipped, and so are system files
 /// and folders ([`super::ignore`]).
 pub(crate) fn regular_files(root: &Path) -> Result<Vec<PathBuf>, ManifestError> {
+    let mut files = Vec::new();
+    for_each_regular_file(root, &mut |path| {
+        files.push(path.to_path_buf());
+        Ok(())
+    })?;
+    Ok(files)
+}
+
+/// [`regular_files`], each given to `found` as the walk meets it, without
+/// keeping them all.
+pub(crate) fn for_each_regular_file(
+    root: &Path,
+    found: &mut dyn FnMut(&Path) -> Result<(), ManifestError>,
+) -> Result<(), ManifestError> {
     let root_metadata = std::fs::metadata(root).map_err(|e| ManifestError::io(root, e))?;
     if !root_metadata.is_dir() {
         return Err(ManifestError::NotADirectory(root.to_path_buf()));
     }
-    let mut files = Vec::new();
     let walk = WalkDir::new(root).follow_links(false).into_iter();
     // Not the root itself: a stick may live in a folder of any name.
     let walk = walk.filter_entry(|item| {
@@ -73,9 +86,9 @@ pub(crate) fn regular_files(root: &Path) -> Result<Vec<PathBuf>, ManifestError> 
             tracing::debug!(path = %item.path().display(), "skipping non-regular file");
             continue;
         }
-        files.push(item.into_path());
+        found(item.path())?;
     }
-    Ok(files)
+    Ok(())
 }
 
 /// Writes the blob both to the hasher and, if kept, to a file.
@@ -212,15 +225,18 @@ pub(super) fn relative_path(root: &Path, path: &Path) -> Result<String, Manifest
     let relative = path
         .strip_prefix(root)
         .expect("walkdir only yields paths under its root");
-    let parts = relative
-        .components()
-        .map(|c| {
-            c.as_os_str()
-                .to_str()
-                .ok_or_else(|| ManifestError::NonUtf8Path(path.to_path_buf()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let joined = parts.join("/");
+    // Built in one string: this runs for every file of a walk.
+    let mut joined = String::with_capacity(relative.as_os_str().len());
+    for component in relative.components() {
+        let part = component
+            .as_os_str()
+            .to_str()
+            .ok_or_else(|| ManifestError::NonUtf8Path(path.to_path_buf()))?;
+        if !joined.is_empty() {
+            joined.push('/');
+        }
+        joined.push_str(part);
+    }
     validate_path(&joined)?;
     Ok(joined)
 }

@@ -129,7 +129,6 @@ async fn pass(
         run_blocking(move || StickLayout::load(store.as_ref(), &stick_id)).await?
     };
     let mut catalogue = {
-        let recorded = recorded.clone();
         let rescan = options.rescan;
         let layout = layout.clone();
         run_blocking(move || Catalogue::start_layout(&layout, recorded, rescan)).await?
@@ -140,7 +139,7 @@ async fn pass(
             left_out: catalogue.left_out(),
         });
     }
-    let mut previous = Previous::new(recorded, &catalogue.paths());
+    let mut previous = Previous::new(catalogue.recorded_entries());
 
     let versions = Versions {
         publisher: owner.publisher,

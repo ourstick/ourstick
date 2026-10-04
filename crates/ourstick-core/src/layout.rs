@@ -104,12 +104,17 @@ impl StickLayout {
     pub fn on_disk(&self, relative: &str) -> PathBuf {
         let mut parts = relative.split('/');
         let first = parts.next().unwrap_or_default();
-        match self.linked_named(first) {
-            Some(root) => parts.fold(root.path.clone(), |path, part| path.join(part)),
-            None => relative
-                .split('/')
-                .fold(self.own.path.clone(), |path, part| path.join(part)),
+        let (root, parts) = match self.linked_named(first) {
+            Some(root) => (root, parts),
+            None => (&self.own, relative.split('/')),
+        };
+        // One path, grown in place (a join per part would make a new one).
+        let mut path = PathBuf::with_capacity(root.path.as_os_str().len() + relative.len() + 1);
+        path.push(&root.path);
+        for part in parts {
+            path.push(part);
         }
+        path
     }
 
     /// Whether a top-level entry of the own folder is hidden by a linked

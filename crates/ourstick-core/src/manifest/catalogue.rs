@@ -11,9 +11,9 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
-use super::build::{hash_file_telling_plaintext, regular_files, relative_path};
+use self::known::{carried, mtime_seconds, Known};
+use super::build::{for_each_regular_file, hash_file_telling_plaintext, relative_path};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
 use crate::layout::StickLayout;
@@ -56,14 +56,26 @@ pub enum Catalogued {
     },
 }
 
-/// Where a file of the catalogue comes from.
-#[derive(Debug)]
+/// Where a file of the catalogue comes from. Small, as there is one per
+/// file (ADR 0007: a stick may have hundreds of thousands): the path on
+/// disk is made from the root's when the file is read.
+#[derive(Debug, Clone, Copy)]
 enum Source {
-    /// A file on disk.
-    Disk(PathBuf),
-    /// A file of a linked entry that is gone (ADR 0008): as recorded, so
-    /// the last version stays offered.
-    Carried(OwnedFile),
+    /// A file on disk, under the root of this index in `roots`.
+    Disk(u32),
+    /// A file of a linked entry that is gone (ADR 0008): as recorded (in
+    /// `known`), so the last version stays offered.
+    Carried,
+}
+
+/// A root of the catalogue: where its files are on disk.
+#[derive(Debug)]
+struct DiskRoot {
+    path: PathBuf,
+    /// The name of a linked entry, whose files' paths begin with it; none
+    /// for the stick's own folder.
+    name: Option<String>,
+    is_dir: bool,
 }
 
 /// A pass over a stick's roots, taken in parts.
@@ -73,8 +85,12 @@ pub struct Catalogue {
     /// order: "a-c" comes before "a/b"), so each part extends a prefix of
     /// the manifest.
     files: Vec<(String, Source)>,
+    roots: Vec<DiskRoot>,
     next: usize,
-    known: HashMap<String, OwnedFile>,
+    /// What was recorded before, also with `rescan` (for files carried,
+    /// and for [`Catalogue::recorded_entries`]).
+    known: HashMap<String, Known>,
+    rescan: bool,
     gone: Vec<String>,
     left_out: Vec<String>,
 }
@@ -97,15 +113,21 @@ impl Catalogue {
         let own = &layout.own().path;
         let mut files = Vec::new();
         let mut left_out = std::collections::BTreeSet::new();
-        for path in regular_files(own)? {
-            let relative = relative_path(own, &path)?;
+        let mut roots = vec![DiskRoot {
+            path: own.clone(),
+            name: None,
+            is_dir: true,
+        }];
+        for_each_regular_file(own, &mut |path| {
+            let relative = relative_path(own, path)?;
             let top = relative.split('/').next().unwrap_or_default();
             if layout.is_shadowed(top) {
                 left_out.insert(top.to_owned());
-                continue;
+            } else {
+                files.push((relative, Source::Disk(0)));
             }
-            files.push((relative, Source::Disk(path)));
-        }
+            Ok(())
+        })?;
         let mut gone = Vec::new();
         for root in layout.linked() {
             let name = root.name.clone().unwrap_or_default();
@@ -115,30 +137,77 @@ impl Catalogue {
                     recorded
                         .iter()
                         .filter(|file| file.path == name || file.path.starts_with(&prefix))
-                        .map(|file| (file.path.clone(), Source::Carried(file.clone()))),
+                        .map(|file| (file.path.clone(), Source::Carried)),
                 );
                 gone.push(name);
-            } else if root.is_dir {
-                for path in regular_files(&root.path)? {
-                    let relative = format!("{name}/{}", relative_path(&root.path, &path)?);
-                    files.push((relative, Source::Disk(path)));
-                }
-            } else {
-                files.push((name, Source::Disk(root.path.clone())));
+                continue;
             }
+            let index = u32::try_from(roots.len()).expect("fewer roots than u32::MAX");
+            if root.is_dir {
+                for_each_regular_file(&root.path, &mut |path| {
+                    let relative = format!("{name}/{}", relative_path(&root.path, path)?);
+                    files.push((relative, Source::Disk(index)));
+                    Ok(())
+                })?;
+            } else {
+                files.push((name.clone(), Source::Disk(index)));
+            }
+            roots.push(DiskRoot {
+                path: root.path.clone(),
+                name: Some(name),
+                is_dir: root.is_dir,
+            });
         }
-        files.sort_by(|a, b| a.0.cmp(&b.0));
-        let known = if rescan { Vec::new() } else { recorded };
+        files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        files.shrink_to_fit();
+        let known = recorded
+            .into_iter()
+            .map(|file| {
+                let known = Known {
+                    stamp: file.stamp,
+                    blob_hash: file.blob_hash,
+                    plaintext_hash: file.plaintext_hash,
+                };
+                (file.path, known)
+            })
+            .collect();
         Ok(Self {
             files,
+            roots,
             next: 0,
-            known: known
-                .into_iter()
-                .map(|file| (file.path.clone(), file))
-                .collect(),
+            known,
+            rescan,
             gone,
             left_out: left_out.into_iter().collect(),
         })
+    }
+
+    /// What was recorded of the files the walk found, in manifest order, as
+    /// the last version listed them (ADR 0007's partial versions keep these
+    /// for files not read yet).
+    pub fn recorded_entries(&self) -> Vec<Entry> {
+        self.files
+            .iter()
+            .filter_map(|(path, _)| {
+                self.known.get(path).map(|known| Entry {
+                    path: path.clone(),
+                    size: known.stamp.size,
+                    // Whole seconds, as the catalogue records them.
+                    mtime: known.stamp.mtime_ns / 1_000_000_000,
+                    hash: known.blob_hash,
+                })
+            })
+            .collect()
+    }
+
+    /// Where the file `relative`, under the root `index`, is on disk.
+    fn on_disk(&self, index: u32, relative: &str) -> PathBuf {
+        let root = &self.roots[index as usize];
+        match &root.name {
+            _ if !root.is_dir => root.path.clone(),
+            None => root.path.join(relative),
+            Some(name) => root.path.join(&relative[name.len() + 1..]),
+        }
     }
 
     /// The linked entries that are gone, by name: their files are carried
@@ -211,11 +280,17 @@ impl Catalogue {
         let mut read = 0u64;
         while part.len() < max_files && read < max_bytes && !self.is_finished() {
             let (relative, source) = &self.files[self.next];
-            let catalogued = match source {
-                Source::Disk(path) => {
-                    self.catalogue(relative, path, cipher, readers.as_deref_mut())?
+            let catalogued = match *source {
+                Source::Disk(index) => {
+                    let path = self.on_disk(index, relative);
+                    self.catalogue(relative, &path, cipher, readers.as_deref_mut())?
                 }
-                Source::Carried(file) => Catalogued::File(carried(file)),
+                Source::Carried => match self.known.get(relative) {
+                    Some(known) => Catalogued::File(carried(relative, known)),
+                    None => Catalogued::Skipped {
+                        path: relative.clone(),
+                    },
+                },
             };
             if let Catalogued::File(file) = &catalogued {
                 if file.read {
@@ -254,7 +329,7 @@ impl Catalogue {
         if let Some(known) = self
             .known
             .get(relative)
-            .filter(|known| known.stamp == stamp)
+            .filter(|known| !self.rescan && known.stamp == stamp)
         {
             return Ok(Catalogued::File(CataloguedFile {
                 entry: Entry {
@@ -288,29 +363,7 @@ impl Catalogue {
     }
 }
 
-/// A recorded file, unread, as the manifest had it.
-fn carried(file: &OwnedFile) -> CataloguedFile {
-    CataloguedFile {
-        entry: Entry {
-            path: file.path.clone(),
-            size: file.stamp.size,
-            mtime: file.stamp.mtime_ns / 1_000_000_000,
-            hash: file.blob_hash,
-        },
-        stamp: file.stamp,
-        plaintext_hash: file.plaintext_hash,
-        read: false,
-    }
-}
-
-/// The manifest's mtime: whole seconds, as `hash_file` records it.
-fn mtime_seconds(metadata: &std::fs::Metadata) -> u64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |duration| duration.as_secs())
-}
+mod known;
 
 #[cfg(test)]
 mod tests;

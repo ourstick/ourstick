@@ -283,7 +283,7 @@ impl State {
                 (open.id, open.bytes)
             })
             .collect();
-        let files = current.files[planned.entries.clone()].to_vec();
+        let files = current.jobs(planned.entries.clone());
         self.preparing = Some((generation, number));
         Next::Job(Job {
             place: (generation, number),

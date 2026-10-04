@@ -12,7 +12,7 @@ mod plan;
 mod prepare;
 mod state;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -31,7 +31,7 @@ use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, StickKey};
 use crate::layout::StickLayout;
-use crate::manifest::Manifest;
+use crate::manifest::{Entry, Manifest};
 use crate::stick_id::StickId;
 use crate::store::Store;
 use crate::transport::{BlobHash, Publisher, SuitcaseId};
@@ -120,11 +120,33 @@ struct Context {
     suitcase_bytes: u64,
 }
 
-/// The version being served, cut into suitcases.
+/// The version being served, cut into suitcases. Per file only its entry
+/// and plaintext hash: where it is on disk is worked out for a suitcase's
+/// files when it is prepared (a stick may have hundreds of thousands).
 struct Current {
     manifest_hash: BlobHash,
     plan: Plan,
-    files: Vec<FileJob>,
+    entries: Vec<Entry>,
+    /// The catalogue's plaintext hash of each entry's file, by index.
+    plaintext_hashes: Vec<Option<[u8; 32]>>,
+    layout: StickLayout,
+}
+
+impl Current {
+    /// The files of the entries `range`, to put in a suitcase.
+    fn jobs(&self, range: std::ops::Range<usize>) -> Vec<FileJob> {
+        range
+            .map(|index| {
+                let entry = &self.entries[index];
+                FileJob {
+                    entry: entry.clone(),
+                    on_disk: self.layout.on_disk(&entry.path),
+                    root: self.layout.root_of(&entry.path).clone(),
+                    plaintext_hash: self.plaintext_hashes[index],
+                }
+            })
+            .collect()
+    }
 }
 
 /// A suitcase that is open.
@@ -237,29 +259,29 @@ async fn load_current(context: &Context) -> Result<Option<Current>, ShareError> 
         let mut plaintext = Vec::new();
         decrypt_blob(cipher.as_ref(), &mut blob.as_slice(), &mut plaintext)?;
         let manifest = Manifest::from_bytes(&plaintext)?;
-        let recorded: HashMap<String, ([u8; 32], Option<[u8; 32]>)> = store
-            .owned_files(&stick_id)?
-            .into_iter()
-            .map(|file| (file.path, (file.blob_hash, file.plaintext_hash)))
-            .collect();
-        let files = manifest
+        let mut recorded = store.owned_files(&stick_id)?;
+        recorded.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        let plaintext_hashes = manifest
             .entries
             .iter()
-            .map(|entry| FileJob {
-                entry: entry.clone(),
-                on_disk: layout.on_disk(&entry.path),
-                root: layout.root_of(&entry.path).clone(),
-                plaintext_hash: recorded
-                    .get(&entry.path)
-                    .filter(|(blob_hash, _)| *blob_hash == entry.hash)
-                    .and_then(|(_, plaintext_hash)| *plaintext_hash),
+            .map(|entry| {
+                let index = recorded
+                    .binary_search_by(|file| file.path.as_str().cmp(&entry.path))
+                    .ok()?;
+                let file = &recorded[index];
+                (file.blob_hash == entry.hash)
+                    .then_some(file.plaintext_hash)
+                    .flatten()
             })
             .collect();
+        drop(recorded);
         let plan = plan(&manifest.entries, cipher.as_ref(), suitcase_bytes);
         Ok(Some(Current {
             manifest_hash,
             plan,
-            files,
+            entries: manifest.entries,
+            plaintext_hashes,
+            layout,
         }))
     })
     .await

@@ -94,12 +94,27 @@ async fn small_files_come_several_at_once_and_all_come() {
     // Told only when here (ADR 0016, rule 3).
     assert_eq!(told(&events, "start"), 0);
     assert_eq!(told(&events, "here"), 100);
+    // Started in the plan's order (they may end in any).
+    let planned: Vec<[u8; 32]> = stick
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| entry.hash)
+        .collect();
+    let mut first_asked = Vec::new();
+    for hash in &served.asked {
+        if planned.contains(hash) && !first_asked.contains(hash) {
+            first_asked.push(*hash);
+        }
+    }
+    assert_eq!(first_asked, planned);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_big_file_is_fetched_alone_and_told_as_it_comes() {
+    // In the plan's order: small/…, then t-big.bin, then zz/….
     let mut files = small_files(10);
-    files.push(("big.bin".to_owned(), noise(5 << 20, 99)));
+    files.push(("t-big.bin".to_owned(), noise(5 << 20, 99)));
     files.extend((10..20).map(|index| (format!("zz/{index:03}.txt"), noise(2_000, index + 1))));
     let stick = publish(&files).await;
     let fetcher = MemoryFetcher::new(stick.served.clone(), slow_link());
@@ -116,6 +131,7 @@ async fn a_big_file_is_fetched_alone_and_told_as_it_comes() {
             match event {
                 DownloadEvent::FileStarted { path, .. } => events.push(format!("start {path}")),
                 DownloadEvent::Progress { path, .. } => events.push(format!("progress {path}")),
+                DownloadEvent::FileReceived { path, .. } => events.push(format!("here {path}")),
                 _ => {}
             }
             ControlFlow::Continue(())
@@ -130,13 +146,19 @@ async fn a_big_file_is_fetched_alone_and_told_as_it_comes() {
         .manifest
         .entries
         .iter()
-        .find(|entry| entry.path == "big.bin")
+        .find(|entry| entry.path == "t-big.bin")
         .unwrap()
         .hash;
+    // Alone: nothing else in flight when it started, after every small file
+    // before it was here, and told as it came.
     assert_eq!(stick.served.lock().unwrap().others_at_start[&big], 0);
-    assert_eq!(events.first().map(String::as_str), Some("start big.bin"));
-    assert!(told(&events, "progress big.bin") > 0);
-    assert!(events.iter().all(|event| event.ends_with("big.bin")));
+    let at = |event: &str| events.iter().position(|told| told == event).unwrap();
+    for index in 0..10 {
+        assert!(at(&format!("here small/{index:03}.txt")) < at("start t-big.bin"));
+    }
+    assert!(told(&events, "progress t-big.bin") > 0);
+    assert_eq!(told(&events, "start"), 1);
+    assert!(at("here t-big.bin") < at("here zz/010.txt"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

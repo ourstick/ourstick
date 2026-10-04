@@ -31,6 +31,10 @@ pub(super) const FETCHING_AT_ONCE: usize = 32;
 /// How often the round looks at the fetches when none lands.
 pub(super) const TICK: Duration = Duration::from_millis(100);
 
+/// How long a stop waits for the fetches to end. A fetch sees the stop only
+/// when bytes come; one still waiting for its first is dropped after this.
+pub(super) const STOP_WAIT: Duration = Duration::from_secs(3);
+
 /// A file in the queue: fetching, or waiting on "not ready" (it keeps its
 /// place, ADR 0016 rule 5).
 #[derive(Debug)]
@@ -240,10 +244,17 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
         }
     }
 
-    /// Stops every fetch and waits for them, ignoring how each ends.
+    /// Stops every fetch and waits for them, ignoring how each ends; one
+    /// that does not end within [`STOP_WAIT`] is dropped (what arrived of it
+    /// stays in the batch's store).
     pub(super) async fn stop(&mut self, why: DownloadError) -> DownloadError {
         self.decision.stop.store(true, Ordering::Relaxed);
-        while self.in_flight.next().await.is_some() {}
+        let in_flight = &mut self.in_flight;
+        let _ = tokio::time::timeout(STOP_WAIT, async {
+            while in_flight.next().await.is_some() {}
+        })
+        .await;
+        self.in_flight = FuturesUnordered::new();
         self.files.clear();
         why
     }
@@ -351,7 +362,10 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
             .on_received(new_bytes, || connection.usage())
         {
             if check.look_again {
-                let _ = on_event(DownloadEvent::LookingForDirect);
+                // A stop the user asked for at its telling wins.
+                if on_event(DownloadEvent::LookingForDirect).is_break() {
+                    return Err(self.stop(DownloadError::Cancelled).await);
+                }
                 let why = self.stop(DownloadError::LookAgain).await;
                 watch.receiving.looked();
                 return Err(why);
@@ -375,8 +389,11 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
             }
         }
         // ADR 0006: slowed to the limit, all fetches together, at every look
-        // too (a pause runs out while no bytes come).
-        self.decision.limit(connection.usage().relay);
+        // too (a pause runs out while no bytes come). `usage` is not free:
+        // only with a limit.
+        if self.decision.limiter().is_some() {
+            self.decision.limit(connection.usage().relay);
+        }
         if told.is_break() {
             return Err(self.stop(DownloadError::Cancelled).await);
         }

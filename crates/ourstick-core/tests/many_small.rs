@@ -51,11 +51,12 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
     // Stopped after 300 files: one group of 256 written, 44 waiting, and
     // files still being placed.
     let mut done = Vec::new();
-    let mut started = 0;
+    let mut received = 0;
     let stopped = reader
         .download(&ticket, &mut |event| {
-            if let DownloadEvent::FileStarted { .. } = event {
-                started += 1;
+            // Small files are told only when here (ADR 0016).
+            if let DownloadEvent::FileReceived { .. } = event {
+                received += 1;
             }
             if let DownloadEvent::FileDone { path, .. } = event {
                 done.push(path.to_owned());
@@ -71,8 +72,8 @@ async fn a_stop_records_every_file_placed_also_short_of_a_group() {
     // returned (only the one just received, not yet given to be placed, is
     // not): none is left running.
     assert!(
-        done.len() + 1 >= started && done.len() > 300,
-        "{} told of {started} started",
+        done.len() + 1 >= received && done.len() > 300,
+        "{} told of {received} received",
         done.len()
     );
     let kept = recorded(&reader, &owner);
@@ -194,11 +195,11 @@ async fn a_stick_forgotten_meanwhile_ends_the_round_with_nothing_left_running() 
     // group is refused, which ends the round with an error.
     let store = reader.store.clone();
     let mut done = 0;
-    let mut started = 0;
+    let mut received = 0;
     let ended = reader
         .download(&ticket, &mut |event| {
             match event {
-                DownloadEvent::FileStarted { .. } => started += 1,
+                DownloadEvent::FileReceived { .. } => received += 1,
                 DownloadEvent::FileDone { .. } => {
                     done += 1;
                     if done == 100 {
@@ -219,7 +220,7 @@ async fn a_stick_forgotten_meanwhile_ends_the_round_with_nothing_left_running() 
         done <= 256 + 16,
         "{done} files placed after it was forgotten"
     );
-    assert!(done + 1 >= started, "{done} told of {started} started");
+    assert!(done + 1 >= received, "{done} told of {received} received");
     assert!(store.downloaded_files(&stick_id).unwrap().is_empty());
     owner.publisher.shutdown().await;
 }

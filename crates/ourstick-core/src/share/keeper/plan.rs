@@ -16,6 +16,13 @@ use crate::transport::BlobHash;
 /// have room for the one they are on and the next, with room to spare.
 pub(super) const SUITCASE_BYTES: u64 = 1 << 30;
 
+/// A suitcase also closes at this many blobs. Each suitcase is a store whose
+/// database keeps every page it writes in memory (redb's cache, up to
+/// 1 GiB, which iroh-blobs does not let us set): a suitcase of 100 000
+/// small files grew the sender by hundreds of megabytes. Closed, its
+/// memory goes with it.
+pub(super) const SUITCASE_FILES: usize = 4096;
+
 /// The suitcases of one version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Plan {
@@ -39,7 +46,7 @@ pub(super) fn stored_len(cipher: &dyn Cipher, size: u64) -> u64 {
 }
 
 /// Cuts `entries` into suitcases of at most `max_bytes` on disk (a file
-/// bigger than that is a suitcase of its own).
+/// bigger than that is a suitcase of its own) and [`SUITCASE_FILES`] blobs.
 pub(super) fn plan(entries: &[Entry], cipher: &dyn Cipher, max_bytes: u64) -> Plan {
     let mut suitcases: Vec<Planned> = Vec::new();
     let mut by_hash: HashMap<BlobHash, Vec<usize>> = HashMap::new();
@@ -48,7 +55,9 @@ pub(super) fn plan(entries: &[Entry], cipher: &dyn Cipher, max_bytes: u64) -> Pl
     let mut held: Vec<BlobHash> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let len = stored_len(cipher, entry.size);
-        if index > start && bytes + len > max_bytes {
+        let new_blob = !held.contains(&entry.hash);
+        let full = bytes + len > max_bytes || (new_blob && held.len() >= SUITCASE_FILES);
+        if index > start && full {
             suitcases.push(Planned {
                 entries: start..index,
                 bytes,
@@ -121,6 +130,25 @@ mod tests {
         assert_eq!(plan.suitcases[0].bytes, len * 2);
         assert_eq!(plan.by_hash[&[9; 32]], vec![0, 1]);
         assert!(plan_is_empty(&[]));
+    }
+
+    #[test]
+    fn a_suitcase_holds_at_most_so_many_blobs() {
+        let entries: Vec<Entry> = (0..SUITCASE_FILES * 2 + 10)
+            .map(|index| Entry {
+                path: format!("{index:05}"),
+                size: 10,
+                mtime: 0,
+                hash: blake3::hash(&index.to_le_bytes()).into(),
+            })
+            .collect();
+        let plan = plan(&entries, &NoCipher, SUITCASE_BYTES);
+        let runs: Vec<_> = plan.suitcases.iter().map(|s| s.entries.clone()).collect();
+        let files = SUITCASE_FILES;
+        assert_eq!(
+            runs,
+            vec![0..files, files..files * 2, files * 2..files * 2 + 10]
+        );
     }
 
     fn plan_is_empty(entries: &[Entry]) -> bool {

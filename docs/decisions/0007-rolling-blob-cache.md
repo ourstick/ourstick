@@ -35,7 +35,11 @@ and iroh-blobs 0.103; these points changed on the way:
   or on the one before it (read-ahead), and a reader that asked nothing for
   30 s holds none. A time-based rule (anything used in the last 30 s) would
   have stalled a fast reader on a small budget. A suitcase is at most 1 GB or
-  a sixth of the budget.
+  a sixth of the budget, and at most 4 096 blobs (2026-10-04): each
+  suitcase's store keeps the database pages it writes in memory (redb's
+  cache, up to 1 GiB, not settable through iroh-blobs 0.103), and one
+  suitcase of 100 000 small files held about 300 MB of them. Nothing is
+  inlined in a suitcase's database either: a blob stays the file it is.
 - **The keeper** (the policy) runs as a task per stick and learns from the
   transport which blobs readers ask for (`Demand`); a file bigger than the
   budget gets a suitcase alone once all others can go.

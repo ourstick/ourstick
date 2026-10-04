@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use iroh_blobs::api::blobs::{AddPathOptions, ImportMode};
-use iroh_blobs::store::fs::options::Options;
+use iroh_blobs::store::fs::options::{InlineOptions, Options};
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{BlobFormat, Hash};
 
@@ -70,6 +70,10 @@ impl Suitcases {
         tokio::fs::create_dir_all(&files).await?;
         let mut options = Options::new(&dir);
         options.gc = None;
+        // Nothing inlined: a small blob would be copied into the store's
+        // database, whose cache (1 GiB in redb) then grows with every small
+        // file served. Referenced, it stays the file it is.
+        options.inline = InlineOptions::NO_INLINE;
         let store = FsStore::load_with_opts(dir.join("blobs.db"), options)
             .await
             .map_err(storage)?;

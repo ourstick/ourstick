@@ -97,7 +97,11 @@ so Spotlight leaves it alone.
   cancelled. What fails is said in red with the drop it was ("Wallpaper:
   …"), each kept while the queue goes on. The queue is the stick's:
   another stick's view and back finds it as it was; Quit drops what has
-  not started. A name already on the stick is asked about
+  not started. While a copy goes on, the stick is not renamed, moved,
+  given a new link or removed ("a copy onto the stick is still going on;
+  try again once it is done"), and while it is being changed a drop is
+  refused ("The stick is being changed …; drop again once that is
+  done."). A name already on the stick is asked about
   before anything is copied: "“new in” is already on the stick." (or "“new
   in” and 1 more is…", "… and 2 more are…"), "Replace changes only the
   stick's copy, never the original.", `Cancel` (also Escape), `Keep both`

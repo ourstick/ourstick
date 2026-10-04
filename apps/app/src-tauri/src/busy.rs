@@ -52,6 +52,20 @@ pub async fn make_busy(
             }
             _ => {}
         }
+        // A copy onto it would go on into a folder being changed (or
+        // removed under it): refused while one runs. Read under the sticks'
+        // lock: a drop marks its copy first and checks this lock after, so
+        // one of the two always sees the other.
+        if state
+            .copying
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(stick_id)
+        {
+            return Err(
+                "a copy onto the stick is still going on; try again once it is done".to_owned(),
+            );
+        }
         sticks.insert(*stick_id, Sharing::Busy(doing))
     };
     if let Some(Sharing::On(serving)) = previous {
@@ -114,6 +128,22 @@ mod tests {
             assert!(again.contains("busy"), "{again}");
         });
         assert_eq!(word(&state, &id), "busy");
+    }
+
+    #[test]
+    fn a_stick_being_copied_onto_is_not_made_busy() {
+        let state = state();
+        let id = stick(3);
+        state.copying.lock().unwrap().insert(id);
+        let refused =
+            tauri::async_runtime::block_on(make_busy(&state, &id, "Removing…")).unwrap_err();
+        assert!(refused.contains("copy"), "{refused}");
+        assert!(!tauri::async_runtime::block_on(is_busy(&state, &id)));
+        state.copying.lock().unwrap().remove(&id);
+        assert_eq!(
+            tauri::async_runtime::block_on(make_busy(&state, &id, "Removing…")),
+            Ok(())
+        );
     }
 
     #[test]

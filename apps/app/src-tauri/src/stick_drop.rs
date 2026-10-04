@@ -52,7 +52,7 @@ pub async fn add_paths(
     let id = stick_id_of(&stick_id)?;
     let on_conflict = answer(on_conflict.as_deref())?;
     let stick = state.stick_now(&id).await.map_err(shown)?;
-    let _copying = Copying::start(&state, id)?;
+    let _copying = Copying::may_start(&state, id).await?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
@@ -181,6 +181,23 @@ struct Copying<'a> {
 }
 
 impl<'a> Copying<'a> {
+    /// A copy onto `stick_id` may start: none goes on, and the stick is not
+    /// being changed (renamed, given a new link, moved, removed), which
+    /// would leave the copy in a folder that is no longer the stick's. The
+    /// copy is marked first, then the stick is checked (`make_busy` checks
+    /// in the other order), so the two never both go ahead.
+    async fn may_start(state: &'a AppState, stick_id: StickId) -> Result<Self, String> {
+        let copying = Self::start(state, stick_id)?;
+        if crate::busy::is_busy(state, &stick_id).await {
+            return Err(
+                "The stick is being changed (renamed, moved, given a new link or removed); \
+                 drop again once that is done."
+                    .to_owned(),
+            );
+        }
+        Ok(copying)
+    }
+
     fn start(state: &'a AppState, stick_id: StickId) -> Result<Self, String> {
         let mut copying = state
             .copying
@@ -228,6 +245,22 @@ mod tests {
         assert!(answer(Some("delete everything")).is_err());
         let view = CopyView::from(Copied { done: 3, total: 9 });
         assert_eq!((view.done, view.total), (3, 9));
+    }
+
+    #[test]
+    fn no_copy_onto_a_stick_being_changed() {
+        let state = state();
+        let id = ourstick_core::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+        tauri::async_runtime::block_on(async {
+            crate::busy::make_busy(&state, &id, "Removing…")
+                .await
+                .unwrap();
+            let refused = Copying::may_start(&state, id).await.err().unwrap();
+            assert!(refused.contains("being changed"), "{refused}");
+        });
+        // Refused, it holds nothing: once the change is done, a copy may go.
+        state.sticks.blocking_lock().remove(&id);
+        assert!(tauri::async_runtime::block_on(Copying::may_start(&state, id)).is_ok());
     }
 
     #[test]

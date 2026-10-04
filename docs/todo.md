@@ -101,6 +101,15 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.
 
+## Upstream
+
+- **iroh-blobs: a store on a runtime it is given.** Each `FsStore` builds
+  its own tokio runtime, so every suitcase and every reader batch starts and
+  stops a set of threads (memory, see `threads.rs`). Draft issue/PR in
+  `docs/upstream/iroh-blobs-shared-runtime.md`, to be sent by Giorgos. If
+  accepted: pass our runtime to suitcases and batches; drop the
+  `TOKIO_WORKER_THREADS` setting.
+
 ## ADR 0008, from the first manual test (2026-10-01)
 
 - **Show reading progress per linked entry.** A big linked folder shows

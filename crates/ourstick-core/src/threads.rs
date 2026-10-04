@@ -20,17 +20,27 @@ pub const STORE_WORKER_THREADS: usize = 8;
 pub const PROGRAM_WORKER_THREADS: usize = 4;
 
 /// Limits the worker threads of every tokio runtime made without an explicit
-/// count to [`STORE_WORKER_THREADS`] (a value the user set is kept), and
-/// returns how many the program's own runtime should have: one per core, at
-/// most [`PROGRAM_WORKER_THREADS`]. Call it first in `main`, before any
-/// thread starts.
+/// count to [`STORE_WORKER_THREADS`], or the cores if fewer (a valid value
+/// the user set is kept), and returns how many the program's own runtime
+/// should have: one per core, at most [`PROGRAM_WORKER_THREADS`]. Call it
+/// first in `main`, before any thread starts.
 pub fn limit_store_threads() -> usize {
-    if std::env::var_os("TOKIO_WORKER_THREADS").is_none() {
-        std::env::set_var("TOKIO_WORKER_THREADS", STORE_WORKER_THREADS.to_string());
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let set = std::env::var("TOKIO_WORKER_THREADS").ok();
+    if let Some(threads) = store_threads_to_set(set.as_deref(), cores) {
+        std::env::set_var("TOKIO_WORKER_THREADS", threads.to_string());
     }
-    std::thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get)
-        .min(PROGRAM_WORKER_THREADS)
+    cores.min(PROGRAM_WORKER_THREADS)
+}
+
+/// What to set `TOKIO_WORKER_THREADS` to, given what it is: `None` keeps a
+/// positive number the user set; anything else (unset, 0, not a number,
+/// which would make tokio panic at the first store) is replaced.
+fn store_threads_to_set(set: Option<&str>, cores: usize) -> Option<usize> {
+    match set.and_then(|value| value.trim().parse::<usize>().ok()) {
+        Some(threads) if threads > 0 => None,
+        _ => Some(STORE_WORKER_THREADS.min(cores).max(1)),
+    }
 }
 
 /// The program's own runtime, with `worker_threads` workers (see
@@ -46,12 +56,25 @@ pub fn program_runtime(worker_threads: usize) -> std::io::Result<tokio::runtime:
 mod tests {
     use super::*;
 
+    // The variable itself is not set here: tests run in parallel, and
+    // others would see it change under them.
     #[test]
-    fn stores_get_few_threads_and_the_program_one_per_core() {
-        let own = limit_store_threads();
-        assert!((1..=PROGRAM_WORKER_THREADS).contains(&own));
-        let set = std::env::var("TOKIO_WORKER_THREADS").unwrap();
-        assert!(set.parse::<usize>().unwrap() >= 1);
+    fn stores_get_few_threads_unless_the_user_chose() {
+        assert_eq!(store_threads_to_set(None, 32), Some(STORE_WORKER_THREADS));
+        assert_eq!(store_threads_to_set(None, 2), Some(2));
+        assert_eq!(store_threads_to_set(Some("3"), 32), None);
+        assert_eq!(
+            store_threads_to_set(Some("0"), 32),
+            Some(STORE_WORKER_THREADS)
+        );
+        assert_eq!(
+            store_threads_to_set(Some("many"), 32),
+            Some(STORE_WORKER_THREADS)
+        );
+    }
+
+    #[test]
+    fn the_program_runtime_has_the_workers_asked() {
         let runtime = program_runtime(2).unwrap();
         assert_eq!(runtime.metrics().num_workers(), 2);
     }

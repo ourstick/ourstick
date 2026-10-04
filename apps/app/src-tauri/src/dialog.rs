@@ -80,6 +80,8 @@ pub struct ConfirmView {
     downloading: Vec<String>,
     /// For Quit: the received sticks coming in now (they go on next time).
     receiving: Vec<String>,
+    /// For Quit: the sticks a drop is being copied onto now (cut short).
+    copying: Vec<String>,
 }
 
 /// What the dialog says: about `stick_id`, or (none) about every stick.
@@ -96,6 +98,11 @@ pub async fn confirm_view(
     let stick_id = stick_id.as_deref().map(stick_id_of).transpose()?;
     let mut view = confirm_of(&all, &*state.sticks.lock().await, stick_id);
     if stick_id.is_none() {
+        view.copying = all
+            .iter()
+            .filter(|stick| crate::stick_drop::is_copying(&state, &stick.stick_id))
+            .map(|stick| stick.name.clone())
+            .collect();
         let coming = receivers.downloading();
         let store = state.store.clone();
         view.receiving = crate::commands::blocking(move || {
@@ -141,6 +148,7 @@ fn confirm_of(
             shared: Vec::new(),
             downloading: Vec::new(),
             receiving: Vec::new(),
+            copying: Vec::new(),
         },
         None => ConfirmView {
             sharing: sharing.values().any(Sharing::is_on),
@@ -149,6 +157,7 @@ fn confirm_of(
             shared: names(&shared_now),
             downloading: names(&|id| readers_of(id) > 0),
             receiving: Vec::new(),
+            copying: Vec::new(),
         },
     }
 }

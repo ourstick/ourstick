@@ -70,12 +70,23 @@
     {#if view.receiving.length > 0}
       <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
     {/if}
+    {#if view.copying.length > 0}
+      <p>
+        <strong>Copying onto {names(view.copying)} is not done.</strong> It stops, and
+        nothing of it is kept: drop it again next time.
+      </p>
+    {/if}
     </div>
     <div class="actions">
       <button onclick={close} disabled={busy}>
-        {view.sharing || view.receiving.length > 0 ? "Don't quit" : "Cancel"}
+        {view.sharing || view.receiving.length > 0 || view.copying.length > 0
+          ? "Don't quit"
+          : "Cancel"}
       </button>
-      <button class={view.sharing ? "danger" : "primary"} onclick={stop} disabled={busy}>Quit</button>
+      <button
+        class={view.sharing || view.copying.length > 0 ? "danger" : "primary"}
+        onclick={stop}
+        disabled={busy}>Quit</button>
     </div>
   {:else if view}
     <h1>Stop sharing {view.name ? `“${view.name}”` : "this stick"}?</h1>

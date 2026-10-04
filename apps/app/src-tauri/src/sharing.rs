@@ -74,6 +74,25 @@ pub(crate) async fn finish_pending_off_thread(app: &AppHandle) {
     }
 }
 
+/// At start, each stick plugged in: what a copy cut short by a Quit left
+/// (hidden, never shared) is removed, so it takes no room. A stick not
+/// there now is cleared at its next drop.
+async fn clear_cut_copies(app: &AppHandle) {
+    let handle = app.clone();
+    let cleared = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
+        for stick in handle.state::<AppState>().app_sticks()? {
+            if crate::drive::folder_is_there(&stick.root_path) {
+                ourstick_core::drive::remove_leftovers(&stick.root_path);
+            }
+        }
+        Ok(())
+    })
+    .await;
+    if let Ok(Err(error)) = cleared {
+        tracing::warn!(error = %crate::words::told(&error), "copies cut short not cleared");
+    }
+}
+
 /// At start: this device recorded once (never by each share: they start
 /// one after another and would refuse each other's setup lock), the macOS
 /// image of an older stick recorded, what stopped halfway finished; then
@@ -133,6 +152,7 @@ pub fn start_app(app: &AppHandle) {
             Err(error) => tracing::warn!(%error, "the start did not finish"),
         }
         plug_in_all(&app).await;
+        clear_cut_copies(&app).await;
         // The sticks it receives, kept up to date again.
         crate::receiving::start_all(&app).await;
     });

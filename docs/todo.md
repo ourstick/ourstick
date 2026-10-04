@@ -101,13 +101,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **Parallel catalogue:** one file at a time today; measure two on an
       SSD and on the HDD before changing it.
 
-## Drops
-
-- **Quit during a copy** leaves the hidden `.ourstick-copying-N` folder
-  (not shared, `manifest/ignore.rs`) until the next drop onto that stick
-  clears it (`remove_leftovers`). Clear every stick's at start, and say in
-  Quit's dialog that a copy is cut short.
-
 ## ADR 0008, from the first manual test (2026-10-01)
 
 - **Show reading progress per linked entry.** A big linked folder shows

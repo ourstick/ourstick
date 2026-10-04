@@ -202,7 +202,11 @@ so Spotlight leaves it alone.
 - Buttons: `Keep sharing`, `Stop` (red). Quit shows the same dialog for every
   stick: "Sharing “Photos” and “Films” stops: anyone with their links will
   no longer be able to download.", and in bold the sticks someone downloads
-  from now.
+  from now. A drop being copied is named too, in bold: "Copying onto
+  “Photos” is not done. It stops, and nothing of it is kept: drop it again
+  next time." (Quit is then red.) What it left, hidden and never shared,
+  is removed at the next start for each stick plugged in, else at the
+  stick's next drop.
 
 ### 5 · First launch
 

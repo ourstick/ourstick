@@ -167,6 +167,8 @@ export interface ConfirmView {
   downloading: string[];
   /** Quit: received sticks coming in now (they go on next time). */
   receiving: string[];
+  /** Quit: sticks a drop is being copied onto now (cut short). */
+  copying: string[];
 }
 
 /** About one stick, or (null, for Quit) about every stick. */

@@ -139,7 +139,8 @@ pub enum ShareError {
 /// A file whose size, mtime and ctime are as at the last pass is not read
 /// again (a heuristic; see "Known limits" in `docs/protocol.md`); its blob is
 /// encrypted again only if the cache no longer holds it. With `rescan`,
-/// every file is read.
+/// every file is read. An entry linked or removed while it reads starts it
+/// again (what was recorded is not read twice), a few times at most.
 pub async fn publish_folder(
     publisher: &impl Publisher,
     store: Arc<dyn Store>,
@@ -165,8 +166,18 @@ pub async fn publish_folder(
         rescan,
         partial: None,
     };
-    Ok(run_pass(&owner, options, &mut |_| {}).await?.publication)
+    let mut tries = 1;
+    loop {
+        match run_pass(&owner, options, &mut |_| {}).await {
+            Err(ShareError::LayoutChanged) if tries < LAYOUT_TRIES => tries += 1,
+            passed => return Ok(passed?.publication),
+        }
+    }
 }
+
+/// How many passes [`publish_folder`] runs while the stick's entries keep
+/// changing under it.
+const LAYOUT_TRIES: u32 = 5;
 
 /// The latest record this device signed for `stick_id`, as a ticket's
 /// manifest hint; `None` before the first publish. Blocking.

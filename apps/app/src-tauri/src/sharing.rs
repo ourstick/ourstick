@@ -76,14 +76,13 @@ pub(crate) async fn finish_pending_off_thread(app: &AppHandle) {
 
 /// At start, each stick plugged in: what a copy cut short by a Quit left
 /// (hidden, never shared) is removed, so it takes no room. A stick not
-/// there now is cleared at its next drop.
+/// there now, or dropped onto already, is cleared at its next drop.
 async fn clear_cut_copies(app: &AppHandle) {
     let handle = app.clone();
     let cleared = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
-        for stick in handle.state::<AppState>().app_sticks()? {
-            if crate::drive::folder_is_there(&stick.root_path) {
-                ourstick_core::drive::remove_leftovers(&stick.root_path);
-            }
+        let state = handle.state::<AppState>();
+        for stick in state.app_sticks()? {
+            crate::stick_drop::clear_cut_copy(&state, &stick);
         }
         Ok(())
     })

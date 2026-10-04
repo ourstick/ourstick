@@ -176,6 +176,17 @@ impl From<Copied> for CopyView {
     }
 }
 
+/// What a copy cut short by a Quit left on `stick` is removed, unless a drop
+/// copies onto it now (its own hidden folder would go): that drop clears it.
+/// Blocking.
+pub fn clear_cut_copy(state: &AppState, stick: &ourstick_core::OwnedStick) {
+    if let Ok(_copying) = Copying::start(state, stick.stick_id) {
+        if drive::folder_is_there(&stick.root_path) {
+            remove_leftovers(&stick.root_path);
+        }
+    }
+}
+
 /// Whether a drop is copying onto `stick_id` now.
 pub fn is_copying(state: &AppState, stick_id: &StickId) -> bool {
     state
@@ -272,6 +283,33 @@ mod tests {
         // Refused, it holds nothing: once the change is done, a copy may go.
         state.sticks.blocking_lock().remove(&id);
         assert!(tauri::async_runtime::block_on(Copying::may_start(&state, id)).is_ok());
+    }
+
+    #[test]
+    fn a_cut_copy_is_cleared_unless_a_drop_copies_now() {
+        let state = state();
+        let folder = std::env::temp_dir().join(format!("ourstick-cut-copy-{}", std::process::id()));
+        let leftover = folder.join(".ourstick-copying-0");
+        std::fs::create_dir_all(&leftover).unwrap();
+        std::fs::write(folder.join(ourstick_core::manifest::DRIVE_MARKER), b"").unwrap();
+        let id = ourstick_core::StickSigningKey::from_bytes(&[4; 32]).stick_id();
+        let stick = ourstick_core::OwnedStick::new(
+            id,
+            "Photos",
+            folder.to_str().unwrap(),
+            ourstick_core::CipherId::None,
+            0,
+        );
+        // A drop copies now: its hidden folder stays.
+        let copying = Copying::start(&state, stick.stick_id).unwrap();
+        clear_cut_copy(&state, &stick);
+        assert!(leftover.exists());
+        drop(copying);
+        clear_cut_copy(&state, &stick);
+        assert!(!leftover.exists());
+        // The clearing holds no mark after.
+        assert!(!is_copying(&state, &stick.stick_id));
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

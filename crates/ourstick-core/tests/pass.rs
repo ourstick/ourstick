@@ -255,7 +255,7 @@ async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_folder_unlinked_while_it_is_read_is_neither_recorded_nor_published() {
+async fn a_folder_unlinked_while_it_is_read_is_not_published_again() {
     // A linked folder of more files than a part holds, read first ("Films"
     // sorts before "a.txt").
     let elsewhere = tempfile::tempdir().unwrap();
@@ -293,7 +293,8 @@ async fn a_folder_unlinked_while_it_is_read_is_neither_recorded_nor_published() 
         matches!(ended, Err(ourstick_core::share::ShareError::LayoutChanged)),
         "{ended:?}"
     );
-    // Nothing of it was published after it was removed, nor recorded again.
+    // Nothing of it was published after it was removed, and the pass did
+    // not record its next part (the removal had cleared the first).
     for manifest in published.iter().skip(1) {
         assert!(
             manifest

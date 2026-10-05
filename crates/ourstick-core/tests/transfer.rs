@@ -7,7 +7,7 @@ mod common;
 use ourstick_core::transport::GO;
 
 use std::ops::ControlFlow;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use common::{keep_going, noise, write_file, Owner, Reader};
 use ourstick_core::download::{DownloadError, DownloadEvent};
@@ -133,36 +133,35 @@ async fn interrupted_download_resumes_where_it_stopped() {
     owner.publisher.shutdown().await;
 }
 
-/// A blob damaged in the owner's suitcase never reaches the reader:
-/// iroh-blobs checks every chunk against its outboard while sending and
-/// stops. The reader gets an error that says so, and writes nothing.
+/// A file changed on the owner's disk after its version (same size, one
+/// byte other) never reaches the reader under that version: the blob made
+/// from it is checked against the version's hash tree before each part is
+/// sent (ADR 0017, rule 3), so the transfer stops; the reader writes
+/// nothing, and is then told "not ready" until a new version lists it.
 #[tokio::test(flavor = "multi_thread")]
 async fn damaged_blob_is_rejected_and_nothing_is_written() {
     let owner = Owner::new(&[("big.bin", &noise(300_000, 3))]).await;
     let publication = owner.publish().await;
     let ticket = owner.ticket(&publication);
-    // A first reader: the blob is now in a suitcase.
+    // A first reader gets it whole.
     Reader::new()
         .download(&ticket, &mut keep_going)
         .await
         .unwrap();
 
-    // Flip one byte of the encrypted blob in the owner's suitcase.
-    let blob_files = owner.suitcase_blob_files();
-    assert_eq!(blob_files.len(), 1, "{blob_files:?}");
-    let mut bytes = std::fs::read(&blob_files[0]).unwrap();
+    // One byte flipped in the middle of the owner's file.
+    let path = owner.folder.path().join("big.bin");
+    let mut bytes = std::fs::read(&path).unwrap();
     bytes[150_000] ^= 0x01;
-    std::fs::write(&blob_files[0], bytes).unwrap();
+    std::fs::write(&path, bytes).unwrap();
 
     let reader = Reader::new();
-    let result = reader.download(&ticket, &mut keep_going).await;
-    assert!(
-        matches!(
-            result,
-            Err(DownloadError::Transport(TransportError::OwnerFailed))
-        ),
-        "{result:?}"
-    );
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        reader.download(&ticket, &mut keep_going),
+    )
+    .await;
+    assert!(!matches!(result, Ok(Ok(_))), "{result:?}");
     assert!(!reader.exists("big.bin"));
     owner.publisher.shutdown().await;
 }

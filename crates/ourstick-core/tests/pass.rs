@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use common::{keep_going, Owner, Reader};
 use ourstick_core::share::{run_pass, PartialTiming, PassEvent, PassOptions};
-use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, TransportError, GO};
+use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, GO};
 use ourstick_core::watcher::Owner as Publishing;
 use ourstick_core::Store;
 
@@ -194,8 +194,9 @@ async fn a_restarted_first_share_goes_on_from_what_it_recorded() {
 /// The invariant of ADR 0007: a blob is served only if its hash is the
 /// manifest's. A record that no longer matches its file (here a hash no file
 /// gives, with the stamp unchanged: the known limit) makes the pass list that
-/// hash; the suitcase then gets another blob, which is never served, and the
-/// record is forgotten, so the next pass reads the file and gets it right.
+/// hash; the blob made from the file is checked against it and never sent
+/// (ADR 0017, rule 3), and the record is forgotten, so the next pass reads
+/// the file and gets it right.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
     let owner = Owner::new(&[("a.txt", b"one"), ("b.txt", b"two")]).await;
@@ -214,14 +215,12 @@ async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
     let connection = fetcher.connect(&owner.ticket(&trusted)).await.unwrap();
-    // Asked for: the keeper prepares it and finds another blob.
+    // Asked for: the store makes the blob, which is not [7; 32], so the
+    // transfer fails before a byte of it is sent; then "not ready".
     let mut forgotten = false;
     for _ in 0..50 {
         let result = connection.fetch_blob(&[7; 32], &mut |_| GO).await;
-        assert!(
-            matches!(result, Err(TransportError::NotReady)),
-            "{result:?}"
-        );
+        assert!(result.is_err(), "{result:?}");
         if owner
             .store
             .owned_files(&stick_id)

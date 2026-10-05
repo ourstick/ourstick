@@ -191,7 +191,7 @@ fn main() {
                 }
             }
             if let tauri::RunEvent::Exit = event {
-                // Close the suitcases cleanly and release the stick's locks.
+                // Close the owner's stores cleanly and release the stick's locks.
                 let state = app.state::<state::AppState>();
                 tauri::async_runtime::block_on(sharing::stop_all(&state));
                 // What came so far stays; each goes on where it was.

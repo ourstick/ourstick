@@ -11,8 +11,7 @@ use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
 use ourstick_core::locks::{self, SharingLocks};
 use ourstick_core::secrets::check_secret_store;
-use ourstick_core::share::{keep_suitcases, latest_hint, publish_folder, serve_latest, Budget};
-use ourstick_core::space::SystemDisks;
+use ourstick_core::share::{keep_files, latest_hint, publish_folder, serve_latest};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
@@ -56,8 +55,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Starts sharing the app's stick `stick_id`, one of `together` started at
-/// once (their cache budget is split). Takes its lock first (ADR 0009): if
+/// Starts sharing the app's stick `stick_id`. Takes its lock first (ADR 0009): if
 /// another program shares it, or shares another older stick while this one
 /// is older too, this fails and says so. The device was recorded at the
 /// app's start (`sharing::start_app`).
@@ -66,7 +64,6 @@ pub async fn start(
     data_dir: PathBuf,
     store: Arc<dyn Store>,
     stick_id: StickId,
-    together: usize,
 ) -> Result<Serving> {
     let (lock, keys) = tauri::async_runtime::spawn_blocking({
         let data_dir = data_dir.clone();
@@ -97,15 +94,15 @@ pub async fn start(
     }
     // Whatever fails from here stops the endpoint before the locks go: no
     // second start may bind this node key while it still runs.
-    let (current, link, read_again) =
-        match first_publication(&app, &publisher, &store, &keys, &data_dir, together).await {
-            Ok(first) => first,
-            Err(error) => {
-                publisher.clone().shutdown().await;
-                drop(lock);
-                return Err(error);
-            }
-        };
+    let (current, link, read_again) = match first_publication(&app, &publisher, &store, &keys).await
+    {
+        Ok(first) => first,
+        Err(error) => {
+            publisher.clone().shutdown().await;
+            drop(lock);
+            return Err(error);
+        }
+    };
     let activity = publisher.activity();
 
     let (stop, stopped) = oneshot::channel();
@@ -146,50 +143,28 @@ pub async fn start(
     })
 }
 
-/// The keeper of the suitcases, then the first version (from the cache, or a
-/// pass) and the link: what the current manifest is, the link, and whether the
-/// folder must be read again.
+/// The keeper of the owner's files (ADR 0017), then the first version (from
+/// the cache, or a pass) and the link: what the current manifest is, the
+/// link, and whether the folder must be read again.
 async fn first_publication(
     app: &AppHandle,
     publisher: &IrohPublisher,
     store: &Arc<dyn Store>,
     keys: &StickKeys,
-    data_dir: &std::path::Path,
-    together: usize,
 ) -> Result<(Manifest, Option<String>, bool)> {
     let stick_id = keys.stick.stick_id;
-    let cache_dir = publisher.cache_dir().to_path_buf();
     let disks = app.state::<crate::state::AppState>().disks.clone();
-    // ADR 0007: files are encrypted into suitcases as readers ask for them,
-    // within a budget. With too little free space, sharing does not start
-    // and the error says why.
-    let budget = {
-        let store = store.clone();
-        let data_dir = data_dir.to_path_buf();
-        tauri::async_runtime::spawn_blocking(move || {
-            Budget::claim(
-                &SystemDisks,
-                store.as_ref(),
-                &data_dir,
-                &stick_id,
-                &cache_dir,
-                together,
-            )
-        })
-        .await??
-    };
     tauri::async_runtime::spawn({
-        let keeper = keep_suitcases(
+        let keeper = keep_files(
             publisher.clone(),
             store.clone(),
             stick_id,
             keys.stick_key.clone(),
-            budget,
             disks.clone(),
         );
         async move {
             if let Err(error) = keeper.await {
-                tracing::warn!(%error, "the suitcases' keeper stopped");
+                tracing::warn!(%error, "the files' keeper stopped");
             }
         }
     });

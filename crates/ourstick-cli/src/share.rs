@@ -13,10 +13,9 @@ use ourstick_core::device::{self, StickKeys};
 use ourstick_core::places::{check_new_stick_folder, comparable};
 use ourstick_core::share::disk_turns::{Disks, SystemTimer};
 use ourstick_core::share::{
-    keep_suitcases, plan_share, run_pass, serve_latest, Budget, PassEvent, PassOptions,
-    Publication, PARTIAL_TIMING,
+    keep_files, plan_share, run_pass, serve_latest, PassEvent, PassOptions, Publication,
+    PARTIAL_TIMING,
 };
-use ourstick_core::space::SystemDisks;
 use ourstick_core::stick_names::name_from_folder;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
@@ -137,39 +136,15 @@ pub async fn run(
 
     let config = IrohConfig::new(node_key, Network::Public);
     let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
-    // ADR 0007: files are encrypted into suitcases as readers ask for them,
-    // within a budget, instead of a full encrypted copy; the budget is this
-    // stick's part of the device's (the space ledger).
-    let budget = {
-        let cache_dir = cache_dir.clone();
-        let store = setup.store.clone();
-        let data_dir = setup.data_dir.clone();
-        let stick_id = stick.stick_id;
-        tokio::task::spawn_blocking(move || {
-            Budget::claim(
-                &SystemDisks,
-                store.as_ref(),
-                &data_dir,
-                &stick_id,
-                &cache_dir,
-                1,
-            )
-        })
-        .await??
-    };
-    println!(
-        "Encrypted copies of what readers ask for take up to {} in {}.",
-        bytes(budget.total()),
-        cache_dir.display()
-    );
+    // ADR 0017: blobs are made from the files when readers ask for them; no
+    // encrypted copy is kept.
     // Every reading of the disk goes through its turns (ADR 0013).
     let disks = Arc::new(Disks::new(Arc::new(SystemTimer::default())));
-    let keeper = tokio::spawn(keep_suitcases(
+    let keeper = tokio::spawn(keep_files(
         publisher.clone(),
         setup.store.clone(),
         stick.stick_id,
         stick_key.clone(),
-        budget,
         disks.clone(),
     ));
     // Before the first version, so the ticket carries the relay's address.
@@ -300,8 +275,8 @@ pub async fn run(
     println!("Stopping…");
     publisher.shutdown().await;
     match keeper.await {
-        Ok(Err(error)) => println!("The suitcases' keeper stopped: {error}"),
-        Err(error) => println!("The suitcases' keeper stopped: {error}"),
+        Ok(Err(error)) => println!("The keeper of the files stopped: {error}"),
+        Err(error) => println!("The keeper of the files stopped: {error}"),
         Ok(Ok(())) => {}
     }
     // Only now may another sharer start.

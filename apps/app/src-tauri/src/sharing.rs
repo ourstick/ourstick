@@ -227,7 +227,7 @@ async fn plug_in_all(app: &AppHandle) {
         .map(|stick| stick.stick_id)
         .collect();
     for id in &wanted {
-        start_sharing(app, *id, wanted.len()).await;
+        start_sharing(app, *id).await;
     }
 }
 
@@ -266,15 +266,14 @@ pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
         }
         // The watcher follows the folder where it is now.
         stop_serving(&state, &stick_id).await;
-        start_sharing(&app, stick_id, 1).await;
+        start_sharing(&app, stick_id).await;
     });
 }
 
-/// Starts sharing `stick_id` and waits until it runs or has failed;
-/// `together` sticks start at once (their cache budget is split). The UI
+/// Starts sharing `stick_id` and waits until it runs or has failed. The UI
 /// hears `sharing-changed` when it starts and when it is done. Nothing
 /// happens while the stick is busy or already shared.
-pub async fn start_sharing(app: &AppHandle, stick_id: StickId, together: usize) {
+pub async fn start_sharing(app: &AppHandle, stick_id: StickId) {
     let state = app.state::<AppState>();
     {
         let mut sticks = state.sticks.lock().await;
@@ -293,7 +292,6 @@ pub async fn start_sharing(app: &AppHandle, stick_id: StickId, together: usize) 
         state.data_dir.clone(),
         state.store.clone(),
         stick_id,
-        together,
     )
     .await;
     let mut sticks = state.sticks.lock().await;
@@ -323,7 +321,7 @@ pub async fn start_sharing(app: &AppHandle, stick_id: StickId, together: usize) 
 /// [`start_sharing`] in the background.
 pub fn start_sharing_later(app: &AppHandle, stick_id: StickId) {
     let app = app.clone();
-    tauri::async_runtime::spawn(async move { start_sharing(&app, stick_id, 1).await });
+    tauri::async_runtime::spawn(async move { start_sharing(&app, stick_id).await });
 }
 
 /// Stops every share (Quit).

@@ -16,7 +16,7 @@ use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{
     download, DownloadError, DownloadEvent, DownloadReport, RelayPolicy,
 };
-use ourstick_core::share::{keep_suitcases, publish_folder, Budget, Publication};
+use ourstick_core::share::{keep_files, publish_folder, Publication};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::{
@@ -74,21 +74,20 @@ impl Owner {
         Self::with(network, files, StickKind::Cli).await
     }
 
-    /// Like [`Owner::new`], with no suitcases' keeper: nothing is served
-    /// but the manifest, unless the test puts it in a suitcase itself.
+    /// Like [`Owner::new`], with no files' keeper: nothing is served but the
+    /// manifest, unless the test serves it itself.
     pub async fn bare(files: &[(&str, &[u8])]) -> Self {
         Self::build(Network::LocalOnly, files, StickKind::Cli).await
     }
 
-    /// Keeps the suitcases of `publisher` (a restarted owner's) for this
-    /// owner's stick, in the background.
+    /// Serves the files of `publisher` (a restarted owner's) for this
+    /// owner's stick from its own store (ADR 0017), in the background.
     pub fn keep(&self, publisher: &IrohPublisher) {
-        tokio::spawn(keep_suitcases(
+        tokio::spawn(keep_files(
             publisher.clone(),
             self.store.clone(),
             self.signing_key.stick_id(),
             self.stick_key.clone(),
-            Budget::new(1 << 33),
             disks(),
         ));
     }

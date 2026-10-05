@@ -252,7 +252,7 @@ fn start(app: &AppHandle, stick_id: StickId) {
             );
         }
         match state.set_sharing_wanted(&stick_id, true).await {
-            Ok(()) => crate::sharing::start_sharing(&app, stick_id, 1).await,
+            Ok(()) => crate::sharing::start_sharing(&app, stick_id).await,
             Err(error) => problem(&app, stick_id, crate::words::told(&error)),
         }
     });

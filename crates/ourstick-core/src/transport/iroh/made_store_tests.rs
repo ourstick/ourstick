@@ -62,10 +62,13 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         cache.path().to_path_buf(),
         tokio::runtime::Handle::current(),
     );
-    served.set(ServedFiles {
-        layout: StickLayout::new(folder.path(), &[]),
-        files: table,
-    });
+    served.set(
+        cipher(),
+        ServedFiles {
+            layout: StickLayout::new(folder.path(), &[]),
+            files: table,
+        },
+    );
     Stick {
         folder,
         cache,
@@ -162,5 +165,82 @@ async fn without_its_outboard_or_record_a_blob_is_not_served() {
 async fn other_commands_are_refused() {
     let stick = stick(&[("a", content(10))]);
     assert!(stick.store.add_bytes(vec![1u8, 2, 3]).await.is_err());
-    assert!(stick.store.tags().list().await.is_ok_and(|_| true));
+    assert!(stick
+        .store
+        .tags()
+        .set("t", Hash::from_bytes(stick.blobs[0].0))
+        .await
+        .is_err());
+    assert!(stick.store.blobs().batch().await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_range_is_served_alone_as_for_a_resume() {
+    let stick = stick(&[("big.bin", content(500 * 1024))]);
+    let (hash, blob) = &stick.blobs[0];
+    // The chunks of the second half only (1 KiB chunks).
+    let half = (blob.len() / 2 / 1024) as u64;
+    let ranges = ChunkRanges::from(bao_tree::ChunkNum(half)..);
+    let mut items = stick
+        .store
+        .export_bao(Hash::from_bytes(*hash), ranges)
+        .stream()
+        .boxed();
+    let mut first = None;
+    let mut done = false;
+    while let Some(item) = items.next().await {
+        match item {
+            EncodedItem::Leaf(leaf) => {
+                let at = leaf.offset as usize;
+                first.get_or_insert(at);
+                assert_eq!(&leaf.data[..], &blob[at..at + leaf.data.len()]);
+            }
+            EncodedItem::Done => done = true,
+            EncodedItem::Error(error) => panic!("{error}"),
+            _ => {}
+        }
+    }
+    assert!(done);
+    assert!(first.is_some_and(|at| at as u64 >= half * 1024 - 16 * 1024));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_damaged_outboard_of_the_right_length_sends_nothing() {
+    let stick = stick(&[("big.bin", content(100 * 1024))]);
+    let hash = Hash::from_bytes(stick.blobs[0].0);
+    let path = outboard_path(stick.cache.path(), hash.as_bytes());
+    let mut outboard = std::fs::read(&path).unwrap();
+    outboard[0] ^= 1;
+    std::fs::write(&path, outboard).unwrap();
+    let mut items = stick
+        .store
+        .export_bao(hash, ChunkRanges::all())
+        .stream()
+        .boxed();
+    while let Some(item) = items.next().await {
+        assert!(
+            !matches!(item, EncodedItem::Leaf(_) | EncodedItem::Done),
+            "something was sent"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_table_replaces_the_old_one() {
+    let stick = stick(&[("a", content(10))]);
+    let old = Hash::from_bytes(stick.blobs[0].0);
+    stick.served.set(
+        cipher(),
+        ServedFiles {
+            layout: StickLayout::new(stick.folder.path(), &[]),
+            files: HashMap::new(),
+        },
+    );
+    assert!(stick
+        .store
+        .export_bao(old, ChunkRanges::all())
+        .data_to_vec()
+        .await
+        .is_err());
+    assert_eq!(stick.served.blob_len(&old), None);
 }

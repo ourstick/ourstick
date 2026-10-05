@@ -23,14 +23,17 @@ pub fn served_files(
     let mut recorded = store.owned_files(stick_id)?;
     recorded.sort_unstable_by(|a, b| a.path.cmp(&b.path));
     let mut files = HashMap::with_capacity(entries.len());
+    let mut unread = 0usize;
     for entry in entries {
         let Ok(index) = recorded.binary_search_by(|file| file.path.as_str().cmp(&entry.path))
         else {
+            unread += 1;
             continue;
         };
         let file = &recorded[index];
         let Some(plaintext_hash) = file.plaintext_hash.filter(|_| file.blob_hash == entry.hash)
         else {
+            unread += 1;
             continue;
         };
         files.insert(
@@ -42,5 +45,12 @@ pub fn served_files(
             },
         );
     }
+    if unread > 0 {
+        tracing::debug!(unread, "files not served until the catalogue reads them");
+    }
     Ok(ServedFiles { layout, files })
 }
+
+#[cfg(test)]
+#[path = "served_tests.rs"]
+mod tests;

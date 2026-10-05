@@ -38,7 +38,7 @@ pub struct IrohPublisher {
     /// The store serving the current manifest.
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// The owner's own store (ADR 0017), once it serves files.
-    made: Arc<Mutex<Option<(StoreId, super::made_store::Served)>>>,
+    made: Arc<Mutex<Option<(StoreId, iroh_blobs::api::Store, super::made_store::Served)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
     /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
@@ -221,20 +221,23 @@ impl Publisher for IrohPublisher {
 
     fn serve_files(&self, cipher: Arc<dyn crate::cipher::Cipher>, files: ServedFiles) {
         let mut made = lock(&self.made);
-        let (id, served) = made.get_or_insert_with(|| {
+        let (id, _, served) = made.get_or_insert_with(|| {
             let outboards = crate::manifest::hashing::outboards_dir(&self.cache_dir);
-            let (store, served) =
-                super::made_store::start(cipher, outboards, made_runtime().handle().clone());
+            let (store, served) = super::made_store::start(
+                cipher.clone(),
+                outboards,
+                made_runtime().handle().clone(),
+            );
             let id = self.suitcases.next_id();
-            self.serving.add_store(id, store);
-            (id, served)
+            self.serving.add_store(id, store.clone());
+            (id, store, served)
         });
         let ready = files
             .files
             .keys()
             .map(|hash| Hash::from_bytes(*hash))
             .collect();
-        served.set(files);
+        served.set(cipher, files);
         self.serving.replace_ready(*id, ready);
     }
 
@@ -262,6 +265,10 @@ impl Publisher for IrohPublisher {
         self.suitcases.close_all().await;
         let manifest = lock(&self.manifest).take();
         if let Some((_, store)) = manifest {
+            store.shutdown().await.ok();
+        }
+        let made = lock(&self.made).take();
+        if let Some((_, store, _)) = made {
             store.shutdown().await.ok();
         }
     }

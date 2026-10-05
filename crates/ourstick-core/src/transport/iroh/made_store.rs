@@ -31,16 +31,25 @@ use crate::transport::ServedFiles;
 /// each version.
 #[derive(Clone)]
 pub(super) struct Served {
-    cipher: Arc<dyn Cipher>,
+    cipher: Arc<Mutex<Arc<dyn Cipher>>>,
     outboards: PathBuf,
     /// None until the first version.
     files: Arc<Mutex<Option<Arc<ServedFiles>>>>,
 }
 
 impl Served {
-    /// From now on, these files.
-    pub(super) fn set(&self, files: ServedFiles) {
+    /// From now on, these files, made with `cipher` (the stick's, given
+    /// with every version so the store never keeps another).
+    pub(super) fn set(&self, cipher: Arc<dyn Cipher>, files: ServedFiles) {
+        *self.cipher.lock().unwrap_or_else(|p| p.into_inner()) = cipher;
         *self.files.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(files));
+    }
+
+    fn cipher(&self) -> Arc<dyn Cipher> {
+        self.cipher
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     fn now(&self) -> Option<Arc<ServedFiles>> {
@@ -51,26 +60,29 @@ impl Served {
         self.now()?
             .files
             .get(hash.as_bytes())
-            .map(|file| crate::blob::blob_len(self.cipher.as_ref(), file.plaintext_len))
+            .map(|file| crate::blob::blob_len(self.cipher().as_ref(), file.plaintext_len))
     }
 }
 
-/// Starts the store of a stick whose outboards are in `outboards`. Its
-/// exports run on `runtime` (threads of their own, ADR 0017 rule 8: they
-/// read files and encrypt, which blocks).
+/// Starts the store of a stick whose outboards are in `outboards`. It and
+/// its exports run on `runtime`, threads of their own (ADR 0017 rule 8):
+/// an export reads its file and encrypts in its task, which blocks that
+/// thread, so a disk that is slow or asleep holds one of them; nothing
+/// else runs there.
 pub(super) fn start(
     cipher: Arc<dyn Cipher>,
     outboards: PathBuf,
     runtime: tokio::runtime::Handle,
 ) -> (Store, Served) {
     let served = Served {
-        cipher,
+        cipher: Arc::new(Mutex::new(cipher)),
         outboards,
         files: Arc::default(),
     };
     let (sender, commands) = tokio::sync::mpsc::channel::<Command>(64);
     let store: Store = MemStore::from_sender(sender.into()).into();
-    tokio::spawn(run(commands, served.clone(), runtime));
+    // On its own runtime, so it can be started from anywhere.
+    runtime.spawn(run(commands, served.clone(), runtime.clone()));
     (store, served)
 }
 
@@ -156,6 +168,8 @@ async fn run(
             Command::ListBlobs(cmd) => {
                 cmd.tx.send(Err(unsupported().into())).await.ok();
             }
+            // Dropped unanswered: its caller gets "sender closed", an error
+            // (batches import, which this store never does).
             Command::Batch(_) => {}
             Command::CreateTag(cmd) => {
                 cmd.tx.send(Err(unsupported().into())).await.ok();
@@ -212,6 +226,7 @@ async fn export_bao(
 ) {
     let mut sender = ToSender(tx);
     if let Err(error) = export(served, hash, ranges, &mut sender).await {
+        tracing::debug!(%error, "a blob was not served");
         sender.0.send(failed(error)).await.ok();
     }
 }
@@ -228,23 +243,28 @@ async fn export(
 ) -> io::Result<()> {
     let files = served
         .now()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "nothing served yet"))?;
-    let file = files
-        .files
-        .get(hash.as_bytes())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not served"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no version is served yet"))?;
+    let file = files.files.get(hash.as_bytes()).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "this blob is not in the version served",
+        )
+    })?;
     let path = files.layout.on_disk(&file.path);
     let blob = MadeBlob::open(
         &path,
-        served.cipher.clone(),
+        served.cipher(),
         file.plaintext_len,
         &file.plaintext_hash,
-    )?;
+    )
+    .map_err(|error| io::Error::new(error.kind(), format!("its file cannot be opened: {error}")))?;
     // Size and root from the record (rule 2).
     let tree = BaoTree::new(blob.len(), BLOCK_SIZE);
     let root = blake3::Hash::from_bytes(*hash.as_bytes());
     if tree.size() <= BLOCK_SIZE.bytes() as u64 {
-        // One group: checked against the root alone.
+        // One group: checked against the root alone; an empty outboard would
+        // be read out of bounds by a tree with parents.
+        debug_assert_eq!(tree.outboard_size(), 0);
         let outboard = PreOrderMemOutboard {
             root,
             tree,
@@ -269,7 +289,7 @@ async fn send(
 ) -> io::Result<()> {
     traverse_ranges_validated(data, outboard, ranges, sender)
         .await
-        .map_err(|_| io::Error::other("the reader went away"))
+        .map_err(|error| io::Error::other(format!("the reader went away: {error}")))
 }
 
 /// The outboard the catalogue kept for `hash`, if it is there and of the

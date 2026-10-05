@@ -16,25 +16,29 @@ use bao_tree::io::outboard::{PreOrderMemOutboard, PreOrderOutboard};
 use bao_tree::io::sync::Outboard;
 use bao_tree::{BaoTree, ChunkRanges};
 use bytes::Bytes;
-use iroh_blobs::api::blobs::Bitfield;
-use iroh_blobs::api::proto::{BlobStatus, Command, ExportBaoMsg, ExportBaoRequest};
-use iroh_blobs::api::{Store, TempTag};
+use iroh_blobs::api::proto::Command;
+use iroh_blobs::api::Store;
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::Hash;
 
 use crate::blob::made::MadeBlob;
 use crate::cipher::Cipher;
 use crate::manifest::hashing::{outboard_path, BLOCK_SIZE};
-use crate::transport::ServedFiles;
+use crate::transport::{BlobHash, ServedFile, ServedFiles};
 
-/// What the store serves, shared with the publisher, which swaps it with
-/// each version.
+/// Told when the store could not serve a blob: its hash, and whether its
+/// file changed (or else could not be read).
+pub(super) type OnNotServed = Arc<dyn Fn(Hash, bool) + Send + Sync>;
+
+/// What the store serves, shared with the publisher: the version's table,
+/// replaced with each version and added to as files are made ready.
 #[derive(Clone)]
 pub(super) struct Served {
     cipher: Arc<Mutex<Arc<dyn Cipher>>>,
     outboards: PathBuf,
     /// None until the first version.
-    files: Arc<Mutex<Option<Arc<ServedFiles>>>>,
+    files: Arc<Mutex<Option<ServedFiles>>>,
+    on_not_served: OnNotServed,
 }
 
 impl Served {
@@ -42,7 +46,31 @@ impl Served {
     /// with every version so the store never keeps another).
     pub(super) fn set(&self, cipher: Arc<dyn Cipher>, files: ServedFiles) {
         *self.cipher.lock().unwrap_or_else(|p| p.into_inner()) = cipher;
-        *self.files.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(files));
+        *self.files.lock().unwrap_or_else(|p| p.into_inner()) = Some(files);
+    }
+
+    /// These files too, in the current version.
+    pub(super) fn add(&self, more: Vec<(BlobHash, ServedFile)>) {
+        if let Some(files) = self
+            .files
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_mut()
+        {
+            files.files.extend(more);
+        }
+    }
+
+    /// No longer `hash`.
+    fn remove(&self, hash: &Hash) {
+        if let Some(files) = self
+            .files
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_mut()
+        {
+            files.files.remove(hash.as_bytes());
+        }
     }
 
     fn cipher(&self) -> Arc<dyn Cipher> {
@@ -52,15 +80,32 @@ impl Served {
             .clone()
     }
 
-    fn now(&self) -> Option<Arc<ServedFiles>> {
-        self.files.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    /// The file of `hash`, and where it is on disk: copied out, so the table
+    /// is not held while the blob is sent.
+    fn file(&self, hash: &Hash) -> io::Result<(ServedFile, PathBuf)> {
+        let files = self.files.lock().unwrap_or_else(|p| p.into_inner());
+        let files = files
+            .as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no version is served yet"))?;
+        let file = files.files.get(hash.as_bytes()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "this blob is not in the version served",
+            )
+        })?;
+        Ok((file.clone(), files.layout.on_disk(&file.path)))
     }
 
     fn blob_len(&self, hash: &Hash) -> Option<u64> {
-        self.now()?
+        let plaintext_len = self
             .files
-            .get(hash.as_bytes())
-            .map(|file| crate::blob::blob_len(self.cipher().as_ref(), file.plaintext_len))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()?
+            .files
+            .get(hash.as_bytes())?
+            .plaintext_len;
+        Some(crate::blob::blob_len(self.cipher().as_ref(), plaintext_len))
     }
 }
 
@@ -73,125 +118,19 @@ pub(super) fn start(
     cipher: Arc<dyn Cipher>,
     outboards: PathBuf,
     runtime: tokio::runtime::Handle,
+    on_not_served: OnNotServed,
 ) -> (Store, Served) {
     let served = Served {
         cipher: Arc::new(Mutex::new(cipher)),
         outboards,
         files: Arc::default(),
+        on_not_served,
     };
     let (sender, commands) = tokio::sync::mpsc::channel::<Command>(64);
     let store: Store = MemStore::from_sender(sender.into()).into();
     // On its own runtime, so it can be started from anywhere.
     runtime.spawn(run(commands, served.clone(), runtime.clone()));
     (store, served)
-}
-
-async fn run(
-    mut commands: tokio::sync::mpsc::Receiver<Command>,
-    served: Served,
-    runtime: tokio::runtime::Handle,
-) {
-    while let Some(command) = commands.recv().await {
-        match command {
-            Command::ExportBao(ExportBaoMsg {
-                inner: ExportBaoRequest { hash, ranges },
-                tx,
-                ..
-            }) => {
-                let served = served.clone();
-                runtime.spawn(async move { export_bao(&served, hash, ranges, tx).await });
-            }
-            Command::BlobStatus(cmd) => {
-                let status = match served.blob_len(&cmd.inner.hash) {
-                    Some(size) => BlobStatus::Complete { size },
-                    None => BlobStatus::NotFound,
-                };
-                cmd.tx.send(status).await.ok();
-            }
-            Command::Observe(cmd) => {
-                let bits = match served.blob_len(&cmd.inner.hash) {
-                    Some(size) => Bitfield::complete(size),
-                    None => Bitfield::empty(),
-                };
-                cmd.tx.send(bits).await.ok();
-            }
-            Command::Shutdown(cmd) => {
-                cmd.tx.send(()).await.ok();
-                break;
-            }
-            Command::WaitIdle(cmd) => {
-                cmd.tx.send(()).await.ok();
-            }
-            Command::SyncDb(cmd) => {
-                cmd.tx.send(Ok(())).await.ok();
-            }
-            Command::ClearProtected(cmd) => {
-                cmd.tx.send(Ok(())).await.ok();
-            }
-            Command::CreateTempTag(cmd) => {
-                cmd.tx.send(TempTag::new(cmd.inner.value, None)).await.ok();
-            }
-            Command::ListTags(cmd) => {
-                cmd.tx.send(Vec::new()).await.ok();
-            }
-            Command::ListTempTags(cmd) => {
-                cmd.tx.send(Vec::new()).await.ok();
-            }
-            // Everything that writes, deletes or lists: refused, never an
-            // empty success (ADR 0017, rule 6).
-            Command::ImportBao(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            Command::ImportBytes(cmd) => {
-                cmd.tx.send(unsupported().into()).await.ok();
-            }
-            Command::ImportByteStream(cmd) => {
-                cmd.tx.send(unsupported().into()).await.ok();
-            }
-            Command::ImportPath(cmd) => {
-                cmd.tx.send(unsupported().into()).await.ok();
-            }
-            Command::ExportPath(cmd) => {
-                cmd.tx
-                    .send(iroh_blobs::api::Error::from(unsupported()).into())
-                    .await
-                    .ok();
-            }
-            Command::ExportRanges(cmd) => {
-                cmd.tx
-                    .send(iroh_blobs::api::proto::ExportRangesItem::Error(
-                        unsupported().into(),
-                    ))
-                    .await
-                    .ok();
-            }
-            Command::ListBlobs(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            // Dropped unanswered: its caller gets "sender closed", an error
-            // (batches import, which this store never does).
-            Command::Batch(_) => {}
-            Command::CreateTag(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            Command::RenameTag(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            Command::DeleteTags(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            Command::DeleteBlobs(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-            Command::SetTag(cmd) => {
-                cmd.tx.send(Err(unsupported().into())).await.ok();
-            }
-        }
-    }
-}
-
-fn unsupported() -> io::Error {
-    io::Error::new(io::ErrorKind::Unsupported, "this store only serves blobs")
 }
 
 /// A made blob as bao-tree reads it.
@@ -205,12 +144,26 @@ impl ReadBytesAt for Data {
     }
 }
 
-struct ToSender(irpc::channel::mpsc::Sender<EncodedItem>);
+/// Sends to the transfer, and notes whether bao-tree ended it because a
+/// group or parent did not match the tree (the file changed) or because a
+/// read failed.
+struct ToSender {
+    sender: irpc::channel::mpsc::Sender<EncodedItem>,
+    ended: Option<bool>,
+}
 
 impl bao_tree::io::mixed::Sender for ToSender {
     type Error = irpc::channel::SendError;
     async fn send(&mut self, item: EncodedItem) -> Result<(), Self::Error> {
-        self.0.send(item).await
+        if let EncodedItem::Error(error) = &item {
+            self.ended = Some(matches!(
+                error,
+                bao_tree::io::EncodeError::LeafHashMismatch(_)
+                    | bao_tree::io::EncodeError::ParentHashMismatch(_)
+                    | bao_tree::io::EncodeError::SizeMismatch
+            ));
+        }
+        self.sender.send(item).await
     }
 }
 
@@ -224,40 +177,59 @@ async fn export_bao(
     ranges: ChunkRanges,
     tx: irpc::channel::mpsc::Sender<EncodedItem>,
 ) {
-    let mut sender = ToSender(tx);
-    if let Err(error) = export(served, hash, ranges, &mut sender).await {
-        tracing::debug!(%error, "a blob was not served");
-        sender.0.send(failed(error)).await.ok();
+    let mut sender = ToSender {
+        sender: tx,
+        ended: None,
+    };
+    match export(served, hash, ranges, &mut sender).await {
+        // Not in the version: nothing to tell.
+        Err(Refused::NotInVersion(error)) => {
+            sender.sender.send(failed(error)).await.ok();
+        }
+        // Not even begun: the file cannot be opened or its outboard is not
+        // there. Not served from now on.
+        Err(Refused::Unreadable(error)) => {
+            tracing::debug!(%error, "a blob was not served");
+            not_served(served, hash, false);
+            sender.sender.send(failed(error)).await.ok();
+        }
+        Ok(()) => {
+            if let Some(changed) = sender.ended {
+                tracing::debug!(changed, "a transfer ended early");
+                not_served(served, hash, changed);
+            }
+        }
     }
+}
+
+fn not_served(served: &Served, hash: Hash, changed: bool) {
+    served.remove(&hash);
+    (served.on_not_served)(hash, changed);
 }
 
 /// Serves `hash`: an error before anything is sent if it is not served, its
 /// file cannot be opened or its outboard is not there; otherwise bao-tree
 /// sends what it checked, and ends with its own error at the first group
-/// that differs from the tree (a changed file).
+/// that differs from the tree (a changed file) or the first read that fails.
 async fn export(
     served: &Served,
     hash: Hash,
     ranges: ChunkRanges,
     sender: &mut ToSender,
-) -> io::Result<()> {
-    let files = served
-        .now()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no version is served yet"))?;
-    let file = files.files.get(hash.as_bytes()).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "this blob is not in the version served",
-        )
-    })?;
-    let path = files.layout.on_disk(&file.path);
+) -> Result<(), Refused> {
+    let (file, path) = served.file(&hash).map_err(Refused::NotInVersion)?;
     let blob = MadeBlob::open(
         &path,
         served.cipher(),
         file.plaintext_len,
         &file.plaintext_hash,
     )
-    .map_err(|error| io::Error::new(error.kind(), format!("its file cannot be opened: {error}")))?;
+    .map_err(|error| {
+        Refused::Unreadable(io::Error::new(
+            error.kind(),
+            format!("its file cannot be opened: {error}"),
+        ))
+    })?;
     // Size and root from the record (rule 2).
     let tree = BaoTree::new(blob.len(), BLOCK_SIZE);
     let root = blake3::Hash::from_bytes(*hash.as_bytes());
@@ -270,15 +242,27 @@ async fn export(
             tree,
             data: Vec::new(),
         };
-        return send(Data(blob), outboard, &ranges, sender).await;
+        return send(Data(blob), outboard, &ranges, sender)
+            .await
+            .map_err(Refused::Unreadable);
     }
-    let outboard = open_outboard(&served.outboards, &hash, tree)?;
+    let outboard = open_outboard(&served.outboards, &hash, tree).map_err(Refused::Unreadable)?;
     let outboard = PreOrderOutboard {
         root,
         tree,
         data: outboard,
     };
-    send(Data(blob), outboard, &ranges, sender).await
+    send(Data(blob), outboard, &ranges, sender)
+        .await
+        .map_err(Refused::Unreadable)
+}
+
+/// Why an export did not begin.
+enum Refused {
+    /// The blob is not in the version served (or none is).
+    NotInVersion(io::Error),
+    /// Its file or outboard could not be read.
+    Unreadable(io::Error),
 }
 
 async fn send(
@@ -304,6 +288,9 @@ fn open_outboard(dir: &std::path::Path, hash: &Hash, tree: BaoTree) -> io::Resul
     }
     Ok(file)
 }
+
+mod commands;
+use commands::run;
 
 #[cfg(test)]
 #[path = "made_store_tests.rs"]

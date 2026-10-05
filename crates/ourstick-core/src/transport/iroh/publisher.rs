@@ -41,6 +41,8 @@ pub struct IrohPublisher {
     made: Arc<Mutex<Option<(StoreId, iroh_blobs::api::Store, super::made_store::Served)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
+    /// Where the owner's own store tells what it could not serve.
+    demand_sender: tokio::sync::mpsc::UnboundedSender<Demand>,
     /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
     reports: Arc<Mutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>>,
     activity: Activity,
@@ -95,7 +97,7 @@ impl IrohPublisher {
             serving.clone(),
             activity.clone(),
             RELAY_ONLY_AFTER,
-            demand_sender,
+            demand_sender.clone(),
         );
         let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let router = Router::builder(endpoint)
@@ -124,6 +126,7 @@ impl IrohPublisher {
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
+            demand_sender,
             reports: Arc::new(Mutex::new(Some(reports))),
             activity,
             reporter,
@@ -223,12 +226,26 @@ impl Publisher for IrohPublisher {
         let mut made = lock(&self.made);
         let (id, _, served) = made.get_or_insert_with(|| {
             let outboards = crate::manifest::hashing::outboards_dir(&self.cache_dir);
+            let id = self.suitcases.next_id();
+            // What it cannot serve is not ready from then on, and the owner
+            // is told (ADR 0017, rule 4).
+            let serving = self.serving.clone();
+            let demand = self.demand_sender.clone();
+            let on_not_served: super::made_store::OnNotServed = Arc::new(move |hash, changed| {
+                serving.remove_ready(id, &hash);
+                demand
+                    .send(Demand::NotServed {
+                        hash: *hash.as_bytes(),
+                        changed,
+                    })
+                    .ok();
+            });
             let (store, served) = super::made_store::start(
                 cipher.clone(),
                 outboards,
                 made_runtime().handle().clone(),
+                on_not_served,
             );
-            let id = self.suitcases.next_id();
             self.serving.add_store(id, store.clone());
             (id, store, served)
         });
@@ -239,6 +256,22 @@ impl Publisher for IrohPublisher {
             .collect();
         served.set(cipher, files);
         self.serving.replace_ready(*id, ready);
+    }
+
+    fn serve_more(&self, files: Vec<(BlobHash, crate::transport::ServedFile)>) {
+        let made = lock(&self.made);
+        let Some((id, _, served)) = made.as_ref() else {
+            return;
+        };
+        // In the table first, so a request it is ready for finds it there.
+        let hashes: Vec<Hash> = files
+            .iter()
+            .map(|(hash, _)| Hash::from_bytes(*hash))
+            .collect();
+        served.add(files);
+        for hash in hashes {
+            self.serving.set_ready(*id, hash);
+        }
     }
 
     fn readers_waiting(&self, window: std::time::Duration) -> bool {

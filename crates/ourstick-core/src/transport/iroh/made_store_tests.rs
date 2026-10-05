@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bao_tree::io::mixed::EncodedItem;
 use futures::StreamExt;
@@ -27,6 +27,8 @@ struct Stick {
     store: Store,
     served: Served,
     blobs: Vec<([u8; 32], Vec<u8>)>,
+    /// What the store told it could not serve.
+    told: Arc<Mutex<Vec<(Hash, bool)>>>,
 }
 
 fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
@@ -57,10 +59,13 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
             },
         );
     }
+    let told = Arc::new(Mutex::new(Vec::new()));
+    let telling = told.clone();
     let (store, served) = start(
         cipher(),
         cache.path().to_path_buf(),
         tokio::runtime::Handle::current(),
+        Arc::new(move |hash: Hash, changed| telling.lock().unwrap().push((hash, changed))),
     );
     served.set(
         cipher(),
@@ -75,6 +80,7 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         store,
         served,
         blobs,
+        told,
     }
 }
 
@@ -130,6 +136,10 @@ async fn a_changed_file_never_sends_a_byte_that_differs() {
         }
         assert!(ended_with_error, "size {size}");
         assert!(sent < blob.len(), "size {size}");
+        // Told as changed, and no longer served.
+        let told = stick.told.lock().unwrap().clone();
+        assert_eq!(told, vec![(Hash::from_bytes(*hash), true)], "size {size}");
+        assert_eq!(stick.served.blob_len(&Hash::from_bytes(*hash)), None);
     }
 }
 
@@ -243,4 +253,62 @@ async fn a_new_table_replaces_the_old_one() {
         .await
         .is_err());
     assert_eq!(stick.served.blob_len(&old), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_that_cannot_be_read_is_told_unread_not_changed() {
+    let stick = stick(&[("gone.txt", content(400))]);
+    let hash = Hash::from_bytes(stick.blobs[0].0);
+    std::fs::remove_file(stick.folder.path().join("gone.txt")).unwrap();
+    assert!(stick
+        .store
+        .export_bao(hash, ChunkRanges::all())
+        .data_to_vec()
+        .await
+        .is_err());
+    assert_eq!(stick.told.lock().unwrap().clone(), vec![(hash, false)]);
+    // A blob not in the version is not told about.
+    let _ = stick
+        .store
+        .export_bao(Hash::from_bytes([8; 32]), ChunkRanges::all())
+        .data_to_vec()
+        .await;
+    assert_eq!(stick.told.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_added_are_served_too() {
+    let stick = stick(&[("a", content(10))]);
+    let extra = stick.folder.path().join("b");
+    std::fs::write(&extra, content(70 * 1024)).unwrap();
+    let hashed = hash_file_telling_plaintext(
+        "b".to_owned(),
+        &extra,
+        cipher().as_ref(),
+        None,
+        Some(stick.cache.path()),
+    )
+    .unwrap();
+    stick.served.add(vec![(
+        hashed.entry.hash,
+        ServedFile {
+            path: "b".into(),
+            plaintext_len: 70 * 1024,
+            plaintext_hash: hashed.plaintext_hash,
+        },
+    )]);
+    let mut blob = Vec::new();
+    encrypt_blob(
+        cipher().as_ref(),
+        &mut io::Cursor::new(content(70 * 1024)),
+        &mut blob,
+    )
+    .unwrap();
+    let got = stick
+        .store
+        .export_bao(Hash::from_bytes(hashed.entry.hash), ChunkRanges::all())
+        .data_to_vec()
+        .await
+        .unwrap();
+    assert_eq!(got, blob);
 }

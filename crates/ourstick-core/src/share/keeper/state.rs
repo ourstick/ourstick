@@ -96,6 +96,8 @@ impl State {
 
     pub(super) async fn on_demand(&mut self, event: Demand, context: &Context) {
         let (connection, hash, served) = match event {
+            // ADR 0017: the owner's own store's; nothing for suitcases.
+            Demand::NotServed { .. } => return,
             Demand::Closed { connection } => {
                 self.readers.remove(&connection);
                 return;

@@ -133,6 +133,12 @@ pub enum Demand {
     },
     /// `connection` closed.
     Closed { connection: u64 },
+    /// The owner's own store could not serve `hash` (ADR 0017, rule 4): its
+    /// file `changed` since the catalogue (a group did not match the tree),
+    /// or it could not be read (a disk asleep or gone, a linked folder
+    /// removed). It is not ready from then on, until the owner serves it
+    /// again.
+    NotServed { hash: BlobHash, changed: bool },
 }
 
 /// One file the owner's store serves (ADR 0017), as the catalogue recorded
@@ -208,6 +214,11 @@ pub trait Publisher: Send + Sync {
     /// Nothing by default.
     fn serve_files(&self, _cipher: std::sync::Arc<dyn crate::cipher::Cipher>, _files: ServedFiles) {
     }
+
+    /// Serves these files too, in the version given last to
+    /// [`Publisher::serve_files`] (files made ready since). Nothing by
+    /// default.
+    fn serve_more(&self, _files: Vec<(BlobHash, ServedFile)>) {}
 
     /// Whether a reader was told "not ready" within the last `window`: a
     /// reader waits on the owner (ADR 0007), which then puts preparing

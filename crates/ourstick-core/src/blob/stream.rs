@@ -117,19 +117,14 @@ impl<R: Read> Read for BlobReader<'_, R> {
 /// The [`CipherError`] inside an `io::Error` from a [`BlobReader`] (or the
 /// I/O error itself).
 pub fn cipher_error(error: io::Error) -> CipherError {
-    if error
+    match error
         .get_ref()
         .is_some_and(|inner| inner.is::<CipherError>())
     {
-        match error
+        true => *error
             .into_inner()
-            .map(|inner| inner.downcast::<CipherError>())
-        {
-            Some(Ok(inner)) => *inner,
-            Some(Err(other)) => CipherError::Io(io::Error::other(other)),
-            None => CipherError::Io(io::Error::other("unknown")),
-        }
-    } else {
-        CipherError::Io(error)
+            .and_then(|inner| inner.downcast::<CipherError>().ok())
+            .expect("checked just above"),
+        false => CipherError::Io(error),
     }
 }

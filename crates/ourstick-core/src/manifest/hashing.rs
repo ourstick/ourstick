@@ -16,8 +16,9 @@ use crate::blob::{blob_len, cipher_error, BlobReader};
 use crate::cipher::{Cipher, CipherError};
 use crate::share::disk_turns::DiskReader;
 
-/// iroh's chunk groups: 16 KiB (`iroh_blobs::store::IROH_BLOCK_SIZE`).
-pub(crate) const BLOCK_SIZE: BlockSize = BlockSize::from_chunk_log(4);
+/// iroh's chunk groups (16 KiB): the outboards must be the ones iroh-blobs
+/// serves with.
+pub(crate) const BLOCK_SIZE: BlockSize = iroh_blobs::store::IROH_BLOCK_SIZE;
 
 /// Encrypts one file, hashes the resulting blob and builds the entry. The size is
 /// the number of plaintext bytes actually encrypted, so it always matches the hash.
@@ -94,10 +95,12 @@ struct Hashes {
 }
 
 /// Reads `plaintext` twice: to hash it (the nonce prefix), then through a
-/// [`BlobReader`] into the blob's hash and, if it has more than one group,
-/// its outboard. The tree's size comes from the first read; if the second
-/// gives other bytes, more or fewer, it is [`CipherError::PlaintextChanged`]
-/// and no outboard is kept.
+/// [`BlobReader`] into the blob's hash and, with `outboards` and more than
+/// one group, its outboard, written as it is made (never held in memory: a
+/// 100 GB file has a 400 MB one). The tree's size comes from the first read;
+/// if the second gives other bytes, more or fewer, it is
+/// [`CipherError::PlaintextChanged`] and no outboard is kept. A read that
+/// fails is that I/O error, not a change.
 fn hash_plaintext<R: Read + Seek>(
     cipher: &dyn Cipher,
     plaintext: &mut R,
@@ -111,38 +114,102 @@ fn hash_plaintext<R: Read + Seek>(
     plaintext.seek(SeekFrom::Start(start))?;
 
     let tree = BaoTree::new(blob_len(cipher, plaintext_len), BLOCK_SIZE);
-    let mut blob = BlobReader::new(cipher, plaintext, plaintext_hash)?;
-    let mut outboard = PreOrderOutboard {
-        root: blake3::Hash::from_bytes([0; 32]),
-        tree,
-        data: Vec::new(),
+    let mut blob = Ends {
+        blob: BlobReader::new(cipher, plaintext, plaintext_hash)?,
+        ended: false,
     };
-    let root = bao_tree::io::sync::outboard(&mut blob, tree, &mut outboard).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::UnexpectedEof {
-            CipherError::PlaintextChanged
-        } else {
-            cipher_error(error)
+    let one_group = tree.size() <= BLOCK_SIZE.bytes() as u64;
+    let blob_hash = match outboards {
+        Some(dir) if !one_group => hash_keeping_outboard(&mut blob, tree, dir)?,
+        // The root of a blob is its BLAKE3 hash, whatever its groups.
+        _ => {
+            let mut hasher = blake3::Hasher::new();
+            std::io::copy(&mut blob, &mut hasher).map_err(cipher_error)?;
+            if hasher.count() != tree.size() {
+                return Err(CipherError::PlaintextChanged);
+            }
+            *hasher.finalize().as_bytes()
         }
-    })?;
-    // The blob must end where the tree does: a byte more is a changed file,
-    // and reading to the end is what checks the plaintext's hash.
-    if blob.read(&mut [0u8; 1]).map_err(cipher_error)? != 0 {
-        return Err(CipherError::PlaintextChanged);
-    }
-    if blob.info().is_none() {
-        return Err(CipherError::PlaintextChanged);
-    }
-    let blob_hash = *root.as_bytes();
-    if let Some(dir) = outboards {
-        if !outboard.data.is_empty() {
-            keep_outboard(dir, &blob_hash, &outboard.data)?;
-        }
-    }
+    };
     Ok(Hashes {
         plaintext_len,
         plaintext_hash: *plaintext_hash.as_bytes(),
         blob_hash,
     })
+}
+
+/// A [`BlobReader`] that tells whether it ended, so that a blob shorter than
+/// its tree (a changed file) is told apart from a read that failed.
+struct Ends<'a, R: Read> {
+    blob: BlobReader<'a, R>,
+    ended: bool,
+}
+
+impl<R: Read> Read for Ends<'_, R> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.blob.read(out)?;
+        if n == 0 && !out.is_empty() {
+            self.ended = true;
+        }
+        Ok(n)
+    }
+}
+
+/// The blob's hash, its outboard written to `dir` through a temporary file
+/// of a name of its own, renamed once the blob is read to its end and
+/// checked.
+fn hash_keeping_outboard<R: Read>(
+    blob: &mut Ends<'_, R>,
+    tree: BaoTree,
+    dir: &Path,
+) -> Result<[u8; 32], CipherError> {
+    std::fs::create_dir_all(dir)?;
+    let temporary = dir.join(format!(".{}.obao.partial", unique_suffix()));
+    let result = (|| {
+        let file = File::create_new(&temporary)?;
+        let mut outboard = PreOrderOutboard {
+            root: blake3::Hash::from_bytes([0; 32]),
+            tree,
+            data: file,
+        };
+        let root =
+            bao_tree::io::sync::outboard(&mut *blob, tree, &mut outboard).map_err(|error| {
+                if blob.ended {
+                    CipherError::PlaintextChanged
+                } else {
+                    cipher_error(error)
+                }
+            })?;
+        // The blob must end where the tree does: a byte more is a changed
+        // file, and reading to the end is what checks the plaintext's hash.
+        if blob.read(&mut [0u8; 1]).map_err(cipher_error)? != 0 {
+            return Err(CipherError::PlaintextChanged);
+        }
+        let blob_hash = *root.as_bytes();
+        drop(outboard);
+        let target = outboard_path(dir, &blob_hash);
+        if target.exists() {
+            // Named by its content: the one there is this one (and on
+            // Windows it may be open for a transfer, which a rename over it
+            // would fail on).
+            std::fs::remove_file(&temporary)?;
+        } else {
+            std::fs::rename(&temporary, &target)?;
+        }
+        Ok(blob_hash)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// A random suffix for temporary file names.
+fn unique_suffix() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 8];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    data_encoding::HEXLOWER.encode(&bytes)
 }
 
 /// The folder of a stick's outboards, in its cache folder.
@@ -151,7 +218,9 @@ pub(crate) fn outboards_dir(cache_dir: &Path) -> std::path::PathBuf {
 }
 
 /// Removes from `dir` the outboards of blobs not in `keep`, and what a write
-/// cut short left. A missing folder is nothing to do. Blocking.
+/// cut short left (one pass of a stick runs at a time, so no write is under
+/// way). Goes through every file even if one cannot be removed, and returns
+/// the first such error. A missing folder is nothing to do. Blocking.
 pub(crate) fn keep_only_outboards(
     dir: &Path,
     keep: &std::collections::HashSet<[u8; 32]>,
@@ -161,20 +230,29 @@ pub(crate) fn keep_only_outboards(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     };
+    let mut first_error = None;
     for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let kept = name
-            .to_str()
-            .and_then(|name| name.strip_suffix(".obao"))
-            .and_then(|hex| data_encoding::HEXLOWER.decode(hex.as_bytes()).ok())
-            .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
-            .is_some_and(|hash| keep.contains(&hash));
-        if !kept {
-            std::fs::remove_file(entry.path())?;
+        let removed = entry.and_then(|entry| {
+            let kept = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.strip_suffix(".obao"))
+                .and_then(|hex| data_encoding::HEXLOWER.decode(hex.as_bytes()).ok())
+                .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+                .is_some_and(|hash| keep.contains(&hash));
+            if kept {
+                return Ok(());
+            }
+            match std::fs::remove_file(entry.path()) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            }
+        });
+        if let Err(error) = removed {
+            first_error.get_or_insert(error);
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 /// Where the outboard of `blob_hash` is kept in `dir`.
@@ -183,14 +261,6 @@ pub(crate) fn outboard_path(dir: &Path, blob_hash: &[u8; 32]) -> std::path::Path
         "{}.obao",
         data_encoding::HEXLOWER.encode(blob_hash)
     ))
-}
-
-fn keep_outboard(dir: &Path, blob_hash: &[u8; 32], data: &[u8]) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let target = outboard_path(dir, blob_hash);
-    let temporary = target.with_extension("obao.partial");
-    std::fs::write(&temporary, data)?;
-    std::fs::rename(&temporary, &target)
 }
 
 #[cfg(test)]

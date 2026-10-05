@@ -23,7 +23,9 @@ pub struct MadeBlob {
     /// read, and a file shorter than it is an error.
     plaintext_len: u64,
     /// The last chunk made, by index: a 16 KiB group in the middle of a
-    /// 64 KiB chunk does not make it again.
+    /// 64 KiB chunk does not make it again. Held while a chunk is made, so
+    /// reads of one blob run one at a time (one transfer reads one blob, in
+    /// order).
     last: Mutex<Option<(u64, Arc<Vec<u8>>)>>,
 }
 
@@ -237,6 +239,27 @@ mod tests {
         // The chunks before the change are the same bytes.
         let first = blob.len() / 3;
         assert_eq!(out[..first], blob[..first]);
+    }
+
+    #[test]
+    fn bytes_past_the_recorded_size_are_never_read() {
+        // A file that grew since: the blob is that of its first bytes only.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::fs::write(&path, b"hello, and more since").unwrap();
+        let mut blob = Vec::new();
+        let info =
+            encrypt_blob(cipher().as_ref(), &mut io::Cursor::new(b"hello"), &mut blob).unwrap();
+        let made = MadeBlob::open(&path, cipher(), 5, &info.plaintext_hash).unwrap();
+        let mut out = vec![0u8; blob.len()];
+        made.read_at(0, &mut out).unwrap();
+        assert_eq!(out, blob);
+        let empty = MadeBlob::open(&path, cipher(), 0, blake3::hash(b"").as_bytes()).unwrap();
+        let mut blob = Vec::new();
+        encrypt_blob(cipher().as_ref(), &mut io::Cursor::new(b""), &mut blob).unwrap();
+        let mut out = vec![0u8; blob.len()];
+        empty.read_at(0, &mut out).unwrap();
+        assert_eq!(out, blob);
     }
 
     #[test]

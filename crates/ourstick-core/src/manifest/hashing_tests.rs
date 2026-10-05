@@ -24,6 +24,7 @@ fn the_hash_and_outboard_are_those_of_the_blob() {
         16 * 1024 + 1,
         64 * 1024,
         300 * 1024 + 3,
+        3 * 1024 * 1024 + 17,
     ] {
         let data = plaintext(size);
         let mut blob = Vec::new();
@@ -115,4 +116,84 @@ fn only_the_outboards_of_the_version_stay() {
     assert_eq!(left, vec![outboard_path(dir.path(), &kept)]);
     // A stick that never had one: nothing to do.
     keep_only_outboards(&dir.path().join("none"), &Default::default()).unwrap();
+}
+
+#[test]
+fn without_a_folder_nothing_is_written() {
+    let data = plaintext(200 * 1024);
+    let mut blob = Vec::new();
+    encrypt_blob(&cipher(), &mut Cursor::new(&data), &mut blob).unwrap();
+    let hashes = hash_plaintext(&cipher(), &mut Cursor::new(&data), None).unwrap();
+    assert_eq!(hashes.blob_hash, *blake3::hash(&blob).as_bytes());
+}
+
+#[test]
+fn identical_files_share_one_outboard() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = plaintext(100 * 1024);
+    for _ in 0..2 {
+        hash_plaintext(&cipher(), &mut Cursor::new(&data), Some(dir.path())).unwrap();
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+/// A plaintext whose second read fails.
+struct Failing {
+    data: Cursor<Vec<u8>>,
+    seeked: bool,
+}
+
+impl Read for Failing {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.seeked && self.data.position() > 70 * 1024 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "unplugged",
+            ));
+        }
+        self.data.read(out)
+    }
+}
+
+impl Seek for Failing {
+    fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+        self.seeked = true;
+        self.data.seek(to)
+    }
+}
+
+#[test]
+fn a_read_that_fails_is_an_error_not_a_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut failing = Failing {
+        data: Cursor::new(plaintext(200 * 1024)),
+        seeked: false,
+    };
+    let result = hash_plaintext(&cipher(), &mut failing, Some(dir.path()));
+    assert!(
+        matches!(result, Err(CipherError::Io(_))),
+        "{:?}",
+        result.err()
+    );
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn without_a_cipher_the_blob_is_hashed_the_same_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = plaintext(100 * 1024);
+    let mut blob = Vec::new();
+    encrypt_blob(&crate::cipher::NoCipher, &mut Cursor::new(&data), &mut blob).unwrap();
+    let hashes = hash_plaintext(
+        &crate::cipher::NoCipher,
+        &mut Cursor::new(&data),
+        Some(dir.path()),
+    )
+    .unwrap();
+    assert_eq!(hashes.blob_hash, *blake3::hash(&blob).as_bytes());
+    let expected = PreOrderMemOutboard::create(&blob, BLOCK_SIZE);
+    assert_eq!(
+        std::fs::read(outboard_path(dir.path(), &hashes.blob_hash)).unwrap(),
+        expected.data
+    );
 }

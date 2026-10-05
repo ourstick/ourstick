@@ -17,6 +17,7 @@ use crate::transport::{BlobHash, Publisher, TransportError};
 
 pub mod disk_share;
 pub mod disk_turns;
+mod files_keeper;
 mod keeper;
 mod latest;
 mod partial;
@@ -25,6 +26,7 @@ mod reports;
 mod served;
 mod version;
 
+pub use files_keeper::keep_files;
 pub use keeper::{keep_suitcases, Budget, IN_USE, MAX_BUDGET, MIN_BUDGET};
 pub use latest::{load_latest_manifest, serve_latest};
 pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PARTIAL_TIMING};

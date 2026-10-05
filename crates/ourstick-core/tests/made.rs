@@ -8,7 +8,7 @@ use common::{keep_going, noise, Owner, Reader};
 use ourstick_core::cipher::cipher_for;
 use ourstick_core::share::served_files;
 use ourstick_core::transport::Publisher;
-use ourstick_core::CipherId;
+use ourstick_core::{CipherId, Store};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_comes_whole_from_blobs_made_when_asked() {
@@ -54,5 +54,130 @@ async fn a_folder_comes_whole_from_blobs_made_when_asked() {
     // No suitcase was ever made.
     let suitcases = owner.publisher.cache_dir().join("suitcases");
     assert_eq!(std::fs::read_dir(suitcases).map_or(0, |dir| dir.count()), 0);
+    owner.publisher.shutdown().await;
+}
+
+fn files_of(count: usize) -> Vec<(String, Vec<u8>)> {
+    (0..count)
+        .map(|index| {
+            (
+                format!("d{}/{index:03}.bin", index % 4),
+                noise(500 + index * 911, index as u8),
+            )
+        })
+        .collect()
+}
+
+/// Spawns the owner's files keeper (ADR 0017) on `owner`'s publisher.
+fn keep_files(owner: &Owner) {
+    tokio::spawn(ourstick_core::share::keep_files(
+        owner.publisher.clone(),
+        owner.store.clone(),
+        owner.signing_key.stick_id(),
+        owner.stick_key.clone(),
+        common::disks(),
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_files_keeper_serves_each_version() {
+    let files = files_of(60);
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::bare(&listed).await;
+    let publication = owner.publish().await;
+    keep_files(&owner);
+    let reader = Reader::new();
+    reader
+        .download(&owner.ticket(&publication), &mut keep_going)
+        .await
+        .unwrap();
+    for (name, bytes) in &files {
+        assert_eq!(&reader.read(name), bytes, "{name}");
+    }
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_from_an_old_cache_are_made_ready_when_asked() {
+    // As after an upgrade: no outboards, no plaintext hashes recorded. The
+    // keeper makes them (readers told "not ready" meanwhile) and serves.
+    let files = files_of(40);
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::bare(&listed).await;
+    let publication = owner.publish().await;
+    let stick_id = owner.signing_key.stick_id();
+    let _ = std::fs::remove_dir_all(owner.publisher.cache_dir().join("outboards"));
+    let old: Vec<_> = owner
+        .store
+        .owned_files(&stick_id)
+        .unwrap()
+        .into_iter()
+        .map(|file| ourstick_core::store::OwnedFile {
+            plaintext_hash: None,
+            ..file
+        })
+        .collect();
+    owner.store.record_owned_files(&stick_id, &old).unwrap();
+    keep_files(&owner);
+    let reader = Reader::new();
+    reader
+        .download(&owner.ticket(&publication), &mut keep_going)
+        .await
+        .unwrap();
+    for (name, bytes) in &files {
+        assert_eq!(&reader.read(name), bytes, "{name}");
+    }
+    // Made ready, and recorded so for next time.
+    assert!(owner
+        .store
+        .owned_files(&stick_id)
+        .unwrap()
+        .iter()
+        .all(|file| file.plaintext_hash.is_some()));
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_changed_after_its_version_is_not_sent_until_the_next() {
+    let files = files_of(10);
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::bare(&listed).await;
+    let first = owner.publish().await;
+    keep_files(&owner);
+    // Same size, other bytes: the version still lists the old blob.
+    let (name, bytes) = &files[3];
+    let mut changed = bytes.clone();
+    changed[bytes.len() / 2] ^= 0xff;
+    std::fs::write(owner.folder.path().join(name), &changed).unwrap();
+
+    let reader = Reader::new();
+    let stuck = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        reader.download(&owner.ticket(&first), &mut keep_going),
+    )
+    .await;
+    assert!(
+        !matches!(stuck, Ok(Ok(_))),
+        "a file that changed was received under its old version"
+    );
+    assert!(!reader.exists(name) || reader.read(name) != changed);
+
+    // The next pass reads it again; its version brings the new file.
+    let second = owner.publish().await;
+    let again = Reader::new();
+    again
+        .download(&owner.ticket(&second), &mut keep_going)
+        .await
+        .unwrap();
+    assert_eq!(again.read(name), changed);
     owner.publisher.shutdown().await;
 }

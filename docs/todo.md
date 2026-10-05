@@ -10,6 +10,14 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
+## Giving way while sending
+
+- **Transfers take no disk turn** (ADR 0017 rule 8, not done): the owner's
+  store reads files for readers on its 4 threads, outside ADR 0013's turns,
+  and the 32 asks of a reader are not put in manifest order. While it
+  sends, the owner does not give way to other programs on that disk. Take a
+  turn per window in `MadeBlob` reads, and measure a hard disk.
+
 ## Memory
 
 - **The reader reaches 200–240 MB** for 100 000 small files on Linux,
@@ -27,7 +35,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 - [ ] **iroh 1.2: a direct path lost and not found again.** Two peers on one
       LAN (192.168.1.x): the direct path carried 60 MB/s, the data paused
-      about 20 s (the owner preparing a suitcase), then the connection moved
+      about 20 s (the owner preparing a suitcase, before ADR 0017), then the connection moved
       to the relay and stayed there; a new connection went direct at once.
       Also after a reader changed networks. Worked around by connecting again
       (`docs/protocol.md`, "Relay policy"); worth a report with a small
@@ -222,7 +230,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
     ADR 0016 (fetching).
   - **Memory:** 1.24 GB for the sender of 100 000 files is too much
     (Rescued_Disk has 146 297, a million is not absurd). Find what holds it (the
-    catalogue's `Vec`, the manifest kept whole, the suitcase plans).
+    catalogue's `Vec`, the manifest kept whole, the suitcase plans; the
+    owner's part is ADR 0017's, measured again after it).
   - **Watching:** the 224 257 folders went past Linux's watch limit
     (`max_user_watches` 65 536 here); the sender said so and checked every
     60 s instead, as designed. Every 60 s it walks the whole folder: measure

@@ -73,6 +73,7 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
             layout: StickLayout::new(folder.path(), &[]),
             files: table,
         },
+        |_| {},
     );
     Stick {
         folder,
@@ -245,6 +246,7 @@ async fn a_new_table_replaces_the_old_one() {
             layout: StickLayout::new(stick.folder.path(), &[]),
             files: HashMap::new(),
         },
+        |_| {},
     );
     assert!(stick
         .store
@@ -289,14 +291,17 @@ async fn files_added_are_served_too() {
         Some(stick.cache.path()),
     )
     .unwrap();
-    stick.served.add(vec![(
-        hashed.entry.hash,
-        ServedFile {
-            path: "b".into(),
-            plaintext_len: 70 * 1024,
-            plaintext_hash: hashed.plaintext_hash,
-        },
-    )]);
+    stick.served.add(
+        vec![(
+            hashed.entry.hash,
+            ServedFile {
+                path: "b".into(),
+                plaintext_len: 70 * 1024,
+                plaintext_hash: hashed.plaintext_hash,
+            },
+        )],
+        |_| {},
+    );
     let mut blob = Vec::new();
     encrypt_blob(
         cipher().as_ref(),

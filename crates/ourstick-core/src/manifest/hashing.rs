@@ -194,7 +194,7 @@ fn hash_keeping_outboard<R: Read>(
         // of its blob: reading it again costs little.
         let same = std::fs::metadata(&target)
             .is_ok_and(|metadata| metadata.len() == tree.outboard_size())
-            && std::fs::read(&target)? == std::fs::read(&temporary)?;
+            && same_bytes(&target, &temporary);
         if same {
             std::fs::remove_file(&temporary)?;
         } else {
@@ -206,6 +206,28 @@ fn hash_keeping_outboard<R: Read>(
         let _ = std::fs::remove_file(&temporary);
     }
     result
+}
+
+/// Whether two files hold the same bytes, read a piece at a time; false if
+/// either cannot be read.
+fn same_bytes(one: &Path, other: &Path) -> bool {
+    let compare = || -> std::io::Result<bool> {
+        let mut one = std::io::BufReader::new(File::open(one)?);
+        let mut other = std::io::BufReader::new(File::open(other)?);
+        let mut piece = vec![0u8; 64 * 1024];
+        let mut other_piece = vec![0u8; 64 * 1024];
+        loop {
+            let read = one.read(&mut piece)?;
+            if read == 0 {
+                return Ok(other.read(&mut other_piece[..1])? == 0);
+            }
+            other.read_exact(&mut other_piece[..read])?;
+            if piece[..read] != other_piece[..read] {
+                return Ok(false);
+            }
+        }
+    };
+    compare().unwrap_or(false)
 }
 
 /// A random suffix for temporary file names.

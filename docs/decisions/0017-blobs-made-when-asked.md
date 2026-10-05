@@ -221,6 +221,20 @@ The catalogue's cost of making outboards is measured in step 1.
   not "damaged".
 - The owner keeps no space claim: migration 0021 deletes old `cache` rows.
   Old `cache/<stick>/suitcases` folders are removed when sharing starts.
+- **Not as rule 8 says, yet:** transfers read their files on the 4 threads,
+  but they take no disk turn (ADR 0013) and asks are not put in manifest
+  order: while it sends, the owner does not give way to other programs on
+  that disk. Making files ready (the keeper) does take turns. In
+  `docs/todo.md`.
+- **Not as rule 1 says:** outboards of blobs no longer in the version are
+  removed right after it is published, not once no transfer of them is in
+  flight. On Unix a transfer keeps reading the removed file; on Windows the
+  removal fails, is logged, and is tried again after the next version.
+- Before a transfer begins, the owner looks at the file and its outboard
+  (`Probe`): gone, or not of its recorded size, it is "not ready" at once
+  instead of a transfer that fails.
+- An outboard on disk that differs from the one a new read of its file
+  gives (cut short by a crash, damaged) is replaced.
 
 ## Tests to write
 

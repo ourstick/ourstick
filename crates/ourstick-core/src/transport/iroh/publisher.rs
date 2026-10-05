@@ -65,6 +65,9 @@ fn made_runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
+            // For the probes before transfers (`serving::Probe`).
+            .max_blocking_threads(4)
+            .thread_keep_alive(std::time::Duration::from_secs(5 * 60))
             .thread_name("made-blobs")
             .enable_all()
             .build()
@@ -245,13 +248,14 @@ impl Publisher for IrohPublisher {
             );
             (id, store, served)
         });
-        let ready = files
-            .files
-            .keys()
-            .map(|hash| Hash::from_bytes(*hash))
-            .collect();
-        served.set(cipher, files);
-        self.serving.replace_ready(*id, ready);
+        served.set(cipher, files, |files| {
+            let ready = files
+                .files
+                .keys()
+                .map(|hash| Hash::from_bytes(*hash))
+                .collect();
+            self.serving.replace_ready(*id, ready);
+        });
     }
 
     fn serve_more(&self, files: Vec<(BlobHash, crate::transport::ServedFile)>) {
@@ -259,15 +263,7 @@ impl Publisher for IrohPublisher {
         let Some((id, _, served)) = made.as_ref() else {
             return;
         };
-        // In the table first, so a request it is ready for finds it there.
-        let hashes: Vec<Hash> = files
-            .iter()
-            .map(|(hash, _)| Hash::from_bytes(*hash))
-            .collect();
-        served.add(files);
-        for hash in hashes {
-            self.serving.set_ready(*id, hash);
-        }
+        served.add(files, |hash| self.serving.set_ready(*id, hash));
     }
 
     fn readers_waiting(&self, window: std::time::Duration) -> bool {

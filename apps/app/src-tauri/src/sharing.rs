@@ -1,5 +1,5 @@
 //! Sharing the app's sticks (ADR 0009): each its own endpoint, locks,
-//! budget and watcher, started one after another; what stopped halfway
+//! files keeper and watcher, started one after another; what stopped halfway
 //! (a removal, a new link) finished first, at start and on every mount.
 
 use std::collections::HashMap;
@@ -206,7 +206,7 @@ async fn plug_in_off_thread(app: &AppHandle, stick_id: StickId) -> bool {
 }
 
 /// Every stick plugged in, then shared if the user wants it shared, one
-/// after another, the cache budget split between them.
+/// after another.
 async fn plug_in_all(app: &AppHandle) {
     let state = app.state::<AppState>();
     let sticks = match state.sticks_now().await {

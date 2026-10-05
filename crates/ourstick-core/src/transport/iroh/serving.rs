@@ -29,10 +29,11 @@ impl Probe {
     /// Looks at `hash`; false if the look could not run.
     pub(super) async fn can_send(&self, hash: Hash) -> bool {
         let look = self.look.clone();
-        // A task, not a blocking thread: a few metadata reads, as blocking
-        // as the store's exports, and no thread comes and goes for it.
+        // On the store's runtime's few blocking threads, kept for minutes,
+        // so no thread comes and goes for it, and an answer does not wait
+        // behind exports reading a slow disk.
         self.runtime
-            .spawn(async move { look(hash) })
+            .spawn_blocking(move || look(hash))
             .await
             .unwrap_or(false)
     }

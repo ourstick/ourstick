@@ -41,35 +41,33 @@ pub(super) struct Served {
     on_not_served: OnNotServed,
 }
 
+// The table and the transport's ready set change together: each change of
+// one is made, with `then`, under the table's lock, so they never disagree.
 impl Served {
     /// From now on, these files, made with `cipher` (the stick's, given
-    /// with every version so the store never keeps another).
-    pub(super) fn set(&self, cipher: Arc<dyn Cipher>, files: ServedFiles) {
+    /// with every version so the store never keeps another); then
+    /// `then(files)`, under the table's lock.
+    pub(super) fn set(
+        &self,
+        cipher: Arc<dyn Cipher>,
+        files: ServedFiles,
+        then: impl FnOnce(&ServedFiles),
+    ) {
         *self.cipher.lock().unwrap_or_else(|p| p.into_inner()) = cipher;
-        *self.files.lock().unwrap_or_else(|p| p.into_inner()) = Some(files);
+        let mut table = self.files.lock().unwrap_or_else(|p| p.into_inner());
+        then(&files);
+        *table = Some(files);
     }
 
-    /// These files too, in the current version.
-    pub(super) fn add(&self, more: Vec<(BlobHash, ServedFile)>) {
-        if let Some(files) = self
-            .files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_mut()
-        {
-            files.files.extend(more);
-        }
-    }
-
-    /// No longer `hash`.
-    fn remove(&self, hash: &Hash) {
-        if let Some(files) = self
-            .files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_mut()
-        {
-            files.files.remove(hash.as_bytes());
+    /// These files too, in the current version; `then(hash)` for each,
+    /// under the table's lock.
+    pub(super) fn add(&self, more: Vec<(BlobHash, ServedFile)>, then: impl Fn(Hash)) {
+        let mut table = self.files.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(files) = table.as_mut() {
+            for (hash, file) in more {
+                files.files.insert(hash, file);
+                then(Hash::from_bytes(hash));
+            }
         }
     }
 
@@ -181,23 +179,27 @@ async fn export_bao(
         sender: tx,
         ended: None,
     };
-    match export(served, hash, ranges, &mut sender).await {
-        // Not in the version: nothing to tell.
-        Err(Refused::NotInVersion(error)) => {
+    // Not in the version: nothing to tell.
+    let (file, path) = match served.file(&hash) {
+        Ok(found) => found,
+        Err(error) => {
             sender.sender.send(failed(error)).await.ok();
+            return;
         }
+    };
+    match export(served, hash, &file, &path, ranges, &mut sender).await {
+        Err(Refused::ReaderGone) => {}
         // Not even begun: the file cannot be opened or its outboard is not
         // there. Not served from now on.
-        Err(Refused::ReaderGone) => {}
         Err(Refused::Unreadable(error)) => {
             tracing::debug!(%error, "a blob was not served");
-            not_served(served, hash, false);
+            not_served(served, hash, &file.path, false);
             sender.sender.send(failed(error)).await.ok();
         }
         Ok(()) => {
             if let Some(changed) = sender.ended {
                 tracing::debug!(changed, "a transfer ended early");
-                not_served(served, hash, changed);
+                not_served(served, hash, &file.path, changed);
             }
         }
     }
@@ -216,7 +218,7 @@ pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::s
             Ok(metadata) if metadata.len() == file.plaintext_len => false,
             Ok(_) => true,
             Err(_) => {
-                not_served(&served, hash, false);
+                not_served(&served, hash, &file.path, false);
                 return false;
             }
         };
@@ -227,7 +229,7 @@ pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::s
         let can = !changed
             && (tree.outboard_size() == 0 || open_outboard(&served.outboards, &hash, tree).is_ok());
         if !can {
-            not_served(&served, hash, changed);
+            not_served(&served, hash, &file.path, changed);
         }
         can
     };
@@ -237,24 +239,37 @@ pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::s
     }
 }
 
-fn not_served(served: &Served, hash: Hash, changed: bool) {
-    served.remove(&hash);
-    (served.on_not_served)(hash, changed);
+/// `hash`, as served from `path`, is not served from now on, and the owner
+/// is told; nothing if the table serves it from another path now (a newer
+/// version, or a file made since).
+fn not_served(served: &Served, hash: Hash, path: &str, changed: bool) {
+    let mut table = served.files.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(files) = table.as_mut() else { return };
+    if files
+        .files
+        .get(hash.as_bytes())
+        .is_some_and(|file| &*file.path == path)
+    {
+        files.files.remove(hash.as_bytes());
+        (served.on_not_served)(hash, changed);
+    }
 }
 
-/// Serves `hash`: an error before anything is sent if it is not served, its
-/// file cannot be opened or its outboard is not there; otherwise bao-tree
-/// sends what it checked, and ends with its own error at the first group
-/// that differs from the tree (a changed file) or the first read that fails.
+/// Serves `hash` from `file` at `path`: an error before anything is sent if
+/// its file cannot be opened or its outboard is not there; otherwise
+/// bao-tree sends what it checked, and ends with its own error at the first
+/// group that differs from the tree (a changed file) or the first read that
+/// fails.
 async fn export(
     served: &Served,
     hash: Hash,
+    file: &ServedFile,
+    path: &std::path::Path,
     ranges: ChunkRanges,
     sender: &mut ToSender,
 ) -> Result<(), Refused> {
-    let (file, path) = served.file(&hash).map_err(Refused::NotInVersion)?;
     let blob = MadeBlob::open(
-        &path,
+        path,
         served.cipher(),
         file.plaintext_len,
         &file.plaintext_hash,
@@ -288,10 +303,8 @@ async fn export(
     send(Data(blob), outboard, &ranges, sender).await
 }
 
-/// Why an export did not begin.
+/// Why an export did not begin, or ended early.
 enum Refused {
-    /// The blob is not in the version served (or none is).
-    NotInVersion(io::Error),
     /// The reader went away while it was sent: nothing is wrong with the
     /// blob, and nothing is told.
     ReaderGone,

@@ -293,3 +293,99 @@ step 0 hold on all three systems.
   it stays the way out if a new iroh-blobs breaks the actor.
 - **mimalloc or another allocator.** Measured worse on macOS (3–4×) and
   Windows (1.5–2.5×).
+
+## Amendment 1: transfers read through the disk's turns (proposed, 2026-10-06)
+
+Rule 8 is not built: a transfer reads its file on the 4 threads outside
+ADR 0013's turns. While it sends, the owner does not give way to another
+program on that disk, and its reads are not judged, so a reader that keeps
+the owner busy can slow the user's own work on a hard disk without
+OurStick ever noticing. This amendment says how rule 8 is built. Reviewed
+by Fable and Sonnet (2026-10-06); their notes are in the text.
+
+1. **One transfers' reader per stick and disk.** All transfers of a stick
+   from one disk are one reader of that disk, beside its catalogue and its
+   files keeper. It is a new kind of reader, shared by several threads at
+   once (`SharedReader`: a turn, a window and a count of reads in flight
+   under one lock). ADR 0013 rule 5 has one `DiskReader` per thread, since
+   two readers of one task would wait for each other; transfers are not
+   one task, and they share one turn instead of each taking one. A stick
+   whose linked folders are on other disks has one per disk
+   (`DiskId::of_file` of each blob's file). A read takes one disk's turn
+   only, so two disks' turns never wait for each other.
+2. **The turn is taken by the first read and kept while it is useful.** A
+   chunk read (64 KiB, in `MadeBlob::chunk`, after the last-chunk cache:
+   a cached chunk reads nothing and takes no turn) joins the transfers'
+   turn if it is held, or takes one, **urgent** (readers wait on it).
+   When the last read in flight ends, the turn is kept if nobody waits for
+   the disk; if someone waits, it is given back once the turn has read
+   8 MB or been held 250 ms, or at the window's end, whichever comes
+   first. So a transfer waiting on the network keeps the catalogue, the
+   keeper or another stick from the disk for at most that long, and
+   transfers are not cut to one chunk per turn (one chunk then a 64 MB
+   catalogue window would leave a reader ~400 KB/s on a hard disk).
+3. **Its window.** The window is kept across turns and judged once, when
+   it is full: 64 files begun (a file begins at a transfer's first chunk
+   read of its blob) or 64 MB read. A turn given back before then is not
+   judged and sets no pause (`give_back` gains that path). Its time is the
+   wall time some read was in flight while the turn was held (a new
+   `Window` field), not the sum of the reads, which overlap; the pause is
+   taken from it too. Every transfer read counts as a first read: a
+   reader asks each part once.
+4. **Judged as its own kind.** Four reads at once at scattered offsets of
+   32 files cost a hard disk differently from the catalogue's forward
+   reads. `DiskShare` keeps its learned speeds per kind of reader
+   (catalogue and keeper; transfers), and one judgement per disk (giving
+   way, slow windows in a row), so a slow transfers' window makes all of
+   OurStick give way, and neither kind is judged by the other's speed.
+5. **Urgent, three windows to one.** `URGENT_IN_A_ROW` counts judged
+   windows of urgent readers (in `give_back`), not turns granted: the
+   transfers' reader takes many short turns. The keeper making a file a
+   reader waits on is urgent too; it and the transfers take urgent turns
+   in the order they asked. Another stick's catalogue on that disk gets
+   one window in four while readers wait; accepted.
+6. **Giving way.** A turn starts only after the disk's pause, as for any
+   reader: while OurStick gives way, transfers read a tenth of the time,
+   and readers see a slower owner (ADR 0013's intent). Nothing on the
+   wire changes.
+7. **Waiting holds a made-blobs thread, nothing else.** A read waiting for
+   a turn blocks one of the 4 threads; the turn is never held across an
+   await, so giving it back never needs a runtime. The store's actor
+   (`made_store::commands::run`) moves to the program's runtime (it does
+   nothing blocking), so new asks, "not ready" and `shutdown` are
+   answered while exports wait. Four transfers waiting on one disk stall
+   transfers from other disks for at most `LONGEST_PAUSE` (30 s) at a
+   time; accepted (one owner shares from one disk in nearly every case).
+8. **Stopping.** Each read gives its own `go_on`: its transfer's end (the
+   reader went away) or the store's shutdown. A read that leaves the
+   queue, or fails, is counted out by a guard in the read itself, so the
+   turn is never left held.
+9. **Not covered.** Outboards are read from the cache folder (often
+   another disk) outside the turns: 0.4 % of a blob. The order of the 32
+   asks (rule 8's second half) is left out: the reader asks in manifest
+   order, and windows keep reads near each other; built only if measured.
+10. **Where it lives.** `disk_turns` and `disk_share` move from `share/`
+   to `crate::disk` (`manifest/hashing.rs` already uses them), and
+   `disk_turns::Disks` is renamed `DiskTurns` (`space::Disks` is another
+   type). `IrohPublisher::start` takes the device's `DiskTurns` once.
+   `MadeBlob` reads through a small `Turns` handle, a no-op in its tests.
+
+**Tests.** On a fake disk: a transfer and a catalogue take turns (the
+catalogue reads between transfer windows, at most three to one); a
+transfer waiting on the network gives the turn back to a waiting
+catalogue within the quantum, and keeps it when nobody waits; a window
+kept across turns is judged once, with wall time of overlapping reads;
+a cached chunk takes no turn; while giving way, transfers wait for the
+pause; a read cancelled in the queue or in the pause leaves no turn held;
+reads on two disks at once; a slow transfers' window makes the catalogue
+pause too; `shutdown` answers while exports wait. Two peers still get a
+folder whole.
+
+**Measured** on this PC's hard disk (G), page cache dropped, median of 3:
+the 100 000-file stick and one 4 GB file, owner and reader on this PC.
+- Alone: transfer time within 10 % of today's (`566d7bf` build).
+- With a reader on a slow link (relay or throttled), a catalogue of
+  another stick on G finishes within 10 % of its time alone.
+- With a copy of a big file on G beside the transfer: the copy takes at
+  most 1.3× its time alone (ADR 0013's criterion), and OurStick says it
+  is giving way.

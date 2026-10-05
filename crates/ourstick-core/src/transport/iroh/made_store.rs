@@ -188,6 +188,7 @@ async fn export_bao(
         }
         // Not even begun: the file cannot be opened or its outboard is not
         // there. Not served from now on.
+        Err(Refused::ReaderGone) => {}
         Err(Refused::Unreadable(error)) => {
             tracing::debug!(%error, "a blob was not served");
             not_served(served, hash, false);
@@ -200,6 +201,27 @@ async fn export_bao(
             }
         }
     }
+}
+
+/// The store's [`Probe`](super::serving::Probe): whether the file of `hash`
+/// is there, of its recorded size, with its outboard if it needs one; if
+/// not, it is told as not served (could not be read).
+pub(super) fn probe(served: Served) -> super::serving::Probe {
+    super::serving::Probe(Arc::new(move |hash| {
+        let can = served.file(&hash).is_ok_and(|(file, path)| {
+            std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() == file.plaintext_len) && {
+                let tree = BaoTree::new(
+                    crate::blob::blob_len(served.cipher().as_ref(), file.plaintext_len),
+                    BLOCK_SIZE,
+                );
+                tree.outboard_size() == 0 || open_outboard(&served.outboards, &hash, tree).is_ok()
+            }
+        });
+        if !can && served.file(&hash).is_ok() {
+            not_served(&served, hash, false);
+        }
+        can
+    }))
 }
 
 fn not_served(served: &Served, hash: Hash, changed: bool) {
@@ -242,9 +264,7 @@ async fn export(
             tree,
             data: Vec::new(),
         };
-        return send(Data(blob), outboard, &ranges, sender)
-            .await
-            .map_err(Refused::Unreadable);
+        return send(Data(blob), outboard, &ranges, sender).await;
     }
     let outboard = open_outboard(&served.outboards, &hash, tree).map_err(Refused::Unreadable)?;
     let outboard = PreOrderOutboard {
@@ -252,15 +272,16 @@ async fn export(
         tree,
         data: outboard,
     };
-    send(Data(blob), outboard, &ranges, sender)
-        .await
-        .map_err(Refused::Unreadable)
+    send(Data(blob), outboard, &ranges, sender).await
 }
 
 /// Why an export did not begin.
 enum Refused {
     /// The blob is not in the version served (or none is).
     NotInVersion(io::Error),
+    /// The reader went away while it was sent: nothing is wrong with the
+    /// blob, and nothing is told.
+    ReaderGone,
     /// Its file or outboard could not be read.
     Unreadable(io::Error),
 }
@@ -270,10 +291,10 @@ async fn send(
     outboard: impl Outboard,
     ranges: &ChunkRanges,
     sender: &mut ToSender,
-) -> io::Result<()> {
+) -> Result<(), Refused> {
     traverse_ranges_validated(data, outboard, ranges, sender)
         .await
-        .map_err(|error| io::Error::other(format!("the reader went away: {error}")))
+        .map_err(|_| Refused::ReaderGone)
 }
 
 /// The outboard the catalogue kept for `hash`, if it is there and of the

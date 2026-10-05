@@ -15,6 +15,17 @@ use tokio::sync::Notify;
 /// suitcase. Never reused: a store that left keeps its id.
 pub(super) type StoreId = u64;
 
+/// Whether a store can send a blob now, looked at before it begins (ADR
+/// 0017: its file is there, of its size, with its outboard). Blocking.
+#[derive(Clone)]
+pub(super) struct Probe(pub(super) Arc<dyn Fn(Hash) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for Probe {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Probe")
+    }
+}
+
 #[derive(Debug)]
 struct Held {
     store: Store,
@@ -24,6 +35,7 @@ struct Held {
     leaving: bool,
     /// Transfers in progress from it.
     in_flight: usize,
+    probe: Option<Probe>,
 }
 
 #[derive(Debug, Default)]
@@ -81,6 +93,7 @@ impl Serving {
                     serving: self.clone(),
                     id,
                     store: held.store.clone(),
+                    probe: held.probe.clone(),
                 })
             }
             None => {
@@ -111,6 +124,7 @@ impl Serving {
                 ready: HashSet::new(),
                 leaving: false,
                 in_flight: 0,
+                probe: None,
             },
         );
     }
@@ -119,6 +133,13 @@ impl Serving {
     pub(super) fn set_ready(&self, id: StoreId, hash: Hash) {
         if let Some(held) = self.state().stores.get_mut(&id) {
             held.ready.insert(hash);
+        }
+    }
+
+    /// Store `id` is looked at with `probe` before each transfer begins.
+    pub(super) fn set_probe(&self, id: StoreId, probe: Probe) {
+        if let Some(held) = self.state().stores.get_mut(&id) {
+            held.probe = Some(probe);
         }
     }
 
@@ -186,11 +207,17 @@ pub(super) struct Guard {
     serving: Serving,
     id: StoreId,
     store: Store,
+    probe: Option<Probe>,
 }
 
 impl Guard {
     pub(super) fn store(&self) -> Store {
         self.store.clone()
+    }
+
+    /// What to look at before the transfer begins, if its store says.
+    pub(super) fn probe(&self) -> Option<Probe> {
+        self.probe.clone()
     }
 }
 

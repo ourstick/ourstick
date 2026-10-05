@@ -89,6 +89,7 @@ impl Owner {
             self.signing_key.stick_id(),
             self.stick_key.clone(),
             disks(),
+            std::sync::Arc::new(|| {}),
         ));
     }
 

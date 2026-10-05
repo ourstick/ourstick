@@ -11,7 +11,9 @@ use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
 use ourstick_core::locks::{self, SharingLocks};
 use ourstick_core::secrets::check_secret_store;
-use ourstick_core::share::{keep_files, latest_hint, publish_folder, serve_latest};
+use ourstick_core::share::{
+    keep_files, latest_hint, nudge_later, publish_folder, serve_latest, PassWanted,
+};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::{Publisher, ReaderActivity};
 use ourstick_core::watcher::{
@@ -94,15 +96,18 @@ pub async fn start(
     }
     // Whatever fails from here stops the endpoint before the locks go: no
     // second start may bind this node key while it still runs.
-    let (current, link, read_again) = match first_publication(&app, &publisher, &store, &keys).await
-    {
-        Ok(first) => first,
-        Err(error) => {
-            publisher.clone().shutdown().await;
-            drop(lock);
-            return Err(error);
-        }
-    };
+    // A file that changed since its version asks the watcher (started below)
+    // for a pass.
+    let (pass_wanted, watcher_nudge) = nudge_later();
+    let (current, link, read_again) =
+        match first_publication(&app, &publisher, &store, &keys, pass_wanted).await {
+            Ok(first) => first,
+            Err(error) => {
+                publisher.clone().shutdown().await;
+                drop(lock);
+                return Err(error);
+            }
+        };
     let activity = publisher.activity();
 
     let (stop, stopped) = oneshot::channel();
@@ -119,6 +124,7 @@ pub async fn start(
     let (done, nudge) = match NotifyEvents::start(&root) {
         Ok(events) => {
             let nudge = events.nudge();
+            let _ = watcher_nudge.set(nudge.clone());
             (
                 tauri::async_runtime::spawn(shared.run(events, stopped)),
                 nudge,
@@ -128,6 +134,7 @@ pub async fn start(
             tracing::warn!(%error, "the folder cannot be watched; checking it now and then");
             let events = PeriodicEvents::new(RESCAN_EVERY);
             let nudge = events.nudge();
+            let _ = watcher_nudge.set(nudge.clone());
             (
                 tauri::async_runtime::spawn(shared.run(events, stopped)),
                 nudge,
@@ -151,6 +158,7 @@ async fn first_publication(
     publisher: &IrohPublisher,
     store: &Arc<dyn Store>,
     keys: &StickKeys,
+    pass_wanted: PassWanted,
 ) -> Result<(Manifest, Option<String>, bool)> {
     let stick_id = keys.stick.stick_id;
     let disks = app.state::<crate::state::AppState>().disks.clone();
@@ -161,6 +169,7 @@ async fn first_publication(
             stick_id,
             keys.stick_key.clone(),
             disks.clone(),
+            pass_wanted,
         );
         async move {
             if let Err(error) = keeper.await {

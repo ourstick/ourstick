@@ -13,8 +13,8 @@ use ourstick_core::device::{self, StickKeys};
 use ourstick_core::places::{check_new_stick_folder, comparable};
 use ourstick_core::share::disk_turns::{Disks, SystemTimer};
 use ourstick_core::share::{
-    keep_files, plan_share, run_pass, serve_latest, PassEvent, PassOptions, Publication,
-    PARTIAL_TIMING,
+    keep_files, nudge_later, plan_share, run_pass, serve_latest, PassEvent, PassOptions,
+    Publication, PARTIAL_TIMING,
 };
 use ourstick_core::stick_names::name_from_folder;
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
@@ -140,12 +140,16 @@ pub async fn run(
     // encrypted copy is kept.
     // Every reading of the disk goes through its turns (ADR 0013).
     let disks = Arc::new(Disks::new(Arc::new(SystemTimer::default())));
+    // A file that changed since its version asks the watcher (started
+    // below) for a pass.
+    let (pass_wanted, watcher_nudge) = nudge_later();
     let keeper = tokio::spawn(keep_files(
         publisher.clone(),
         setup.store.clone(),
         stick.stick_id,
         stick_key.clone(),
         disks.clone(),
+        pass_wanted,
     ));
     // Before the first version, so the ticket carries the relay's address.
     if !publisher.online(Duration::from_secs(30)).await {
@@ -258,6 +262,7 @@ pub async fn run(
         match NotifyEvents::start(&folder) {
             Ok(events) => {
                 println!("Watching the folder: changes are shared as they happen.");
+                let _ = watcher_nudge.set(events.nudge());
                 serve(&owner, events, current, readers, started).await
             }
             Err(error) => {
@@ -266,6 +271,7 @@ pub async fn run(
                     RESCAN_EVERY.as_secs()
                 );
                 let events = PeriodicEvents::new(RESCAN_EVERY);
+                let _ = watcher_nudge.set(events.nudge());
                 serve(&owner, events, current, readers, started).await
             }
         }

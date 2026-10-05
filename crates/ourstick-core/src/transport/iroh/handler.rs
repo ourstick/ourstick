@@ -150,6 +150,20 @@ async fn serve_stream(
     }
     match decision {
         Decision::Serve(guard) => {
+            // A file gone or not of its size (a disk unplugged, a file
+            // renamed or cut short) is "not ready", before anything is sent.
+            if let Some(probe) = guard.probe() {
+                let hash = request.hash;
+                let can = tokio::task::spawn_blocking(move || (probe.0)(hash))
+                    .await
+                    .unwrap_or(false);
+                if !can {
+                    drop(guard);
+                    handler.activity.told_not_ready(connection);
+                    refuse(&mut writer, ERR_LIMIT);
+                    return;
+                }
+            }
             handler.activity.started(connection);
             let pair = StreamPair::new(connection, reader, writer, handler.events.clone());
             if let Err(error) = handle_get(pair, guard.store(), request).await {

@@ -41,8 +41,10 @@ pub struct IrohPublisher {
     made: Arc<Mutex<Option<(StoreId, iroh_blobs::api::Store, super::made_store::Served)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
-    /// Where the owner's own store tells what it could not serve.
-    demand_sender: tokio::sync::mpsc::UnboundedSender<Demand>,
+    /// Where the owner's own store tells what it could not serve: weak, so
+    /// the demand ends (and the owner's keeper with it) once the handler,
+    /// which holds the strong one, is gone with the router.
+    demand_sender: tokio::sync::mpsc::WeakUnboundedSender<Demand>,
     /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
     reports: Arc<Mutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>>,
     activity: Activity,
@@ -126,7 +128,7 @@ impl IrohPublisher {
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
-            demand_sender,
+            demand_sender: demand_sender.downgrade(),
             reports: Arc::new(Mutex::new(Some(reports))),
             activity,
             reporter,
@@ -233,12 +235,14 @@ impl Publisher for IrohPublisher {
             let demand = self.demand_sender.clone();
             let on_not_served: super::made_store::OnNotServed = Arc::new(move |hash, changed| {
                 serving.remove_ready(id, &hash);
-                demand
-                    .send(Demand::NotServed {
-                        hash: *hash.as_bytes(),
-                        changed,
-                    })
-                    .ok();
+                if let Some(demand) = demand.upgrade() {
+                    demand
+                        .send(Demand::NotServed {
+                            hash: *hash.as_bytes(),
+                            changed,
+                        })
+                        .ok();
+                }
             });
             let (store, served) = super::made_store::start(
                 cipher.clone(),
@@ -247,6 +251,8 @@ impl Publisher for IrohPublisher {
                 on_not_served,
             );
             self.serving.add_store(id, store.clone());
+            self.serving
+                .set_probe(id, super::made_store::probe(served.clone()));
             (id, store, served)
         });
         let ready = files

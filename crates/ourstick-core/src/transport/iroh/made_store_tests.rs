@@ -312,3 +312,28 @@ async fn files_added_are_served_too() {
         .unwrap();
     assert_eq!(got, blob);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reader_that_goes_away_is_no_fault_of_the_blob() {
+    let stick = stick(&[("big.bin", content(400 * 1024))]);
+    let hash = Hash::from_bytes(stick.blobs[0].0);
+    {
+        let mut items = stick
+            .store
+            .export_bao(hash, ChunkRanges::all())
+            .stream()
+            .boxed();
+        // The first item, then the reader is gone.
+        let _ = items.next().await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(stick.told.lock().unwrap().is_empty());
+    // Still served.
+    let got = stick
+        .store
+        .export_bao(hash, ChunkRanges::all())
+        .data_to_vec()
+        .await
+        .unwrap();
+    assert_eq!(got, stick.blobs[0].1);
+}

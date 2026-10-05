@@ -27,6 +27,8 @@ notify.workspace = true
 data-encoding.workspace = true
 iroh.workspace = true
 iroh-blobs.workspace = true
+# ADR 0017: the blobs' hash trees (outboards).
+bao-tree.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store.workspace = true
@@ -40,4 +42,3 @@ windows-native-keyring-store.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true
-bao-tree.workspace = true

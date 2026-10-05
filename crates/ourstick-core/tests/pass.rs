@@ -325,3 +325,24 @@ async fn a_folder_unlinked_while_it_is_read_is_not_published_again() {
     assert_eq!(paths, ["a.txt"]);
     owner.publisher.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pass_keeps_the_outboards_of_big_blobs_and_drops_old_ones() {
+    // ADR 0017, rule 1: one 16 KiB group has no outboard; a bigger blob has
+    // one in the cache, and it goes when its file does.
+    let big = common::noise(100_000, 9);
+    let owner = Owner::new(&[("big.bin", big.as_slice()), ("small.txt", b"small")]).await;
+    let outboards = owner.publisher.cache_dir().join("outboards");
+    run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
+        .await
+        .unwrap();
+    let count = |dir: &std::path::Path| std::fs::read_dir(dir).map_or(0, |entries| entries.count());
+    assert_eq!(count(&outboards), 1);
+
+    std::fs::remove_file(owner.folder.path().join("big.bin")).unwrap();
+    run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(count(&outboards), 0);
+    owner.publisher.shutdown().await;
+}

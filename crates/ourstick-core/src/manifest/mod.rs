@@ -9,6 +9,7 @@
 pub(crate) mod build;
 pub mod catalogue;
 mod encoding;
+pub(crate) mod hashing;
 pub mod ignore;
 mod stamp;
 

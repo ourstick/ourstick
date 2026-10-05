@@ -13,7 +13,7 @@ pub(super) fn entry(path: &str, content: &[u8]) -> Entry {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f");
     std::fs::write(&file, content).unwrap();
-    let (mut entry, _) = hash_file(dir.path(), &file, &cipher(), None).unwrap();
+    let mut entry = hash_file(dir.path(), &file, &cipher()).unwrap();
     entry.path = path.to_owned();
     entry
 }

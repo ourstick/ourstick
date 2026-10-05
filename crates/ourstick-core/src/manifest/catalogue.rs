@@ -13,7 +13,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use self::known::{carried, mtime_seconds, Known};
-use super::build::{for_each_regular_file, hash_file_telling_plaintext, relative_path};
+use super::build::{for_each_regular_file, relative_path};
+use super::hashing::{hash_file_telling_plaintext, Hashed};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
 use crate::layout::StickLayout;
@@ -91,6 +92,8 @@ pub struct Catalogue {
     /// and for [`Catalogue::recorded_entries`]).
     known: HashMap<String, Known>,
     rescan: bool,
+    /// Where the outboards of files it reads go (ADR 0017), if anywhere.
+    outboards: Option<PathBuf>,
     gone: Vec<String>,
     left_out: Vec<String>,
 }
@@ -177,9 +180,17 @@ impl Catalogue {
             next: 0,
             known,
             rescan,
+            outboards: None,
             gone,
             left_out: left_out.into_iter().collect(),
         })
+    }
+
+    /// Keeps the outboard of each blob of more than one 16 KiB group it
+    /// reads in `dir` (ADR 0017, rule 1).
+    pub fn keep_outboards_in(mut self, dir: PathBuf) -> Self {
+        self.outboards = Some(dir);
+        self
     }
 
     /// What was recorded of the files the walk found, in manifest order, as
@@ -353,8 +364,12 @@ impl Catalogue {
             }));
         }
         let reader = readers.map(|readers| readers.on(DiskId::of_file(path, &metadata)));
-        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, None, reader) {
-            Ok((entry, _, plaintext_hash)) => Ok(Catalogued::File(CataloguedFile {
+        let outboards = self.outboards.as_deref();
+        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, reader, outboards) {
+            Ok(Hashed {
+                entry,
+                plaintext_hash,
+            }) => Ok(Catalogued::File(CataloguedFile {
                 entry,
                 stamp,
                 plaintext_hash: Some(plaintext_hash),

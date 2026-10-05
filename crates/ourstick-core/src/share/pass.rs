@@ -15,6 +15,7 @@ use super::{check_drive, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
 use crate::layout::StickLayout;
+use crate::manifest::hashing::{keep_only_outboards, outboards_dir};
 use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};
 use crate::store::{OwnedFile, StickKind};
 use crate::transport::Publisher;
@@ -131,7 +132,13 @@ async fn pass(
     let mut catalogue = {
         let rescan = options.rescan;
         let layout = layout.clone();
-        run_blocking(move || Catalogue::start_layout(&layout, recorded, rescan)).await?
+        // Outboards of the files it reads go to the stick's cache (ADR 0017).
+        let outboards = outboards_dir(owner.publisher.cache_dir());
+        run_blocking(move || {
+            Catalogue::start_layout(&layout, recorded, rescan)
+                .map(|catalogue| catalogue.keep_outboards_in(outboards))
+        })
+        .await?
     };
     if !catalogue.gone().is_empty() || !catalogue.left_out().is_empty() {
         on_event(PassEvent::Roots {
@@ -256,6 +263,8 @@ async fn pass(
     }
 
     let paths: Vec<String> = entries.iter().map(|entry| entry.path.clone()).collect();
+    let hashes: std::collections::HashSet<[u8; 32]> =
+        entries.iter().map(|entry| entry.hash).collect();
     let manifest = Manifest {
         partial: false,
         name: name.clone(),
@@ -268,6 +277,15 @@ async fn pass(
     {
         let store = owner.store.clone();
         run_blocking(move || store.keep_only_owned_files(&stick_id, &paths)).await?;
+    }
+    // And the outboards of blobs no longer in it. A failure costs only disk
+    // space until the next complete pass.
+    {
+        let dir = outboards_dir(owner.publisher.cache_dir());
+        let removed = run_blocking(move || keep_only_outboards(&dir, &hashes)).await;
+        if let Err(error) = removed {
+            tracing::warn!(%error, "old outboards could not be removed");
+        }
     }
     Ok(PassOutcome {
         publication,

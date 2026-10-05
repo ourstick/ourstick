@@ -158,35 +158,10 @@ fn encrypt_with(
     out: &mut impl Write,
     plaintext_hash: blake3::Hash,
 ) -> Result<BlobInfo, CipherError> {
-    let header = BlobHeader::new(cipher.id(), cipher.derive_nonce_prefix(&plaintext_hash));
-    let header_bytes = header.to_bytes();
-    out.write_all(&header_bytes)?;
-    let mut blob_len = header_bytes.len() as u64;
-
-    let mut second_pass = blake3::Hasher::new();
-    let mut chunks = ChunkReader::new(plaintext, CHUNK_SIZE)?;
-    let mut index = 0u32;
-    loop {
-        let (chunk, is_last) = chunks.current();
-        second_pass.update(chunk);
-        let sealed = cipher.seal_chunk(&header, index, is_last, chunk)?;
-        out.write_all(&sealed)?;
-        blob_len += sealed.len() as u64;
-        if is_last {
-            break;
-        }
-        chunks.advance()?;
-        index = index.checked_add(1).ok_or(CipherError::TooManyChunks)?;
-    }
-
-    if second_pass.finalize() != plaintext_hash {
-        return Err(CipherError::PlaintextChanged);
-    }
-    Ok(BlobInfo {
-        plaintext_len: second_pass.count(),
-        blob_len,
-        plaintext_hash: *plaintext_hash.as_bytes(),
-    })
+    let mut blob = BlobReader::new(cipher, plaintext, plaintext_hash)?;
+    io::copy(&mut blob, out).map_err(cipher_error)?;
+    blob.info()
+        .ok_or_else(|| CipherError::Io(io::Error::other("the blob was not read to its end")))
 }
 
 /// Decrypts a blob read from `blob`, writing the plaintext to `out`.
@@ -286,5 +261,8 @@ fn read_exact_or_truncated(reader: &mut impl Read, buffer: &mut [u8]) -> Result<
 }
 
 pub mod made;
+mod stream;
 #[cfg(test)]
 mod tests;
+
+pub use stream::{cipher_error, BlobReader};

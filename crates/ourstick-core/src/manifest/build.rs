@@ -1,18 +1,14 @@
 //! Building a manifest by walking a folder on disk.
 
-use crate::share::disk_turns::DiskReader;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use walkdir::WalkDir;
 
 use super::encoding::validate_path;
+use super::hashing::hash_file;
 use super::ignore::is_ignored;
-use super::{Entry, Manifest, ManifestError};
-use crate::blob::encrypt_blob;
-use crate::cipher::{Cipher, CipherError};
+use super::{Manifest, ManifestError};
+use crate::cipher::Cipher;
 
 impl Manifest {
     /// Builds a manifest by walking `root` recursively. Every regular file is
@@ -33,7 +29,7 @@ impl Manifest {
         let root = root.as_ref();
         let mut entries = Vec::new();
         for path in regular_files(root)? {
-            entries.push(hash_file(root, &path, cipher, None)?.0);
+            entries.push(hash_file(root, &path, cipher)?);
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(Self {
@@ -91,135 +87,6 @@ pub(crate) fn for_each_regular_file(
     Ok(())
 }
 
-/// Writes the blob both to the hasher and, if kept, to a file.
-struct HashAndKeep<'a> {
-    hasher: &'a mut blake3::Hasher,
-    file: Option<BufWriter<File>>,
-}
-
-impl Write for HashAndKeep<'_> {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if let Some(file) = &mut self.file {
-            file.write_all(bytes)?;
-        }
-        self.hasher.update(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match &mut self.file {
-            Some(file) => file.flush(),
-            None => Ok(()),
-        }
-    }
-}
-
-/// Encrypts one file, hashes the resulting blob and builds the entry. The size is
-/// the number of plaintext bytes actually encrypted, so it always matches the hash.
-/// With `blob_dir`, the blob is also kept as `blob_dir/<hex hash>.blob`.
-pub(crate) fn hash_file(
-    root: &Path,
-    path: &Path,
-    cipher: &dyn Cipher,
-    blob_dir: Option<&Path>,
-) -> Result<(Entry, Option<PathBuf>), ManifestError> {
-    hash_file_telling_plaintext(relative_path(root, path)?, path, cipher, blob_dir, None)
-        .map(|(entry, kept, _)| (entry, kept))
-}
-
-/// [`hash_file`] for the file at `path` whose manifest path is `relative`,
-/// also returning the plaintext hash (the nonce prefix's source, ADR 0003).
-/// With `reader`, the file is read through its disk's turns (ADR 0013).
-pub(crate) fn hash_file_telling_plaintext(
-    relative: String,
-    path: &Path,
-    cipher: &dyn Cipher,
-    blob_dir: Option<&Path>,
-    reader: Option<&mut DiskReader>,
-) -> Result<(Entry, Option<PathBuf>, [u8; 32]), ManifestError> {
-    let file = File::open(path).map_err(|e| ManifestError::io(path, e))?;
-    let metadata = file.metadata().map_err(|e| ManifestError::io(path, e))?;
-
-    let temporary = blob_dir.map(|dir| dir.join(format!(".{}.partial", unique_suffix())));
-    let kept_file = match &temporary {
-        Some(temporary) => Some(BufWriter::new(
-            File::create_new(temporary).map_err(|e| ManifestError::io(temporary, e))?,
-        )),
-        None => None,
-    };
-    let mut blob_hasher = blake3::Hasher::new();
-    let mut sink = HashAndKeep {
-        hasher: &mut blob_hasher,
-        file: kept_file,
-    };
-    let encrypted = match reader {
-        Some(reader) => {
-            let len = metadata.len();
-            encrypt_blob(
-                cipher,
-                &mut BufReader::new(reader.open(file, len)),
-                &mut sink,
-            )
-        }
-        None => encrypt_blob(cipher, &mut BufReader::new(file), &mut sink),
-    }
-    .and_then(|info| {
-        if let Some(file) = sink.file.take() {
-            let file = file.into_inner().map_err(|error| error.into_error())?;
-            file.sync_all()?;
-        }
-        Ok(info)
-    })
-    .map_err(|error| match error {
-        CipherError::Io(source) => ManifestError::io(path, source),
-        source => ManifestError::Blob {
-            path: path.to_path_buf(),
-            source,
-        },
-    });
-    let info = match encrypted {
-        Ok(info) => info,
-        Err(error) => {
-            if let Some(temporary) = &temporary {
-                let _ = std::fs::remove_file(temporary);
-            }
-            return Err(error);
-        }
-    };
-    let hash = *blob_hasher.finalize().as_bytes();
-    let kept = match (temporary, blob_dir) {
-        (Some(temporary), Some(dir)) => {
-            let target = dir.join(format!("{}.blob", data_encoding::HEXLOWER.encode(&hash)));
-            std::fs::rename(&temporary, &target).map_err(|e| ManifestError::io(&target, e))?;
-            Some(target)
-        }
-        _ => None,
-    };
-
-    let mtime = metadata
-        .modified()
-        .map_err(|e| ManifestError::io(path, e))?
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    let entry = Entry {
-        path: relative,
-        size: info.plaintext_len,
-        mtime,
-        hash,
-    };
-    Ok((entry, kept, info.plaintext_hash))
-}
-
-/// A random suffix for temporary file names.
-fn unique_suffix() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 8];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    data_encoding::HEXLOWER.encode(&bytes)
-}
-
 /// Turns `path` into a `/`-separated string relative to `root`.
 pub(super) fn relative_path(root: &Path, path: &Path) -> Result<String, ManifestError> {
     let relative = path
@@ -244,9 +111,11 @@ pub(super) fn relative_path(root: &Path, path: &Path) -> Result<String, Manifest
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blob::encrypt_blob;
     use crate::cipher::{ChaChaCipher, NoCipher, StickKey};
     use std::fs;
     use std::io::Cursor;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn from_dir_of_empty_folder_is_empty() {

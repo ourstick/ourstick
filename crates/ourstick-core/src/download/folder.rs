@@ -11,7 +11,7 @@ use super::left_out::LeftOut;
 use super::saved_paths::{saved_paths, OnDisk, Recorded, Rules, SavedAs};
 use super::{io_error, DownloadError};
 use crate::cipher::Cipher;
-use crate::manifest::build::hash_file;
+use crate::manifest::hashing::hash_file;
 use crate::manifest::{FileStamp, Manifest};
 use crate::store::DownloadedFile;
 
@@ -92,9 +92,9 @@ impl FolderPlan {
 /// The blob hash the stick would have for this file's content, or `None` if
 /// it cannot be read right now.
 fn content_hash(output_dir: &Path, path: &Path, cipher: &dyn Cipher) -> Option<[u8; 32]> {
-    hash_file(output_dir, path, cipher, None)
+    hash_file(output_dir, path, cipher)
         .ok()
-        .map(|(entry, _)| entry.hash)
+        .map(|entry| entry.hash)
 }
 
 /// Looks at every file of `manifest` under `output_dir`, and where each is

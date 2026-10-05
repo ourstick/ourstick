@@ -1,9 +1,10 @@
-//! The owner's side on iroh: blobs served from suitcases (ADR 0007), the
+//! The owner's side on iroh: blobs made from the files when asked (ADR 0017), the
 //! current manifest from memory, through our own handler
 //! ([`super::handler`]), plus the record protocol.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use iroh::protocol::Router;
@@ -17,15 +18,14 @@ use super::reader_paths::RELAY_ONLY_AFTER;
 use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::report_protocol::{ReportServer, REPORT_ALPN, WAITING_REPORTS};
 use super::serving::{Serving, StoreId};
-use super::suitcases::Suitcases;
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId};
-use crate::transport::{BlobHash, Demand, Publisher, ServedFiles, SuitcaseId, TransportError};
+use crate::transport::{BlobHash, Demand, Publisher, ServedFiles, TransportError};
 
-/// Serves one stick; its suitcases live under `cache_dir`. Cheap to clone:
-/// clones share everything (the suitcases' keeper holds one), and
+/// Serves one stick; its cache lives under `cache_dir`. Cheap to clone:
+/// clones share everything (the owner's files keeper holds one), and
 /// [`Publisher::shutdown`] on any of them stops them all.
 #[derive(Clone)]
 pub struct IrohPublisher {
@@ -34,7 +34,8 @@ pub struct IrohPublisher {
     record: Arc<RwLock<Option<SignedManifestRecord>>>,
     /// What is served, decided in one place.
     serving: Serving,
-    suitcases: Arc<Suitcases>,
+    /// The next store's id (each manifest's, and the files' one).
+    next_store: Arc<AtomicU64>,
     /// The store serving the current manifest.
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// The owner's own store (ADR 0017), once it serves files.
@@ -78,9 +79,10 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl IrohPublisher {
-    /// Starts serving `stick_id`, with its suitcases in `cache_dir`
-    /// (whatever an earlier run left there is removed). Nothing is served
-    /// until the first [`Publisher::publish`].
+    /// Starts serving `stick_id`, with its cache in `cache_dir` (the latest
+    /// manifest and the outboards; the suitcases an older version kept
+    /// there are removed, ADR 0017). Nothing is served until the first
+    /// [`Publisher::publish`].
     pub async fn start(
         config: &IrohConfig,
         stick_id: StickId,
@@ -92,7 +94,10 @@ impl IrohPublisher {
         let activity = Activity::new();
         let reporter = tokio::spawn(activity.clone().report()).abort_handle();
         let serving = Serving::default();
-        let suitcases = Suitcases::start(cache_dir.join("suitcases"), serving.clone()).await?;
+        match tokio::fs::remove_dir_all(cache_dir.join("suitcases")).await {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
         let (demand_sender, demand) = tokio::sync::mpsc::unbounded_channel();
         let (report_sender, reports) = tokio::sync::mpsc::channel(WAITING_REPORTS);
         let handler = BlobsHandler::new(
@@ -124,7 +129,7 @@ impl IrohPublisher {
             cache_dir,
             record,
             serving,
-            suitcases: Arc::new(suitcases),
+            next_store: Arc::new(AtomicU64::new(1)),
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
@@ -185,7 +190,7 @@ impl Publisher for IrohPublisher {
         // The manifest from memory, in a store of its own.
         let store = MemStore::new();
         store.add_bytes(manifest_blob).await.map_err(storage)?;
-        let id = self.suitcases.next_id();
+        let id = self.next_store.fetch_add(1, Ordering::Relaxed);
         self.serving.add_store(id, (*store).clone());
         self.serving.set_ready(id, manifest);
         let mut allowed: HashSet<Hash> = allowed.into_iter().map(Hash::from_bytes).collect();
@@ -207,28 +212,11 @@ impl Publisher for IrohPublisher {
         Ok(())
     }
 
-    async fn open_suitcase(&self) -> Result<(SuitcaseId, PathBuf), TransportError> {
-        self.suitcases.open().await
-    }
-
-    async fn add_to_suitcase(
-        &self,
-        suitcase: SuitcaseId,
-        blob_file: &Path,
-        expected: &BlobHash,
-    ) -> Result<bool, TransportError> {
-        self.suitcases.add(suitcase, blob_file, expected).await
-    }
-
-    async fn evict(&self, suitcase: SuitcaseId) -> Result<(), TransportError> {
-        self.suitcases.evict(suitcase).await
-    }
-
     fn serve_files(&self, cipher: Arc<dyn crate::cipher::Cipher>, files: ServedFiles) {
         let mut made = lock(&self.made);
         let (id, _, served) = made.get_or_insert_with(|| {
             let outboards = crate::manifest::hashing::outboards_dir(&self.cache_dir);
-            let id = self.suitcases.next_id();
+            let id = self.next_store.fetch_add(1, Ordering::Relaxed);
             // What it cannot serve is not ready from then on, and the owner
             // is told (ADR 0017, rule 4).
             let serving = self.serving.clone();
@@ -251,8 +239,10 @@ impl Publisher for IrohPublisher {
                 on_not_served,
             );
             self.serving.add_store(id, store.clone());
-            self.serving
-                .set_probe(id, super::made_store::probe(served.clone()));
+            self.serving.set_probe(
+                id,
+                super::made_store::probe(served.clone(), made_runtime().handle().clone()),
+            );
             (id, store, served)
         });
         let ready = files
@@ -301,7 +291,6 @@ impl Publisher for IrohPublisher {
         if let Err(error) = self.router.shutdown().await {
             tracing::warn!(%error, "router did not shut down cleanly");
         }
-        self.suitcases.close_all().await;
         let manifest = lock(&self.manifest).take();
         if let Some((_, store)) = manifest {
             store.shutdown().await.ok();

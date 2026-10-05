@@ -11,7 +11,7 @@ pub mod iroh;
 use std::collections::HashSet;
 use std::future::Future;
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -117,10 +117,6 @@ pub struct ReaderActivity {
     pub only_relayed: bool,
 }
 
-/// A suitcase (ADR 0007): a store of blobs that come and go together. Ids
-/// are never reused while the publisher runs.
-pub type SuitcaseId = u64;
-
 /// What readers ask for, as the owner's policy needs it (ADR 0007).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Demand {
@@ -159,8 +155,8 @@ pub struct ServedFiles {
     pub files: std::collections::HashMap<BlobHash, ServedFile>,
 }
 
-/// The owner's side: serves the current record, its manifest, and the
-/// blobs its suitcases hold (ADR 0007).
+/// The owner's side: serves the current record, its manifest, and its
+/// files' blobs, made from the files when asked (ADR 0017).
 pub trait Publisher: Send + Sync {
     /// This device's node id, for tickets.
     fn node_id(&self) -> NodeId;
@@ -171,41 +167,18 @@ pub trait Publisher: Send + Sync {
     /// What this node found out about its network, once measured.
     fn network_report(&self) -> Option<NetworkReport>;
 
-    /// The stick's cache folder: its suitcases, and the latest manifest.
+    /// The stick's cache folder: the latest manifest and the outboards.
     fn cache_dir(&self) -> &Path;
 
     /// Starts serving `record`, with `manifest_blob` (the blob it names,
     /// served from memory) and the blobs in `allowed`; others stop being
-    /// served at once. An allowed blob that no suitcase holds ready is
-    /// answered "not ready" (ADR 0007).
+    /// served at once. An allowed blob not served yet (its file not made
+    /// ready) is answered "not ready".
     fn publish(
         &self,
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
         allowed: HashSet<BlobHash>,
-    ) -> impl Future<Output = Result<(), TransportError>> + Send;
-
-    /// Opens a new, empty suitcase, and the folder its blob files go in.
-    fn open_suitcase(
-        &self,
-    ) -> impl Future<Output = Result<(SuitcaseId, PathBuf), TransportError>> + Send;
-
-    /// Adds the blob in `blob_file`, a file in the suitcase's folder that
-    /// stays there until the suitcase goes, and makes it ready to serve if
-    /// and only if its hash is `expected` (ADR 0007: a blob is served only
-    /// if its hash is the manifest's). Returns whether it is.
-    fn add_to_suitcase(
-        &self,
-        suitcase: SuitcaseId,
-        blob_file: &Path,
-        expected: &BlobHash,
-    ) -> impl Future<Output = Result<bool, TransportError>> + Send;
-
-    /// Stops serving from `suitcase`, waits until no transfer from it is in
-    /// progress, then closes it and removes its folder.
-    fn evict(
-        &self,
-        suitcase: SuitcaseId,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
     /// Serves the blobs of `files` from the owner's own store from now on,
@@ -221,8 +194,8 @@ pub trait Publisher: Send + Sync {
     fn serve_more(&self, _files: Vec<(BlobHash, ServedFile)>) {}
 
     /// Whether a reader was told "not ready" within the last `window`: a
-    /// reader waits on the owner (ADR 0007), which then puts preparing
-    /// suitcases before reading the folder.
+    /// reader waits on the owner, whose reading for it then goes first on
+    /// the disk (ADR 0013).
     fn readers_waiting(&self, window: std::time::Duration) -> bool;
 
     /// What readers ask for, from now on. Only the first call gets it.

@@ -2,7 +2,7 @@
 //! files its own store serves; and, one at a time through the disks' turns
 //! (ADR 0013), the files it cannot serve yet made ready (rule 7): their
 //! plaintext hash and outboard, first those readers wait on, then the rest
-//! in manifest order. It replaces the suitcases' keeper.
+//! in manifest order. It replaced ADR 0007's suitcases.
 
 mod make;
 mod version;
@@ -202,18 +202,21 @@ impl Keeper {
         self.layout = Some(served.layout.clone());
         self.known = HashMap::with_capacity(entries.len());
         self.pending = BTreeMap::new();
-        for (place, (entry, is_served)) in entries.into_iter().enumerate() {
+        for (place, listed) in entries.into_iter().enumerate() {
+            let entry = listed.entry;
             if let Some(known) = self.known.get_mut(&entry.hash) {
                 known.blob.paths.push(entry.path);
+                known.blob.stamps.push(listed.stamp);
                 continue;
             }
-            if !is_served {
+            if !listed.served {
                 self.pending.insert(place, entry.hash);
             }
             let blob = ToMake {
                 hash: entry.hash,
                 size: entry.size,
                 paths: vec![entry.path],
+                stamps: vec![listed.stamp],
             };
             self.known.insert(entry.hash, Known { place, blob });
         }
@@ -304,10 +307,13 @@ impl Keeper {
     }
 
     /// The files whose wait is over, made again.
+    /// Each is put off by its wait again, so a retry under way is not
+    /// queued once more meanwhile; the wait itself grows only if it fails.
     fn retry_due(&mut self) {
         let now = Instant::now();
-        for (hash, (at, _)) in &self.failed {
+        for (hash, (at, wait)) in &mut self.failed {
             if *at <= now {
+                *at = now + *wait;
                 if let Some(known) = self.known.get(hash) {
                     self.pending.insert(known.place, *hash);
                 }

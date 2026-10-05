@@ -234,7 +234,7 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
         .find(|entry| entry.path == "removed.bin")
         .unwrap()
         .hash;
-    // A first reader: its blobs are now in a suitcase.
+    // A first reader: its blobs are now served.
     let early = Reader::new();
     early
         .download(&owner.ticket(&first), &mut keep_going)
@@ -251,7 +251,7 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
     let connection = fetcher.connect(&ticket).await.unwrap();
-    // Still in a suitcase, but no longer in the stick: refused.
+    // Its file still there, but no longer in the stick: refused.
     for hash in [removed_hash, [9; 32]] {
         let result = connection.fetch_blob(&hash, &mut |_| GO).await;
         assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");

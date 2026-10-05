@@ -1,20 +1,20 @@
-//! ADR 0007, a restarted owner: its latest version is served again at once,
-//! from the manifest kept for it, and its files come from suitcases prepared
-//! anew, before any pass reads the folder.
+//! A restarted owner: its latest version is served again at once, from the
+//! manifest kept for it, and its files are made from the folder when asked
+//! (ADR 0017), before any pass reads it.
 
 mod common;
 
 use std::time::Duration;
 
 use common::{keep_going, noise, random_key, Owner, Reader};
-use ourstick_core::share::{keep_suitcases, serve_latest, Budget};
+use ourstick_core::share::{keep_files, serve_latest};
 use ourstick_core::transport::iroh::{IrohConfig, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
 use ourstick_core::{ManifestHint, Ticket};
 
 /// After a restart the latest version is served again at once, from the
-/// manifest kept for it, before any pass reads the folder; the suitcases of
-/// the run before are gone and prepared again when asked for.
+/// manifest kept for it, before any pass reads the folder; its files'
+/// outboards and records are the run before's.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restarted_owner_serves_its_latest_version_at_once() {
     let owner = Owner::new(&[("a.txt", b"hello"), ("b.bin", &noise(50_000, 8))]).await;
@@ -25,13 +25,13 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
     let publisher = IrohPublisher::start(&config, owner.signing_key.stick_id(), owner.cache.path())
         .await
         .unwrap();
-    tokio::spawn(keep_suitcases(
+    tokio::spawn(keep_files(
         publisher.clone(),
         owner.store.clone(),
         owner.signing_key.stick_id(),
         owner.stick_key.clone(),
-        Budget::new(1 << 30),
         common::disks(),
+        std::sync::Arc::new(|| {}),
     ));
     let publishing = ourstick_core::share::Owner {
         publisher: &publisher,
@@ -56,8 +56,7 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
         address_hints: publisher.address_hints(),
         stick_key: owner.stick_key.clone(),
     };
-    // Every blob the cache holds is served at once: a reader never waits on
-    // "not ready" for them (which would never end on its own).
+    // Every file recorded with its outboard is served at once.
     let reader = Reader::new();
     let report = tokio::time::timeout(
         Duration::from_secs(60),

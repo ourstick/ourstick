@@ -102,7 +102,10 @@ What is there already:
    usually means its neighbours are not either), and if every place waits,
    the queue waits, as one fetch at a time waits today. The waiting ones
    are asked again on the round's tick, each at its own backoff.
-6. **The owner keeps its order with several asks at once.** In the
+6. **The owner keeps its order with several asks at once.**
+   *(Superseded by ADR 0017, 2026-10-05: there are no suitcases. The owner's
+   files keeper makes first the files readers wait on; the rule below is
+   history.)* In the
    keeper, an ask of a connection waits until its blob is served to that
    connection, or until `IN_USE` passes without it being asked again. A
    connection's place is the lowest suitcase among its waiting asks, or,

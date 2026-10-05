@@ -1,8 +1,8 @@
 //! The latest manifest, kept as a file in the stick's cache folder: for
 //! serving the latest version again at once after a start, before a pass
 //! reads the folder (otherwise readers would find nothing to fetch until the
-//! pass publishes, minutes later for a big folder), and for the suitcases'
-//! keeper, which needs to know the current files.
+//! pass publishes, minutes later for a big folder), and for the owner's
+//! files keeper, which needs to know the current files (ADR 0017).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -73,7 +73,7 @@ pub async fn serve_latest(
     })
     .await?;
     let allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
-    // Its files are "not ready" until the keeper puts them in suitcases.
+    // Its files are "not ready" until the files keeper serves them.
     owner
         .publisher
         .publish(record.clone(), manifest_blob, allowed)

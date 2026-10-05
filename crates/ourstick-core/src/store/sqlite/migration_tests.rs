@@ -215,3 +215,37 @@ fn migration_20_starts_every_counter_and_list_empty() {
     assert!(insert(Some(5), "up_to_date").is_err());
     insert(Some(5), "downloading").unwrap();
 }
+
+#[test]
+fn migration_21_removes_cache_claims_and_keeps_downloads() {
+    use crate::store::ClaimKind;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let one = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    let two = crate::stick_id::StickSigningKey::from_bytes(&[4; 32]).stick_id();
+    {
+        // A database as version 20 left it: a sharer's cache claim, and a
+        // download's.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..20] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 20).unwrap();
+        connection
+            .execute(
+                "INSERT INTO space_claims VALUES (?1, 'cache', 'dev:7', 99)",
+                [one.to_bytes()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO space_claims VALUES (?1, 'download', 'dev:7', 42)",
+                [two.to_bytes()],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    let claims = store.space_claims().unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].kind, ClaimKind::Download);
+}

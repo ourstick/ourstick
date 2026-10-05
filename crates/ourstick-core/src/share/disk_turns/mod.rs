@@ -1,6 +1,6 @@
 //! OurStick's reading from one disk, one window at a time (ADR 0013, rule
-//! 5): readers (a stick's catalogue, its suitcases) take turns in the order
-//! they asked, a suitcase that readers wait for first but at most three to
+//! 5): readers (a stick's catalogue, the files it makes ready) take turns in
+//! the order they asked, a file that readers wait for first but at most three to
 //! one; each window is timed (`Timed`) and judged by the disk's
 //! [`DiskShare`], and its pause is the disk's, so the next turn starts
 //! after it whoever takes it.
@@ -50,7 +50,7 @@ impl Timer for SystemTimer {
 /// A pause is slept in slices this long at most, checking between them
 /// whether to stop (a stick stopped, its drive ejected).
 const PAUSE_SLICE: Duration = Duration::from_secs(5);
-/// A suitcase that readers wait for goes first, but at most this many
+/// A file that readers wait for goes first, but at most this many
 /// windows in a row while a catalogue waits, so new files still come.
 const URGENT_IN_A_ROW: u32 = 3;
 /// A reader waiting in the queue asks this often (real time) whether to go

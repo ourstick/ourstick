@@ -19,8 +19,8 @@ _Draft. Updated whenever the wire format or the ticket format changes._
 
 1. Owner catalogues its folder (every file's blob hash), signs a record for
    the manifest, and serves both over iroh; partial versions come out while
-   the catalogue grows. A file's blob is made when a reader asks for it, in a
-   **suitcase** (ADR 0007).
+   the catalogue grows. A file's blob is made from the file when a reader asks
+   for it, and checked before it is sent (ADR 0017).
 2. Owner produces a ticket (link / QR).
 3. Reader decodes the ticket and connects to the owner's NodeId (address hints
    first; iroh address lookup and relays otherwise).
@@ -167,34 +167,50 @@ carries only the key). Every file blob of that stick must use the same cipher.
   `seq` is signed.
 - The owner works in **passes** (ADR 0007). A pass takes the **catalogue**
   first, in parts, in manifest order: every file's blob hash, from a full
-  encryption whose bytes are thrown away. A file whose stamp is as recorded
+  encryption whose bytes are thrown away, and, for a blob of more than one
+  16 KiB group, its bao outboard (see below). A file whose stamp is as recorded
   (see "Known limits" below) keeps its recorded hash without being read;
   `share --rescan` reads every file. A file gone or changing while read is
   left out of the version, and another pass follows soon. Each part is
   recorded (`owned_files`, with the plaintext hash), so a pass stopped
   halfway goes on from there.
-- Blobs are served from **suitcases** (ADR 0007): runs of manifest entries,
-  each an iroh-blobs store in its own folder under the stick's cache folder,
-  up to 1 GB (a sixth of the budget if that is less; a bigger file is a
-  suitcase of its own). A suitcase is prepared when a reader asks for a blob
-  no suitcase holds (the reader is told "not ready" meanwhile), and the next
-  one is prepared while a reader is on one. Preparing encrypts each file
-  again, reading it once: the nonce prefix comes from the plaintext hash the
-  catalogue recorded for this very blob, and the read checks it; a file that
-  changed since is left out and what was written for it deleted at once,
-  and its record is forgotten so the next pass reads it again (without that
-  hash, the file is read twice as in ADR 0003). A blob is served only if its
-  hash is the manifest's. All suitcases together take at most the
-  **budget**: 10 % of the free space on the cache's disk when sharing starts,
-  2 to 40 GB; with less than 2 GB free, sharing does not start. To make room,
-  the suitcase used longest ago leaves, never the one a reader is on nor the
-  next one (a reader that asked nothing for 30 s holds none); it leaves once
-  no transfer from it is in progress, by removing its folder. With no room,
-  readers wait. A start removes every suitcase of the run before. While a
-  reader was told "not ready" within the last minute, the catalogue pauses
-  after each part as long as the part took (at most 10 s): suitcases for
-  waiting readers read the same disk and go first, and the catalogue still
-  goes on.
+- **Blobs are made when asked** (ADR 0017). The owner keeps no encrypted
+  copy of a file. One store per stick makes a blob's bytes from the file as
+  they are sent: the nonce prefix comes from the plaintext hash the
+  catalogue recorded for that blob (ADR 0003), and the chunks are encrypted
+  as `encrypt_blob` would. The blob's size, its root (the manifest's hash)
+  and its outboard all come from the catalogue's record, never from the
+  file. Before a transfer, the file must be there with its recorded size,
+  and the outboard with its length; otherwise the blob is "not ready". Each
+  16 KiB group is checked against the outboard before it is sent, and the
+  first group that does not match is never sent: the transfer stops
+  (`ERR_INTERNAL`), the blob is "not ready" from then on, and the file's
+  record is forgotten so the next pass reads it again. So no byte that differs from
+  the hashed blob ever leaves, and no nonce is used for two plaintexts
+  outside the owner. A file shorter than its record is a read error; bytes
+  past its recorded size are never read.
+- **Outboards** are kept in the stick's cache folder as
+  `outboards/<blob hash in hex>.obao` (iroh's pre-order bao outboard, 16 KiB
+  groups, 64 bytes per group: about 0.4 % of the blob), written to a
+  temporary file and renamed. A blob of at most one group has none. An
+  outboard is used only if its length is the one the blob's size gives;
+  otherwise its file is "not ready" until it is made again. Reading a file
+  again replaces an outboard that differs from the one it gives (cut short
+  or damaged). After a complete version, the pass removes the outboards of
+  blobs no longer in it.
+- A file needs its plaintext hash and, over one group, its outboard to be
+  served. Without them (a cache from before ADR 0017, a cleared cache) its
+  blob is "not ready". The owner's **files keeper** makes them: first for
+  blobs readers wait on, then the rest of the stick in manifest order,
+  through the disks' turns. Making one reads the file as it is now and keeps
+  the result only if the blob hash it gives is the manifest's; otherwise the
+  record is forgotten. There is no cache budget and no space claim for
+  the owner. When sharing starts, old `cache/<stick>/suitcases` folders are
+  removed.
+- While a reader was told "not ready" within the last minute, the catalogue
+  pauses after each part as long as the part took (at most 10 s): the files
+  keeper's reads for waiting readers use the same disk and go first, and the
+  catalogue still goes on.
 - A long pass publishes **partial** versions: an empty one at once if the
   stick was never published (so it has a link), then after 30 seconds and
   every 3 minutes, each a new `seq`; the complete version comes at the end. A
@@ -216,13 +232,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   changes. A failed pass (e.g. an unreadable file), or one that left files
   out, is reported and tried again at the next change or after 30 s.
 - The owner gives way to other programs using its disk (ADR 0013): every
-  read of a stick's files (the catalogue, the suitcases) goes through its
+  read of a stick's files by the catalogue or the files keeper goes through its
   disk's turns, one reader a window (64 MB or 64 files) at a time, and is
   timed; when windows take over three times their usual time twice in a
   row, the owner reads a tenth of the time until one takes under two and a
-  half times. A suitcase that readers wait for goes first, three windows to
-  one. Nothing on the wire changes: a reader may wait longer, told "not
-  ready" as before.
+  half times. A file readers wait for goes first, three windows to
+  one. A blob sent is read as the reader takes it, not through the turns: its
+  reads and encryption run on 4 threads for the whole program. Nothing on the
+  wire changes: a reader may wait longer, told "not ready" as before.
 
 ### Reader-side rules for the output folder
 
@@ -256,13 +273,18 @@ carries only the key). Every file blob of that stick must use the same cipher.
   (files already written count as already here); with the same version the
   refusal stands. At most 10 new versions are followed per download.
 - If the owner answers a blob request with "not ready" (iroh-blobs'
-  `ERR_LIMIT`, ADR 0007: it is still preparing that blob), it is not a
+  `ERR_LIMIT`: the file's plaintext hash or outboard is still being made,
+  or its file is gone or changed, ADR 0017), it is not a
   failure. The reader says once per file that the sender is preparing it,
   and asks again after a pause that starts at 250 ms and doubles up to a
   minute. After 5 minutes of waiting on one file it reconnects and fetches
   the record again, following a newer version if there is one (this does not
   count against the 10). It never gives up on "not ready" alone; the user
   can stop it.
+- If the owner ends a transfer with `ERR_INTERNAL` (a read error or a
+  mismatch while it made the blob, ADR 0017), the reader treats the file as
+  one that keeps changing: a short wait, then it asks again. It is not
+  "damaged".
 - A **partial** manifest (the owner is still reading its folder, ADR 0007)
   does not end a download: once every file it lists is in place, the reader
   asks for the owner's record every 15 seconds and goes on with the next
@@ -279,8 +301,9 @@ carries only the key). Every file blob of that stick must use the same cipher.
   (`owned_files`, `docs/schema.md`), and does not read a file whose stamp is
   unchanged in the catalogue. A change that keeps all three is not seen by
   the catalogue: the version keeps the old blob hash. When a reader asks for
-  that file, preparing its suitcase finds that the file no longer gives that
-  blob, so it is not served (the reader waits), and its record is forgotten:
+  that file, the owner's check of each group against the outboard finds that the file
+  no longer gives that blob, so the rest is not sent (the reader waits), and
+  its record is forgotten:
   the next pass reads it and publishes the new content. On Unix, ctime changes on every write
   and cannot be set back by ordinary tools, so this needs a file system with
   coarse or missing timestamps, a clock set backwards, or a deliberate change of
@@ -602,11 +625,11 @@ on its own, as below.
 An owner answers a blob request only if it is a plain get of a raw blob whose
 hash is the current manifest blob or a file blob of the current manifest. It
 refuses everything else: other hashes, hash sequences, get-many, observe, and
-push. See ADR 0005. A file blob of the current manifest that no suitcase
-holds ready is answered "not ready" (`ERR_LIMIT`, ADR 0007) instead of being
-refused or failing. The owner reads each request itself and decides, under
-one lock, what it gets; a transfer that starts holds its suitcase, which
-leaves only once no transfer holds it.
+push. See ADR 0005. A file blob of the current manifest that is not ready (no
+plaintext hash or outboard yet, or one that failed its check) is answered
+"not ready" (`ERR_LIMIT`, ADR 0017) instead of being refused or failing.
+The owner reads each request itself and decides, under one lock, what it
+gets; the blob's bytes are then made from the file as above.
 
 ### Reader paths
 

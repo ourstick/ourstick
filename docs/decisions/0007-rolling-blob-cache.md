@@ -1,6 +1,9 @@
 # ADR 0007: Rolling blob cache ("suitcases")
 
-**Status:** accepted — 2026-09-30. Supersedes the "Cache on disk" part of
+**Status:** accepted — 2026-09-30. Its suitcases, the owner's budget, the
+keeper and Amendment 2 are superseded by ADR 0017 (2026-10-05); the
+catalogue, partial versions, readers' batches and "not ready" stay.
+Supersedes the "Cache on disk" part of
 ADR 0005 for the owner, and its single reader store; ADR 0005's rules on what
 is served and its push refusal stay. The stick model that goes with it (no
 fixed size, linked folders) is ADR 0008. Reviewed by two other models before
@@ -381,7 +384,7 @@ only once its store has shut down; it is never asleep and waking at once.
 - **Fewer threads per store (1 or 2).** Measured: 4 already made a download
   20–50 % slower; and the database caches stay.
 
-## Amendment 2: a suitcase no one needs leaves (proposed, 2026-10-05; on hold for ADR 0017)
+## Amendment 2: a suitcase no one needs leaves (proposed 2026-10-05; superseded by ADR 0017)
 
 Reviewed by two other models against the keeper and the transport; this
 version takes in their changes (slow readers, pauses, the removal task).

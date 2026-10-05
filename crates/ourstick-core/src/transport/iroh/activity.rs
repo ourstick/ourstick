@@ -12,11 +12,11 @@ use crate::transport::ReaderActivity;
 /// How often the activity is recomputed.
 const TICK: Duration = Duration::from_millis(500);
 /// The rate is taken over this long, so it does not jump with every chunk,
-/// nor fall to nothing between suitcases: a big stick is sent in bursts,
-/// each suitcase in seconds after tens of seconds getting it ready (the Rescued_Disk
-/// test, ADR 0007), and a two-second rate read 0 most of the time.
+/// nor fall to nothing while the owner gets files ready or reads a slow
+/// disk (in the big-folder test of ADR 0007 a two-second rate read 0 most of the
+/// time).
 const RATE_WINDOW: Duration = Duration::from_secs(10);
-/// A reader told "not ready" waits for its suitcase this long at most
+/// A reader told "not ready" waits for its file this long at most
 /// before it asks again (its pauses grow to a minute,
 /// `download::not_ready::LONGEST_PAUSE`): so long it counts as a reader, and,
 /// with nothing sent since, the owner is getting files ready for it.
@@ -127,7 +127,7 @@ impl Activity {
     }
 
     /// A reader on `connection` was told "not ready": it is waiting for a
-    /// suitcase, and counts as a reader meanwhile.
+    /// file to be made ready, and counts as a reader meanwhile.
     pub(super) fn told_not_ready(&self, connection: u64) {
         self.told_not_ready_at(connection, Instant::now());
     }

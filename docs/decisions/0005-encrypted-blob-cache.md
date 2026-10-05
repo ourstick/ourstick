@@ -3,6 +3,8 @@
 **Status:** accepted — 2026-09-28; partly superseded by ADR 0007 (2026-09-30):
 the owner's full cache and the reader's single store give way to suitcases
 and reader batches. What is served, and the push refusal, still hold.
+ADR 0017 (2026-10-05) then removed the owner's suitcases too: the owner keeps
+no encrypted copy and no cache budget.
 
 ## Context
 The owner serves each file as an encrypted blob (ADR 0003). The ciphertext must
@@ -55,6 +57,8 @@ is not in the current manifest is never served.
 - On-the-fly also re-encrypts for every reader and every resumed range.
 
 ## Costs
+- *(2026-10-05: the owner no longer keeps this cache, ADR 0017; only the
+  outboards, about 0.4 %, stay.)*
 - **Disk space** about equal to the shared folder, plus about 0.4 % for bao
   outboards and 16 bytes per 64 KiB chunk. Shown before `share` starts.
 - **First share** encrypts everything once. Because the nonce is derived from the

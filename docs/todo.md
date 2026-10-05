@@ -12,16 +12,13 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## Memory
 
-- **A suitcase's hashes are kept twice:** the keeper's `Open.ready`
-  (`share/keeper/mod.rs`) and the transport's ready set
-  (`transport/iroh/serving.rs`). The keeper uses its copy only to find
-  which open suitcase served a blob (`state.rs`, `note`). Keep one.
 - **The reader reaches 200–240 MB** for 100 000 small files on Linux,
   macOS and Windows; not looked at yet.
 
 - **glibc's arenas (Linux):** `mallopt(M_ARENA_MAX, 2)` kept the owner flat
-  in the tests of 2026-10-05; set aside until ADR 0017 is measured (with one
-  store, few threads may be enough). The change is kept outside the repo,
+  in the tests of 2026-10-05; ADR 0017 is in (one store per stick, a pool of 4
+  threads), so measure the owner on Linux again, with and without it, before
+  deciding. The change is kept outside the repo,
   `/media/<user>/G/ourstick-mallopt.patch` (core `threads.rs`, with its
   `SAFETY` note; needs Giorgos's approval for the `unsafe`, given
   2026-10-05).
@@ -38,8 +35,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **iroh-blobs: GC logs `error during gc run: Error::Io` after the store
       shuts down, and stops for good after any error.** A public issue; the
       draft (with a standalone reproduction) is kept outside the repository.
-      OurStick no longer runs iroh-blobs' GC (ADR 0007: suitcases leave by
-      removing their folder), so it is no longer affected; the report still
+      OurStick no longer runs iroh-blobs' GC (ADR 0007; there are no suitcases now, ADR 0017), so it is no longer affected; the report still
       helps others.
 - [ ] **ksni: `ProvideXdgActivationToken`,**
       https://github.com/iovxw/ksni/pull/43 (opened 2026-09-29). Answer the
@@ -86,10 +82,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **A big folder, by hand:** `share` of the rescued folder (913 GB,
       146,297 files) from the G drive, with a reader on the laptop: the
       link at once, partial versions every 3 minutes, a restart halfway,
-      suitcases within the budget (`~/.local/share/ourstick/cache/<stick>/`
-      never much above it), two readers at different places.
+      the owner's memory and threads flat (ADR 0017), the cache folder
+      (`~/.local/share/ourstick/cache/<stick>/`) holding only outboards,
+      two readers at different places.
 - [ ] **Remove the ADR 0005 caches** (`cache/<stick>/blobs/` and `staging/`)
-      once suitcases are proven by hand: nothing reads them any more, and on
+      (the suitcases are gone too, ADR 0017): nothing reads them any more, and on
       this PC one holds ~100 GB less than before only because the test cache
       was deleted by hand.
 - [ ] **The app shows reading progress:** the watcher reports
@@ -105,7 +102,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       derived (keyed) from that chunk's own plaintext and index ("synthetic
       IV" per chunk, as AES-GCM-SIV does per message), would encrypt each
       chunk as it is read: one read, still deterministic (catalogue and
-      suitcases still agree), and no nonce shared by different plaintexts.
+      the owner's store still agree), and no nonce shared by different plaintexts.
       Costs: blob format version 2 (protocol, test vectors, a new ADR in
       place of 0003, a security review), 24 bytes more per chunk (~0.04 %),
       and equal chunks at the same index in two files show as equal (today
@@ -120,10 +117,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 ## Upstream
 
 - **iroh-blobs: a store on a runtime it is given.** Each `FsStore` builds
-  its own tokio runtime, so every suitcase and every reader batch starts and
-  stops a set of threads (memory, see `threads.rs`). Draft issue/PR in
-  `docs/upstream/iroh-blobs-shared-runtime.md`, to be sent by Giorgos. If
-  accepted: pass our runtime to suitcases and batches; drop the
+  its own tokio runtime, so every reader batch starts and stops a set of
+  threads (memory, see `threads.rs`). Since ADR 0017 the owner opens no
+  store per suitcase, so this matters only for the reader's batches. Draft
+  issue/PR in `docs/upstream/iroh-blobs-shared-runtime.md`, to be sent by
+  Giorgos. If accepted: pass our runtime to batches; drop the
   `TOKIO_WORKER_THREADS` setting.
 
 ## ADR 0008, from the first manual test (2026-10-01)

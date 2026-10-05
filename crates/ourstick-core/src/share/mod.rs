@@ -18,7 +18,6 @@ use crate::transport::{BlobHash, Publisher, TransportError};
 pub mod disk_share;
 pub mod disk_turns;
 mod files_keeper;
-mod keeper;
 mod latest;
 mod partial;
 mod pass;
@@ -27,7 +26,6 @@ mod served;
 mod version;
 
 pub use files_keeper::{keep_files, nudge_later, PassWanted};
-pub use keeper::{keep_suitcases, Budget, IN_USE, MAX_BUDGET, MIN_BUDGET};
 pub use latest::{load_latest_manifest, serve_latest};
 pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PARTIAL_TIMING};
 pub use reports::{has, keep_reports, serving_now, Has};
@@ -112,7 +110,7 @@ pub enum ShareError {
     Space(#[from] crate::space::SpaceError),
     #[error("{} is not there (unplugged, moved or renamed?); readers wait until it is back", .name.as_ref().map_or_else(|| "the stick's folder".to_owned(), |name| format!("\u{201c}{name}\u{201d}")))]
     SourceGone { name: Option<String> },
-    #[error("the stick's suitcases already have a keeper")]
+    #[error("the stick's files already have a keeper")]
     KeeperRunning,
     /// A linked entry was added or removed while the pass read: it ends
     /// without recording or publishing more, and another pass reads the

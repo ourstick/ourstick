@@ -50,6 +50,10 @@ fn what_the_owner_or_this_computer_can_fix_is_waited_for() {
             DownloadError::Transport(TransportError::Refused),
             Waiting::KeepsChanging,
         ),
+        (
+            DownloadError::Transport(TransportError::OwnerFailed),
+            Waiting::KeepsChanging,
+        ),
         (io(std::io::ErrorKind::NotFound), Waiting::Folder),
         (io(std::io::ErrorKind::PermissionDenied), Waiting::Folder),
         (io(std::io::ErrorKind::StorageFull), Waiting::DiskFull),
@@ -63,7 +67,6 @@ fn what_the_owner_or_this_computer_can_fix_is_waited_for() {
     // Waited for, with what happened in words.
     for error in [
         DownloadError::Transport(TransportError::Corrupt),
-        DownloadError::Transport(TransportError::OwnerFailed),
         DownloadError::UnsafePath {
             path: "x".to_owned(),
             reason: "no",

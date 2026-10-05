@@ -1,5 +1,5 @@
-//! Reading files through a disk's turns: a [`DiskReader`] (a pass, a
-//! suitcase) holds a turn for one window at a time, and [`Timed`] times the
+//! Reading files through a disk's turns: a [`DiskReader`] (a pass, a file
+//! made ready) holds a turn for one window at a time, and [`Timed`] times the
 //! first read of each file into it (ADR 0013, rules 1 and 2).
 
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub(super) struct Window {
     pub(super) bytes: u64,
 }
 
-/// One reader of a disk (a catalogue pass, a keeper's suitcase): its turn
+/// One reader of a disk (a catalogue pass, a file made ready): its turn
 /// and its current window. Files are read through [`DiskReader::open`].
 pub struct DiskReader {
     disk: Arc<Disk>,
@@ -32,7 +32,7 @@ pub struct DiskReader {
 }
 
 impl DiskReader {
-    /// `urgent`: a suitcase that readers wait for. `go_on` is asked before
+    /// `urgent`: a file that readers wait for. `go_on` is asked before
     /// each turn and between slices of a pause: an error (a stick stopped,
     /// its drive gone) ends the read with it.
     pub fn new(

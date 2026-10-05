@@ -57,7 +57,8 @@ impl DriveOps for NoDrive {
     }
 }
 
-/// The folder of a stick's suitcases (ADR 0007).
+/// The folder of a stick's cache: its latest manifest and outboards (ADR
+/// 0017).
 fn cache_dir(data_dir: &Path, stick_id: &StickId) -> std::path::PathBuf {
     let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
     data_dir.join("cache").join(hex)

@@ -9,7 +9,7 @@ pub mod owner_in_memory;
 pub mod published;
 
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use ourstick_core::clock::FixedClock;
@@ -160,8 +160,8 @@ impl Owner {
         .unwrap()
     }
 
-    /// Serves `publication` again, with the blob `extra` allowed too (in no
-    /// suitcase: "not ready" until a test puts it in one).
+    /// Serves `publication` again, with the blob `extra` allowed too (served
+    /// by no store: "not ready").
     pub async fn allow_also(&self, publication: &Publication, extra: [u8; 32]) {
         let mut allowed: std::collections::HashSet<_> = publication
             .manifest
@@ -192,19 +192,6 @@ impl Owner {
             address_hints: self.publisher.address_hints(),
             stick_key: self.stick_key.clone(),
         }
-    }
-
-    /// The blob files of every open suitcase of the owner.
-    pub fn suitcase_blob_files(&self) -> Vec<PathBuf> {
-        let mut found = Vec::new();
-        let suitcases = self.cache.path().join("suitcases");
-        for suitcase in std::fs::read_dir(suitcases).unwrap() {
-            let files = suitcase.unwrap().path().join("files");
-            for file in std::fs::read_dir(files).unwrap() {
-                found.push(file.unwrap().path());
-            }
-        }
-        found
     }
 }
 
@@ -280,7 +267,7 @@ pub fn keep_going(_: DownloadEvent<'_>) -> ControlFlow<()> {
 }
 
 /// Fetches `hash` over `connection`, asking again while the owner's keeper
-/// puts it in a suitcase ("not ready").
+/// makes it ready ("not ready").
 pub async fn fetch_when_ready(
     connection: &impl ourstick_core::transport::PeerConnection,
     hash: &[u8; 32],

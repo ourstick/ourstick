@@ -44,6 +44,9 @@ is unchanged.
   (different keys) nothing is revealed. Changing the key changes every blob.
 - **Two passes per file.** The plaintext is hashed before it is encrypted. A
   later cache in the Store keyed by `(path, size, mtime)` can skip the first pass.
+  *(ADR 0017, 2026-10-05: suitcases are gone. The owner's store makes each
+  blob from its file when asked and checks every 16 KiB group against the
+  catalogue's outboard before sending it; the guarantee is the same.)*
   *(ADR 0007, 2026-09-30: the owner's suitcases do so. They take the prefix
   from the plaintext hash the catalogue recorded for that very blob and read
   the file once, checking the hash as they go; if the file changed, what was

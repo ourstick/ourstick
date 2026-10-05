@@ -197,7 +197,8 @@ pub struct LinkedEntry {
 /// What a claim on a disk's room is for (the space ledger).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClaimKind {
-    /// A sharer's cache budget (ADR 0007), held whole.
+    /// A sharer's cache budget (ADR 0007). No longer made since ADR 0017
+    /// (migration 0021 removed those left); kept so the ledger reads any row.
     Cache,
     /// A download's bytes still to come, on its folder's disk.
     Download,

@@ -11,7 +11,6 @@ mod reader_paths;
 mod record_protocol;
 mod report_protocol;
 mod serving;
-mod suitcases;
 
 use std::fmt;
 use std::net::SocketAddr;

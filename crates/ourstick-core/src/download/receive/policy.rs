@@ -80,10 +80,12 @@ pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: 
             TransportError::NoRecord | TransportError::NotReady | TransportError::Protocol(_) => {
                 wait(Waiting::Sender(said()))
             }
-            TransportError::Refused => wait(Waiting::KeepsChanging),
-            TransportError::OwnerFailed | TransportError::Corrupt => {
-                Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
-            }
+            // The owner stopped a transfer because its file no longer gives
+            // the blob its version lists (ADR 0017: it checks every part
+            // before it sends it, so it never sends a damaged one): a new
+            // version follows soon.
+            TransportError::Refused | TransportError::OwnerFailed => wait(Waiting::KeepsChanging),
+            TransportError::Corrupt => Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT),
             TransportError::Bind(_) | TransportError::Storage(_) | TransportError::Io(_) => {
                 wait(Waiting::ThisComputer(said()))
             }

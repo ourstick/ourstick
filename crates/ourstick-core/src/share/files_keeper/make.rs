@@ -21,6 +21,8 @@ pub(super) struct ToMake {
     pub(super) hash: BlobHash,
     pub(super) size: u64,
     pub(super) paths: Vec<String>,
+    /// For each path, the stamp the catalogue recorded with this blob.
+    pub(super) stamps: Vec<Option<FileStamp>>,
 }
 
 /// What making a blob gave.
@@ -78,12 +80,15 @@ pub(super) fn make(
         plaintext_hash: Some(plaintext_hash),
     };
     let mut records = vec![record(first, stamp)];
-    // The same content at other paths: recorded with their own stamps.
-    for other in &blob.paths[1..] {
-        if let Ok(metadata) = std::fs::metadata(layout.on_disk(other)) {
-            if metadata.len() == blob.size {
-                records.push(record(other, FileStamp::of(&metadata)));
-            }
+    // The same content at other paths, recorded only while each is as the
+    // catalogue found it (not read here: one changed since would be
+    // recorded with a blob it no longer gives).
+    for (other, recorded) in blob.paths.iter().zip(&blob.stamps).skip(1) {
+        let Some(recorded) = recorded else { continue };
+        if std::fs::metadata(layout.on_disk(other))
+            .is_ok_and(|metadata| FileStamp::of(&metadata) == *recorded)
+        {
+            records.push(record(other, *recorded));
         }
     }
     Made::Ready(records)

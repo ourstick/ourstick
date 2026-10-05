@@ -35,8 +35,8 @@ pub(super) struct Versions<'a, P> {
 }
 
 impl<P: Publisher> Versions<'_, P> {
-    /// Publishes `manifest`. Its blobs need not be in a suitcase: until
-    /// they are, readers are told "not ready".
+    /// Publishes `manifest`. Its blobs need not be ready: until the files
+    /// keeper serves them, readers are told "not ready".
     pub(super) async fn publish(
         &self,
         signed: &mut Signed,
@@ -54,7 +54,7 @@ impl<P: Publisher> Versions<'_, P> {
             })
             .await?
         };
-        // For a restart (`serve_latest`) and the suitcases' keeper.
+        // For a restart (`serve_latest`) and the files keeper.
         {
             let cache_dir = self.publisher.cache_dir().to_path_buf();
             let blob = manifest_blob.clone();

@@ -2,6 +2,10 @@
 
 Status: Accepted (2026-10-03)
 
+Note (2026-10-05): ADR 0017 removed suitcases. Where this ADR speaks of a
+suitcase, read: the owner's files keeper making a file a reader waits on (it
+goes first, rule 5). A blob being sent is read outside the turns.
+
 ## Context
 
 A big stick is read for hours. The first test of scale is

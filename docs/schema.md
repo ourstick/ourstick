@@ -25,7 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 20
+## Version 21
+
+Version 21 (`0021_no_cache_claims.sql`, ADR 0017) deletes the `space_claims` rows
+of kind `cache`. The kind is still allowed, so no database is refused, and is
+never written. No column changed.
 
 Version 20 (`0020_reader_reports.sql`, ADR 0015) added `reader_reports`,
 `device.receiver_name` (NULL for every device before) and
@@ -179,7 +183,7 @@ left the folder are removed at the end of a full pass.
 | `mtime_ns`  | INTEGER | Modification time, ns since the Unix epoch; 0 if unknown   |
 | `ctime_ns`  | INTEGER | Inode change time on Unix, ns; 0 elsewhere                 |
 | `blob_hash` | BLOB 32 | The blob made from the file in that state                  |
-| `plaintext_hash` | BLOB 32 or NULL | BLAKE3 of the file in that state (the nonce prefix, ADR 0003). Preparing a suitcase (ADR 0007) takes the nonce prefix from it, for the blob in `blob_hash` only, and reads the file once to check it; a blob made so is served only if its hash is `blob_hash`. NULL in rows from before version 9 (the file is then read twice) |
+| `plaintext_hash` | BLOB 32 or NULL | BLAKE3 of the file in that state (the nonce prefix, ADR 0003). The owner's store (ADR 0017) takes the nonce prefix from it, for the blob in `blob_hash` only, when it makes the blob from the file; every 16 KiB group is checked against the blob's outboard before it is sent. A file without it is not ready until the files keeper makes it. NULL in rows from before version 9 (the file is then read twice) |
 
 Primary key `(stick_id, path)`. A file whose size, mtime and ctime match its
 row, and whose blob the cache still holds, keeps `blob_hash` without being
@@ -302,19 +306,17 @@ notes, `ourstick_core::space`).
 
 | Column     | Type    | Meaning                                                     |
 |------------|---------|-------------------------------------------------------------|
-| `stick_id` | BLOB 32 | The stick (owned for a cache, joined for a download; no foreign key) |
-| `kind`     | TEXT    | `cache`: a sharer's cache budget, held whole; `download`: a download's bytes still to come, on its folder's disk; `scratch`: a download's room for its batches, on the data folder's disk |
+| `stick_id` | BLOB 32 | The stick (joined for a download; no foreign key) |
+| `kind`     | TEXT    | `cache`: a sharer's cache budget, held whole (never written since ADR 0017; old rows deleted by version 21); `download`: a download's bytes still to come, on its folder's disk; `scratch`: a download's room for its batches, on the data folder's disk |
 | `disk`     | TEXT    | Which disk: `dev:<st_dev>` on Unix, `vol:<volume>` on Windows |
 | `bytes`    | INTEGER | How much it holds                                           |
 
 Primary key `(stick_id, kind)`: a new claim replaces the old one. A row
-counts only while its holder's lock is held (`share-<hex>.lock` for `cache`,
-`download-<hex>.lock` for `download` and `scratch`); otherwise it is stale,
+counts only while its holder's lock is held (`download-<hex>.lock` for `download` and `scratch`); otherwise it is stale,
 ignored, and replaced next time. Claims are decided and written in one
 transaction (a download's two at once), so two programs never both take the
 same room. A download gives its rows back when it returns: a stick that is up
-to date holds none. A cache's budget leaves out the room downloads hold on
-its disk.
+to date holds none.
 
 ### `retired_sticks`
 

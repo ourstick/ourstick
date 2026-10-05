@@ -8,7 +8,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::locks::{is_held, LockError};
-use crate::share::{MAX_BUDGET, MIN_BUDGET};
 use crate::stick_id::StickId;
 use crate::store::{ClaimKind, SpaceClaim, Store, StoreError};
 
@@ -16,20 +15,12 @@ use crate::store::{ClaimKind, SpaceClaim, Store, StoreError};
 const RESERVE_SHARE: u64 = 10;
 /// …at most this.
 pub const MAX_RESERVE: u64 = 20 << 30;
-/// The device's cache budget is this share of the free space (ADR 0007).
-const BUDGET_SHARE: u64 = 10;
 
 /// Why room could not be had. The messages are meant for users.
 #[derive(Debug, thiserror::Error)]
 pub enum SpaceError {
     #[error("does not fit: needs {needed} bytes, {available} are left")]
     DoesNotFit { needed: u64, available: u64 },
-    #[error("not enough room for another share's working space ({free} bytes free on the cache's disk; other shares hold {held}, downloads {downloads}); stop one of them first")]
-    NoRoomForCache {
-        free: u64,
-        held: u64,
-        downloads: u64,
-    },
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -173,80 +164,6 @@ pub fn available(
             .map(|(stick_id, kinds)| (*stick_id, kinds.as_slice())),
     )?;
     Ok(room_left(free, total, held_on(&live, &disk)))
-}
-
-/// The cache budget of the stick `stick_id` about to be shared, whose lock
-/// this program holds: one budget for the whole device (10 % of the cache
-/// disk's free space plus what other shares hold, 2 to 40 GB; the room that
-/// running downloads hold there is not free), split
-/// equally between the `together` sticks started at once (this one
-/// included; 1 for one): this sharer gets its part, or what the others
-/// leave if that is less, but at least 2 GB while that much is free.
-/// Recorded as a claim until the stick's lock goes. Running sharers keep
-/// theirs.
-pub fn claim_cache(
-    disks: &dyn Disks,
-    store: &dyn Store,
-    data_dir: &Path,
-    stick_id: &StickId,
-    cache_dir: &Path,
-    together: usize,
-) -> Result<u64, SpaceError> {
-    let disk = disks.key(cache_dir).map_err(io(cache_dir))?;
-    let free = disks.free(cache_dir).map_err(io(cache_dir))?;
-    let mut outcome = None;
-    store.claim_space(&mut |all| {
-        let decided = live(data_dir, all, Some((*stick_id, &[ClaimKind::Cache]))).map(|live| {
-            let sum = |of: &dyn Fn(ClaimKind) -> bool| {
-                live.iter()
-                    .filter(|claim| claim.disk == disk && of(claim.kind))
-                    .fold(0u64, |held, claim| held.saturating_add(claim.bytes))
-            };
-            let held = sum(&|kind| kind == ClaimKind::Cache);
-            // Promised to downloads: not free for a cache.
-            let downloads = sum(&|kind| kind != ClaimKind::Cache);
-            cache_share(free.saturating_sub(downloads), held, together).map_err(|error| match error
-            {
-                // Say what took the room: the disk's free bytes, and the
-                // downloads' part of them.
-                SpaceError::NoRoomForCache { held, .. } => SpaceError::NoRoomForCache {
-                    free,
-                    held,
-                    downloads,
-                },
-                other => other,
-            })
-        });
-        let claim = match &decided {
-            Ok(Ok(bytes)) => vec![SpaceClaim {
-                stick_id: *stick_id,
-                kind: ClaimKind::Cache,
-                disk: disk.clone(),
-                bytes: *bytes,
-            }],
-            _ => Vec::new(),
-        };
-        outcome = Some(decided);
-        claim
-    })?;
-    outcome.expect("decided")?
-}
-
-/// This sharer's part of the device's cache budget, when `free` bytes are
-/// free on the cache's disk, other live shares hold `held`, and `together`
-/// sticks start at once.
-pub fn cache_share(free: u64, held: u64, together: usize) -> Result<u64, SpaceError> {
-    let total = (free.saturating_add(held) / BUDGET_SHARE).clamp(MIN_BUDGET, MAX_BUDGET);
-    let part = total / u64::try_from(together.max(1)).unwrap_or(u64::MAX);
-    let mine = part.min(total.saturating_sub(held)).max(MIN_BUDGET);
-    if free < mine {
-        return Err(SpaceError::NoRoomForCache {
-            free,
-            held,
-            downloads: 0,
-        });
-    }
-    Ok(mine)
 }
 
 /// Claims room for a download of `stick_id` into `out_dir` that still

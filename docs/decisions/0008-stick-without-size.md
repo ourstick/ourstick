@@ -24,6 +24,9 @@ computed on each call, never cached. A download also needs room for its
 batches (2 GB) on the data folder's disk. `copy_onto` takes no claim: a copy
 is short and the user watches it.
 
+*(2026-10-05: the owner's cache budget is gone, ADR 0017; only downloads and
+scratch hold claims now.)*
+
 **One cache budget per device** (amends ADR 0007 §2): 10 % of the cache
 disk's free space plus what live shares hold, 2–40 GB. A share starting gets
 what the others leave of it, but at least 2 GB while that much is free; a

@@ -1,5 +1,10 @@
 # Draft: iroh-blobs, let an `FsStore` run on a runtime it is given
 
+Note (2026-10-05, after ADR 0017): the owner no longer opens a store per
+suitcase; it has one store of its own per stick. This request now matters
+only for the reader's batches (one `FsStore` per 512 files). The draft below
+is kept as written.
+
 Status: draft, not sent (2026-10-05). To be sent by Giorgos, as an issue
 (and a PR if they welcome one) at https://github.com/n0-computer/iroh-blobs.
 Checked against iroh-blobs 0.103.0.
@@ -51,6 +56,6 @@ We would be glad to write the PR if the shape suits you.
 Notes for us (not to send):
 - The measurements behind the numbers: `docs/decisions/0007-rolling-blob-cache.md`
   (notes of 2026-10-04 and the withdrawn Amendment 1), `crates/ourstick-core/src/threads.rs`.
-- If accepted: our suitcases (`transport/iroh/suitcases.rs`) and the reader's
-  batches (`transport/iroh/batches.rs`) pass the program's runtime handle;
+- If accepted: the reader's batches (`transport/iroh/batches.rs`) pass the
+  program's runtime handle (the owner's suitcases are gone, ADR 0017);
   `TOKIO_WORKER_THREADS` and maybe the arena limit can go.

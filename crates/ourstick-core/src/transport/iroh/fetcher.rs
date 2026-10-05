@@ -241,8 +241,9 @@ fn get_error(error: GetError) -> TransportError {
         // blob (ADR 0007).
         TransportError::NotReady
     } else if error.iroh_error_code() == Some(ERR_INTERNAL) {
-        // The provider checks its data against its outboard while sending and
-        // stops with this code when its copy is damaged.
+        // The owner checks each part against the blob's tree before it sends
+        // it, and stops with this code when its file no longer gives that
+        // blob (it changed, ADR 0017).
         TransportError::OwnerFailed
     } else {
         TransportError::Interrupted(error.to_string())

@@ -137,13 +137,13 @@ so Spotlight leaves it alone.
   not a problem: the event `giving-way`, told at each change.
 - Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
   used out of used + left. "Left" is what the computer has room for once its
-  reserve and every share's and download's claim are counted (the space
+  reserve and every download's claim are counted (the space
   ledger, ADR 0008); several sticks on one disk share it.
 - Activity line (only while someone downloads):
   `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`: the
-  rate over the last ten seconds (a big stick is sent in bursts, a suitcase
-  at a time). While readers wait for their files to be got ready (told
-  "not ready", nothing sent since): `● Someone downloading · getting their
+  rate over the last ten seconds (a big stick can be sent in bursts). While readers wait for their files to
+  be got ready (told "not ready", nothing sent since: the owner is making a
+  file's hash or outboard, ADR 0017): `● Someone downloading · getting their
   files ready`.
   `· direct` / `· relay` is added only if iroh gives it cheaply on the
   owner's side.

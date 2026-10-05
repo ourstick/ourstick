@@ -1,6 +1,7 @@
 # ADR 0017: Blobs made when asked, from the files themselves
 
-**Status:** accepted — 2026-10-05, after the prototype below. Would supersede ADR 0007's suitcases for
+**Status:** accepted — 2026-10-05; implemented 2026-10-05 (steps 1–5).
+Supersedes ADR 0007's suitcases for
 the owner (its catalogue, partial versions, readers' batches and "not
 ready" stay), its Amendment 2 with them, and the owner's part of the space
 ledger. The reader is unchanged; the wire protocol is unchanged. Reviewed
@@ -181,7 +182,7 @@ The catalogue's cost of making outboards is measured in step 1.
 
 ## Order of work
 
-0. **Prototype, measured first** (done, above; the store actor form
+0. **Prototype, measured first** (done 2026-10-05, above; the store actor form
    passed, so the fallback below was not built).
    Against today's build, on the same PC and data, it passes if:
    - **memory:** the owner of the 100 000-file stick does not grow with the
@@ -197,17 +198,29 @@ The catalogue's cost of making outboards is measured in step 1.
      today;
    - **the catalogue**, building outboards, is no slower than 1.1 × today.
    Otherwise this ADR is withdrawn.
-1. Outboards in the catalogue, written atomically and cleaned up; tests.
-2. The encrypting reader; tests.
-3. The store actor (or the fallback) and `ExportBao`; two peers get a
+1. (done) Outboards in the catalogue, written atomically and cleaned up; tests.
+2. (done) The encrypting reader; tests.
+3. (done) The store actor (or the fallback) and `ExportBao`; two peers get a
    folder through it.
-4. `Serving` and the handler use it; "not ready" for missing outboards,
+4. (done) `Serving` and the handler use it; "not ready" for missing outboards,
    plaintext hashes, mismatches and read errors; the queue of rule 7.
-5. Suitcases, most of the keeper and the owner's budget removed; the
+5. (done, but the measurements on all three systems are not yet repeated)
+   Suitcases, most of the keeper and the owner's budget removed; the
    in-memory `Publisher` of the tests loses its suitcase calls (it keeps its
    own notion of "ready", with no encryption path; the real store is tested
    against a real iroh-blobs fetch); ADR 0007, 0016 rule 6 and
    `docs/protocol.md` updated; the measurements again on all three systems.
+
+## Notes from the implementation (2026-10-05)
+
+- The queue of rule 7 is `share/files_keeper` (`keep_files`); `Publisher`
+  gained `serve_files` and `serve_more`, and `Demand` gained `NotServed`.
+- A read error or mismatch while a blob is made ends the transfer with
+  `ERR_INTERNAL` on the wire (`TransportError::OwnerFailed` in the reader).
+  The reader treats it as "keeps changing": a short wait, then asks again,
+  not "damaged".
+- The owner keeps no space claim: migration 0021 deletes old `cache` rows.
+  Old `cache/<stick>/suitcases` folders are removed when sharing starts.
 
 ## Tests to write
 

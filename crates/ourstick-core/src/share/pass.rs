@@ -1,6 +1,6 @@
 //! A pass over a stick's folder (ADR 0007): the catalogue in parts, and a
-//! version published at the end; the files' blobs go into suitcases only
-//! when readers ask for them ([`super::keeper`]). Partial versions
+//! version published at the end; the files' blobs are made only when
+//! readers ask for them (ADR 0017, [`super::keep_files`]). Partial versions
 //! are published as the catalogue grows, so readers start before it ends;
 //! each keeps the files not read yet as the last pass left them
 //! ([`super::partial`]), and one that changes nothing is not published.

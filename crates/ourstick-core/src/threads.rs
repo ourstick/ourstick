@@ -1,8 +1,8 @@
 //! The threads of a program that shares or receives sticks.
 //!
 //! iroh-blobs gives each of its file stores its own tokio runtime, with a
-//! worker thread per core and no setting for it; the owner opens a store per
-//! suitcase (ADR 0007) and a reader one per batch, several at once. On a
+//! worker thread per core and no setting for it; a reader opens one per
+//! batch (the owner did one per suitcase until ADR 0017). On a
 //! 32-core PC the owner of 100 000 small files ran about 290 threads, each
 //! with its own stack and its own part of the allocator, which keeps memory
 //! freed: the program grew to 420 MB with 80 MB in use. Those runtimes read

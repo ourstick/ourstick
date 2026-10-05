@@ -137,6 +137,24 @@ fn identical_files_share_one_outboard() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+#[test]
+fn an_outboard_cut_short_or_damaged_is_made_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = plaintext(100 * 1024);
+    let hashes = hash_plaintext(&cipher(), &mut Cursor::new(&data), Some(dir.path())).unwrap();
+    let path = outboard_path(dir.path(), &hashes.blob_hash);
+    let whole = std::fs::read(&path).unwrap();
+    // A crash left it short; then a bit changed.
+    std::fs::write(&path, &whole[..10]).unwrap();
+    hash_plaintext(&cipher(), &mut Cursor::new(&data), Some(dir.path())).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), whole);
+    let mut damaged = whole.clone();
+    damaged[5] ^= 1;
+    std::fs::write(&path, &damaged).unwrap();
+    hash_plaintext(&cipher(), &mut Cursor::new(&data), Some(dir.path())).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), whole);
+}
+
 /// A plaintext whose second read fails.
 struct Failing {
     data: Cursor<Vec<u8>>,

@@ -188,10 +188,14 @@ fn hash_keeping_outboard<R: Read>(
         let blob_hash = *root.as_bytes();
         drop(outboard);
         let target = outboard_path(dir, &blob_hash);
-        if target.exists() {
-            // Named by its content: the one there is this one (and on
-            // Windows it may be open for a transfer, which a rename over it
-            // would fail on).
+        // The one there is kept if it is this one (on Windows it may be
+        // open for a transfer, which a rename over it could fail on); one
+        // cut short by a crash, or damaged, is replaced. An outboard is 0.4 %
+        // of its blob: reading it again costs little.
+        let same = std::fs::metadata(&target)
+            .is_ok_and(|metadata| metadata.len() == tree.outboard_size())
+            && std::fs::read(&target)? == std::fs::read(&temporary)?;
+        if same {
             std::fs::remove_file(&temporary)?;
         } else {
             std::fs::rename(&temporary, &target)?;

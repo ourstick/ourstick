@@ -203,25 +203,38 @@ async fn export_bao(
     }
 }
 
-/// The store's [`Probe`](super::serving::Probe): whether the file of `hash`
-/// is there, of its recorded size, with its outboard if it needs one; if
-/// not, it is told as not served (could not be read).
-pub(super) fn probe(served: Served) -> super::serving::Probe {
-    super::serving::Probe(Arc::new(move |hash| {
-        let can = served.file(&hash).is_ok_and(|(file, path)| {
-            std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() == file.plaintext_len) && {
-                let tree = BaoTree::new(
-                    crate::blob::blob_len(served.cipher().as_ref(), file.plaintext_len),
-                    BLOCK_SIZE,
-                );
-                tree.outboard_size() == 0 || open_outboard(&served.outboards, &hash, tree).is_ok()
+/// The store's [`Probe`](super::serving::Probe), run on `runtime`: whether
+/// the file of `hash` is there, of its recorded size, with its outboard if
+/// it needs one. If not, it is told as not served: changed if it is there
+/// of another size, else could not be read (gone, or a disk unplugged).
+pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::serving::Probe {
+    let look = move |hash| {
+        let Ok((file, path)) = served.file(&hash) else {
+            return false;
+        };
+        let changed = match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.len() == file.plaintext_len => false,
+            Ok(_) => true,
+            Err(_) => {
+                not_served(&served, hash, false);
+                return false;
             }
-        });
-        if !can && served.file(&hash).is_ok() {
-            not_served(&served, hash, false);
+        };
+        let tree = BaoTree::new(
+            crate::blob::blob_len(served.cipher().as_ref(), file.plaintext_len),
+            BLOCK_SIZE,
+        );
+        let can = !changed
+            && (tree.outboard_size() == 0 || open_outboard(&served.outboards, &hash, tree).is_ok());
+        if !can {
+            not_served(&served, hash, changed);
         }
         can
-    }))
+    };
+    super::serving::Probe {
+        look: Arc::new(look),
+        runtime,
+    }
 }
 
 fn not_served(served: &Served, hash: Hash, changed: bool) {

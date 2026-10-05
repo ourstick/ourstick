@@ -21,7 +21,7 @@ fn random_key() -> [u8; 32] {
 }
 
 /// Puts every file's blob in the owner's store, ready: these tests are about
-/// the reader, and the owner's suitcases have tests of their own.
+/// the reader, and the owner's own store has tests of its own.
 pub fn make_ready(
     served: &Mutex<Served>,
     folder: &Path,

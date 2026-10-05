@@ -255,19 +255,19 @@ fn turns_go_in_order_and_urgent_ones_first_at_most_three_to_one() {
     let catalogue = ask(&mut state, false);
     let other_stick = ask(&mut state, false);
     assert_eq!(state.chosen(), Some(catalogue));
-    let suitcase = ask(&mut state, true);
+    let urgent = ask(&mut state, true);
     // Urgent first…
     let mut granted = Vec::new();
     for _ in 0..3 {
         let chosen = state.chosen().unwrap();
         state.grant(chosen);
         granted.push(chosen);
-        // The suitcase asks again at once.
-        if chosen == suitcase || granted.len() > 1 {
+        // The urgent reader asks again at once.
+        if chosen == urgent || granted.len() > 1 {
             ask(&mut state, true);
         }
     }
-    assert_eq!(granted[0], suitcase);
+    assert_eq!(granted[0], urgent);
     // …at most three in a row while others wait, then the oldest other.
     let next = state.chosen().unwrap();
     state.grant(next);
@@ -373,7 +373,7 @@ fn urgent_turns_and_others_alternate_three_to_one_for_good() {
         state.waiting.push_back((ticket, urgent));
         ticket
     };
-    // A suitcase and a catalogue, each asking again as soon as served.
+    // An urgent reader and a catalogue, each asking again as soon as served.
     let mut urgent_ticket = ask(&mut state, true);
     let mut other_ticket = ask(&mut state, false);
     let mut served = String::new();

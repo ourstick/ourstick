@@ -11,14 +11,32 @@ use iroh_blobs::api::Store;
 use iroh_blobs::Hash;
 use tokio::sync::Notify;
 
-/// A store that serves blobs: today the one cache; with ADR 0007, each
-/// suitcase. Never reused: a store that left keeps its id.
+/// A store that serves blobs: each version's manifest, and the owner's own
+/// store of its files (ADR 0017). Never reused: a store that left keeps its
+/// id.
 pub(super) type StoreId = u64;
 
 /// Whether a store can send a blob now, looked at before it begins (ADR
-/// 0017: its file is there, of its size, with its outboard). Blocking.
+/// 0017: its file is there, of its size, with its outboard), on the
+/// store's own threads.
 #[derive(Clone)]
-pub(super) struct Probe(pub(super) Arc<dyn Fn(Hash) -> bool + Send + Sync>);
+pub(super) struct Probe {
+    pub(super) look: Arc<dyn Fn(Hash) -> bool + Send + Sync>,
+    pub(super) runtime: tokio::runtime::Handle,
+}
+
+impl Probe {
+    /// Looks at `hash`; false if the look could not run.
+    pub(super) async fn can_send(&self, hash: Hash) -> bool {
+        let look = self.look.clone();
+        // A task, not a blocking thread: a few metadata reads, as blocking
+        // as the store's exports, and no thread comes and goes for it.
+        self.runtime
+            .spawn(async move { look(hash) })
+            .await
+            .unwrap_or(false)
+    }
+}
 
 impl std::fmt::Debug for Probe {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

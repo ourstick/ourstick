@@ -12,7 +12,7 @@ use crate::blob::{blob_len, decrypt_blob};
 use crate::cipher::Cipher;
 use crate::layout::StickLayout;
 use crate::manifest::hashing::{outboard_path, BLOCK_SIZE};
-use crate::manifest::{Entry, Manifest};
+use crate::manifest::{Entry, FileStamp, Manifest};
 use crate::stick_id::StickId;
 use crate::store::Store;
 use crate::transport::{BlobHash, ServedFile, ServedFiles};
@@ -22,9 +22,18 @@ pub(super) struct Version {
     pub(super) manifest_hash: BlobHash,
     /// Its files the store serves now.
     pub(super) served: ServedFiles,
-    /// Every file of the version, in manifest order, and whether the store
-    /// serves it now (else it lacks its plaintext hash or its outboard).
-    pub(super) entries: Vec<(Entry, bool)>,
+    /// Every file of the version, in manifest order.
+    pub(super) entries: Vec<Listed>,
+}
+
+/// A file of the version.
+pub(super) struct Listed {
+    pub(super) entry: Entry,
+    /// Whether the store serves it now (else it lacks its plaintext hash or
+    /// its outboard).
+    pub(super) served: bool,
+    /// The stamp the catalogue recorded for it with this blob, if any.
+    pub(super) stamp: Option<FileStamp>,
 }
 
 /// The latest version the owner published, split into what can be served
@@ -54,13 +63,13 @@ pub(super) fn load_version(
     let mut files = HashMap::with_capacity(manifest.entries.len());
     let mut entries = Vec::with_capacity(manifest.entries.len());
     for entry in manifest.entries {
-        let plaintext_hash = recorded
+        let record = recorded
             .binary_search_by(|file| file.path.as_str().cmp(&entry.path))
             .ok()
             .map(|index| &recorded[index])
-            .filter(|file| file.blob_hash == entry.hash)
-            .and_then(|file| file.plaintext_hash);
-        match plaintext_hash {
+            .filter(|file| file.blob_hash == entry.hash);
+        let stamp = record.map(|file| file.stamp);
+        match record.and_then(|file| file.plaintext_hash) {
             Some(plaintext_hash) if has_outboard(outboards, cipher, &entry) => {
                 files.insert(
                     entry.hash,
@@ -70,9 +79,17 @@ pub(super) fn load_version(
                         plaintext_hash,
                     },
                 );
-                entries.push((entry, true));
+                entries.push(Listed {
+                    entry,
+                    served: true,
+                    stamp,
+                });
             }
-            _ => entries.push((entry, false)),
+            _ => entries.push(Listed {
+                entry,
+                served: false,
+                stamp,
+            }),
         }
     }
     Ok(Some(Version {

@@ -97,10 +97,16 @@ impl IrohPublisher {
         let activity = Activity::new();
         let reporter = tokio::spawn(activity.clone().report()).abort_handle();
         let serving = Serving::default();
-        match tokio::fs::remove_dir_all(cache_dir.join("suitcases")).await {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-            _ => {}
-        }
+        // In the background: an old cache may be big, and nothing uses it.
+        let suitcases = cache_dir.join("suitcases");
+        tokio::spawn(async move {
+            match tokio::fs::remove_dir_all(&suitcases).await {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    tracing::warn!(%error, "the old suitcases could not be removed");
+                }
+                _ => {}
+            }
+        });
         let (demand_sender, demand) = tokio::sync::mpsc::unbounded_channel();
         let (report_sender, reports) = tokio::sync::mpsc::channel(WAITING_REPORTS);
         let handler = BlobsHandler::new(

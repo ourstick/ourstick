@@ -21,6 +21,10 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
     let publication = owner.publish().await;
     owner.publisher.shutdown().await;
 
+    // An older version's suitcases, which a start removes.
+    let suitcases = owner.cache.path().join("suitcases");
+    std::fs::create_dir_all(suitcases.join("1")).unwrap();
+    std::fs::write(suitcases.join("1").join("blobs.db"), b"old").unwrap();
     let config = IrohConfig::new(random_key(), Network::LocalOnly);
     let publisher = IrohPublisher::start(&config, owner.signing_key.stick_id(), owner.cache.path())
         .await
@@ -67,6 +71,13 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
     .unwrap();
     assert_eq!(report.files, 2);
     assert_eq!(reader.read("a.txt"), b"hello");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while suitcases.exists() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the old suitcases are removed");
     publisher.shutdown().await;
 }
 

@@ -19,6 +19,13 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **The reader reaches 200–240 MB** for 100 000 small files on Linux,
   macOS and Windows; not looked at yet.
 
+- **glibc's arenas (Linux):** `mallopt(M_ARENA_MAX, 2)` kept the owner flat
+  in the tests of 2026-10-05; set aside until ADR 0017 is measured (with one
+  store, few threads may be enough). The change is kept outside the repo,
+  `/media/<user>/G/ourstick-mallopt.patch` (core `threads.rs`, with its
+  `SAFETY` note; needs Giorgos's approval for the `unsafe`, given
+  2026-10-05).
+
 ## Upstream
 
 - [ ] **iroh 1.2: a direct path lost and not found again.** Two peers on one

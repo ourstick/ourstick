@@ -1,6 +1,6 @@
 # ADR 0017: Blobs made when asked, from the files themselves
 
-**Status:** proposed — 2026-10-05. Would supersede ADR 0007's suitcases for
+**Status:** accepted — 2026-10-05, after the prototype below. Would supersede ADR 0007's suitcases for
 the owner (its catalogue, partial versions, readers' batches and "not
 ready" stay), its Amendment 2 with them, and the owner's part of the space
 ledger. The reader is unchanged; the wire protocol is unchanged. Reviewed
@@ -156,15 +156,40 @@ catalogue before it is sent. No encrypted copy is kept.
   make few threads. If Linux still keeps freed memory after this, the
   `mallopt` change (set aside, `docs/todo.md`) is measured again then.
 
+## The prototype (2026-10-05)
+
+A test build (switched on by `OURSTICK_PROTO_MADE`, outboards made when
+first asked and kept in memory) against today's, same PC and data, one
+local reader (two for that row):
+
+| | today | prototype |
+|---|---|---|
+| Linux, owner, 100 000 files | 243 → 377 MB at 25 000 files, rising | 196 → 279 MB at 20 000, then 236–241 MB to the end |
+| Linux, owner threads | 15 → 64 | 9–10 |
+| macOS, owner, 100 000 files | 124 → 206 MB, 8 → 208 threads | 128 → 141 MB, 11 threads |
+| macOS, whole stick | 526 s | 526 s |
+| Linux, 10 000 small files | 136–207 s | 123–142 s |
+| Linux, one 2 GB file | 101–134 s | 89–97 s (outboard made at the request) |
+| Linux, two readers of 10 000 | 291 s | 209 s |
+
+Three things were learned on the way: a blob of one 16 KiB group needs no
+outboard and must not have one made (it read the file twice); the keeper's
+per-file state and the store's table were the same list twice; the store's
+table should keep each file's manifest path and the index of its root, not
+its whole path on disk (about 90 MB for 100 000 files with whole paths).
+The catalogue's cost of making outboards is measured in step 1.
+
 ## Order of work
 
-0. **Prototype, measured first**, in two forms side by side: the store
-   actor of rule 2, and the fallback below (our handler writes bao-tree's
-   encoding to the stream itself). The smaller one that passes goes on.
+0. **Prototype, measured first** (done, above; the store actor form
+   passed, so the fallback below was not built).
    Against today's build, on the same PC and data, it passes if:
-   - **memory:** the owner of the 100 000-file stick stays within 10 % of
-     its RSS at the start of serving, over the whole stick, on Linux
-     without an arena limit and on macOS;
+   - **memory:** the owner of the 100 000-file stick does not grow with the
+     files it serves: once warmed up (after its first 20 000 files), its
+     RSS stays within 10 %, over the whole stick, on Linux without an arena
+     limit and on macOS. (First written "within 10 % of its RSS at the start
+     of serving"; the prototype showed a one-time rise as its few threads
+     start working, which does not grow with the stick.)
    - **threads:** at most 32 at any time on the owner;
    - **speed:** 10 000 small files and one 2 GB file download no slower
      than 1.2 × today, cold and warm, on Linux and macOS;
@@ -218,7 +243,7 @@ catalogue before it is sent. No encrypted copy is kept.
   working. Not worth it while iroh-blobs serves from a store of ours.
 - **Write the bao response ourselves instead of a store actor** (our
   handler already owns the stream). No semi-internal API, but our code then
-  has to match iroh-blobs' wire format. Built side by side in the
-  prototype (step 0).
+  has to match iroh-blobs' wire format. Not built: the store actor passed;
+  it stays the way out if a new iroh-blobs breaks the actor.
 - **mimalloc or another allocator.** Measured worse on macOS (3–4×) and
   Windows (1.5–2.5×).

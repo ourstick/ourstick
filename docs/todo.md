@@ -20,12 +20,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## Memory
 
-- **The reader reaches 200–240 MB** for 100 000 small files on Linux,
-  macOS and Windows; not looked at yet.
-
-- **The reader on Linux, with two arenas:** it reached 490 MB there
-  (200–240 MB on macOS and Windows) before `mallopt` was set; measure it
-  again.
+- **The reader reaches 200–280 MB** for 100 000 small files on Linux,
+  macOS and Windows (ADR 0017's measurements); not looked at yet.
 
 ## Upstream
 

@@ -204,7 +204,7 @@ The catalogue's cost of making outboards is measured in step 1.
    folder through it.
 4. (done) `Serving` and the handler use it; "not ready" for missing outboards,
    plaintext hashes, mismatches and read errors; the queue of rule 7.
-5. (done, but the measurements on all three systems are not yet repeated)
+5. (done; measured, below)
    Suitcases, most of the keeper and the owner's budget removed; the
    in-memory `Publisher` of the tests loses its suitcase calls (it keeps its
    own notion of "ready", with no encryption path; the real store is tested
@@ -235,6 +235,25 @@ The catalogue's cost of making outboards is measured in step 1.
   instead of a transfer that fails.
 - An outboard on disk that differs from the one a new read of its file
   gives (cut short by a crash, damaged) is replaced.
+
+## Measured after step 5 (2026-10-05/06)
+
+The 100 000-file stick, owner and reader on one machine, the reader from
+scratch to the end (Windows stopped at 70 000 files: the host ran out of
+memory and Defender scanned every file written).
+
+| | Owner memory | Owner threads | Reader peak | Download |
+|---|---|---|---|---|
+| Linux, before (suitcases) | 296 → 377 MB at 25 %, growing | 5 → 64 | 490 MB | |
+| Linux, glibc default | 282 → 311 MB, growing slowly | 11 | 490 MB | 38:19 |
+| Linux, two arenas (`mallopt`) | 250–258 MB, flat | 15 | 281 MB | 38:50 |
+| macOS | 134 MB, flat | 16 | 206 MB | 8:37 |
+| Windows (VM), before | 106 MB at 30 % | 74 → 82 | 89 MB at 30 % | |
+| Windows (VM) | 106–109 MB, flat | 20–22 | 111 MB at 70 % | |
+
+On Linux the heap peaked at 176 MB (170 MB in the prototype): the rest was
+glibc's arenas, which `threads.rs` now limits to two. The criteria of
+step 0 hold on all three systems.
 
 ## Tests to write
 

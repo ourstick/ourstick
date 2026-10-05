@@ -380,3 +380,124 @@ only once its store has shut down; it is never asleep and waking at once.
   but iroh-blobs 0.103 cannot delete one blob (the reason suitcases exist).
 - **Fewer threads per store (1 or 2).** Measured: 4 already made a download
   20–50 % slower; and the database caches stay.
+
+## Amendment 2: a suitcase no one needs leaves (proposed, 2026-10-05)
+
+Reviewed by two other models against the keeper and the transport; this
+version takes in their changes (slow readers, pauses, the removal task).
+
+### Context
+
+Amendment 1 above was withdrawn by its own measurement, but what it was
+after is real. A suitcase leaves only when the budget needs its room, so
+with a budget of tens of GB every suitcase a reader went through stays open
+until the program stops, each with its iroh-blobs store: its own tokio
+runtime (8 threads, `threads.rs`), its redb database and its pool of entity
+actors (up to 1 024, never trimmed). A review of our code found no map or
+channel of ours that grows per blob served; the growth is per open
+suitcase. Measured, owner of 100 000 small files with one local reader:
+
+| | today | suitcases no one needs leave |
+|---|---|---|
+| macOS, whole stick | 139 → 206 MB, 40 → 208 threads | 110 → 121 MB, 40 → 66 threads |
+| Linux, 19 000 files | 243 → 377 MB, 15 → 64 threads | 178–228 MB, 15 → 19 threads (with `mallopt`) |
+
+(The Linux run also limited glibc's malloc arenas, see `threads.rs`:
+glibc keeps what each thread's arena freed, which the closing alone does
+not give back.) The macOS download took 564 s against 526 s, within the
+noise of these runs.
+
+### Decision
+
+1. **Leaving when no one needs it.** An open suitcase is evicted, as for
+   room (store shut down, folder removed, bytes back in the budget), when
+   all of these hold:
+   - no reader holds it (`is_held`, ADR 0016 rule 6, with the two changes
+     of rule 2 below);
+   - nothing is in flight from it;
+   - it served nothing for `IDLE_LEAVE` (60 s, twice `IN_USE`), counted
+     from the last transfer from it that *ended* (`last_used`, refreshed by
+     rule 2), or from when it was prepared if none.
+   A suitcase of an older version is never held (`is_held` looks at the
+   current version's places), so it leaves once idle; while it still
+   serves blobs the new version kept, its `last_used` keeps it.
+2. **What holds a suitcase, made right for slow readers.** Today a reader
+   holds nothing once it asked nothing for `IN_USE` (30 s): its asks are
+   forgotten after that. Two changes:
+   - **A transfer in flight holds its suitcase and the next** (read-ahead):
+     a reader on one big file for minutes asks nothing, and the suitcase
+     it will need next must not leave meanwhile. The keeper asks the
+     transport, without waiting, whether a suitcase has transfers in flight
+     (`Publisher::in_flight(id)`).
+   - **A transfer that ends is told** (`Demand::Ended { connection, hash }`,
+     sent when the transport drops the transfer's guard): the keeper
+     refreshes that reader's `served` place and the suitcase's
+     `last_used`, so a transfer longer than `IN_USE` does not leave the
+     reader holding nothing at its end.
+   - **A reader told "not ready" keeps its ask for `LONGEST_PAUSE + IN_USE`**
+     (90 s), not `IN_USE`: its pauses grow to `LONGEST_PAUSE` (60 s), and
+     the suitcase being prepared for it must not leave before it comes back.
+3. **The idle check never waits.** The keeper looks every `IDLE_CHECK`
+   (10 s, a steady interval in its `select!`, not reset by demand). It
+   takes a suitcase out of serving with `Publisher::evict_if_idle(id)`, a
+   plain (non-async) call that removes the store from serving under the
+   serving lock only when nothing is in flight, and returns false otherwise
+   (tried again at the next check). So a transfer is never cut, and a
+   request after it gets "not ready" and the suitcase prepared again. The
+   suitcase leaves the keeper's open list at once; shutting its store and
+   removing its folder (`evict`) run in a task the keeper keeps in a
+   `JoinSet`: polled in its `select!`, which gives the bytes back to the
+   budget once the folder is gone, and awaited before the keeper returns
+   (Stop, eject), so no store is left open. Between the two, the bytes are
+   in neither the open list nor the free room: a preparation that needs
+   them gets "no room" and retries every 500 ms, as today. (Eviction for
+   room is unchanged: it runs in the preparing job and waits for transfers
+   there, as before.)
+4. **A dropped connection** forgets its reader at once, as today: its
+   suitcases are then idle, and leave after `IDLE_LEAVE` if it does not come
+   back. A reader that reconnects within that time finds them.
+5. **Time in the keeper is injectable.** The keeper reads `Instant::now()`
+   directly today; its state's decisions take the time as an argument (as
+   `next_job` does), and the loop's tests run on tokio's paused clock, so
+   the 60 s cases run at once.
+
+Not in this amendment: the keeper's `Open.ready` and the transport's
+ready set hold the same hashes (about 0.4 MB per suitcase); one of them
+should go, in a change of its own (`docs/todo.md`).
+
+### What it costs
+
+- A suitcase asked for again after it left is read and encrypted again
+  (per suitcase: up to 4 096 files or 1 GB; for small files on the test
+  PC, tens of seconds). That happens to a second reader, or to one that
+  comes back after more than `IDLE_LEAVE` of pause. The "asleep" suitcase
+  of Amendment 1 would avoid it at the cost of a third state; it can come
+  later if second readers turn out to be common.
+- New code: the check and the removal tasks in the keeper's loop;
+  `evict_if_idle` and `in_flight` in the `Publisher` trait (iroh, and the
+  tests' in-memory publisher, which then counts transfers in flight per
+  suitcase); `Demand::Ended` from the handler (and the in-memory fetcher);
+  asks kept longer after "not ready".
+
+### Tests to write
+
+- State, with the time given: a suitcase no one holds, unused for
+  `IDLE_LEAVE`, is a candidate; one held, or with a transfer in flight, or
+  fresh, is not; the one after a suitcase with a transfer in flight is
+  not.
+- Serving: `evict_if_idle` is false while a transfer's guard lives, true
+  after it drops; a request then gets "not ready".
+- Keeper loop, paused clock: an idle suitcase is evicted, its folder gone
+  and its bytes back; asked for again, it is prepared once and served, the
+  blob identical, with no loop of evictions.
+- A transfer longer than `IN_USE` from suitcase n: n + 1 is still there
+  when it ends.
+- A reader in "not ready" pauses of 60 s: the suitcase prepared for it is
+  there when it comes back.
+- A reader that reconnects within `IDLE_LEAVE`: its suitcases are there;
+  after it: prepared again.
+- A new version while suitcases are idle: blobs it kept are served, the
+  old suitcases leave once idle.
+- Stop while a removal task runs: the store closed, the folder gone.
+- Measured again on the 100 000-file test, Linux and macOS: memory and
+  threads flat while the reader goes through the stick.

@@ -10,6 +10,15 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
+## Memory
+
+- **A suitcase's hashes are kept twice:** the keeper's `Open.ready`
+  (`share/keeper/mod.rs`) and the transport's ready set
+  (`transport/iroh/serving.rs`). The keeper uses its copy only to find
+  which open suitcase served a blob (`state.rs`, `note`). Keep one.
+- **The reader reaches 200–240 MB** for 100 000 small files on Linux,
+  macOS and Windows; not looked at yet.
+
 ## Upstream
 
 - [ ] **iroh 1.2: a direct path lost and not found again.** Two peers on one

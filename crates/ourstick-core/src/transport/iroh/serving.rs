@@ -122,6 +122,13 @@ impl Serving {
         }
     }
 
+    /// Store `id` serves exactly `ready` from now on.
+    pub(super) fn replace_ready(&self, id: StoreId, ready: HashSet<Hash>) {
+        if let Some(held) = self.state().stores.get_mut(&id) {
+            held.ready = ready;
+        }
+    }
+
     /// Whether store `id` holds `hash` ready.
     #[cfg(test)]
     pub(super) fn is_ready(&self, id: StoreId, hash: &Hash) -> bool {

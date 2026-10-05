@@ -135,6 +135,24 @@ pub enum Demand {
     Closed { connection: u64 },
 }
 
+/// One file the owner's store serves (ADR 0017), as the catalogue recorded
+/// it: its manifest path (where it is on disk comes from the stick's
+/// layout when it is asked for), plaintext size and plaintext hash.
+#[derive(Debug, Clone)]
+pub struct ServedFile {
+    pub path: Box<str>,
+    pub plaintext_len: u64,
+    pub plaintext_hash: [u8; 32],
+}
+
+/// What the owner's store serves: the current version's files, by blob
+/// hash, and where the stick's roots are.
+#[derive(Debug, Clone)]
+pub struct ServedFiles {
+    pub layout: crate::layout::StickLayout,
+    pub files: std::collections::HashMap<BlobHash, ServedFile>,
+}
+
 /// The owner's side: serves the current record, its manifest, and the
 /// blobs its suitcases hold (ADR 0007).
 pub trait Publisher: Send + Sync {
@@ -183,6 +201,13 @@ pub trait Publisher: Send + Sync {
         &self,
         suitcase: SuitcaseId,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
+    /// Serves the blobs of `files` from the owner's own store from now on,
+    /// made from the files when they are asked for, in place of what it
+    /// served before (ADR 0017). Their outboards are in the stick's cache.
+    /// Nothing by default.
+    fn serve_files(&self, _cipher: std::sync::Arc<dyn crate::cipher::Cipher>, _files: ServedFiles) {
+    }
 
     /// Whether a reader was told "not ready" within the last `window`: a
     /// reader waits on the owner (ADR 0007), which then puts preparing

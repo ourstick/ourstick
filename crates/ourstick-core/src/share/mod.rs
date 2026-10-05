@@ -22,12 +22,14 @@ mod latest;
 mod partial;
 mod pass;
 mod reports;
+mod served;
 mod version;
 
 pub use keeper::{keep_suitcases, Budget, IN_USE, MAX_BUDGET, MIN_BUDGET};
 pub use latest::{load_latest_manifest, serve_latest};
 pub use pass::{run_pass, PartialTiming, PassEvent, PassOptions, PassOutcome, PARTIAL_TIMING};
 pub use reports::{has, keep_reports, serving_now, Has};
+pub use served::served_files;
 
 /// What the owner of a stick publishes with.
 pub struct Owner<'a, P> {

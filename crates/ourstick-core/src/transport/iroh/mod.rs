@@ -5,6 +5,7 @@ mod activity;
 mod batches;
 mod fetcher;
 mod handler;
+mod made_store;
 mod publisher;
 mod reader_paths;
 mod record_protocol;

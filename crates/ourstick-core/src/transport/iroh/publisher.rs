@@ -22,7 +22,7 @@ use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId};
-use crate::transport::{BlobHash, Demand, Publisher, SuitcaseId, TransportError};
+use crate::transport::{BlobHash, Demand, Publisher, ServedFiles, SuitcaseId, TransportError};
 
 /// Serves one stick; its suitcases live under `cache_dir`. Cheap to clone:
 /// clones share everything (the suitcases' keeper holds one), and
@@ -37,6 +37,8 @@ pub struct IrohPublisher {
     suitcases: Arc<Suitcases>,
     /// The store serving the current manifest.
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
+    /// The owner's own store (ADR 0017), once it serves files.
+    made: Arc<Mutex<Option<(StoreId, super::made_store::Served)>>>,
     /// What readers ask for, until the owner's policy takes it.
     demand: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Demand>>>>,
     /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
@@ -48,6 +50,21 @@ pub struct IrohPublisher {
 
 fn storage(error: impl std::fmt::Display) -> TransportError {
     TransportError::Storage(error.to_string())
+}
+
+/// The threads that make blobs for transfers, for the whole program (ADR
+/// 0017, rule 8): they read files and encrypt, which blocks, so they are not
+/// the program's own runtime's.
+fn made_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("made-blobs")
+            .enable_all()
+            .build()
+            .expect("a runtime for made blobs")
+    })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -105,6 +122,7 @@ impl IrohPublisher {
             serving,
             suitcases: Arc::new(suitcases),
             manifest: Arc::new(Mutex::new(None)),
+            made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
             reports: Arc::new(Mutex::new(Some(reports))),
             activity,
@@ -199,6 +217,25 @@ impl Publisher for IrohPublisher {
 
     async fn evict(&self, suitcase: SuitcaseId) -> Result<(), TransportError> {
         self.suitcases.evict(suitcase).await
+    }
+
+    fn serve_files(&self, cipher: Arc<dyn crate::cipher::Cipher>, files: ServedFiles) {
+        let mut made = lock(&self.made);
+        let (id, served) = made.get_or_insert_with(|| {
+            let outboards = crate::manifest::hashing::outboards_dir(&self.cache_dir);
+            let (store, served) =
+                super::made_store::start(cipher, outboards, made_runtime().handle().clone());
+            let id = self.suitcases.next_id();
+            self.serving.add_store(id, store);
+            (id, served)
+        });
+        let ready = files
+            .files
+            .keys()
+            .map(|hash| Hash::from_bytes(*hash))
+            .collect();
+        served.set(files);
+        self.serving.replace_ready(*id, ready);
     }
 
     fn readers_waiting(&self, window: std::time::Duration) -> bool {

@@ -285,5 +285,6 @@ fn read_exact_or_truncated(reader: &mut impl Read, buffer: &mut [u8]) -> Result<
     }
 }
 
+pub mod made;
 #[cfg(test)]
 mod tests;

@@ -10,6 +10,15 @@
 //! program's own runtime is kept small too: its work is waiting on the
 //! network, and what takes a core (reading, hashing) runs on blocking
 //! threads.
+//!
+//! On Linux, glibc's allocator also gives each thread that allocates an
+//! arena of its own (up to eight per core), and each keeps much of what is
+//! freed in it. With ADR 0017 the owner of 100 000 small files, its heap
+//! at most 176 MB, still grew from 282 to 311 MB while it sent them all;
+//! with two arenas (`MALLOC_ARENA_MAX=2`) it stayed at 220–223 MB from the
+//! first minute to the end, and the download was no slower (2026-10-05).
+//! That setting is read when the program starts, so it is made with
+//! `mallopt` instead, first thing.
 
 /// Worker threads of each iroh-blobs store: they only move blobs between
 /// the disk and the network. Measured (10 000 small files, one PC): 4 made
@@ -19,18 +28,48 @@ pub const STORE_WORKER_THREADS: usize = 8;
 /// At most this many worker threads in the program's own runtime.
 pub const PROGRAM_WORKER_THREADS: usize = 4;
 
-/// Limits the worker threads of every tokio runtime made without an explicit
+/// Limits glibc's arenas ([`limit_malloc_arenas`]) and the worker threads of
+/// every tokio runtime made without an explicit
 /// count to [`STORE_WORKER_THREADS`], or the cores if fewer (a valid value
 /// the user set is kept), and returns how many the program's own runtime
 /// should have: one per core, at most [`PROGRAM_WORKER_THREADS`]. Call it
 /// first in `main`, before any thread starts.
 pub fn limit_store_threads() -> usize {
+    limit_malloc_arenas();
     let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
     let set = std::env::var("TOKIO_WORKER_THREADS").ok();
     if let Some(threads) = store_threads_to_set(set.as_deref(), cores) {
         std::env::set_var("TOKIO_WORKER_THREADS", threads.to_string());
     }
     cores.min(PROGRAM_WORKER_THREADS)
+}
+
+/// glibc's arenas, at most this many (see the module's notes).
+pub const MALLOC_ARENAS: i32 = 2;
+
+/// Limits glibc's allocator to [`MALLOC_ARENAS`] arenas; true if it took
+/// the setting. Nothing to do elsewhere (macOS, Windows and musl have other
+/// allocators).
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub fn limit_malloc_arenas() -> bool {
+    /// glibc's `M_ARENA_MAX` (malloc.h), the same since glibc 2.10.
+    const M_ARENA_MAX: std::ffi::c_int = -8;
+    extern "C" {
+        /// `int mallopt(int param, int value)`, glibc's malloc.h.
+        fn mallopt(param: std::ffi::c_int, value: std::ffi::c_int) -> std::ffi::c_int;
+    }
+    // SAFETY: `mallopt` is declared as glibc's malloc.h has it (two ints in,
+    // an int out) and takes no pointer: it reads or writes no memory of
+    // ours. glibc takes its arena locks itself, so a call while other
+    // threads allocate is allowed; it is made first in `main` anyway. On
+    // failure it returns 0 and changes nothing.
+    unsafe { mallopt(M_ARENA_MAX, MALLOC_ARENAS) == 1 }
+}
+
+/// Limits glibc's allocator; elsewhere there is nothing to do.
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+pub fn limit_malloc_arenas() -> bool {
+    false
 }
 
 /// What to set `TOKIO_WORKER_THREADS` to, given what it is: `None` keeps a
@@ -71,6 +110,12 @@ mod tests {
             store_threads_to_set(Some("many"), 32),
             Some(STORE_WORKER_THREADS)
         );
+    }
+
+    #[test]
+    fn glibc_takes_the_arena_limit() {
+        let took = limit_malloc_arenas();
+        assert_eq!(took, cfg!(all(target_os = "linux", target_env = "gnu")));
     }
 
     #[test]

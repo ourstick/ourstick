@@ -134,7 +134,7 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
 }
 
 fn main() -> std::process::ExitCode {
-    // Before any thread starts: few threads per blob store.
+    // Before any thread starts: few malloc arenas, few threads per blob store.
     let worker_threads = ourstick_core::threads::limit_store_threads();
     let runtime = match ourstick_core::threads::program_runtime(worker_threads) {
         Ok(runtime) => runtime,

@@ -23,13 +23,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - **The reader reaches 200–240 MB** for 100 000 small files on Linux,
   macOS and Windows; not looked at yet.
 
-- **glibc's arenas (Linux):** `mallopt(M_ARENA_MAX, 2)` kept the owner flat
-  in the tests of 2026-10-05; ADR 0017 is in (one store per stick, a pool of 4
-  threads), so measure the owner on Linux again, with and without it, before
-  deciding. The change is kept outside the repo,
-  `/media/<user>/G/ourstick-mallopt.patch` (core `threads.rs`, with its
-  `SAFETY` note; needs Giorgos's approval for the `unsafe`, given
-  2026-10-05).
+- **The reader on Linux, with two arenas:** it reached 490 MB there
+  (200–240 MB on macOS and Windows) before `mallopt` was set; measure it
+  again.
 
 ## Upstream
 

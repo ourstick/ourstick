@@ -17,8 +17,8 @@ use super::build::{for_each_regular_file, relative_path};
 use super::hashing::{hash_file_telling_plaintext, Hashed};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
+use crate::disk::turns::{DiskId, Readers};
 use crate::layout::StickLayout;
-use crate::share::disk_turns::{DiskId, Readers};
 use crate::store::OwnedFile;
 
 /// One file of the catalogue.

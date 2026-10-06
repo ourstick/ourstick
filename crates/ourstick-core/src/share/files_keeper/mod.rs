@@ -15,10 +15,10 @@ use std::time::Duration;
 
 use self::keeper::Keeper;
 use self::make::{make, Made, ToMake};
-use super::disk_turns::Disks;
 use super::ShareError;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, StickKey};
+use crate::disk::turns::DiskTurns;
 use crate::layout::StickLayout;
 use crate::manifest::hashing::outboards_dir;
 use crate::stick_id::StickId;
@@ -63,7 +63,7 @@ pub async fn keep_files<P: Publisher + 'static>(
     store: Arc<dyn Store>,
     stick_id: StickId,
     stick_key: StickKey,
-    disks: Arc<Disks>,
+    disks: Arc<DiskTurns>,
     pass_wanted: PassWanted,
 ) -> Result<(), ShareError> {
     let mut demand = publisher.take_demand().ok_or(ShareError::KeeperRunning)?;
@@ -133,7 +133,7 @@ struct Context {
     cipher: Arc<dyn Cipher>,
     cache_dir: PathBuf,
     outboards: PathBuf,
-    disks: Arc<Disks>,
+    disks: Arc<DiskTurns>,
     pass_wanted: PassWanted,
     stop: Arc<AtomicBool>,
 }

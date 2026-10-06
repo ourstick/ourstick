@@ -6,8 +6,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use super::super::disk_turns::{DiskId, Disks, Readers};
 use crate::cipher::{Cipher, CipherError};
+use crate::disk::turns::{DiskId, DiskTurns, Readers};
 use crate::layout::StickLayout;
 use crate::manifest::hashing::hash_file_telling_plaintext;
 use crate::manifest::{FileStamp, ManifestError};
@@ -41,7 +41,7 @@ pub(super) fn make(
     layout: &StickLayout,
     cipher: &dyn Cipher,
     outboards: &Path,
-    disks: Arc<Disks>,
+    disks: Arc<DiskTurns>,
     urgent: bool,
     stop: Arc<AtomicBool>,
 ) -> Made {

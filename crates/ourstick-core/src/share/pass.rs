@@ -8,12 +8,12 @@
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use super::disk_turns::{Readers, StopOnDrop};
 use super::partial::Previous;
 use super::version::{Signed, Versions};
 use super::{check_drive, drive_present, Owner, Publication, ShareError};
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
+use crate::disk::turns::{Readers, StopOnDrop};
 use crate::layout::StickLayout;
 use crate::manifest::hashing::{keep_only_outboards, outboards_dir};
 use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};

@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use ourstick_core::clock::SystemClock;
 use ourstick_core::device::{self, StickKeys};
+use ourstick_core::disk::turns::{DiskTurns, SystemTimer};
 use ourstick_core::places::{check_new_stick_folder, comparable};
-use ourstick_core::share::disk_turns::{Disks, SystemTimer};
 use ourstick_core::share::{
     keep_files, nudge_later, plan_share, run_pass, serve_latest, PassEvent, PassOptions,
     Publication, PARTIAL_TIMING,
@@ -139,7 +139,7 @@ pub async fn run(
     // ADR 0017: blobs are made from the files when readers ask for them; no
     // encrypted copy is kept.
     // Every reading of the disk goes through its turns (ADR 0013).
-    let disks = Arc::new(Disks::new(Arc::new(SystemTimer::default())));
+    let disks = Arc::new(DiskTurns::new(Arc::new(SystemTimer::default())));
     // A file that changed since its version asks the watcher (started
     // below) for a pass.
     let (pass_wanted, watcher_nudge) = nudge_later();

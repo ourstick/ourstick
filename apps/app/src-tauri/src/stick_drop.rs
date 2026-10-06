@@ -252,8 +252,8 @@ mod tests {
             data_dir: std::env::temp_dir(),
             store: Arc::new(ourstick_core::MemoryStore::new()),
             sticks: tokio::sync::Mutex::default(),
-            disks: Arc::new(ourstick_core::share::disk_turns::Disks::new(Arc::new(
-                ourstick_core::share::disk_turns::SystemTimer::default(),
+            disks: Arc::new(ourstick_core::disk::turns::DiskTurns::new(Arc::new(
+                ourstick_core::disk::turns::SystemTimer::default(),
             ))),
             copying: std::sync::Mutex::default(),
         }

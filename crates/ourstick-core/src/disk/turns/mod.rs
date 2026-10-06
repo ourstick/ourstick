@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use super::disk_share::{DiskLoad, DiskShare};
+use crate::disk::share::{DiskLoad, DiskShare};
 
 mod timed;
 
@@ -117,12 +117,12 @@ impl DiskId {
 
 /// Every disk OurStick reads from in this process, each with its turns.
 /// Made once by the app or the CLI and given to every stick.
-pub struct Disks {
+pub struct DiskTurns {
     timer: Arc<dyn Timer>,
     disks: Mutex<HashMap<DiskId, Arc<Disk>>>,
 }
 
-impl Disks {
+impl DiskTurns {
     pub fn new(timer: Arc<dyn Timer>) -> Self {
         Self {
             timer,
@@ -143,9 +143,9 @@ impl Disks {
     }
 }
 
-impl std::fmt::Debug for Disks {
+impl std::fmt::Debug for DiskTurns {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("Disks").finish_non_exhaustive()
+        formatter.debug_struct("DiskTurns").finish_non_exhaustive()
     }
 }
 

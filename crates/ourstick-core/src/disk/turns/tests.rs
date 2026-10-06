@@ -71,9 +71,9 @@ fn read_through(reader: &mut DiskReader, file: FakeFile) {
     std::io::copy(&mut timed, &mut std::io::sink()).unwrap();
 }
 
-fn setup() -> (Arc<FakeTimer>, Disks) {
+fn setup() -> (Arc<FakeTimer>, DiskTurns) {
     let timer = Arc::new(FakeTimer::default());
-    let disks = Disks::new(timer.clone());
+    let disks = DiskTurns::new(timer.clone());
     (timer, disks)
 }
 
@@ -283,7 +283,7 @@ fn turns_go_in_order_and_urgent_ones_first_at_most_three_to_one() {
 
 #[test]
 fn readers_on_threads_take_turns_without_waiting_forever() {
-    let disks = Disks::new(Arc::new(SystemTimer::default()));
+    let disks = DiskTurns::new(Arc::new(SystemTimer::default()));
     let disk = disks.get(DiskId::Unknown);
     let threads: Vec<_> = (0..4)
         .map(|index| {
@@ -319,7 +319,7 @@ fn folders_on_one_filesystem_are_one_disk() {
 
 #[test]
 fn a_reader_stopped_while_queued_leaves_the_queue_at_once() {
-    let disks = Disks::new(Arc::new(SystemTimer::default()));
+    let disks = DiskTurns::new(Arc::new(SystemTimer::default()));
     let disk = disks.get(DiskId::Unknown);
     // One reader holds the turn (a window open)…
     let mut holder = DiskReader::new(disk.clone(), false, go_on);

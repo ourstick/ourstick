@@ -15,8 +15,6 @@ use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
 
-pub mod disk_share;
-pub mod disk_turns;
 mod files_keeper;
 mod latest;
 mod partial;
@@ -36,7 +34,7 @@ pub struct Owner<'a, P> {
     pub publisher: &'a P,
     pub store: Arc<dyn Store>,
     /// The disks OurStick reads, shared by every stick (ADR 0013).
-    pub disks: Arc<disk_turns::Disks>,
+    pub disks: Arc<crate::disk::turns::DiskTurns>,
     pub clock: &'a dyn Clock,
     pub signing_key: &'a StickSigningKey,
     pub stick_key: &'a StickKey,
@@ -153,8 +151,8 @@ pub async fn publish_folder(
 ) -> Result<Publication, ShareError> {
     // One pass alone: its own disks (a sharing program gives every stick
     // the same ones instead).
-    let disks = Arc::new(disk_turns::Disks::new(Arc::new(
-        disk_turns::SystemTimer::default(),
+    let disks = Arc::new(crate::disk::turns::DiskTurns::new(Arc::new(
+        crate::disk::turns::SystemTimer::default(),
     )));
     let owner = Owner {
         publisher,

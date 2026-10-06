@@ -1,7 +1,7 @@
 //! What the app keeps while it runs: the data folder, the database, and
 //! where sharing stands for each of the app's sticks (ADR 0009).
 
-use ourstick_core::share::disk_turns::{Disks, SystemTimer};
+use ourstick_core::disk::turns::{DiskTurns, SystemTimer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub struct AppState {
     pub store: Arc<dyn Store>,
     pub sticks: tokio::sync::Mutex<HashMap<StickId, Sharing>>,
     /// The disks every shared stick reads, with their turns (ADR 0013).
-    pub disks: Arc<Disks>,
+    pub disks: Arc<DiskTurns>,
     /// Sticks being copied onto now (a drop): another drop waits.
     pub copying: std::sync::Mutex<std::collections::HashSet<StickId>>,
 }
@@ -52,7 +52,7 @@ impl AppState {
             data_dir,
             store,
             sticks: tokio::sync::Mutex::new(HashMap::new()),
-            disks: Arc::new(Disks::new(Arc::new(SystemTimer::default()))),
+            disks: Arc::new(DiskTurns::new(Arc::new(SystemTimer::default()))),
             copying: std::sync::Mutex::default(),
         })
     }

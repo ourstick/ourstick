@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use super::*;
 
-fn disks() -> Arc<Disks> {
-    Arc::new(Disks::new(Arc::new(SystemTimer::default())))
+fn disks() -> Arc<DiskTurns> {
+    Arc::new(DiskTurns::new(Arc::new(SystemTimer::default())))
 }
 
 /// Reads a few bytes of a small file on `id` through `readers`, leaving
@@ -19,7 +19,7 @@ fn hold(readers: &mut Readers, id: DiskId) {
     timed.read_exact(&mut [0; 5]).unwrap();
 }
 
-fn held(disks: &Disks, id: DiskId) -> bool {
+fn held(disks: &DiskTurns, id: DiskId) -> bool {
     lock(&disks.get(id).state).held
 }
 

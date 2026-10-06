@@ -7,8 +7,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{Disk, DiskId, Disks};
-use crate::share::disk_share::{WINDOW_BYTES, WINDOW_FILES};
+use super::{Disk, DiskId, DiskTurns};
+use crate::disk::share::{WINDOW_BYTES, WINDOW_FILES};
 
 /// What one turn has read.
 #[derive(Debug, Default)]
@@ -168,7 +168,7 @@ type GoOn = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
 /// reads: one [`DiskReader`] per disk, and one turn held at a time, so a
 /// task never waits for a disk while it holds another's turn.
 pub struct Readers {
-    disks: Arc<Disks>,
+    disks: Arc<DiskTurns>,
     urgent: bool,
     go_on: GoOn,
     readers: HashMap<DiskId, DiskReader>,
@@ -178,7 +178,7 @@ pub struct Readers {
 impl Readers {
     /// See [`DiskReader::new`] for `urgent` and `go_on`.
     pub fn new(
-        disks: Arc<Disks>,
+        disks: Arc<DiskTurns>,
         urgent: bool,
         go_on: impl Fn() -> io::Result<()> + Send + Sync + 'static,
     ) -> Self {

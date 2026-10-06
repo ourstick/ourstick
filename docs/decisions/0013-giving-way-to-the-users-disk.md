@@ -138,12 +138,12 @@ Nothing gives way to anyone outside OurStick.
 
 ## In the code
 
-- `share/disk_share.rs` (new, pure, no I/O): `DiskShare` with
+- `share/disk_share.rs` (now `disk/share.rs`; new, pure, no I/O): `DiskShare` with
   `after_window(files, bytes, took: Duration) -> Duration` (the pause),
   `giving_way() -> bool`, and the named constants of rules 2–4 in one place.
   Its time is what it is given (`took`), so tests drive it with numbers
   only, no `Clock`.
-- `share/disk_turns.rs` (new): one `DiskShare` per disk per process, behind
+- `share/disk_turns.rs` (now `disk/turns/`; new): one `DiskShare` per disk per process, behind
   the queue of turns of rule 5, and `Timed<R: Read + Seek>`, which times the
   first read of a file (the seek back to its start, as `encrypt_blob` does,
   ends it), closes windows, and waits for the disk's pause in the blocking

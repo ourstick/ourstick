@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::Owner;
-use ourstick_core::share::disk_turns::{Disks, Timer};
+use ourstick_core::disk::turns::{DiskTurns, Timer};
 use ourstick_core::share::{run_pass, PassEvent, PassOptions};
 use ourstick_core::watcher::Owner as Publishing;
 
@@ -53,7 +53,7 @@ async fn a_pass_gives_way_while_reads_are_slow_and_says_so() {
     let owning = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
-        disks: Arc::new(Disks::new(timer.clone())),
+        disks: Arc::new(DiskTurns::new(timer.clone())),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,
@@ -97,7 +97,7 @@ async fn a_pass_that_fails_while_giving_way_says_it_no_longer_is() {
     let owning = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
-        disks: Arc::new(Disks::new(timer.clone())),
+        disks: Arc::new(DiskTurns::new(timer.clone())),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

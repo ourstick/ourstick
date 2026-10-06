@@ -8,6 +8,7 @@ mod blocking;
 pub mod cipher;
 pub mod clock;
 pub mod device;
+pub mod disk;
 pub mod download;
 pub mod drive;
 pub mod layout;

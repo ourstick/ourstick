@@ -14,7 +14,7 @@ use super::build::relative_path;
 use super::{Entry, ManifestError};
 use crate::blob::{blob_len, cipher_error, BlobReader};
 use crate::cipher::{Cipher, CipherError};
-use crate::share::disk_turns::DiskReader;
+use crate::disk::turns::DiskReader;
 
 /// iroh's chunk groups (16 KiB): the outboards must be the ones iroh-blobs
 /// serves with.

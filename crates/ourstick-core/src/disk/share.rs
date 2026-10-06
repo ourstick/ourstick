@@ -206,5 +206,5 @@ impl DiskShare {
 }
 
 #[cfg(test)]
-#[path = "disk_share_tests.rs"]
+#[path = "share_tests.rs"]
 mod tests;

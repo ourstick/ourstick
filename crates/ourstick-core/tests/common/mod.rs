@@ -57,9 +57,9 @@ pub struct Owner {
 
 /// The disks a test's owner reads (ADR 0013), at their real speed.
 #[allow(dead_code)]
-pub fn disks() -> Arc<ourstick_core::share::disk_turns::Disks> {
-    Arc::new(ourstick_core::share::disk_turns::Disks::new(Arc::new(
-        ourstick_core::share::disk_turns::SystemTimer::default(),
+pub fn disks() -> Arc<ourstick_core::disk::turns::DiskTurns> {
+    Arc::new(ourstick_core::disk::turns::DiskTurns::new(Arc::new(
+        ourstick_core::disk::turns::SystemTimer::default(),
     )))
 }
 

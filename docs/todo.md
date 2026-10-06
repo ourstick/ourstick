@@ -22,8 +22,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## Memory
 
-- **The reader reaches 200–280 MB** for 100 000 small files on Linux,
-  macOS and Windows (ADR 0017's measurements); not looked at yet.
+- ~~**The reader reaches 200–280 MB**~~ (ADR 0018, 2026-10-06): 114 MB on
+  Linux, 109 MB on macOS, 83 MB on Windows for 100 000 small files, and
+  its threads no longer grow. If a million files ever matter: ADR 0018's
+  A2 (plan and fetch in parts).
 
 ## Upstream
 

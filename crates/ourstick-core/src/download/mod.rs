@@ -154,6 +154,11 @@ pub async fn download_as(
     let mut total = PathUsage::default();
     let mut carried = Carried::default();
     let mut new_versions = 0;
+    // The owner said more is coming (a partial version): from then on, an
+    // owner that cannot be reached is waited for, as while waiting for its
+    // next version, not the end of the download.
+    let mut more_coming = false;
+    let mut unreachable = false;
     loop {
         // Read again on every attempt: an earlier attempt may have raised
         // the floor.
@@ -167,7 +172,26 @@ pub async fn download_as(
             })
             .await?
         };
-        let connection = fetcher.connect(ticket).await?;
+        let connection = match fetcher.connect(ticket).await {
+            Ok(connection) => connection,
+            Err(reason @ TransportError::Unreachable(_)) if more_coming => {
+                if !unreachable {
+                    unreachable = true;
+                    if on_event(DownloadEvent::OwnerUnreachable { reason: &reason }).is_break() {
+                        return Err(DownloadError::Cancelled);
+                    }
+                }
+                tokio::time::sleep(FOLLOW_EVERY).await;
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if unreachable {
+            unreachable = false;
+            if on_event(DownloadEvent::OwnerReachable).is_break() {
+                return Err(DownloadError::Cancelled);
+            }
+        }
         let result = download_over(
             fetcher,
             &connection,
@@ -197,6 +221,7 @@ pub async fn download_as(
             // ADR 0007: the owner is still reading its folder. Wait for its
             // next version, then go on with it.
             Ok(Over::Partial { seq }) => {
+                more_coming = true;
                 if on_event(DownloadEvent::WaitingForMore { seq }).is_break() {
                     return Err(DownloadError::Cancelled);
                 }

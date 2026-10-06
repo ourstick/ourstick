@@ -143,6 +143,15 @@ impl Fetcher for MemoryFetcher {
         }
     }
     async fn connect(&self, _ticket: &Ticket) -> Result<MemoryConnection, TransportError> {
+        {
+            let mut served = self.served.lock().unwrap();
+            if served.connects_before_failing > 0 {
+                served.connects_before_failing -= 1;
+            } else if served.failed_connects > 0 {
+                served.failed_connects -= 1;
+                return Err(TransportError::Unreachable("timed out".to_owned()));
+            }
+        }
         let id = {
             let mut connects = self.connects.lock().unwrap();
             *connects += 1;

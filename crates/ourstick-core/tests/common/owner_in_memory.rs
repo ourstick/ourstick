@@ -27,6 +27,10 @@ pub struct Served {
     pub(crate) reports: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     /// The owner cannot be reached for reports (a test of a lost report).
     pub unreachable_for_reports: bool,
+    /// After `connects_before_failing` more connects, the next
+    /// `failed_connects` fail: the owner cannot be reached.
+    pub connects_before_failing: u32,
+    pub failed_connects: u32,
     /// Fetches going on now, the most at once, every blob asked for in
     /// order, and how many others were going on when each started.
     pub fetching_now: usize,

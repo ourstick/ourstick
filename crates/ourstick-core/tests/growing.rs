@@ -94,3 +94,44 @@ async fn a_listing_says_when_the_catalogue_is_partial() {
     assert!(!listing.manifest.partial);
     assert_eq!(listing.manifest.entries.len(), 2);
 }
+
+/// Found by hand (a reader on another computer, 2026-10-06): once the owner
+/// said more is coming, an owner that cannot be reached for a while is
+/// waited for, not the end of the download.
+#[tokio::test(start_paused = true)]
+async fn an_owner_unreachable_while_it_reads_its_folder_is_waited_for() {
+    let files: Vec<(&str, &[u8])> = vec![("a.bin", b"aaaa"), ("b.bin", b"bbbb")];
+    let growing = grow(&files, &[0, 2]).await;
+    let fetcher = MemoryFetcher::new(growing.served().clone(), Link::default());
+    let output = tempfile::tempdir().unwrap();
+    let mut told = Vec::new();
+    let report = download(
+        &fetcher,
+        Arc::new(MemoryStore::new()),
+        &FixedClock::new(2_000),
+        &growing.stick.ticket,
+        output.path(),
+        &RelayPolicy::default(),
+        &mut |event| {
+            match event {
+                // The next version comes; once the reader saw it, the owner
+                // is away for the next two connects.
+                DownloadEvent::WaitingForMore { .. } => {
+                    growing.publish(1);
+                    let mut served = growing.served().lock().unwrap();
+                    served.connects_before_failing = 1;
+                    served.failed_connects = 2;
+                }
+                DownloadEvent::OwnerUnreachable { .. } => told.push("away"),
+                DownloadEvent::OwnerReachable => told.push("back"),
+                _ => {}
+            }
+            ControlFlow::Continue(())
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.files, 2);
+    assert_eq!(told, ["away", "back"]);
+    assert_eq!(std::fs::read(output.path().join("b.bin")).unwrap(), b"bbbb");
+}

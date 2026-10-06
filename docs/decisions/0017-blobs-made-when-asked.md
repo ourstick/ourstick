@@ -314,16 +314,21 @@ by Fable and Sonnet (2026-10-06); their notes are in the text.
    chunk read (64 KiB, in `MadeBlob::chunk`, after the last-chunk cache:
    a cached chunk reads nothing and takes no turn) joins the transfers'
    turn if it is held, or takes one, **urgent** (readers wait on it).
-   When the last read in flight ends, the turn is kept if nobody waits for
-   the disk; if someone waits, it is given back once the turn has read
-   8 MB or been held 250 ms, or at the window's end, whichever comes
-   first. So a transfer waiting on the network keeps the catalogue, the
-   keeper or another stick from the disk for at most that long, and
-   transfers are not cut to one chunk per turn (one chunk then a 64 MB
-   catalogue window would leave a reader ~400 KB/s on a hard disk).
+   When the last read in flight ends, the turn is kept, idle; the next
+   reader in the disk's queue takes it after 50 ms idle (`IDLE_GRACE`,
+   unjudged). So a transfer waiting on the network keeps the catalogue,
+   the keeper or another stick from the disk for at most that long, and
+   transfers reading steadily keep their turn for a whole window, not one
+   chunk (one chunk then a 64 MB catalogue window would leave a reader
+   ~400 KB/s on a hard disk). *As built (after review):* a quantum of
+   8 MB or 250 ms, first proposed, was dropped: it ended the transfers'
+   turns before their window, unjudged, so the catalogue got the larger
+   share, and the idle grace already bounds a network wait.
 3. **Its window.** The window is kept across turns and judged once, when
    it is full: 64 files begun (a file begins at a transfer's first chunk
-   read of its blob) or 64 MB read. A turn given back before then is not
+   read of its blob) or 64 MB read. A full window takes no new read: the
+   reads in flight end it, so reads that always overlap still give the
+   turn back. A turn given back before then is not
    judged and sets no pause (`give_back` gains that path). Its time is the
    wall time some read was in flight while the turn was held (a new
    `Window` field), not the sum of the reads, which overlap; the pause is
@@ -353,8 +358,10 @@ by Fable and Sonnet (2026-10-06); their notes are in the text.
    answered while exports wait. Four transfers waiting on one disk stall
    transfers from other disks for at most `LONGEST_PAUSE` (30 s) at a
    time; accepted (one owner shares from one disk in nearly every case).
-8. **Stopping.** Each read gives its own `go_on`: its transfer's end (the
-   reader went away) or the store's shutdown. A read that leaves the
+8. **Stopping.** Each read asks `go_on` first and while it waits: the
+   store's shutdown. *As built:* not its transfer's end; a read waiting
+   for a turn after its reader went away reads its chunk when the turn
+   comes, and the transfer ends at its next send. A read that leaves the
    queue, or fails, is counted out by a guard in the read itself, so the
    turn is never left held.
 9. **Not covered.** Outboards are read from the cache folder (often

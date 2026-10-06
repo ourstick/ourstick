@@ -237,11 +237,6 @@ impl Disk {
         }
     }
 
-    /// Whether any reader waits for a turn.
-    fn others_wait(&self) -> bool {
-        !lock(&self.state).waiting.is_empty()
-    }
-
     /// Ends turn `turn` as [`Disk::give_back`] does, if it is still held.
     fn give_back_turn(&self, turn: u64, window: Option<&Window>) {
         if self.resume(turn) {

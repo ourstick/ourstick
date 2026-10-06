@@ -109,17 +109,53 @@ fn an_idle_turn_goes_to_a_reader_that_waits() {
 }
 
 #[test]
-fn with_someone_waiting_a_turn_is_given_back_after_its_share() {
+fn a_full_window_takes_no_new_read_and_ends_once_its_reads_end() {
     let (timer, disk) = setup();
-    let reader = SharedReader::new(disk.clone());
-    // Someone waits: an entry in the queue.
+    let reader = Arc::new(SharedReader::new(disk.clone()));
+    // A catalogue waits; the transfers read and are never idle.
     lock(&disk.state).waiting.push_back((99, false));
     lock(&disk.state).next_ticket = 100;
+    reader.join(&go_on).unwrap();
+    for _ in 0..63 {
+        reader.join(&go_on).unwrap();
+        timer.sleep(Duration::from_millis(1));
+        reader.leave(4096, true);
+    }
+    // Still the transfers' turn: one read in flight, the window not full.
+    assert!(held(&disk));
+    reader.join(&go_on).unwrap();
+    reader.leave(4096, true);
+    // 64 files: full. A new read waits, though one is still in flight.
+    let joining = {
+        let reader = reader.clone();
+        std::thread::spawn(move || reader.join(&go_on))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!joining.is_finished(), "a full window takes no new read");
+    assert_eq!(lock(&reader.state).in_flight, 1);
+    // The last read ends: judged, given back; the new read takes a turn
+    // once the catalogue's is over (here, at once: the catalogue is only
+    // an entry, so it stays first and the joiner queues behind it).
+    reader.leave(4096, true);
+    assert_eq!(windows(&disk), 1);
+    assert_eq!(lock(&disk.state).urgent_in_a_row, 1);
+    lock(&disk.state)
+        .waiting
+        .retain(|(ticket, _)| *ticket != 99);
+    disk.turn_free.notify_all();
+    joining.join().unwrap().unwrap();
+    assert!(held(&disk));
+}
+
+#[test]
+fn a_stopped_read_does_not_join_a_turn_held() {
+    let (timer, disk) = setup();
+    let reader = SharedReader::new(disk);
     read(&reader, &timer, true, 4096, 1);
-    assert!(held(&disk), "a turn too young to give back");
-    read(&reader, &timer, false, 4096, 300);
-    assert!(!held(&disk), "held past its time: given back");
-    assert_eq!(windows(&disk), 0, "not judged before it is full");
+    let stopped = || Err(io::Error::other("stopped"));
+    let read: io::Result<()> = reader.read(false, &stopped, || Ok(((), 1)));
+    assert_eq!(read.unwrap_err().to_string(), "stopped");
+    assert_eq!(lock(&reader.state).in_flight, 0);
 }
 
 #[test]
@@ -176,4 +212,43 @@ fn a_dropped_reader_gives_its_turn_back() {
     assert!(held(&disk));
     drop(reader);
     assert!(!held(&disk));
+}
+
+#[test]
+fn while_giving_way_transfers_wait_for_the_pause() {
+    let (timer, disk) = setup();
+    let reader = SharedReader::new(disk.clone());
+    lock(&disk.state).not_before = Duration::from_secs(3);
+    read(&reader, &timer, true, 4096, 1);
+    assert!(timer.elapsed() >= Duration::from_secs(3));
+}
+
+#[test]
+fn slow_transfers_make_all_of_ourstick_give_way() {
+    let (timer, disk) = setup();
+    let reader = SharedReader::new(disk.clone());
+    // Windows of 64 small files: three at their speed, then two slow.
+    for ms in [1, 1, 1, 1, 10, 10] {
+        for _ in 0..64 {
+            read(&reader, &timer, true, 4096, ms);
+        }
+    }
+    assert_eq!(windows(&disk), 6);
+    assert!(disk.giving_way());
+    // The catalogue's next turn waits for the pause too.
+    let before = timer.elapsed();
+    let mut catalogue = DiskReader::new(disk.clone(), false, go_on);
+    read_a_byte(&mut catalogue);
+    assert!(timer.elapsed() > before);
+}
+
+#[test]
+fn transfers_on_two_disks_read_at_once() {
+    let timer = Arc::new(FakeTimer::default());
+    let one = SharedReader::new(Arc::new(Disk::new(timer.clone())));
+    let other = SharedReader::new(Arc::new(Disk::new(timer.clone())));
+    one.join(&go_on).unwrap();
+    other.join(&go_on).unwrap();
+    one.leave(1, true);
+    other.leave(1, true);
 }

@@ -1,0 +1,205 @@
+//! The transfers' reader of a disk (ADR 0017, amendment 1): every transfer
+//! of a stick from one disk reads through one turn, several at once, and
+//! the turn is kept only while it is useful, so a transfer waiting on the
+//! network never keeps others from the disk for long.
+
+use std::io;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
+use super::timed::Window;
+use super::{lock, Disk, QUEUE_CHECK};
+use crate::disk::share::{ReaderKind, WINDOW_BYTES, WINDOW_FILES};
+
+/// With someone waiting, a turn is given back once it has read this much…
+const TURN_BYTES: u64 = 8 << 20;
+/// …or been held this long, when no read is in flight.
+const TURN_TIME: Duration = Duration::from_millis(250);
+
+/// One reader of a disk shared by threads: they read in its turn at once.
+/// Its window is kept across turns and judged once full, by the wall time
+/// a read was in flight (reads at once overlap). Always urgent: readers
+/// wait on what it reads.
+pub struct SharedReader {
+    disk: Arc<Disk>,
+    state: Mutex<Shared>,
+    /// Woken when a turn was taken, or taking one failed.
+    taken: Condvar,
+}
+
+struct Shared {
+    /// The turn held, by its id.
+    turn: Option<u64>,
+    /// A thread is taking a turn for all.
+    taking: bool,
+    in_flight: u32,
+    /// Since when a read is in flight (timer time).
+    busy_since: Duration,
+    /// When the turn began, and what it read.
+    turn_began: Duration,
+    turn_bytes: u64,
+    window: Window,
+}
+
+impl SharedReader {
+    pub fn new(disk: Arc<Disk>) -> Self {
+        Self {
+            disk,
+            state: Mutex::new(Shared {
+                turn: None,
+                taking: false,
+                in_flight: 0,
+                busy_since: Duration::ZERO,
+                turn_began: Duration::ZERO,
+                turn_bytes: 0,
+                window: transfers_window(),
+            }),
+            taken: Condvar::new(),
+        }
+    }
+
+    /// Reads with `read` in this reader's turn, taking one if none is
+    /// held; `read` gives what it read and how many bytes. `begins`: the
+    /// first read of a file by its transfer. `go_on` is asked while
+    /// waiting: an error leaves the queue at once. Blocking.
+    pub fn read<T>(
+        &self,
+        begins: bool,
+        go_on: &dyn Fn() -> io::Result<()>,
+        read: impl FnOnce() -> io::Result<(T, u64)>,
+    ) -> io::Result<T> {
+        self.join(go_on)?;
+        let mut in_flight = InFlight {
+            reader: self,
+            bytes: 0,
+            begins,
+        };
+        let (value, bytes) = read()?;
+        in_flight.bytes = bytes;
+        Ok(value)
+    }
+
+    /// Counts a read in, in a turn held.
+    fn join(&self, go_on: &dyn Fn() -> io::Result<()>) -> io::Result<()> {
+        let mut state = lock(&self.state);
+        loop {
+            if let Some(turn) = state.turn {
+                // A read in flight keeps the turn from being idle.
+                if state.in_flight > 0 || self.disk.resume(turn) {
+                    if state.in_flight == 0 {
+                        state.busy_since = self.disk.timer.elapsed();
+                    }
+                    state.in_flight += 1;
+                    return Ok(());
+                }
+                // Taken by the next reader while idle.
+                state.turn = None;
+            }
+            if state.taking {
+                state = self
+                    .taken
+                    .wait_timeout(state, QUEUE_CHECK)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0;
+                if !state.taking || state.turn.is_some() {
+                    continue;
+                }
+                drop(state);
+                go_on()?;
+                state = lock(&self.state);
+                continue;
+            }
+            state.taking = true;
+            drop(state);
+            let taken = self.disk.take_turn(true, go_on);
+            state = lock(&self.state);
+            state.taking = false;
+            self.taken.notify_all();
+            let turn = taken?;
+            state.turn = Some(turn);
+            state.turn_began = self.disk.timer.elapsed();
+            state.turn_bytes = 0;
+        }
+    }
+
+    /// A read ended (or failed, with nothing read): with none left in
+    /// flight, the turn is given back if the window is full, or if someone
+    /// waits and the turn has had its share; else it is kept, idle.
+    fn leave(&self, bytes: u64, begins: bool) {
+        let mut state = lock(&self.state);
+        state.in_flight -= 1;
+        state.turn_bytes += bytes;
+        let window = &mut state.window;
+        window.bytes += bytes;
+        window.timed_bytes += bytes;
+        if begins && bytes > 0 {
+            window.timed_files += 1;
+        }
+        if state.in_flight > 0 {
+            return;
+        }
+        let now = self.disk.timer.elapsed();
+        let busy = now.saturating_sub(state.busy_since);
+        state.window.took += busy;
+        state.window.timed += busy;
+        let Some(turn) = state.turn else { return };
+        let full = state.window.timed_files >= WINDOW_FILES || state.window.bytes >= WINDOW_BYTES;
+        if full {
+            let window = std::mem::replace(&mut state.window, transfers_window());
+            state.turn = None;
+            drop(state);
+            self.disk.give_back_turn(turn, Some(&window));
+        } else if self.disk.others_wait()
+            && (state.turn_bytes >= TURN_BYTES || now.saturating_sub(state.turn_began) >= TURN_TIME)
+        {
+            state.turn = None;
+            drop(state);
+            self.disk.give_back_turn(turn, None);
+        } else {
+            drop(state);
+            self.disk.go_idle(turn);
+        }
+    }
+}
+
+impl Drop for SharedReader {
+    fn drop(&mut self) {
+        let turn = lock(&self.state).turn.take();
+        if let Some(turn) = turn {
+            self.disk.give_back_turn(turn, None);
+        }
+    }
+}
+
+impl std::fmt::Debug for SharedReader {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SharedReader")
+            .finish_non_exhaustive()
+    }
+}
+
+/// A read in flight, counted out when it ends, also by an error or a
+/// panic, so the turn is never left held.
+struct InFlight<'a> {
+    reader: &'a SharedReader,
+    bytes: u64,
+    begins: bool,
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.reader.leave(self.bytes, self.begins);
+    }
+}
+
+fn transfers_window() -> Window {
+    Window {
+        kind: ReaderKind::Transfers,
+        ..Window::default()
+    }
+}
+
+#[cfg(test)]
+#[path = "shared_tests.rs"]
+mod tests;

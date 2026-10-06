@@ -18,10 +18,11 @@ pub fn saved_elsewhere(files: &[crate::store::DownloadedFile]) -> Vec<SavedAs> {
 }
 
 /// What was saved under another name, a renamed folder once for its files.
-pub(super) fn renamed(paths: &[&str], saved: &[String]) -> Vec<SavedAs> {
+pub(super) fn renamed(paths: &[&str], saved: &[impl AsRef<str>]) -> Vec<SavedAs> {
     let mut lines: Vec<SavedAs> = Vec::new();
     let mut index_of: HashMap<(String, String), usize> = HashMap::new();
     for (path, saved_as) in paths.iter().zip(saved) {
+        let saved_as = saved_as.as_ref();
         if *path == saved_as {
             continue;
         }

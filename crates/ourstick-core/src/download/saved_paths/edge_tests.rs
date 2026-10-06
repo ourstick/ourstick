@@ -13,7 +13,7 @@ const LINUX: Rules = Rules {
     fold_normal: false,
 };
 
-fn plan(paths: &[&str], rules: Rules) -> SavedPaths {
+fn plan<'a>(paths: &[&'a str], rules: Rules) -> SavedPaths<'a> {
     saved_paths(
         paths,
         &[],

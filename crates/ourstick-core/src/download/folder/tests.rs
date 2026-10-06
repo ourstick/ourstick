@@ -152,16 +152,10 @@ fn a_file_not_written_by_get_counts_only_if_its_content_matches() {
 fn a_folder_in_the_way_is_left_alone_and_the_file_saved_beside_it() {
     let out = tempfile::tempdir().unwrap();
     std::fs::create_dir(out.path().join("a")).unwrap();
-    let plan = plan_folder(
-        out.path(),
-        &manifest(vec![entry("a", b"one")]),
-        &[],
-        &[],
-        &cipher(),
-    )
-    .unwrap();
+    let stick = manifest(vec![entry("a", b"one")]);
+    let plan = plan_folder(out.path(), &stick, &[], &[], &cipher()).unwrap();
     assert_eq!(plan.files, vec![FilePlan::Download { replaceable: None }]);
-    assert_eq!(plan.saved, ["a (2)"]);
+    assert_eq!(plan.saved.all(&stick), ["a (2)"]);
     assert!(out.path().join("a").is_dir());
 }
 
@@ -202,15 +196,28 @@ const WINDOWS: Rules = Rules {
     fold_normal: false,
 };
 
-/// The plan with Windows' rules, as a Windows receiver makes it.
-fn windows_plan(dir: &Path, entries: Vec<Entry>, recorded: &[DownloadedFile]) -> FolderPlan {
-    plan_folder_by(dir, &manifest(entries), recorded, &[], &cipher(), WINDOWS).unwrap()
+/// The plan with Windows' rules, as a Windows receiver makes it, and every
+/// entry's place.
+fn windows_plan(
+    dir: &Path,
+    entries: Vec<Entry>,
+    recorded: &[DownloadedFile],
+) -> (FolderPlan, Vec<String>) {
+    let stick = manifest(entries);
+    let plan = plan_folder_by(dir, &stick, recorded, &[], &cipher(), WINDOWS).unwrap();
+    let places = plan
+        .saved
+        .all(&stick)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    (plan, places)
 }
 
 #[test]
 fn a_windows_receiver_saves_every_file_under_a_name_it_can() {
     let out = tempfile::tempdir().unwrap();
-    let plan = windows_plan(
+    let (plan, places) = windows_plan(
         out.path(),
         vec![
             entry("CON.txt", b"c"),
@@ -220,7 +227,7 @@ fn a_windows_receiver_saves_every_file_under_a_name_it_can() {
         ],
         &[],
     );
-    assert_eq!(plan.saved, ["CON_.txt", "Trip_/x", "a_ (2).jpg", "a_.jpg"]);
+    assert_eq!(places, ["CON_.txt", "Trip_/x", "a_ (2).jpg", "a_.jpg"]);
     assert!(plan
         .files
         .iter()
@@ -238,7 +245,7 @@ fn later_versions_keep_the_places_and_a_renamed_folder_takes_new_files() {
     let mut q = written(out.path(), "a_.jpg", b"q");
     q.path = "a?.jpg".to_owned();
     // The sender changes `a?.jpg`, adds `Trip?/y` and a genuine `a_.jpg`.
-    let plan = windows_plan(
+    let (plan, places) = windows_plan(
         out.path(),
         vec![
             entry("Trip?/x", b"x"),
@@ -248,7 +255,7 @@ fn later_versions_keep_the_places_and_a_renamed_folder_takes_new_files() {
         ],
         &[x, q],
     );
-    assert_eq!(plan.saved, ["Trip_/x", "Trip_/y", "a_.jpg", "a_ (2).jpg"]);
+    assert_eq!(places, ["Trip_/x", "Trip_/y", "a_.jpg", "a_ (2).jpg"]);
     assert_eq!(plan.files[0], FilePlan::AlreadyHere);
     assert!(matches!(
         plan.files[2],
@@ -268,10 +275,10 @@ fn a_renamed_file_that_left_the_stick_is_counted_and_its_place_kept() {
         saved_as: "old_.txt".to_owned(),
         ..q.clone()
     };
-    let plan = windows_plan(out.path(), vec![entry("a_.jpg", b"genuine")], &[q, gone]);
+    let (plan, places) = windows_plan(out.path(), vec![entry("a_.jpg", b"genuine")], &[q, gone]);
     // The renamed copy is still there: counted, and its place stays its.
     assert_eq!(plan.no_longer_in_stick, 1);
-    assert_eq!(plan.saved, ["a_ (2).jpg"]);
+    assert_eq!(places, ["a_ (2).jpg"]);
     // The row of the file that is gone is forgotten.
     assert_eq!(plan.forget, ["old?.txt"]);
 }
@@ -303,15 +310,9 @@ fn a_file_where_a_received_folder_was_stops_nothing() {
     // The user deleted the folder and saved a note of that name.
     std::fs::remove_dir_all(out.path().join("Trip")).unwrap();
     std::fs::write(out.path().join("Trip"), b"my note").unwrap();
-    let plan = plan_folder(
-        out.path(),
-        &manifest(vec![entry("Trip/a.jpg", b"a"), entry("b.txt", b"b")]),
-        &[row],
-        &[],
-        &cipher(),
-    )
-    .unwrap();
-    assert_eq!(plan.saved, ["Trip (2)/a.jpg", "b.txt"]);
+    let stick = manifest(vec![entry("Trip/a.jpg", b"a"), entry("b.txt", b"b")]);
+    let plan = plan_folder(out.path(), &stick, &[row], &[], &cipher()).unwrap();
+    assert_eq!(plan.saved.all(&stick), ["Trip (2)/a.jpg", "b.txt"]);
     assert_eq!(plan.forget, ["Trip/a.jpg"]);
     assert_eq!(std::fs::read(out.path().join("Trip")).unwrap(), b"my note");
 }

@@ -15,7 +15,7 @@ fn empty(_: &str, _: Option<usize>) -> OnDisk {
     OnDisk::Nothing
 }
 
-fn plan(paths: &[&str], rules: Rules) -> SavedPaths {
+fn plan<'a>(paths: &[&'a str], rules: Rules) -> SavedPaths<'a> {
     saved_paths(paths, &[], &Default::default(), empty, rules)
 }
 

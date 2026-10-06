@@ -51,7 +51,7 @@ pub(super) async fn fetch_files(
     cipher: &Arc<dyn Cipher>,
     manifest: &Manifest,
     files: &[FilePlan],
-    saved: &[String],
+    saved: &super::folder::SavedAt,
     output_dir: &Path,
     partial: &Path,
     receiving: &mut ReceivingPath<'_>,
@@ -93,7 +93,7 @@ pub(super) async fn fetch_files(
                 // for its record.
                 let stick_path = manifest.entries[index].path.as_str();
                 let placed = Entry {
-                    path: saved[index].clone(),
+                    path: saved.of(index, stick_path).to_owned(),
                     ..manifest.entries[index].clone()
                 };
                 let entry = &placed;

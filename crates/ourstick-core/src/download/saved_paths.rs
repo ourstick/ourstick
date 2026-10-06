@@ -3,6 +3,7 @@
 //! change, the same for a folder and all its files, and the same in every
 //! later version (the places recorded stay).
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use super::saved_names::{not_ours, numbered, safe_name};
@@ -75,8 +76,9 @@ pub struct SavedAs {
 
 /// Where every entry goes, in manifest order, and what was renamed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SavedPaths {
-    pub(crate) saved: Vec<String>,
+pub(crate) struct SavedPaths<'a> {
+    /// Its own path (borrowed: nearly every entry), or its new place.
+    pub(crate) saved: Vec<Cow<'a, str>>,
     pub(crate) renamed: Vec<SavedAs>,
     /// Recorded places this round's folding makes one: moved to a new place
     /// (stick path, new place).
@@ -103,13 +105,13 @@ const OURS: [&str; 2] = [super::PARTIAL_DIR, super::receive::RECEIVED_MARKER];
 /// (they stay theirs), then every path that needs no change, then the rest
 /// in manifest order (ADR 0010, rule 4). Entries in `not_chosen` (by index,
 /// ADR 0012) take no new place and are not told as renamed.
-pub(crate) fn saved_paths(
-    paths: &[&str],
+pub(crate) fn saved_paths<'a>(
+    paths: &[&'a str],
     recorded: &[Recorded<'_>],
     not_chosen: &HashSet<usize>,
     on_disk: impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
-) -> SavedPaths {
+) -> SavedPaths<'a> {
     // What is taken here, and where each folder of the stick is saved.
     let mut taken = Taken::default();
     let mut by_path: HashMap<&str, String> = HashMap::new();
@@ -142,9 +144,13 @@ pub(crate) fn saved_paths(
         by_path.insert(row.path, row.saved_as.to_owned());
     }
 
-    let mut saved: Vec<Option<String>> = paths
+    let mut saved: Vec<Option<Cow<'a, str>>> = paths
         .iter()
-        .map(|path| by_path.get(path).cloned())
+        .map(|path| {
+            by_path
+                .get(path)
+                .map(|saved_as| own_or_borrowed(path, saved_as))
+        })
         .collect();
     // Unchanged: every name savable as it is, its folders not moved, and
     // nothing in the way.
@@ -159,29 +165,29 @@ pub(crate) fn saved_paths(
         }
         taken.take(path, path, rules);
         taken.remember_folders(path, path);
-        saved[index] = Some((*path).to_owned());
+        saved[index] = Some(Cow::Borrowed(*path));
     }
     // The rest, top-down.
     let mut left_out = Vec::new();
     for (index, path) in paths.iter().enumerate() {
         if not_chosen.contains(&index) {
             if saved[index].is_none() {
-                saved[index] = Some((*path).to_owned());
+                saved[index] = Some(Cow::Borrowed(*path));
             }
             continue;
         }
         if saved[index].is_none() {
             match choose(path, index, &mut taken, &on_disk, rules) {
-                Some(place) => saved[index] = Some(place),
+                Some(place) => saved[index] = Some(own_or_borrowed(path, &place)),
                 None => {
                     tracing::warn!("a file left out: every place for it is in the way");
                     left_out.push(index);
-                    saved[index] = Some((*path).to_owned());
+                    saved[index] = Some(Cow::Borrowed(*path));
                 }
             }
         }
     }
-    let saved: Vec<String> = saved.into_iter().flatten().collect();
+    let saved: Vec<Cow<'a, str>> = saved.into_iter().flatten().collect();
     let displaced = moved.iter().map(|path| (*path).to_owned()).collect();
     let index_of: HashMap<&str, usize> = paths
         .iter()
@@ -192,17 +198,17 @@ pub(crate) fn saved_paths(
         .into_iter()
         .filter_map(|path| {
             let index = *index_of.get(path)?;
-            Some((path.to_owned(), saved[index].clone()))
+            Some((path.to_owned(), saved[index].clone().into_owned()))
         })
         .collect();
     // What was renamed, of what is saved.
     let left_set: std::collections::HashSet<usize> = left_out.iter().copied().collect();
-    let (named, placed): (Vec<&str>, Vec<String>) = paths
+    let (named, placed): (Vec<&str>, Vec<&str>) = paths
         .iter()
         .zip(&saved)
         .enumerate()
         .filter(|(index, _)| !left_set.contains(index) && !not_chosen.contains(index))
-        .map(|(_, (path, saved))| (*path, saved.clone()))
+        .map(|(_, (path, saved))| (*path, saved.as_ref()))
         .unzip();
     SavedPaths {
         renamed: super::saved_lines::renamed(&named, &placed),
@@ -210,6 +216,15 @@ pub(crate) fn saved_paths(
         moved,
         displaced,
         left_out,
+    }
+}
+
+/// `place`, borrowed from `path` when it is the same.
+fn own_or_borrowed<'a>(path: &'a str, place: &str) -> Cow<'a, str> {
+    if place == path {
+        Cow::Borrowed(path)
+    } else {
+        Cow::Owned(place.to_owned())
     }
 }
 

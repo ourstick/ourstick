@@ -33,13 +33,48 @@ pub(super) enum FilePlan {
     NotChosen,
 }
 
+/// Where each entry is saved: only the places that are not the entry's own
+/// path are held, nearly none (ADR 0018).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct SavedAt(Vec<Option<Box<str>>>);
+
+impl SavedAt {
+    fn new(places: Vec<std::borrow::Cow<'_, str>>) -> Self {
+        Self(
+            places
+                .into_iter()
+                .map(|place| match place {
+                    std::borrow::Cow::Borrowed(_) => None,
+                    std::borrow::Cow::Owned(place) => Some(place.into_boxed_str()),
+                })
+                .collect(),
+        )
+    }
+
+    /// Where entry `index`, at `path` in the stick, is saved.
+    pub(super) fn of<'s>(&'s self, index: usize, path: &'s str) -> &'s str {
+        self.0[index].as_deref().unwrap_or(path)
+    }
+
+    /// Every entry's place, in manifest order.
+    #[cfg(test)]
+    pub(super) fn all<'s>(&'s self, manifest: &'s Manifest) -> Vec<&'s str> {
+        manifest
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| self.of(index, &entry.path))
+            .collect()
+    }
+}
+
 /// The plan for every entry of a manifest, in manifest order.
 #[derive(Debug)]
 pub(super) struct FolderPlan {
     pub(super) files: Vec<FilePlan>,
     /// Where each entry is saved, relative to the folder (ADR 0010): its
     /// path, or the smallest change of it this computer can save.
-    pub(super) saved: Vec<String>,
+    pub(super) saved: SavedAt,
     /// What is saved under another name, a renamed folder once.
     pub(super) renamed: Vec<SavedAs>,
     /// Recorded files to forget before anything is recorded: their file is
@@ -265,7 +300,7 @@ pub(super) fn plan_folder_by(
                 Some(local) if local == entry.hash => {
                     found.push(DownloadedFile {
                         path: entry.path.clone(),
-                        saved_as: saved_as.clone(),
+                        saved_as: saved_as.to_string(),
                         stamp,
                         blob_hash: entry.hash,
                     });
@@ -301,7 +336,7 @@ pub(super) fn plan_folder_by(
             .map(|(name, (files, bytes))| (name.to_owned(), files, bytes))
             .collect(),
         files,
-        saved: places.saved,
+        saved: SavedAt::new(places.saved),
         renamed: places.renamed,
         forget: forget.iter().map(|file| file.path.clone()).collect(),
         found,

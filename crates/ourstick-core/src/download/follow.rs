@@ -3,7 +3,9 @@
 
 use std::time::Duration;
 
-use super::DownloadError;
+use std::ops::ControlFlow;
+
+use super::{DownloadError, DownloadEvent};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PeerConnection, TransportError};
 
@@ -71,5 +73,49 @@ pub async fn wait_for_newer(
             }
         }
         tokio::time::sleep(interval).await;
+    }
+}
+
+/// Reaching the owner during a download. Once it said more is coming (a
+/// partial version), an owner that cannot be reached is waited for, as
+/// while waiting for its next version, not the end of the download.
+#[derive(Debug, Default)]
+pub(super) struct Reach {
+    pub(super) more_coming: bool,
+    unreachable: bool,
+}
+
+impl Reach {
+    /// A connection to the owner; `None` after waiting [`FOLLOW_EVERY`] for
+    /// an owner that more is coming from but cannot be reached now (told
+    /// once, and again when it is back).
+    pub(super) async fn connect<F: Fetcher>(
+        &mut self,
+        fetcher: &F,
+        ticket: &Ticket,
+        on_event: &mut (dyn FnMut(DownloadEvent<'_>) -> ControlFlow<()> + Send),
+    ) -> Result<Option<F::Connection>, DownloadError> {
+        match fetcher.connect(ticket).await {
+            Ok(connection) => {
+                if self.unreachable {
+                    self.unreachable = false;
+                    if on_event(DownloadEvent::OwnerReachable).is_break() {
+                        return Err(DownloadError::Cancelled);
+                    }
+                }
+                Ok(Some(connection))
+            }
+            Err(reason @ TransportError::Unreachable(_)) if self.more_coming => {
+                if !self.unreachable {
+                    self.unreachable = true;
+                    if on_event(DownloadEvent::OwnerUnreachable { reason: &reason }).is_break() {
+                        return Err(DownloadError::Cancelled);
+                    }
+                }
+                tokio::time::sleep(FOLLOW_EVERY).await;
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }

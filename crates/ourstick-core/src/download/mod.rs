@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 mod batches;
+mod carried;
 mod entry;
 mod fetch_decision;
 mod fetch_files;
@@ -63,33 +64,12 @@ enum Over {
     },
 }
 
-/// What carries over from one connection of a download to the next.
-#[derive(Debug, Default)]
-struct Carried {
-    /// Blob bytes received, over all connections (a stopped fetch counts too).
-    received: u64,
-    /// The version the last connection was downloading, once known.
-    seq: Option<u64>,
-    /// The owner refused data of this version (`None`: before it was known):
-    /// the next connection continues only if the owner has a newer one.
-    refused: Option<(Option<u64>, DownloadError)>,
-    /// How long the download has been on the relay, over connections.
-    watch: relay_watch::RelayWatch,
-    /// Connections lost in a row with nothing received in between.
-    lost: u32,
-    /// `received` when the last connection was lost.
-    received_at_loss: u64,
-}
-
-/// Connections lost in a row, with nothing received in between, before the
-/// download stops: an owner that answers and then drops every connection.
-const MAX_LOST_IN_A_ROW: u32 = 5;
-
 use crate::blocking::run_blocking;
 use crate::clock::Clock;
 use crate::store::{JoinedStick, ManifestVersion, StickKind, Store, StoreError};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PathUsage, PeerConnection, TransportError};
+use carried::{Carried, MAX_LOST_IN_A_ROW};
 
 /// Where partially written files live inside the output folder, so the final
 /// rename stays on one file system. Removed at the end.
@@ -154,11 +134,7 @@ pub async fn download_as(
     let mut total = PathUsage::default();
     let mut carried = Carried::default();
     let mut new_versions = 0;
-    // The owner said more is coming (a partial version): from then on, an
-    // owner that cannot be reached is waited for, as while waiting for its
-    // next version, not the end of the download.
-    let mut more_coming = false;
-    let mut unreachable = false;
+    let mut reach = follow::Reach::default();
     loop {
         // Read again on every attempt: an earlier attempt may have raised
         // the floor.
@@ -172,26 +148,9 @@ pub async fn download_as(
             })
             .await?
         };
-        let connection = match fetcher.connect(ticket).await {
-            Ok(connection) => connection,
-            Err(reason @ TransportError::Unreachable(_)) if more_coming => {
-                if !unreachable {
-                    unreachable = true;
-                    if on_event(DownloadEvent::OwnerUnreachable { reason: &reason }).is_break() {
-                        return Err(DownloadError::Cancelled);
-                    }
-                }
-                tokio::time::sleep(FOLLOW_EVERY).await;
-                continue;
-            }
-            Err(error) => return Err(error.into()),
+        let Some(connection) = reach.connect(fetcher, ticket, on_event).await? else {
+            continue;
         };
-        if unreachable {
-            unreachable = false;
-            if on_event(DownloadEvent::OwnerReachable).is_break() {
-                return Err(DownloadError::Cancelled);
-            }
-        }
         let result = download_over(
             fetcher,
             &connection,
@@ -221,7 +180,7 @@ pub async fn download_as(
             // ADR 0007: the owner is still reading its folder. Wait for its
             // next version, then go on with it.
             Ok(Over::Partial { seq }) => {
-                more_coming = true;
+                reach.more_coming = true;
                 if on_event(DownloadEvent::WaitingForMore { seq }).is_break() {
                     return Err(DownloadError::Cancelled);
                 }

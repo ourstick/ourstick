@@ -110,9 +110,8 @@ pub(crate) fn saved_paths(
     on_disk: impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
 ) -> SavedPaths {
+    // What is taken here, and where each folder of the stick is saved.
     let mut taken = Taken::default();
-    // Stick folder → folder in the received folder, as already chosen.
-    let mut folders: HashMap<String, String> = HashMap::new();
     let mut by_path: HashMap<&str, String> = HashMap::new();
     let mut moved = Vec::new();
     let mut rows: Vec<&Recorded<'_>> = recorded.iter().collect();
@@ -129,7 +128,7 @@ pub(crate) fn saved_paths(
         let pairs = folder_pairs(row.path, row.saved_as);
         let agrees = pairs
             .iter()
-            .all(|(stick, here)| folders.get(stick).is_none_or(|chosen| chosen == here));
+            .all(|(stick, here)| taken.chosen_for(stick).is_none_or(|chosen| chosen == here));
         let in_the_way = pairs
             .iter()
             .any(|(_, here)| on_disk(here, None) == OnDisk::File);
@@ -139,7 +138,7 @@ pub(crate) fn saved_paths(
             continue;
         }
         taken.take(row.saved_as, row.path, rules);
-        remember_folders(&mut folders, row.path, row.saved_as);
+        taken.remember_folders(row.path, row.saved_as);
         by_path.insert(row.path, row.saved_as.to_owned());
     }
 
@@ -154,12 +153,12 @@ pub(crate) fn saved_paths(
     for (index, path) in paths.iter().enumerate() {
         if not_chosen.contains(&index)
             || saved[index].is_some()
-            || !unchanged(path, index, &folders, &taken, &on_disk, rules)
+            || !unchanged(path, index, &taken, &on_disk, rules)
         {
             continue;
         }
         taken.take(path, path, rules);
-        remember_folders(&mut folders, path, path);
+        taken.remember_folders(path, path);
         saved[index] = Some((*path).to_owned());
     }
     // The rest, top-down.
@@ -172,7 +171,7 @@ pub(crate) fn saved_paths(
             continue;
         }
         if saved[index].is_none() {
-            match choose(path, index, &mut folders, &mut taken, &on_disk, rules) {
+            match choose(path, index, &mut taken, &on_disk, rules) {
                 Some(place) => saved[index] = Some(place),
                 None => {
                     tracing::warn!("a file left out: every place for it is in the way");
@@ -214,29 +213,12 @@ pub(crate) fn saved_paths(
     }
 }
 
-/// Records the folders of `path` as saved at those of `saved_as`.
-fn remember_folders(folders: &mut HashMap<String, String>, path: &str, saved_as: &str) {
-    let mut stick = String::new();
-    let mut here = String::new();
-    let parts: Vec<(&str, &str)> = path.split('/').zip(saved_as.split('/')).collect();
-    for (stick_name, saved_name) in &parts[..parts.len().saturating_sub(1)] {
-        if !stick.is_empty() {
-            stick.push('/');
-            here.push('/');
-        }
-        stick.push_str(stick_name);
-        here.push_str(saved_name);
-        folders.entry(stick.clone()).or_insert_with(|| here.clone());
-    }
-}
-
 /// Whether `path` can be saved as it is: every name savable, each folder
 /// either not chosen yet or chosen as itself, no file where a folder must
 /// go, and its own place free.
 fn unchanged(
     path: &str,
     index: usize,
-    folders: &HashMap<String, String>,
     taken: &Taken,
     on_disk: &impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
@@ -257,8 +239,8 @@ fn unchanged(
             folder.push('/');
         }
         folder.push_str(name);
-        match folders.get(&folder) {
-            Some(chosen) if chosen != &folder => return false,
+        match taken.chosen_for(&folder) {
+            Some(chosen) if chosen != folder => return false,
             Some(_) => {}
             None => {
                 if !taken.folder_free(&rules.fold(&folder), &folder)
@@ -279,7 +261,6 @@ fn unchanged(
 fn choose(
     path: &str,
     entry: usize,
-    folders: &mut HashMap<String, String>,
     taken: &mut Taken,
     on_disk: &impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
@@ -294,8 +275,8 @@ fn choose(
         }
         stick.push_str(name);
         if !last {
-            if let Some(chosen) = folders.get(&stick) {
-                here = chosen.clone();
+            if let Some(chosen) = taken.chosen_for(&stick) {
+                here = chosen.to_owned();
                 continue;
             }
         }
@@ -329,11 +310,8 @@ fn choose(
             taken.take(&candidate, path, rules);
             return Some(candidate);
         }
-        taken
-            .folders
-            .entry(rules.fold(&candidate))
-            .or_insert_with(|| stick.clone());
-        folders.insert(stick.clone(), candidate.clone());
+        taken.hold_folder(&rules.fold(&candidate), &stick);
+        taken.choose_folder(&stick, &candidate);
         here = candidate;
     }
     unreachable!("a path has at least one name")

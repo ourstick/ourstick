@@ -1,6 +1,6 @@
 # ADR 0018: The reader's memory
 
-**Status:** proposed — 2026-10-06. Reviewed by two other models against our
+**Status:** accepted — 2026-10-06 (Giorgos chose B2a); B1, B2a and A1 built. Reviewed by two other models against our
 code and iroh-blobs 0.103.0; this version takes in their changes.
 
 ## Context
@@ -127,3 +127,47 @@ an error (our report upstream, `docs/todo.md`).
   then needs twice that free while it runs (ADR 0008's scratch room).
 - **A compact manifest** (fixed records and one buffer of names): about
   5 MB less, and every user of `Manifest` changes; not worth it.
+
+## As built and measured (2026-10-06)
+
+**B2a** (`a74316b`): iroh-blobs 0.103.1 in `third_party/iroh-blobs` with
+`shutdown_background()`. A test opens and shuts down 20 stores: 0 threads
+left (20 without the patch). The reader of 10 000 files: 13 threads at the
+end (53 before, 48 of them left behind). B1's draft is in
+`docs/upstream/iroh-blobs-runtime-drop.md`. B2b was not needed.
+
+**A1**, a step a commit, each with ADR 0010's tests green and their
+values unchanged; the gauge (`download/folder/gauge_tests.rs`: 100 000
+files in folders six deep, run by hand under heaptrack), its peak heap:
+
+| Step | Commit | Peak |
+|---|---|---|
+| Before | | 88.5 MB |
+| The manifest shared, not copied | `f433f89` | (not in the gauge) |
+| Each folder path held once (`saved_paths/taken.rs`) | `5afa3e5` | 71.9 MB |
+| Links asked of folders only, by their path here, nothing below a missing place | `df0090d` | 54.9 MB |
+| A file's place kept only when it changed (`SavedAt`) | `9b5d64b` | 48.1 MB |
+
+Of the last 48 MB, about 11 are the manifest and 3 the test's own: the
+plan itself went from about 74 MB to about 34. The folder tree of the
+proposal was not needed: the shared table of paths keeps each folder once.
+
+The reader of the 100 000-file stick (the owner on the same machine):
+
+| | Before | After |
+|---|---|---|
+| Linux, peak RSS (two arenas) | 281 MB | 114 MB |
+| Linux, threads | 15 → 402 | 13–18 |
+| macOS, peak RSS | 206 MB | 109 MB |
+| Windows (VM), peak working set | 89 MB at 30 %, 111 MB at 70 % | 83 MB at 80 % |
+
+On Windows the run was stopped at 80 % (90 minutes): Defender scanned
+every file written, and this PC's memory was short (the VM partly in
+swap); the reader stayed at 75–83 MB from 30 % on.
+
+On Linux the reader took 18 minutes with the owner's files cold on its
+hard disk, and 21 seconds with them in the system's cache: the owner's
+seeks, not the plan. A2 is not needed for memory; the time to the first
+file (the plan of 100 000 files, under a second here) does not ask for it
+either.
+

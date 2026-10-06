@@ -27,6 +27,12 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## Upstream
 
+- **iroh-blobs: an `FsStore` shut down leaves threads behind** (ADR 0018):
+  issue and one-line pull request drafted in
+  `docs/upstream/iroh-blobs-runtime-drop.md`, to be sent by Giorgos.
+  Patched meanwhile in `third_party/iroh-blobs`; once a release has the
+  fix, delete that folder and its `[patch.crates-io]` entry.
+
 - [ ] **iroh 1.2: a direct path lost and not found again.** Two peers on one
       LAN (192.168.1.x): the direct path carried 60 MB/s, the data paused
       about 20 s (the owner preparing a suitcase, before ADR 0017), then the connection moved

@@ -100,6 +100,9 @@ iroh-blobs = "0.103.0"
 
 [patch.crates-io]
 ksni = { path = "third_party/ksni" }
+# ADR 0018: 0.103.1 with its store runtime shut down without waiting for
+# itself (third_party/iroh-blobs/OURSTICK.md).
+iroh-blobs = { path = "third_party/iroh-blobs" }
 
 [profile.release]
 lto = "thin"

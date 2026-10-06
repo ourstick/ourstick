@@ -221,11 +221,8 @@ The catalogue's cost of making outboards is measured in step 1.
   not "damaged".
 - The owner keeps no space claim: migration 0021 deletes old `cache` rows.
   Old `cache/<stick>/suitcases` folders are removed when sharing starts.
-- **Not as rule 8 says, yet:** transfers read their files on the 4 threads,
-  but they take no disk turn (ADR 0013) and asks are not put in manifest
-  order: while it sends, the owner does not give way to other programs on
-  that disk. Making files ready (the keeper) does take turns. In
-  `docs/todo.md`.
+- **Not as rule 8 says, at first:** transfers took no disk turn and asks
+  are not put in manifest order. Amendment 1 (below) built the turns.
 - **Not as rule 1 says:** outboards of blobs no longer in the version are
   removed right after it is published, not once no transfer of them is in
   flight. On Unix a transfer keeps reading the removed file; on Windows the
@@ -294,7 +291,7 @@ step 0 hold on all three systems.
 - **mimalloc or another allocator.** Measured worse on macOS (3–4×) and
   Windows (1.5–2.5×).
 
-## Amendment 1: transfers read through the disk's turns (proposed, 2026-10-06)
+## Amendment 1: transfers read through the disk's turns (accepted 2026-10-06; built, to be measured)
 
 Rule 8 is not built: a transfer reads its file on the 4 threads outside
 ADR 0013's turns. While it sends, the owner does not give way to another

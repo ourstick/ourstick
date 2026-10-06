@@ -39,6 +39,8 @@ pub(super) struct Served {
     /// None until the first version.
     files: Arc<Mutex<Option<ServedFiles>>>,
     on_not_served: OnNotServed,
+    /// Through the disks' turns, unless the store was started without.
+    reads: Option<Reads>,
 }
 
 // The table and the transport's ready set change together: each change of
@@ -107,27 +109,33 @@ impl Served {
     }
 }
 
-/// Starts the store of a stick whose outboards are in `outboards`. It and
-/// its exports run on `runtime`, threads of their own (ADR 0017 rule 8):
-/// an export reads its file and encrypts in its task, which blocks that
-/// thread, so a disk that is slow or asleep holds one of them; nothing
-/// else runs there.
+/// Starts the store of a stick whose outboards are in `outboards`, its
+/// files read through `reads` (the disks' turns). Its exports run on
+/// `runtime`, threads of their own (ADR 0017 rule 8): an export reads its
+/// file and encrypts in its task, which blocks that thread, so a disk that
+/// is slow, asleep or giving way holds one of them; nothing else runs
+/// there.
 pub(super) fn start(
     cipher: Arc<dyn Cipher>,
     outboards: PathBuf,
     runtime: tokio::runtime::Handle,
     on_not_served: OnNotServed,
+    reads: Option<Reads>,
 ) -> (Store, Served) {
     let served = Served {
         cipher: Arc::new(Mutex::new(cipher)),
         outboards,
         files: Arc::default(),
         on_not_served,
+        reads,
     };
     let (sender, commands) = tokio::sync::mpsc::channel::<Command>(64);
     let store: Store = MemStore::from_sender(sender.into()).into();
-    // On its own runtime, so it can be started from anywhere.
-    runtime.spawn(run(commands, served.clone(), runtime.clone()));
+    // The commands are answered on the caller's runtime (nothing there
+    // blocks), so they are while exports wait for a disk's turn; exports
+    // run on `runtime`.
+    let answering = tokio::runtime::Handle::try_current().unwrap_or_else(|_| runtime.clone());
+    answering.spawn(run(commands, served.clone(), runtime));
     (store, served)
 }
 
@@ -274,6 +282,10 @@ async fn export(
         file.plaintext_len,
         &file.plaintext_hash,
     )
+    .and_then(|blob| match &served.reads {
+        Some(reads) => reads.through_turns(blob, path),
+        None => Ok(blob),
+    })
     .map_err(|error| {
         Refused::Unreadable(io::Error::new(
             error.kind(),
@@ -337,7 +349,9 @@ fn open_outboard(dir: &std::path::Path, hash: &Hash, tree: BaoTree) -> io::Resul
 }
 
 mod commands;
+mod reads;
 use commands::run;
+pub(super) use reads::Reads;
 
 #[cfg(test)]
 #[path = "made_store_tests.rs"]

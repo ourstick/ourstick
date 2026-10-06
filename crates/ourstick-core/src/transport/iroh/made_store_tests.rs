@@ -66,6 +66,9 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         cache.path().to_path_buf(),
         tokio::runtime::Handle::current(),
         Arc::new(move |hash: Hash, changed| telling.lock().unwrap().push((hash, changed))),
+        Some(Reads::new(Arc::new(crate::disk::turns::DiskTurns::new(
+            Arc::new(crate::disk::turns::SystemTimer::default()),
+        )))),
     );
     served.set(
         cipher(),

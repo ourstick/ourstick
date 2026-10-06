@@ -26,9 +26,14 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
     std::fs::create_dir_all(suitcases.join("1")).unwrap();
     std::fs::write(suitcases.join("1").join("blobs.db"), b"old").unwrap();
     let config = IrohConfig::new(random_key(), Network::LocalOnly);
-    let publisher = IrohPublisher::start(&config, owner.signing_key.stick_id(), owner.cache.path())
-        .await
-        .unwrap();
+    let publisher = IrohPublisher::start(
+        &config,
+        owner.signing_key.stick_id(),
+        owner.cache.path(),
+        common::disks(),
+    )
+    .await
+    .unwrap();
     tokio::spawn(keep_files(
         publisher.clone(),
         owner.store.clone(),

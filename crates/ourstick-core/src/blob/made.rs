@@ -8,10 +8,19 @@
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::{blob_len, BlobHeader, CHUNK_SIZE};
 use crate::cipher::Cipher;
+
+/// How a made blob's file is read: through a disk's turns for transfers
+/// (ADR 0017, amendment 1).
+pub trait FileReads: Send + Sync {
+    /// Runs `read`, which reads from the file and says how many bytes;
+    /// `begins`: the blob's first read. Blocking.
+    fn read(&self, begins: bool, read: &mut dyn FnMut() -> io::Result<u64>) -> io::Result<()>;
+}
 
 /// One file's blob, made on demand.
 pub struct MadeBlob {
@@ -27,6 +36,9 @@ pub struct MadeBlob {
     /// reads of one blob run one at a time (one transfer reads one blob, in
     /// order).
     last: Mutex<Option<(u64, Arc<Vec<u8>>)>>,
+    /// Through what the file is read; directly if none.
+    reads: Option<Arc<dyn FileReads>>,
+    begun: AtomicBool,
 }
 
 impl MadeBlob {
@@ -51,7 +63,20 @@ impl MadeBlob {
             header_bytes,
             plaintext_len,
             last: Mutex::new(None),
+            reads: None,
+            begun: AtomicBool::new(false),
         })
+    }
+
+    /// Its file read through `reads` from now on.
+    pub fn with_reads(mut self, reads: Arc<dyn FileReads>) -> Self {
+        self.reads = Some(reads);
+        self
+    }
+
+    /// Its file's metadata, as opened.
+    pub fn metadata(&self) -> io::Result<std::fs::Metadata> {
+        self.file.metadata()
     }
 
     /// The blob's length, from the recorded size.
@@ -86,7 +111,16 @@ impl MadeBlob {
         let start = index * CHUNK_SIZE as u64;
         let len = (self.plaintext_len - start).min(CHUNK_SIZE as u64) as usize;
         let mut plaintext = vec![0u8; len];
-        read_exact_at(&self.file, &mut plaintext, start)?;
+        // Only a chunk not cached reads the file (and takes a turn).
+        match &self.reads {
+            Some(reads) => {
+                let begins = !self.begun.swap(true, Ordering::Relaxed);
+                reads.read(begins, &mut || {
+                    read_exact_at(&self.file, &mut plaintext, start).map(|()| len as u64)
+                })?;
+            }
+            None => read_exact_at(&self.file, &mut plaintext, start)?,
+        }
         let is_last = index + 1 == self.chunks();
         let index32 = u32::try_from(index).map_err(io::Error::other)?;
         let sealed = self
@@ -273,5 +307,53 @@ mod tests {
         // And nothing past the blob is made.
         assert!(made.read_at(made.len(), &mut [0u8; 1]).is_err());
         assert!(made.read_at(u64::MAX, &mut [0u8; 2]).is_err());
+    }
+
+    /// Counts the file's reads, and which began the blob.
+    #[derive(Default)]
+    struct Counted(Mutex<Vec<bool>>);
+
+    impl FileReads for Counted {
+        fn read(&self, begins: bool, read: &mut dyn FnMut() -> io::Result<u64>) -> io::Result<()> {
+            self.0.lock().unwrap().push(begins);
+            read().map(|_| ())
+        }
+    }
+
+    #[test]
+    fn only_a_chunk_not_cached_reads_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let plaintext = vec![9u8; 2 * CHUNK_SIZE];
+        let path = dir.path().join("f");
+        std::fs::write(&path, &plaintext).unwrap();
+        let mut blob = Vec::new();
+        let info = encrypt_blob(
+            cipher().as_ref(),
+            &mut io::Cursor::new(&plaintext),
+            &mut blob,
+        )
+        .unwrap();
+        let counted = Arc::new(Counted::default());
+        let made = MadeBlob::open(
+            &path,
+            cipher(),
+            plaintext.len() as u64,
+            &info.plaintext_hash,
+        )
+        .unwrap()
+        .with_reads(counted.clone());
+        // 16 KiB groups, as bao-tree asks: four per chunk.
+        let mut out = vec![0u8; 16 * 1024];
+        let mut offset = 0;
+        let mut made_bytes = Vec::new();
+        while offset < blob.len() {
+            let len = out.len().min(blob.len() - offset);
+            made.read_at(offset as u64, &mut out[..len]).unwrap();
+            made_bytes.extend_from_slice(&out[..len]);
+            offset += len;
+        }
+        assert_eq!(made_bytes, blob);
+        // One read per chunk, the first one beginning the blob.
+        assert_eq!(*counted.0.lock().unwrap(), [true, false]);
     }
 }

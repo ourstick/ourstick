@@ -10,14 +10,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
-## Giving way while sending
-
-- **Transfers take no disk turn** (ADR 0017 rule 8, not done): the owner's
-  store reads files for readers on its 4 threads, outside ADR 0013's turns,
-  and the 32 asks of a reader are not put in manifest order. While it
-  sends, the owner does not give way to other programs on that disk. Take a
-  turn per window in `MadeBlob` reads, and measure a hard disk.
-
 ## Memory
 
 - **The reader reaches 200–280 MB** for 100 000 small files on Linux,

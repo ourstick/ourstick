@@ -237,9 +237,14 @@ carries only the key). Every file blob of that stick must use the same cipher.
   timed; when windows take over three times their usual time twice in a
   row, the owner reads a tenth of the time until one takes under two and a
   half times. A file readers wait for goes first, three windows to
-  one. A blob sent is read as the reader takes it, not through the turns: its
-  reads and encryption run on 4 threads for the whole program. Nothing on the
-  wire changes: a reader may wait longer, told "not ready" as before.
+  one. Blobs sent are read through the turns too (ADR 0017, amendment 1):
+  all transfers of a stick from one disk are one reader, which reads in
+  one turn at once, keeps it while nobody waits, and gives it back once it
+  has read 8 MB or held it 250 ms with someone waiting (or after 50 ms
+  idle); its windows are judged as transfers', by the wall time of their
+  reads. Their reads and encryption run on 4 threads for the whole
+  program. Nothing on the wire changes: a reader may wait longer, told "not
+  ready" as before.
 
 ### Reader-side rules for the output folder
 

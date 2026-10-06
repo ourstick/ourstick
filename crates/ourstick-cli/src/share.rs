@@ -134,12 +134,14 @@ pub async fn run(
         bytes(plan.plaintext_bytes)
     );
 
+    // Every reading of the disk goes through its turns (ADR 0013), the
+    // transfers' too (ADR 0017).
+    let disks = Arc::new(DiskTurns::new(Arc::new(SystemTimer::default())));
     let config = IrohConfig::new(node_key, Network::Public);
-    let publisher = IrohPublisher::start(&config, stick.stick_id, &cache_dir).await?;
     // ADR 0017: blobs are made from the files when readers ask for them; no
     // encrypted copy is kept.
-    // Every reading of the disk goes through its turns (ADR 0013).
-    let disks = Arc::new(DiskTurns::new(Arc::new(SystemTimer::default())));
+    let publisher =
+        IrohPublisher::start(&config, stick.stick_id, &cache_dir, disks.clone()).await?;
     // A file that changed since its version asks the watcher (started
     // below) for a pass.
     let (pass_wanted, watcher_nudge) = nudge_later();

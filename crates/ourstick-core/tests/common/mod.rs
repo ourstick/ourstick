@@ -128,9 +128,10 @@ impl Owner {
             .unwrap();
         let cache = tempfile::tempdir().unwrap();
         let config = IrohConfig::new(random_key(), network);
-        let publisher = IrohPublisher::start(&config, signing_key.stick_id(), cache.path())
-            .await
-            .unwrap();
+        let publisher =
+            IrohPublisher::start(&config, signing_key.stick_id(), cache.path(), disks())
+                .await
+                .unwrap();
         Self {
             publisher,
             store,

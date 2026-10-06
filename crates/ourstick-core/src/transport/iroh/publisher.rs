@@ -36,6 +36,9 @@ pub struct IrohPublisher {
     serving: Serving,
     /// The next store's id (each manifest's, and the files' one).
     next_store: Arc<AtomicU64>,
+    /// Transfers read the files through the disks' turns (ADR 0017,
+    /// amendment 1).
+    reads: super::made_store::Reads,
     /// The store serving the current manifest.
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// The owner's own store (ADR 0017), once it serves files.
@@ -90,6 +93,7 @@ impl IrohPublisher {
         config: &IrohConfig,
         stick_id: StickId,
         cache_dir: &Path,
+        turns: Arc<crate::disk::turns::DiskTurns>,
     ) -> Result<Self, TransportError> {
         let cache_dir = absolute(cache_dir)?;
         tokio::fs::create_dir_all(&cache_dir).await?;
@@ -139,6 +143,7 @@ impl IrohPublisher {
             record,
             serving,
             next_store: Arc::new(AtomicU64::new(1)),
+            reads: super::made_store::Reads::new(turns),
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
@@ -246,6 +251,7 @@ impl Publisher for IrohPublisher {
                 outboards,
                 made_runtime().handle().clone(),
                 on_not_served,
+                Some(self.reads.clone()),
             );
             self.serving.add_store(id, store.clone());
             self.serving.set_probe(
@@ -290,6 +296,9 @@ impl Publisher for IrohPublisher {
 
     async fn shutdown(self) {
         self.reporter.abort();
+        // First: a transfer waiting for a disk's turn would keep the router
+        // from shutting down.
+        self.reads.stop();
         if let Err(error) = self.router.shutdown().await {
             tracing::warn!(%error, "router did not shut down cleanly");
         }

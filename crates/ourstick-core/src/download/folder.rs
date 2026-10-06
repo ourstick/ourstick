@@ -328,3 +328,6 @@ mod tests;
 
 #[cfg(test)]
 mod chosen_tests;
+
+#[cfg(test)]
+mod gauge_tests;

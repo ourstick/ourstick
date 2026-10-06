@@ -422,3 +422,26 @@ Found here: the owner said it gives way only during a pass
 (`ReaderActivity::giving_way`): the CLI prints "Sending slowly, so another
 program can use the disk." and the app shows it under the activity line.
 
+**By hand, PC to Mac over Wi-Fi (2026-10-06).** A sample of the big
+folder (20 GB: photos, music, documentaries; 2 616 files) from G to the
+MacBook. A fresh share: the link in 5 s, the reader started on the first
+(empty) partial version, the owner read the folder in 5.5 minutes while
+sending (about 16 MB/s, then about 34 MB/s once read), was restarted
+halfway, and the reader went on: done in 18 minutes, direct, 150 random
+files identical (md5), the owner at 28–64 MB and 12–16 threads, the reader
+at most 95 MB. Found and fixed on the way: a reader that could not reach
+the owner right after a partial version stopped (8adc701), and the
+progress line counted each version's files again (4019c23).
+
+The same stick, the owner already caught up, a fresh reader: the build
+before the turns took 10:15 once and 25:53 later; today's 21:13; today's
+without the turns 20:32. The Wi-Fi, not the code: in the slow runs the
+reader got a flat 6.6–6.7 MB/s minute after minute. No regression is
+seen; a test over a cable is the fair one.
+
+After the restart the owner said it gave way for 2.5 minutes with no
+other program on the disk, and once for 8 s in another run: the new
+process learns its speed from windows the system partly has in memory
+(the folder was read minutes before), and the disk's own speed then looks
+slow. In `docs/todo.md`.
+

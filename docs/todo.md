@@ -10,6 +10,16 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
+## Giving way
+
+- **Giving way when nobody else uses the disk, after a restart** (ADR 0017
+  amendment 1, the 20 GB test): "Sending slowly" for 2.5 minutes. A new
+  process learns its speed from windows partly in the system's memory
+  (the folder read minutes before), so the disk's own speed then looks
+  three times slower. Log the windows (`ourstick_core::disk=debug`) and
+  see whether learning from the slower of the first windows, or more of
+  them, avoids it.
+
 ## Memory
 
 - **The reader reaches 200–280 MB** for 100 000 small files on Linux,

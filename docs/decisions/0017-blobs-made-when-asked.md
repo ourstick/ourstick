@@ -291,7 +291,7 @@ step 0 hold on all three systems.
 - **mimalloc or another allocator.** Measured worse on macOS (3–4×) and
   Windows (1.5–2.5×).
 
-## Amendment 1: transfers read through the disk's turns (accepted 2026-10-06; built, to be measured)
+## Amendment 1: transfers read through the disk's turns (accepted 2026-10-06; built and measured)
 
 Rule 8 is not built: a transfer reads its file on the 4 threads outside
 ADR 0013's turns. While it sends, the owner does not give way to another
@@ -393,3 +393,31 @@ the 100 000-file stick and one 4 GB file, owner and reader on this PC.
 - With a copy of a big file on G beside the transfer: the copy takes at
   most 1.3× its time alone (ADR 0013's criterion), and OurStick says it
   is giving way.
+
+**Measured (2026-10-06)** on G (`sda`, a spinning disk), owner and reader
+on this PC, the reader writing to RAM (`/dev/shm`) so it does not share the
+disk, each file's cache dropped before each run (`posix_fadvise`). Builds
+`6c2f360` (before) and `96ef1ce` (after). The 100 000-file stick takes
+about 40 minutes a run, bound by the reader, not the disk, so a sample of
+10 000 small files (1–8 KB) stood in for it.
+
+| Seconds, three runs | Before | After | |
+|---|---|---|---|
+| One 2 GB file | 16.7, 16.2, 16.4 | 18.1, 17.1, 16.4 | +4 % (median) |
+| 10 000 small files | 2.7, 3.0, 3.5 | 2.4, 2.4, 2.8 | not slower |
+| 5 GB copy alone (`dd`, direct I/O) | 97, 90, 85 | | |
+| The copy, a 2 GB transfer from the start | 113, 103, 103 | 111, 102, 105 | 1.15× / 1.17× |
+| The copy, the transfer 5 s ahead | 96, 96, 97 | 98, 97, 98 | 1.07× / 1.09× |
+
+The cost of the turns is within the 10 % asked. Beside the copy, one
+transfer slows it at most 1.17× with or without the turns (under ADR
+0013's 1.3×): a single reader does not load this disk enough for the
+transfers' windows to look three times slower, so OurStick never gave
+way (no window judged slow, in the disk's debug log), and it did not need
+to. That giving way works for transfers is shown by the unit tests (a slow
+transfers' window makes all of OurStick pause), not by this disk.
+
+Not built, found here: the owner says it gives way only during a pass
+(`PassEvent::GivingWay`); while it only sends, the CLI and the app say
+nothing. In `docs/todo.md`.
+

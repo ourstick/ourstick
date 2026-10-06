@@ -174,7 +174,8 @@ impl Activity {
     }
 
     /// Recomputes and publishes the activity every tick, until aborted.
-    pub(super) async fn report(self) {
+    /// `giving_way` tells whether a disk the transfers read gives way.
+    pub(super) async fn report(self, giving_way: Arc<dyn Fn() -> bool + Send + Sync>) {
         let mut samples: VecDeque<(Instant, u64)> = VecDeque::new();
         let mut ticker = tokio::time::interval(TICK);
         loop {
@@ -201,6 +202,7 @@ impl Activity {
                 bytes_per_second: rate(&samples),
                 only_relayed,
                 preparing: readers > 0 && preparing,
+                giving_way: readers > 0 && giving_way(),
             };
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;

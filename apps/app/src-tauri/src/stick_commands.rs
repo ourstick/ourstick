@@ -32,6 +32,8 @@ pub struct SharingView {
     preparing: bool,
     /// What to do when readers come only through the relay.
     relay_only: Option<&'static str>,
+    /// Sending slowly, so another program can use the disk.
+    giving_way: bool,
 }
 
 /// One top-level entry of the stick.
@@ -183,6 +185,7 @@ fn sharing_view(
         bytes_per_second: activity.bytes_per_second,
         preparing: activity.preparing,
         relay_only: activity.relay_only,
+        giving_way: activity.giving_way,
     }
 }
 

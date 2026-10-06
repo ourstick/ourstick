@@ -33,7 +33,8 @@ use crate::setup::{self, hex};
 mod lines;
 
 use lines::{
-    catalogue_line, giving_way_line, network_line, readers_line, relay_only_line, watch_lines,
+    catalogue_line, giving_way_line, network_line, readers_line, relay_only_line,
+    sending_slowly_line, watch_lines,
 };
 
 /// How long `share` waits, once online, for the network measurement.
@@ -299,6 +300,7 @@ async fn report_readers(publisher: &IrohPublisher, started: Instant) {
     let mut activity = publisher.activity();
     let mut before = 0;
     let mut relay_only_said = false;
+    let mut sending_slowly = false;
     while activity.changed().await.is_ok() {
         let now = *activity.borrow();
         if let Some(line) = readers_line(before, &now, started.elapsed()) {
@@ -307,6 +309,10 @@ async fn report_readers(publisher: &IrohPublisher, started: Instant) {
         if let Some(line) = relay_only_line(relay_only_said, &now, started.elapsed()) {
             println!("{line}");
         }
+        if let Some(line) = sending_slowly_line(sending_slowly, &now, started.elapsed()) {
+            println!("{line}");
+        }
+        sending_slowly = now.giving_way;
         before = now.readers;
         relay_only_said |= now.only_relayed;
     }

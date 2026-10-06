@@ -72,6 +72,11 @@ impl SharedReader {
         Ok(value)
     }
 
+    /// Whether OurStick gives way on this reader's disk now.
+    pub fn giving_way(&self) -> bool {
+        self.disk.giving_way()
+    }
+
     /// Counts a read in, in a turn held. Asks `go_on` first.
     fn join(&self, go_on: &dyn Fn() -> io::Result<()>) -> io::Result<()> {
         go_on()?;

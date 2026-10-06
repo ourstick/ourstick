@@ -115,6 +115,10 @@ pub struct ReaderActivity {
     /// Most likely a firewall drops what others send (see
     /// `docs/protocol.md`, "Reader paths").
     pub only_relayed: bool,
+    /// Readers are sent to slowly: OurStick gives way to another program
+    /// using a disk their files are read from (ADR 0013; ADR 0017,
+    /// amendment 1).
+    pub giving_way: bool,
 }
 
 /// What readers ask for, as the owner's policy needs it (ADR 0007).

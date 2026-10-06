@@ -45,6 +45,15 @@ impl Reads {
         })))
     }
 
+    /// Whether a disk the stick's transfers read gives way now.
+    pub(in crate::transport::iroh) fn giving_way(&self) -> bool {
+        self.readers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .any(|reader| reader.giving_way())
+    }
+
     /// No read waits for a turn any more; the turns held are given back.
     pub(in crate::transport::iroh) fn stop(&self) {
         self.stopped.store(true, Ordering::Relaxed);

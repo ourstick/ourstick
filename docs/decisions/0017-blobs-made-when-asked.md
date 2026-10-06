@@ -417,7 +417,8 @@ way (no window judged slow, in the disk's debug log), and it did not need
 to. That giving way works for transfers is shown by the unit tests (a slow
 transfers' window makes all of OurStick pause), not by this disk.
 
-Not built, found here: the owner says it gives way only during a pass
-(`PassEvent::GivingWay`); while it only sends, the CLI and the app say
-nothing. In `docs/todo.md`.
+Found here: the owner said it gives way only during a pass
+(`PassEvent::GivingWay`). Now the readers' activity says it too
+(`ReaderActivity::giving_way`): the CLI prints "Sending slowly, so another
+program can use the disk." and the app shows it under the activity line.
 

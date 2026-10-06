@@ -56,6 +56,9 @@ pub struct ActivityView {
     /// What to do when readers reach this computer only through the relay
     /// (see [`relay_only_message`]); `None` otherwise.
     pub relay_only: Option<&'static str>,
+    /// Sending slowly, so another program can use the disk (ADR 0017,
+    /// amendment 1).
+    pub giving_way: bool,
 }
 
 impl From<ReaderActivity> for ActivityView {
@@ -65,6 +68,7 @@ impl From<ReaderActivity> for ActivityView {
             bytes_per_second: activity.bytes_per_second,
             preparing: activity.preparing,
             relay_only: activity.only_relayed.then(relay_only_message),
+            giving_way: activity.giving_way,
         }
     }
 }

@@ -144,7 +144,9 @@ so Spotlight leaves it alone.
   rate over the last ten seconds (a big stick can be sent in bursts). While readers wait for their files to
   be got ready (told "not ready", nothing sent since: the owner is making a
   file's hash or outboard, ADR 0017): `● Someone downloading · getting their
-  files ready`.
+  files ready`. While OurStick gives way to another program on a disk the
+  files are read from (ADR 0017, amendment 1), a line under it: `Sending
+  slowly, so another program can use the disk.`
   `· direct` / `· relay` is added only if iroh gives it cheaply on the
   owner's side.
 - Who has it (ADR 0015), under the activity: one line per computer that

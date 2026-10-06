@@ -35,7 +35,13 @@
   } = $props();
 
   let current = $state<Stick | null>(null);
-  let activity = $state<Activity>({ readers: 0, bytes_per_second: 0, preparing: false, relay_only: null });
+  let activity = $state<Activity>({
+    readers: 0,
+    bytes_per_second: 0,
+    preparing: false,
+    relay_only: null,
+    giving_way: false,
+  });
   let dropping = $state(false);
   /** The stick's drops: kept per stick, so they survive this view. */
   let drops = $derived(dropsOf(stickId));
@@ -244,6 +250,9 @@
     <p class="activity">
       ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {activity.preparing ? "getting their files ready" : rate(activity.bytes_per_second)}
     </p>
+    {#if activity.giving_way}
+      <p class="muted">Sending slowly, so another program can use the disk.</p>
+    {/if}
   {/if}
   <ReaderList {stickId} />
   {#if activity.relay_only}

@@ -10,13 +10,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
-## Giving way while sending
-
-- **The owner does not say it gives way while it only sends** (ADR 0017,
-  amendment 1): `PassEvent::GivingWay` comes from passes; a transfers'
-  window judged slow makes OurStick give way, but the CLI and the app say
-  nothing then. Tell it with the readers' activity.
-
 ## Memory
 
 - **The reader reaches 200–280 MB** for 100 000 small files on Linux,

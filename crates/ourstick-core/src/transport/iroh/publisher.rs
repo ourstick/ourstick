@@ -99,7 +99,12 @@ impl IrohPublisher {
         tokio::fs::create_dir_all(&cache_dir).await?;
         let record = Arc::new(RwLock::new(None));
         let activity = Activity::new();
-        let reporter = tokio::spawn(activity.clone().report()).abort_handle();
+        let reads = super::made_store::Reads::new(turns);
+        let giving_way = {
+            let reads = reads.clone();
+            Arc::new(move || reads.giving_way())
+        };
+        let reporter = tokio::spawn(activity.clone().report(giving_way)).abort_handle();
         let serving = Serving::default();
         // In the background: an old cache may be big, and nothing uses it.
         let suitcases = cache_dir.join("suitcases");
@@ -143,7 +148,7 @@ impl IrohPublisher {
             record,
             serving,
             next_store: Arc::new(AtomicU64::new(1)),
-            reads: super::made_store::Reads::new(turns),
+            reads,
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),

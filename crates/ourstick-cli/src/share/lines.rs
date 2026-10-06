@@ -90,6 +90,25 @@ pub(super) fn relay_only_line(
     ))
 }
 
+/// Said when OurStick begins sending slowly to give way to another program
+/// using the disk, and when it stops (ADR 0017, amendment 1); nothing
+/// while it stays the same.
+pub(super) fn sending_slowly_line(
+    before: bool,
+    now: &ReaderActivity,
+    elapsed: Duration,
+) -> Option<String> {
+    if now.giving_way == before {
+        return None;
+    }
+    let at = clock(elapsed);
+    Some(if now.giving_way {
+        format!("[{at}] Sending slowly, so another program can use the disk.")
+    } else {
+        format!("[{at}] Sending at full speed again.")
+    })
+}
+
 /// Said once when OurStick begins giving way to another program using the
 /// disk, and once when it stops (ADR 0013).
 pub(super) fn giving_way_line(now: bool, elapsed: Duration) -> String {
@@ -280,6 +299,7 @@ mod tests {
             bytes_per_second: 2_100_000,
             only_relayed: false,
             preparing: false,
+            giving_way: false,
         };
         assert_eq!(
             readers_line(0, &busy(1), at).unwrap(),
@@ -302,6 +322,25 @@ mod tests {
         assert_eq!(
             readers_line(0, &waiting, at).unwrap(),
             "[00:05] Someone is downloading (getting their files ready)."
+        );
+    }
+
+    #[test]
+    fn sending_slowly_is_said_when_it_changes() {
+        let at = Duration::from_secs(65);
+        let slow = ReaderActivity {
+            readers: 1,
+            giving_way: true,
+            ..ReaderActivity::default()
+        };
+        assert_eq!(
+            sending_slowly_line(false, &slow, at).unwrap(),
+            "[01:05] Sending slowly, so another program can use the disk."
+        );
+        assert_eq!(sending_slowly_line(true, &slow, at), None);
+        assert_eq!(
+            sending_slowly_line(true, &ReaderActivity::default(), at).unwrap(),
+            "[01:05] Sending at full speed again."
         );
     }
 

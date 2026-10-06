@@ -235,6 +235,7 @@ fn slow_transfers_make_all_of_ourstick_give_way() {
     }
     assert_eq!(windows(&disk), 6);
     assert!(disk.giving_way());
+    assert!(reader.giving_way(), "and the readers are told so");
     // The catalogue's next turn waits for the pause too.
     let before = timer.elapsed();
     let mut catalogue = DiskReader::new(disk.clone(), false, go_on);

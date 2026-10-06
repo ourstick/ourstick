@@ -41,6 +41,8 @@ export interface Sharing {
   preparing: boolean;
   /** What to do when people can download only through the relay. */
   relay_only: string | null;
+  /** Sending slowly, so another program can use the disk. */
+  giving_way: boolean;
 }
 
 export interface Stick {
@@ -83,6 +85,8 @@ export interface Activity {
   preparing: boolean;
   /** What to do when people can download only through the relay. */
   relay_only: string | null;
+  /** Sending slowly, so another program can use the disk. */
+  giving_way: boolean;
 }
 
 export function stick(stickId: string): Promise<Stick> {

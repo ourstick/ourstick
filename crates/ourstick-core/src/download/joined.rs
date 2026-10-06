@@ -82,7 +82,7 @@ pub(super) async fn plan_round(
     store: &Arc<dyn Store>,
     ticket: &Ticket,
     output_dir: &Path,
-    manifest: &crate::manifest::Manifest,
+    manifest: &Arc<crate::manifest::Manifest>,
     cipher: &Arc<dyn crate::cipher::Cipher>,
 ) -> Result<super::folder::FolderPlan, DownloadError> {
     let store = store.clone();
@@ -95,7 +95,8 @@ pub(super) async fn plan_round(
     })
     .await?;
     let output_dir = output_dir.to_path_buf();
-    let manifest = manifest.clone();
+    // Shared, not copied: a manifest of 100 000 files is about 12 MB.
+    let manifest = Arc::clone(manifest);
     let cipher = cipher.clone();
     run_blocking(move || {
         super::folder::plan_folder(

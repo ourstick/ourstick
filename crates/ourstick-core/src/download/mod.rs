@@ -269,6 +269,7 @@ async fn download_over(
 
     let (Listing { version, manifest }, cipher) =
         fetch_listing(fetcher, connection, &store, ticket, floor).await?;
+    let manifest = Arc::new(manifest);
     joined::remember_name(&store, joined, &manifest.name).await?;
     if let Some((refused_seq, error)) = carried.refused.take() {
         if refused_seq.is_some_and(|refused| version.seq <= refused) {

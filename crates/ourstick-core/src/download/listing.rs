@@ -160,6 +160,8 @@ pub async fn preview(
     let fetched = fetch_listing(fetcher, &connection, &store, ticket, floor).await;
     connection.close().await;
     let (Listing { version, manifest }, cipher) = fetched?;
+    // Shared with the plan below, not copied.
+    let manifest = std::sync::Arc::new(manifest);
     let total = manifest.total_size();
     let mut entries = top_entries(&manifest);
     // What the folder holds counts, as a download would find it (each file
@@ -167,7 +169,7 @@ pub async fn preview(
     let (to_write, folder, saved_as, by_top) = {
         let store = store.clone();
         let stick_id = ticket.stick_id;
-        let manifest = manifest.clone();
+        let manifest = std::sync::Arc::clone(&manifest);
         type Planned = (
             u64,
             PathBuf,
@@ -234,7 +236,8 @@ pub async fn preview(
         saved_as,
         // No plan when the folder is new: everything is written.
         to_write_by_path: by_top.unwrap_or_else(|| all_bytes_by_path(&manifest)),
-        manifest,
+        // The plan's share has ended: taken back without a copy.
+        manifest: std::sync::Arc::unwrap_or_clone(manifest),
     })
 }
 

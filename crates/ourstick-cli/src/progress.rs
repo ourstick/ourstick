@@ -46,7 +46,8 @@ fn describe(path: PathKind) -> &'static str {
 pub struct Progress {
     path: Option<PathKind>,
     total: u64,
-    /// Sizes of the files finished in this run.
+    /// Sizes of the files of the current version finished in this run
+    /// (each version tells every file again: those here as already here).
     finished: u64,
     /// Bytes received over the network for the files finished in this run.
     finished_network: u64,
@@ -153,6 +154,12 @@ impl Progress {
                 ..
             } => {
                 self.total = total;
+                // A new version (the next of a growing catalogue, or one
+                // shared meanwhile) tells every file again.
+                self.finished = 0;
+                self.current_size = 0;
+                self.current_local = 0;
+                self.current_received = 0;
                 let note = if partial {
                     " so far; the sender is still reading its folder"
                 } else if unchanged {
@@ -352,3 +359,6 @@ mod saved_as_tests;
 
 #[cfg(test)]
 mod fetch_tests;
+
+#[cfg(test)]
+mod version_tests;

@@ -117,27 +117,57 @@ pub(crate) fn check_manifest_paths(manifest: &Manifest) -> Result<(), DownloadEr
 
 /// Refuses a path that passes through a symbolic link inside `output_dir`.
 fn check_no_symlinks(output_dir: &Path, relative: &str) -> Result<PathBuf, DownloadError> {
-    target_path_by(output_dir, relative, &|path| {
-        std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
-    })
+    target_path_by(output_dir, relative, &|path, _| look(path))
 }
 
-/// [`target_path`], asking `is_link` whether a place is a symbolic link (a
-/// plan of many files asks each folder once).
+/// What is at a place, for [`target_path_by`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Place {
+    Link,
+    /// Something not a link (or a place that cannot be looked at).
+    There,
+    /// Nothing: no place below it can be a link either.
+    Missing,
+}
+
+/// What is at `path`, not following a link. Blocking.
+pub(super) fn look(path: &Path) -> Place {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Place::Link,
+        Ok(_) => Place::There,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Place::Missing,
+        Err(_) => Place::There,
+    }
+}
+
+/// [`target_path`], asking `look` what is at each place on the way (given
+/// its full path and its path in the folder): a plan of many files asks
+/// each folder once, and nothing below a place that is missing.
 pub(super) fn target_path_by(
     output_dir: &Path,
     relative: &str,
-    is_link: &dyn Fn(&Path) -> bool,
+    look: &dyn Fn(&Path, &str) -> Place,
 ) -> Result<PathBuf, DownloadError> {
     let mut path = output_dir.to_path_buf();
+    let mut at = 0;
+    let mut missing = false;
     for component in relative.split('/') {
         path.push(component);
-        if is_link(&path) {
-            return Err(unsafe_path(
-                relative,
-                "it would pass through a symbolic link",
-            ));
+        at += component.len();
+        if missing {
+            continue;
         }
+        match look(&path, &relative[..at]) {
+            Place::Link => {
+                return Err(unsafe_path(
+                    relative,
+                    "it would pass through a symbolic link",
+                ))
+            }
+            Place::Missing => missing = true,
+            Place::There => {}
+        }
+        at += 1;
     }
     Ok(path)
 }

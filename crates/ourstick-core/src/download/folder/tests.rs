@@ -363,3 +363,24 @@ fn a_shortcut_at_a_files_place_leaves_only_that_file_out() {
         vec![FilePlan::LeftOut, FilePlan::Download { replaceable: None }]
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_shortcut_at_a_folders_place_is_never_gone_through() {
+    let out = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), out.path().join("a")).unwrap();
+    let plan = plan_folder(
+        out.path(),
+        &manifest(vec![entry("a/b.txt", b"b"), entry("a/c/d.txt", b"d")]),
+        &[],
+        &[],
+        &cipher(),
+    )
+    .unwrap();
+    // The folder is saved beside the link, under another name.
+    assert_eq!(plan.renamed.len(), 1, "{:?}", plan.renamed);
+    assert_eq!(plan.renamed[0].path, "a");
+    assert_ne!(plan.renamed[0].saved_as, "a");
+    assert_eq!(plan.renamed[0].files, 2);
+}

@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use super::super::files::{look, target_path_by, Place};
 use super::super::saved_paths::OnDisk;
 use super::super::DownloadError;
 
@@ -68,25 +69,27 @@ fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
     true
 }
 
-/// What a plan learns of the folder, each place asked once: whether it is
-/// a symbolic link, and what is there.
+/// What a plan learns of the folder: what is at each folder on the way to
+/// a place, each folder asked once and kept by its path in the folder (a
+/// file's own place is asked each time: nearly every one is asked once).
 pub(super) struct Looked<'a> {
     pub(super) output_dir: &'a Path,
-    pub(super) links: RefCell<HashMap<PathBuf, bool>>,
+    pub(super) folders: RefCell<HashMap<Box<str>, Place>>,
 }
 
 impl Looked<'_> {
     /// [`target_path`], with each folder asked once.
     pub(super) fn target(&self, place: &str) -> Result<PathBuf, DownloadError> {
-        super::super::files::target_path_by(self.output_dir, place, &|path| {
-            *self
-                .links
-                .borrow_mut()
-                .entry(path.to_path_buf())
-                .or_insert_with(|| {
-                    std::fs::symlink_metadata(path)
-                        .is_ok_and(|metadata| metadata.file_type().is_symlink())
-                })
+        target_path_by(self.output_dir, place, &|path, relative| {
+            if relative.len() == place.len() {
+                return look(path);
+            }
+            if let Some(seen) = self.folders.borrow().get(relative) {
+                return *seen;
+            }
+            let seen = look(path);
+            self.folders.borrow_mut().insert(relative.into(), seen);
+            seen
         })
     }
 

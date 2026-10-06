@@ -132,7 +132,7 @@ pub(super) fn plan_folder_by(
         .collect();
     let looked = Looked {
         output_dir,
-        links: RefCell::default(),
+        folders: RefCell::default(),
     };
     let in_stick: BTreeSet<&str> = manifest
         .entries

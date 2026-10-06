@@ -4,11 +4,11 @@ measurements: answers the key file's passphrase from a file, and writes
 everything the owner prints to OUT (mode 0600: it holds the stick's link,
 which must never be shown or logged; shred it afterwards).
 
-    owner.py EXE DATA_DIR FOLDER PASSPHRASE_FILE OUT [--rescan]
+    owner.py EXE DATA_DIR FOLDER PASSPHRASE_FILE OUT [--rescan] [--pid-file PATH]
 
 The passphrase file is made (12 random bytes, hex, mode 0600) if missing.
 Ends when the owner ends; stop the owner with SIGINT (its pid is this
-process's child).
+process's child, and written to PATH with --pid-file).
 """
 import os
 import pty
@@ -19,7 +19,9 @@ import time
 
 def main():
     exe, data_dir, folder, phrase_file, out_path = sys.argv[1:6]
-    rescan = "--rescan" in sys.argv[6:]
+    rest = sys.argv[6:]
+    rescan = "--rescan" in rest
+    pid_file = rest[rest.index("--pid-file") + 1] if "--pid-file" in rest else None
     if not os.path.exists(phrase_file):
         fd = os.open(phrase_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         os.write(fd, os.urandom(12).hex().encode())
@@ -34,6 +36,9 @@ def main():
         if rescan:
             args.insert(2, "--rescan")
         os.execv(exe, args)
+    if pid_file:
+        with open(pid_file, "w") as f:
+            f.write(str(pid))
     out = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     seen = b""
     answered = 0

@@ -46,8 +46,15 @@ const FASTEST_FILE: Duration = Duration::from_micros(200);
 /// own windows ([`DiskShare`]) today; the system's disk counters could
 /// take its place without changing its callers.
 pub trait DiskLoad: Send {
-    /// A window read: the pause before the next (zero at full speed).
-    fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration;
+    /// A window read by a reader of `kind`: the pause before the next
+    /// (zero at full speed).
+    fn after_window(
+        &mut self,
+        kind: ReaderKind,
+        files: u64,
+        bytes: u64,
+        took: Duration,
+    ) -> Duration;
     /// The pause after reading that is not judged (a second read).
     fn pause_for(&self, took: Duration) -> Duration;
     /// Whether OurStick gives way now.
@@ -55,8 +62,14 @@ pub trait DiskLoad: Send {
 }
 
 impl DiskLoad for DiskShare {
-    fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration {
-        DiskShare::after_window(self, files, bytes, took)
+    fn after_window(
+        &mut self,
+        kind: ReaderKind,
+        files: u64,
+        bytes: u64,
+        took: Duration,
+    ) -> Duration {
+        DiskShare::after_window_of(self, kind, files, bytes, took)
     }
 
     fn pause_for(&self, took: Duration) -> Duration {
@@ -92,11 +105,30 @@ impl Recent {
     }
 }
 
-/// One disk's judgement (ADR 0013, rules 2–4).
+/// What kind of reader read a window: each kind's speed is learned apart,
+/// since they cost a disk differently (ADR 0017, amendment 1).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ReaderKind {
+    /// Whole files, from their start (a catalogue, the files keeper).
+    #[default]
+    Folder,
+    /// Parts of files readers asked for, several at once.
+    Transfers,
+}
+
+/// What one kind of reader's windows took, per file and per byte.
 #[derive(Debug, Default)]
-pub struct DiskShare {
+struct Learned {
     per_file: Recent,
     per_byte: Recent,
+}
+
+/// One disk's judgement (ADR 0013, rules 2–4): its speed learned per kind
+/// of reader, and one judgement (giving way or not) for all of them.
+#[derive(Debug, Default)]
+pub struct DiskShare {
+    folder: Learned,
+    transfers: Learned,
     slow_in_a_row: u32,
     /// Windows in a row not fast while giving way.
     held_back: u32,
@@ -112,13 +144,28 @@ impl DiskShare {
     /// A window of `files` files (those begun in it) and `bytes` bytes read
     /// in `took`: the pause before the next one (zero at full speed).
     pub fn after_window(&mut self, files: u64, bytes: u64, took: Duration) -> Duration {
+        self.after_window_of(ReaderKind::Folder, files, bytes, took)
+    }
+
+    /// A window of a reader of `kind`, judged by that kind's speed.
+    pub fn after_window_of(
+        &mut self,
+        kind: ReaderKind,
+        files: u64,
+        bytes: u64,
+        took: Duration,
+    ) -> Duration {
         let seconds = took.as_secs_f64();
         // A window inside a big file begins no file: it is of big files.
         let big = files == 0 || bytes / files >= BIG_FILE;
+        let learned = match kind {
+            ReaderKind::Folder => &mut self.folder,
+            ReaderKind::Transfers => &mut self.transfers,
+        };
         let (units, best) = if big {
-            (bytes, &mut self.per_byte)
+            (bytes, &mut learned.per_byte)
         } else {
-            (files, &mut self.per_file)
+            (files, &mut learned.per_file)
         };
         if units == 0 {
             return self.pause(took);

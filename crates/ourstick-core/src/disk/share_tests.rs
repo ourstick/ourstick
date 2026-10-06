@@ -199,11 +199,12 @@ fn one_window_read_partly_from_memory_sets_no_speed_to_keep() {
 #[test]
 fn disk_share_is_a_disk_load() {
     let mut load: Box<dyn DiskLoad> = Box::new(DiskShare::default());
+    let folder = ReaderKind::Folder;
     for _ in 0..3 {
-        load.after_window(2, 64 * MB, ms(500));
+        load.after_window(folder, 2, 64 * MB, ms(500));
     }
-    load.after_window(2, 64 * MB, ms(3000));
-    assert!(load.after_window(2, 64 * MB, ms(3000)) > Duration::ZERO);
+    load.after_window(folder, 2, 64 * MB, ms(3000));
+    assert!(load.after_window(folder, 2, 64 * MB, ms(3000)) > Duration::ZERO);
     assert!(load.giving_way());
     assert_eq!(load.pause_for(ms(500)), ms(4500));
 }
@@ -283,4 +284,28 @@ fn reaching_another_kind_of_files_while_giving_way_goes_on_giving_way() {
         assert!(windows < 200, "never back to full speed");
     }
     assert!(windows >= 64, "back too soon: {windows} windows");
+}
+
+#[test]
+fn each_kind_of_reader_is_judged_by_its_own_speed() {
+    let mut share = DiskShare::default();
+    let folder = ReaderKind::Folder;
+    let transfers = ReaderKind::Transfers;
+    // The catalogue reads fast; transfers, scattered, ten times slower.
+    for _ in 0..3 {
+        share.after_window_of(folder, 64, 64 * 100_000, ms(64));
+        share.after_window_of(transfers, 64, 64 * 100_000, ms(640));
+    }
+    // Each at its own speed: nobody else is there.
+    for _ in 0..4 {
+        share.after_window_of(folder, 64, 64 * 100_000, ms(64));
+        share.after_window_of(transfers, 64, 64 * 100_000, ms(640));
+    }
+    assert!(!share.giving_way());
+    // Transfers slowed by someone else: all of OurStick gives way.
+    share.after_window_of(transfers, 64, 64 * 100_000, ms(6400));
+    share.after_window_of(transfers, 64, 64 * 100_000, ms(6400));
+    assert!(share.giving_way());
+    assert!(share.after_window_of(folder, 64, 64 * 100_000, ms(64)) == Duration::ZERO);
+    assert!(!share.giving_way(), "the catalogue at its speed again");
 }

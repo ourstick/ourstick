@@ -162,6 +162,8 @@ struct DiskState {
     waiting: VecDeque<(u64, bool)>,
     next_ticket: u64,
     held: bool,
+    /// Whether the turn held is an urgent reader's.
+    held_urgent: bool,
     /// The disk's pause: no turn starts before this (timer time).
     not_before: Duration,
     urgent_in_a_row: u32,
@@ -176,6 +178,7 @@ impl Default for DiskState {
             waiting: VecDeque::new(),
             next_ticket: 0,
             held: false,
+            held_urgent: false,
             not_before: Duration::ZERO,
             urgent_in_a_row: 0,
             windows: 0,
@@ -256,11 +259,15 @@ impl Disk {
         // A turn that read nothing (only a file's end) leaves the pause, and
         // the judgement, as they were.
         if let Some(window) = window.filter(|window| window.bytes > 0) {
+            state.window_read();
             let pause = if window.timed_files > 0 || window.timed_bytes > 0 {
                 state.windows += 1;
-                state
-                    .load
-                    .after_window(window.timed_files, window.timed_bytes, window.timed)
+                state.load.after_window(
+                    window.kind,
+                    window.timed_files,
+                    window.timed_bytes,
+                    window.timed,
+                )
             } else {
                 Duration::ZERO
             };
@@ -275,8 +282,9 @@ impl Disk {
 }
 
 impl DiskState {
-    /// Whose turn is next: the first urgent one, unless urgent ones went
-    /// [`URGENT_IN_A_ROW`] times while others wait; else the first.
+    /// Whose turn is next: the first urgent one, unless urgent ones read
+    /// [`URGENT_IN_A_ROW`] windows in a row while others wait; else the
+    /// first.
     fn chosen(&self) -> Option<u64> {
         let others_wait = self.waiting.iter().any(|(_, urgent)| !urgent);
         let urgent = self.waiting.iter().find(|(_, urgent)| *urgent);
@@ -295,13 +303,20 @@ impl DiskState {
             .position(|(waiting, _)| *waiting == ticket)
             .expect("a granted ticket is waiting");
         let (_, urgent) = self.waiting.remove(index).expect("found above");
+        self.held = true;
+        self.held_urgent = urgent;
+    }
+
+    /// A window judged: counted in [`URGENT_IN_A_ROW`] if an urgent reader
+    /// read it while others wait. Counted by windows, not turns: a reader
+    /// may read one window in several turns (transfers).
+    fn window_read(&mut self) {
         let others_wait = self.waiting.iter().any(|(_, urgent)| !urgent);
-        self.urgent_in_a_row = if urgent && others_wait {
+        self.urgent_in_a_row = if self.held_urgent && others_wait {
             self.urgent_in_a_row + 1
         } else {
             0
         };
-        self.held = true;
     }
 }
 
@@ -329,6 +344,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+#[cfg(test)]
+mod queue_tests;
 #[cfg(test)]
 mod readers_tests;
 #[cfg(test)]

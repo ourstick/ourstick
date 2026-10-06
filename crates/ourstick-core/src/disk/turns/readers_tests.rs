@@ -56,9 +56,12 @@ fn readers_say_whether_any_of_their_disks_gives_way() {
         let disk = disks.get(DiskId::Device(7));
         let mut state = lock(&disk.state);
         for took in [100, 100, 100, 900, 900] {
-            state
-                .load
-                .after_window(2, 64 << 20, Duration::from_millis(took));
+            state.load.after_window(
+                crate::disk::share::ReaderKind::Folder,
+                2,
+                64 << 20,
+                Duration::from_millis(took),
+            );
         }
     }
     assert!(readers.giving_way());

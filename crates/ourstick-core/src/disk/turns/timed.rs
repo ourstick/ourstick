@@ -8,11 +8,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::{Disk, DiskId, DiskTurns};
-use crate::disk::share::{WINDOW_BYTES, WINDOW_FILES};
+use crate::disk::share::{ReaderKind, WINDOW_BYTES, WINDOW_FILES};
 
 /// What one turn has read.
 #[derive(Debug, Default)]
 pub(super) struct Window {
+    /// Whose window it is: each kind's speed is learned apart.
+    pub(super) kind: ReaderKind,
     /// Files begun and their first reads' bytes and time: what is judged.
     pub(super) timed_files: u64,
     pub(super) timed_bytes: u64,

@@ -96,6 +96,23 @@ ready hashes (about 10 MB, unchanged); the owner's peak from 176 MB to
 about 90 MB of heap, about 0.9 KB a file, most of the rest the pass and
 iroh.
 
+## Measured
+
+Linux, 2026-10-07, the same run as in Context (the owner of the 100 000-file
+stick from a fresh share under heaptrack, a reader writing to RAM), after
+rules 1–4 and the reviews' fixes:
+
+| | before | after |
+|---|---|---|
+| heap at most | 176 MB | 116 MB |
+| RSS at most (under heaptrack) | 219 MB | 153 MB |
+
+Not the 90 MB expected: at the peak, the last publish, the pass's own
+entries and their merge (rule 5) hold about 27 MB, the manifest's bytes
+being encoded 8 MB, the keeper's and the table's maps 12 MB, and about
+28 MB is iroh's and tokio's. Rule 5 is next if a stick of a million files
+needs it.
+
 ## Tests
 
 The keeper's and the store's tests green with their values unchanged

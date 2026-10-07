@@ -61,6 +61,15 @@ pub trait Store: Send + Sync {
     /// The files recorded at the last publish of an owned stick, by path.
     fn owned_files(&self, stick_id: &StickId) -> Result<Vec<OwnedFile>, StoreError>;
 
+    /// Each of [`Store::owned_files`], by path, handed to `each` one at a
+    /// time instead of all in one list (ADR 0019): `each` stops the walk
+    /// with `Break`. The store is held meanwhile: `each` must not wait.
+    fn each_owned_file(
+        &self,
+        stick_id: &StickId,
+        each: &mut dyn FnMut(&OwnedFile) -> std::ops::ControlFlow<()>,
+    ) -> Result<(), StoreError>;
+
     /// Records files of an owned stick, replacing the rows of the same paths.
     /// All or nothing: a batch of the catalogue (ADR 0007) is kept as a whole
     /// or not at all.

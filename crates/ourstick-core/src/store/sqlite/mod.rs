@@ -100,6 +100,14 @@ impl Store for SqliteStore {
         files::owned_files(&self.connection(), stick_id)
     }
 
+    fn each_owned_file(
+        &self,
+        stick_id: &StickId,
+        each: &mut dyn FnMut(&OwnedFile) -> std::ops::ControlFlow<()>,
+    ) -> Result<(), StoreError> {
+        files::each_owned_file(&self.connection(), stick_id, each)
+    }
+
     fn record_owned_files(
         &self,
         stick_id: &StickId,

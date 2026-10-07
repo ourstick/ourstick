@@ -53,23 +53,37 @@ pub(super) fn load_version(
     let Some(blob) = load_latest_manifest(cache_dir, &manifest_hash) else {
         return Ok(None);
     };
-    let mut plaintext = Vec::new();
-    decrypt_blob(cipher, &mut blob.as_slice(), &mut plaintext)?;
-    let manifest = Manifest::from_bytes(&plaintext)?;
+    // Decoded, then the blob and its plaintext go (ADR 0019).
+    let manifest = {
+        let mut plaintext = Vec::new();
+        decrypt_blob(cipher, &mut blob.as_slice(), &mut plaintext)?;
+        drop(blob);
+        Manifest::from_bytes(&plaintext)?
+    };
     // Read again with each version: linked entries come and go.
     let layout = StickLayout::load(store, stick_id)?;
-    let mut recorded = store.owned_files(stick_id)?;
-    recorded.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    // What the store recorded of each entry's file, by the entry's index:
+    // its rows walked one at a time, each found among the entries (sorted
+    // by path), never all held at once. Nothing on disk is looked at
+    // meanwhile: the store is held (ADR 0019).
+    let mut recorded: Vec<Option<(Option<[u8; 32]>, FileStamp)>> =
+        vec![None; manifest.entries.len()];
+    store.each_owned_file(stick_id, &mut |file| {
+        if let Ok(index) = manifest
+            .entries
+            .binary_search_by(|entry| entry.path.as_str().cmp(&file.path))
+        {
+            if manifest.entries[index].hash == file.blob_hash {
+                recorded[index] = Some((file.plaintext_hash, file.stamp));
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    })?;
     let mut files = HashMap::with_capacity(manifest.entries.len());
     let mut entries = Vec::with_capacity(manifest.entries.len());
-    for entry in manifest.entries {
-        let record = recorded
-            .binary_search_by(|file| file.path.as_str().cmp(&entry.path))
-            .ok()
-            .map(|index| &recorded[index])
-            .filter(|file| file.blob_hash == entry.hash);
-        let stamp = record.map(|file| file.stamp);
-        match record.and_then(|file| file.plaintext_hash) {
+    for (entry, record) in manifest.entries.into_iter().zip(recorded) {
+        let stamp = record.map(|(_, stamp)| stamp);
+        match record.and_then(|(plaintext_hash, _)| plaintext_hash) {
             Some(plaintext_hash) if has_outboard(outboards, cipher, &entry) => {
                 files.insert(
                     entry.hash,

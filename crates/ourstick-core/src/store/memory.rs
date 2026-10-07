@@ -138,6 +138,25 @@ impl Store for MemoryStore {
             .unwrap_or_default())
     }
 
+    fn each_owned_file(
+        &self,
+        stick_id: &StickId,
+        each: &mut dyn FnMut(&OwnedFile) -> std::ops::ControlFlow<()>,
+    ) -> Result<(), StoreError> {
+        let state = self.state();
+        for file in state
+            .owned_files
+            .get(&stick_id.to_bytes())
+            .into_iter()
+            .flat_map(|files| files.values())
+        {
+            if each(file).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn record_owned_files(
         &self,
         stick_id: &StickId,

@@ -8,40 +8,52 @@ use super::rows::{blob32, to_u64};
 use crate::manifest::FileStamp;
 use crate::stick_id::StickId;
 
+const OWNED_FILES: &str = "SELECT path, size, mtime_ns, ctime_ns, blob_hash, plaintext_hash
+     FROM owned_files WHERE stick_id = ?1 ORDER BY path";
+
+/// One `owned_files` row.
+fn owned_file(row: &rusqlite::Row<'_>) -> Result<OwnedFile, StoreError> {
+    Ok(OwnedFile {
+        path: row.get(0)?,
+        stamp: FileStamp {
+            size: to_u64(row.get(1)?, "size")?,
+            mtime_ns: to_u64(row.get(2)?, "mtime_ns")?,
+            ctime_ns: to_u64(row.get(3)?, "ctime_ns")?,
+        },
+        blob_hash: blob32(row.get(4)?, "blob_hash")?,
+        plaintext_hash: row
+            .get::<_, Option<Vec<u8>>>(5)?
+            .map(|hash| blob32(hash, "plaintext_hash"))
+            .transpose()?,
+    })
+}
+
 pub(super) fn owned_files(
     connection: &Connection,
     stick_id: &StickId,
 ) -> Result<Vec<OwnedFile>, StoreError> {
-    let mut statement = connection.prepare(
-        "SELECT path, size, mtime_ns, ctime_ns, blob_hash, plaintext_hash FROM owned_files
-         WHERE stick_id = ?1 ORDER BY path",
-    )?;
-    let rows = statement.query_map([stick_id.to_bytes()], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, i64>(3)?,
-            row.get::<_, Vec<u8>>(4)?,
-            row.get::<_, Option<Vec<u8>>>(5)?,
-        ))
+    let mut files = Vec::new();
+    each_owned_file(connection, stick_id, &mut |file| {
+        files.push(file.clone());
+        std::ops::ControlFlow::Continue(())
     })?;
-    rows.map(|row| {
-        let (path, size, mtime_ns, ctime_ns, hash, plaintext_hash) = row?;
-        Ok(OwnedFile {
-            path,
-            stamp: FileStamp {
-                size: to_u64(size, "size")?,
-                mtime_ns: to_u64(mtime_ns, "mtime_ns")?,
-                ctime_ns: to_u64(ctime_ns, "ctime_ns")?,
-            },
-            blob_hash: blob32(hash, "blob_hash")?,
-            plaintext_hash: plaintext_hash
-                .map(|hash| blob32(hash, "plaintext_hash"))
-                .transpose()?,
-        })
-    })
-    .collect()
+    Ok(files)
+}
+
+/// Each row, by path, one at a time (ADR 0019).
+pub(super) fn each_owned_file(
+    connection: &Connection,
+    stick_id: &StickId,
+    each: &mut dyn FnMut(&OwnedFile) -> std::ops::ControlFlow<()>,
+) -> Result<(), StoreError> {
+    let mut statement = connection.prepare(OWNED_FILES)?;
+    let mut rows = statement.query([stick_id.to_bytes()])?;
+    while let Some(row) = rows.next()? {
+        if each(&owned_file(row)?).is_break() {
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Fails with `StickNotFound` unless `stick_id` is an owned stick, not

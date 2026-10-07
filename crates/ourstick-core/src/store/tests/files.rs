@@ -268,6 +268,58 @@ fn downloaded_files_are_recorded_in_groups_whole_or_not_at_all(store: &dyn Store
     ));
 }
 
+fn owned_files_are_walked_in_byte_order_and_stop_when_told(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    store.add_owned_stick(&owned(1, 10)).unwrap();
+    // Byte order, as the manifest sorts its entries (ADR 0019): "a-b"
+    // (0x2d) before "a/b" (0x2f), and non-ASCII after ASCII.
+    let paths = ["é.txt", "a/b", "a-b", "z", "Ω/x"];
+    let files: Vec<OwnedFile> = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| file(path, index as u64, index as u8))
+        .collect();
+    store.record_owned_files(&stick_id, &files).unwrap();
+    let mut walked = Vec::new();
+    store
+        .each_owned_file(&stick_id, &mut |file| {
+            walked.push(file.path.clone());
+            std::ops::ControlFlow::Continue(())
+        })
+        .unwrap();
+    let mut sorted: Vec<String> = paths.iter().map(|path| (*path).to_owned()).collect();
+    sorted.sort();
+    assert_eq!(walked, sorted);
+    assert_eq!(walked[..2], ["a-b", "a/b"]);
+    // The same rows as the list, with everything in them.
+    assert_eq!(
+        store
+            .owned_files(&stick_id)
+            .unwrap()
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>(),
+        walked
+    );
+    // Stopped after two.
+    let mut seen = 0;
+    store
+        .each_owned_file(&stick_id, &mut |_| {
+            seen += 1;
+            if seen == 2 {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        })
+        .unwrap();
+    assert_eq!(seen, 2);
+    // A stick with none: nothing.
+    store
+        .each_owned_file(&owner(9).stick_id(), &mut |_| panic!("no rows"))
+        .unwrap();
+}
+
 for_every_store!(
     downloaded_files_are_recorded_in_groups_whole_or_not_at_all,
     a_file_saved_under_another_name_is_recorded_so,
@@ -275,6 +327,7 @@ for_every_store!(
     downloaded_files_are_recorded_one_by_one,
     moving_the_folder_forgets_the_downloaded_files,
     owned_files_are_recorded_in_parts_and_pruned_at_the_end,
+    owned_files_are_walked_in_byte_order_and_stop_when_told,
     owned_files_need_an_owned_stick,
     owned_files_are_per_stick,
     owned_file_values_beyond_i64_are_refused,

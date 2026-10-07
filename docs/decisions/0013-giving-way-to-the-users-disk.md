@@ -252,7 +252,7 @@ than the disk, and a window read from memory undid the giving way), and
 an older fault: `ourstick share` ignored Ctrl-C during its first pass.
 
 
-## Amendment 1: on Linux, the kernel's counters say who else is there (accepted 2026-10-07; built, measured next)
+## Amendment 1: on Linux, the kernel's counters say who else is there (accepted 2026-10-07; built and measured)
 
 Timing alone proved not enough (ADR 0017's 40, 100 and 200 GB tests from
 G to the Expansion disk, 2026-10-07): the owner said "Sending slowly" 8,
@@ -325,3 +325,19 @@ with a catalogue between them, the catalogue's bytes not counted. Parsing
 `stat` lines with and without the newer fields; `st_dev` decoding for
 8:1, 253:0 and a minor over 255; following `slaves/` and a partition to
 its disk in a fake `/sys` tree.
+
+**Measured (2026-10-07)** on G, the owner's first share each time, the
+reader on the same PC writing to RAM (the Expansion disk, an 86 % full
+USB drive just written 900 GB, wrote 4 MB/s and held the reader back):
+
+| | Before (timing) | After (counters) |
+|---|---|---|
+| 40 GB alone, "Sending slowly" with no one else | 8 times | 0 in 85 minutes (stopped at 25 GB, the reader waiting on its disk) |
+| 20 GB alone to RAM | | 6:02, 58.6 MB/s, no change of judgement |
+| A 5 GB copy on G alone | 76.7 s | |
+| The copy beside the 20 GB transfer | | 77.9 s (1.02×); OurStick gave way 26 s after it began and went back to full speed 13 s after it ended; the transfer took 6:55 |
+
+The judgements logged with the copy: giving way at others 49 MB beside
+ours 67 MB; back at others 5 MB; once more at others 18 MB while the copy
+ended; back at others 0.
+

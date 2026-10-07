@@ -10,6 +10,17 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
+## Security
+
+- **`ourstick get <link>` puts the link in the process list.** Any user of
+  the same computer can read a process's arguments (`ps`, `/proc/<pid>/
+  cmdline`), and the link's fragment is the stick's key. Seen while
+  measuring (2026-10-07: only the public part was printed, cut before the
+  `#`). Take the link from standard input or a 0600 file as well (`get -`
+  or `--link-file`), and say in `--help` that the argument is visible to
+  other users; the app is not affected (it never passes a link as an
+  argument).
+
 ## Giving way
 
 - **Giving way when nobody else uses the disk, after a restart** (ADR 0017

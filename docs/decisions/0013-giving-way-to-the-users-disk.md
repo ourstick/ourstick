@@ -251,3 +251,71 @@ fixes, as the copy starts and as it ends). The first runs found what rule
 than the disk, and a window read from memory undid the giving way), and
 an older fault: `ourstick share` ignored Ctrl-C during its first pass.
 
+
+## Amendment 1: on Linux, the kernel's counters say who else is there (proposed, 2026-10-07)
+
+Timing alone proved not enough (ADR 0017's 40, 100 and 200 GB tests from
+G to the Expansion disk, 2026-10-07): the owner said "Sending slowly" 8,
+13 and 2 times with no other program on the disk (G read 245 MB in 30 s,
+241 of them OurStick's), and "Sending at full speed again" while a copy of
+900 GB ran from the same disk. A window's time changes for reasons that
+are not someone else: files read minutes before are still in memory (the
+first windows teach a speed the disk never gives again), and big files
+read in one run cost a disk less per byte than photos of a few MB, each a
+seek. The Consequences above kept the kernel's counters for this case.
+Reviewed by two other models; this version takes in their changes.
+
+1. **Which counters.** For a disk whose `DiskId` is a device (Linux), the
+   kernel's line for it in `/sys/dev/block/MAJOR:MINOR/stat` (the numbers
+   decoded from `st_dev` by glibc's layout, in our own code; sectors are
+   512 bytes whatever the device): reads and writes completed, sectors
+   read and written. It is followed down to the **physical disk**: through
+   a device-mapper layer (LUKS, LVM) while it has exactly one device below
+   it (`slaves/`), then from a partition to its disk, so another program
+   on a sibling partition or volume of the same disk is seen. Several
+   devices below (RAID, a volume over two disks): the device's own line.
+   No line (btrfs's anonymous devices, a `/sys` that cannot be read, macOS,
+   Windows): timing alone, as rules 2–3 say, for that window.
+2. **Counted only while OurStick reads.** The counters are read when a
+   turn starts and when it ends (for the transfers' shared reader: when a
+   read begins with none in flight, and when the last one ends), and the
+   differences are added up in the window, as its time is. So another
+   OurStick reader's turn between two of the transfers' turns, and the
+   pauses, are not counted at all.
+3. **Ours and theirs.** In a window, the disk's traffic is the bytes read
+   and written; OurStick's share of it is what its readers read
+   (`Window::bytes`), but never more than the disk's reads (what came from
+   memory took nothing from the disk). The rest is **someone else's**.
+   A window in which OurStick took under 4 MB from the disk (read from
+   memory) is not judged.
+4. **Someone else is there** when, two windows in a row, others moved at
+   least a quarter as many bytes as OurStick and at least 4 MB (what the
+   system reads ahead for OurStick's own files stays under that), whatever
+   the windows' time; or when the windows were slow by timing (rule 3) and
+   the disk did at least 64 operations OurStick did not ask for (another
+   program reading small things here and there moves few bytes but costs a
+   seek each; slow with no one there is not giving way). **They are gone**
+   when one window shows neither. Two in a row: another program's writes
+   reach the disk in bursts, every few seconds. Speeds are still learned
+   from timing (for the pause, and for windows without counters).
+5. **What it cannot tell apart.** OurStick's own writes on that disk (its
+   state, a receiver writing to the same disk) and a second OurStick on
+   another partition of it count as someone else: OurStick gives way to
+   them. Another program's reads served from memory are not traffic, and
+   need no room.
+6. **Seen and measured.** The log line of each change (rule 6) adds the
+   window's bytes and operations, ours and others'. Measured on G: the
+   40 GB transfer alone gives way no more than once; with the 5 GB copy
+   beside it, the copy takes at most 1.3× its time alone (step 4's
+   criterion) and OurStick says so within a minute.
+
+**Tests.** Fake counters behind a trait (as `Timer`), given to `DiskTurns`:
+slow windows and no one else, no giving way; normal windows and someone
+moving as much as OurStick, giving way; slow windows and many others'
+operations but few bytes, giving way; someone stopping, full speed at the
+next window; others under 4 MB, nothing; a window mostly from memory, not
+judged; no counters, timing as before; a shared window over several turns
+with a catalogue between them, the catalogue's bytes not counted. Parsing
+`stat` lines with and without the newer fields; `st_dev` decoding for
+8:1, 253:0 and a minor over 255; following `slaves/` and a partition to
+its disk in a fake `/sys` tree.

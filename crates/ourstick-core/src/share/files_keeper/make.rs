@@ -19,7 +19,8 @@ use crate::transport::BlobHash;
 #[derive(Debug, Clone)]
 pub(super) struct ToMake {
     pub(super) hash: BlobHash,
-    pub(super) size: u64,
+    /// The index of its first entry in the version (ADR 0019).
+    pub(super) index: u32,
     pub(super) paths: Vec<String>,
     /// For each path, the stamp the catalogue recorded with this blob.
     pub(super) stamps: Vec<Option<FileStamp>>,

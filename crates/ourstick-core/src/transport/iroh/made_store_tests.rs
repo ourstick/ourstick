@@ -9,6 +9,7 @@ use crate::blob::encrypt_blob;
 use crate::cipher::{ChaChaCipher, StickKey};
 use crate::layout::StickLayout;
 use crate::manifest::hashing::hash_file_telling_plaintext;
+use crate::manifest::Manifest;
 use crate::transport::ServedFile;
 
 fn cipher() -> Arc<dyn Cipher> {
@@ -27,16 +28,27 @@ struct Stick {
     store: Store,
     served: Served,
     blobs: Vec<([u8; 32], Vec<u8>)>,
+    /// The version's manifest.
+    manifest: Arc<Manifest>,
+    /// The files of the version not served yet.
+    later: Vec<([u8; 32], ServedFile)>,
     /// What the store told it could not serve.
     told: Arc<Mutex<Vec<(Hash, bool)>>>,
 }
 
 fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
+    stick_with(files, &[])
+}
+
+/// A stick whose version holds `served` and `later`, serving `served`.
+fn stick_with(served: &[(&str, Vec<u8>)], later: &[(&str, Vec<u8>)]) -> Stick {
     let folder = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();
     let mut table = HashMap::new();
+    let mut not_yet = Vec::new();
     let mut blobs = Vec::new();
-    for (name, data) in files {
+    let mut entries = Vec::new();
+    for (index, (name, data)) in served.iter().chain(later).enumerate() {
         let path = folder.path().join(name);
         std::fs::write(&path, data).unwrap();
         let hashed = hash_file_telling_plaintext(
@@ -50,15 +62,22 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         let mut blob = Vec::new();
         encrypt_blob(cipher().as_ref(), &mut io::Cursor::new(data), &mut blob).unwrap();
         blobs.push((hashed.entry.hash, blob));
-        table.insert(
-            hashed.entry.hash,
-            ServedFile {
-                path: (*name).into(),
-                plaintext_len: data.len() as u64,
-                plaintext_hash: hashed.plaintext_hash,
-            },
-        );
+        let file = ServedFile {
+            index: index as u32,
+            plaintext_hash: hashed.plaintext_hash,
+        };
+        if index < served.len() {
+            table.insert(hashed.entry.hash, file);
+        } else {
+            not_yet.push((hashed.entry.hash, file));
+        }
+        entries.push(hashed.entry);
     }
+    let manifest = Arc::new(Manifest {
+        partial: false,
+        name: String::new(),
+        entries,
+    });
     let told = Arc::new(Mutex::new(Vec::new()));
     let telling = told.clone();
     let (store, served) = start(
@@ -74,6 +93,7 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         cipher(),
         ServedFiles {
             layout: StickLayout::new(folder.path(), &[]),
+            manifest: manifest.clone(),
             files: table,
         },
         |_| {},
@@ -84,6 +104,8 @@ fn stick(files: &[(&str, Vec<u8>)]) -> Stick {
         store,
         served,
         blobs,
+        manifest,
+        later: not_yet,
         told,
     }
 }
@@ -247,6 +269,7 @@ async fn a_new_table_replaces_the_old_one() {
         cipher(),
         ServedFiles {
             layout: StickLayout::new(stick.folder.path(), &[]),
+            manifest: stick.manifest.clone(),
             files: HashMap::new(),
         },
         |_| {},
@@ -283,38 +306,19 @@ async fn a_file_that_cannot_be_read_is_told_unread_not_changed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn files_added_are_served_too() {
-    let stick = stick(&[("a", content(10))]);
-    let extra = stick.folder.path().join("b");
-    std::fs::write(&extra, content(70 * 1024)).unwrap();
-    let hashed = hash_file_telling_plaintext(
-        "b".to_owned(),
-        &extra,
-        cipher().as_ref(),
-        None,
-        Some(stick.cache.path()),
-    )
-    .unwrap();
-    stick.served.add(
-        vec![(
-            hashed.entry.hash,
-            ServedFile {
-                path: "b".into(),
-                plaintext_len: 70 * 1024,
-                plaintext_hash: hashed.plaintext_hash,
-            },
-        )],
-        |_| {},
-    );
-    let mut blob = Vec::new();
-    encrypt_blob(
-        cipher().as_ref(),
-        &mut io::Cursor::new(content(70 * 1024)),
-        &mut blob,
-    )
-    .unwrap();
+    let stick = stick_with(&[("a", content(10))], &[("b", content(70 * 1024))]);
+    let (hash, blob) = stick.blobs[1].clone();
+    assert_eq!(stick.served.blob_len(&Hash::from_bytes(hash)), None);
+    // A table of another version is not added to.
+    let other = Arc::new((*stick.manifest).clone());
+    stick.served.add(&other, stick.later.clone(), |_| {});
+    assert_eq!(stick.served.blob_len(&Hash::from_bytes(hash)), None);
+    stick
+        .served
+        .add(&stick.manifest, stick.later.clone(), |_| {});
     let got = stick
         .store
-        .export_bao(Hash::from_bytes(hashed.entry.hash), ChunkRanges::all())
+        .export_bao(Hash::from_bytes(hash), ChunkRanges::all())
         .data_to_vec()
         .await
         .unwrap();

@@ -1,6 +1,6 @@
 use super::*;
 use crate::cipher::CipherId;
-use crate::manifest::FileStamp;
+use crate::manifest::{Entry, FileStamp};
 use crate::stick_id::StickSigningKey;
 use crate::store::{MemoryStore, OwnedFile, OwnedStick};
 
@@ -45,11 +45,16 @@ fn only_files_recorded_with_this_blob_and_a_plaintext_hash_are_served() {
             ],
         )
         .unwrap();
-    let entries = [entry("a", 1), entry("b", 2), entry("c", 3), entry("d", 4)];
-    let served = served_files(&store, &stick_id, &entries).unwrap();
+    let manifest = Manifest {
+        partial: false,
+        name: String::new(),
+        entries: vec![entry("a", 1), entry("b", 2), entry("c", 3), entry("d", 4)],
+    };
+    let served = served_files(&store, &stick_id, Arc::new(manifest)).unwrap();
     assert_eq!(served.files.len(), 1);
     let a = &served.files[&[1; 32]];
-    assert_eq!(&*a.path, "a");
+    assert_eq!(a.index, 0);
+    assert_eq!(served.entry(a).path, "a");
     assert_eq!(a.plaintext_hash, [11; 32]);
     assert_eq!(served.layout.on_disk("a"), std::path::Path::new("/stick/a"));
 }

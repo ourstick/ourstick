@@ -142,21 +142,29 @@ pub enum Demand {
 }
 
 /// One file the owner's store serves (ADR 0017), as the catalogue recorded
-/// it: its manifest path (where it is on disk comes from the stick's
-/// layout when it is asked for), plaintext size and plaintext hash.
-#[derive(Debug, Clone)]
+/// it: the index of its entry in the version's manifest (its path and size
+/// are the entry's, ADR 0019; where it is on disk comes from the stick's
+/// layout when it is asked for) and its plaintext hash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServedFile {
-    pub path: Box<str>,
-    pub plaintext_len: u64,
+    pub index: u32,
     pub plaintext_hash: [u8; 32],
 }
 
-/// What the owner's store serves: the current version's files, by blob
-/// hash, and where the stick's roots are.
+/// What the owner's store serves: the current version's manifest, its
+/// files by blob hash, and where the stick's roots are.
 #[derive(Debug, Clone)]
 pub struct ServedFiles {
     pub layout: crate::layout::StickLayout,
+    pub manifest: std::sync::Arc<crate::manifest::Manifest>,
     pub files: std::collections::HashMap<BlobHash, ServedFile>,
+}
+
+impl ServedFiles {
+    /// The entry of a served file.
+    pub fn entry(&self, file: &ServedFile) -> &crate::manifest::Entry {
+        &self.manifest.entries[file.index as usize]
+    }
 }
 
 /// The owner's side: serves the current record, its manifest, and its
@@ -193,9 +201,15 @@ pub trait Publisher: Send + Sync {
     }
 
     /// Serves these files too, in the version given last to
-    /// [`Publisher::serve_files`] (files made ready since). Nothing by
-    /// default.
-    fn serve_more(&self, _files: Vec<(BlobHash, ServedFile)>) {}
+    /// [`Publisher::serve_files`] (files made ready since), if `manifest`
+    /// is still that version's: indexes of another version name other
+    /// files. Nothing by default.
+    fn serve_more(
+        &self,
+        _manifest: &std::sync::Arc<crate::manifest::Manifest>,
+        _files: Vec<(BlobHash, ServedFile)>,
+    ) {
+    }
 
     /// Whether a reader was told "not ready" within the last `window`: a
     /// reader waits on the owner, whose reading for it then goes first on

@@ -37,7 +37,7 @@ async fn a_folder_comes_whole_from_blobs_made_when_asked() {
     let table = served_files(
         owner.store.as_ref(),
         &stick_id,
-        &publication.manifest.entries,
+        std::sync::Arc::new(publication.manifest.clone()),
     )
     .unwrap();
     assert_eq!(table.files.len(), files.len());

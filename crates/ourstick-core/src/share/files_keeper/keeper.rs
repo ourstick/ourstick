@@ -2,6 +2,7 @@
 //! first), and those that could not be read, tried again later.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::make::{Made, ToMake};
@@ -9,21 +10,23 @@ use super::version::{load_version, Listed, Version};
 use super::{Context, FIRST_RETRY, LONGEST_RETRY};
 use crate::blocking::run_blocking;
 use crate::layout::StickLayout;
+use crate::manifest::{FileStamp, Manifest};
 use crate::transport::{BlobHash, Demand, Publisher, ServedFile};
 
-/// A blob of the version: its place (its first file's, in manifest order)
-/// and every path it is at.
-pub(super) struct Known {
-    pub(super) place: usize,
-    pub(super) blob: ToMake,
-}
-
+/// The keeper's state, by entry index into the version's manifest (ADR
+/// 0019): a blob's place is its first entry's index.
 #[derive(Default)]
 pub(super) struct Keeper {
     pub(super) manifest_hash: Option<BlobHash>,
     pub(super) layout: Option<StickLayout>,
-    /// Every blob of the version.
-    known: HashMap<BlobHash, Known>,
+    /// The version's manifest, shared with the owner's store.
+    manifest: Option<Arc<Manifest>>,
+    /// The stamp the catalogue recorded with each entry's blob, by index.
+    stamps: Vec<Option<FileStamp>>,
+    /// Every blob of the version: its first entry's index.
+    known: HashMap<BlobHash, u32>,
+    /// The other entries of blobs at more than one path (identical files).
+    copies: HashMap<BlobHash, Vec<u32>>,
     /// Blobs to make, by place.
     pending: BTreeMap<usize, BlobHash>,
     /// Asked for while not ready, first first.
@@ -78,36 +81,44 @@ impl Keeper {
         let Version {
             manifest_hash,
             served,
-            entries,
+            listed,
         } = version;
-        self.learn(manifest_hash, served.layout.clone(), entries);
+        self.learn(
+            manifest_hash,
+            served.layout.clone(),
+            served.manifest.clone(),
+            &listed,
+        );
         publisher.serve_files(context.cipher.clone(), served);
     }
 
-    /// The version `manifest_hash`, with its files at `layout`.
-    fn learn(&mut self, manifest_hash: BlobHash, layout: StickLayout, entries: Vec<Listed>) {
+    /// The version `manifest_hash`, its `manifest` with its files at
+    /// `layout`, and what was recorded of each entry.
+    fn learn(
+        &mut self,
+        manifest_hash: BlobHash,
+        layout: StickLayout,
+        manifest: Arc<Manifest>,
+        listed: &[Listed],
+    ) {
         self.manifest_hash = Some(manifest_hash);
         self.layout = Some(layout);
-        self.known = HashMap::with_capacity(entries.len());
+        self.known = HashMap::with_capacity(manifest.entries.len());
+        self.copies = HashMap::new();
         self.pending = BTreeMap::new();
-        for (place, listed) in entries.into_iter().enumerate() {
-            let entry = listed.entry;
-            if let Some(known) = self.known.get_mut(&entry.hash) {
-                known.blob.paths.push(entry.path);
-                known.blob.stamps.push(listed.stamp);
+        for (index, (entry, listed)) in manifest.entries.iter().zip(listed).enumerate() {
+            let index = u32::try_from(index).expect("fewer than 2^32 entries");
+            if self.known.contains_key(&entry.hash) {
+                self.copies.entry(entry.hash).or_default().push(index);
                 continue;
             }
             if !listed.served {
-                self.pending.insert(place, entry.hash);
+                self.pending.insert(index as usize, entry.hash);
             }
-            let blob = ToMake {
-                hash: entry.hash,
-                size: entry.size,
-                paths: vec![entry.path],
-                stamps: vec![listed.stamp],
-            };
-            self.known.insert(entry.hash, Known { place, blob });
+            self.known.insert(entry.hash, index);
         }
+        self.stamps = listed.iter().map(|listed| listed.stamp).collect();
+        self.manifest = Some(manifest);
         self.wanted.clear();
         // A new version may have them at other paths: tried afresh.
         self.failed.clear();
@@ -128,7 +139,30 @@ impl Keeper {
                 None => break self.pending.pop_first()?.1,
             }
         };
-        self.known.get(&hash).map(|known| known.blob.clone())
+        self.to_make(&hash)
+    }
+
+    /// What making `hash` needs: its entries' paths and stamps, from the
+    /// manifest, made now rather than kept for every blob.
+    fn to_make(&self, hash: &BlobHash) -> Option<ToMake> {
+        let manifest = self.manifest.as_ref()?;
+        let first = *self.known.get(hash)?;
+        let indexes =
+            std::iter::once(first).chain(self.copies.get(hash).into_iter().flatten().copied());
+        let (paths, stamps) = indexes
+            .map(|index| {
+                (
+                    manifest.entries[index as usize].path.clone(),
+                    self.stamps.get(index as usize).copied().flatten(),
+                )
+            })
+            .unzip();
+        Some(ToMake {
+            hash: *hash,
+            index: first,
+            paths,
+            stamps,
+        })
     }
 
     pub(super) async fn on_demand(
@@ -164,7 +198,7 @@ impl Keeper {
     /// wait is over (a reader asks every few seconds). False if it is not
     /// of this version.
     fn asked(&mut self, hash: BlobHash) -> bool {
-        let Some(place) = self.known.get(&hash).map(|known| known.place) else {
+        let Some(place) = self.known.get(&hash).map(|index| *index as usize) else {
             return false;
         };
         if let Some((tried, _)) = self.failed.get_mut(&hash) {
@@ -183,7 +217,7 @@ impl Keeper {
     /// Its file changed since the version: its records are forgotten and a
     /// pass is asked for, whose version lists it anew.
     async fn changed(&mut self, hash: BlobHash, context: &Context) {
-        let Some(paths) = self.known.get(&hash).map(|known| known.blob.paths.clone()) else {
+        let Some(paths) = self.to_make(&hash).map(|blob| blob.paths) else {
             return;
         };
         let store = context.store.clone();
@@ -215,8 +249,8 @@ impl Keeper {
         for (hash, (tried, wait)) in &mut self.failed {
             if now.duration_since(*tried) >= *wait {
                 *tried = now;
-                if let Some(known) = self.known.get(hash) {
-                    self.pending.insert(known.place, *hash);
+                if let Some(index) = self.known.get(hash) {
+                    self.pending.insert(*index as usize, *hash);
                 }
             }
         }
@@ -236,8 +270,7 @@ impl Keeper {
             Made::Ready(records) => {
                 self.failed.remove(&blob.hash);
                 let served = ServedFile {
-                    path: blob.paths[0].as_str().into(),
-                    plaintext_len: blob.size,
+                    index: blob.index,
                     plaintext_hash: records[0].plaintext_hash.expect("made with one"),
                 };
                 let store = context.store.clone();
@@ -247,7 +280,9 @@ impl Keeper {
                 if let Err(error) = recorded {
                     tracing::warn!(%error, "a file made ready could not be recorded");
                 }
-                publisher.serve_more(vec![(blob.hash, served)]);
+                if let Some(manifest) = &self.manifest {
+                    publisher.serve_more(manifest, vec![(blob.hash, served)]);
+                }
             }
             Made::Changed => self.changed(blob.hash, context).await,
             Made::Unreadable(error) => {

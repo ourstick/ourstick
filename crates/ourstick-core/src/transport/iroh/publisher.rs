@@ -275,12 +275,16 @@ impl Publisher for IrohPublisher {
         });
     }
 
-    fn serve_more(&self, files: Vec<(BlobHash, crate::transport::ServedFile)>) {
+    fn serve_more(
+        &self,
+        manifest: &Arc<crate::manifest::Manifest>,
+        files: Vec<(BlobHash, crate::transport::ServedFile)>,
+    ) {
         let made = lock(&self.made);
         let Some((id, _, served)) = made.as_ref() else {
             return;
         };
-        served.add(files, |hash| self.serving.set_ready(*id, hash));
+        served.add(manifest, files, |hash| self.serving.set_ready(*id, hash));
     }
 
     fn readers_waiting(&self, window: std::time::Duration) -> bool {

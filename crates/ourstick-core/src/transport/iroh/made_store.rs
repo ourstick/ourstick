@@ -24,6 +24,7 @@ use iroh_blobs::Hash;
 use crate::blob::made::MadeBlob;
 use crate::cipher::Cipher;
 use crate::manifest::hashing::{outboard_path, BLOCK_SIZE};
+use crate::manifest::Manifest;
 use crate::transport::{BlobHash, ServedFile, ServedFiles};
 
 /// Told when the store could not serve a blob: its hash, and whether its
@@ -61,11 +62,20 @@ impl Served {
         *table = Some(files);
     }
 
-    /// These files too, in the current version; `then(hash)` for each,
-    /// under the table's lock.
-    pub(super) fn add(&self, more: Vec<(BlobHash, ServedFile)>, then: impl Fn(Hash)) {
+    /// These files too, if `manifest` is the current version's (indexes of
+    /// another name other files); `then(hash)` for each, under the table's
+    /// lock.
+    pub(super) fn add(
+        &self,
+        manifest: &Arc<Manifest>,
+        more: Vec<(BlobHash, ServedFile)>,
+        then: impl Fn(Hash),
+    ) {
         let mut table = self.files.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(files) = table.as_mut() {
+        if let Some(files) = table
+            .as_mut()
+            .filter(|files| Arc::ptr_eq(&files.manifest, manifest))
+        {
             for (hash, file) in more {
                 files.files.insert(hash, file);
                 then(Hash::from_bytes(hash));
@@ -80,9 +90,9 @@ impl Served {
             .clone()
     }
 
-    /// The file of `hash`, and where it is on disk: copied out, so the table
-    /// is not held while the blob is sent.
-    fn file(&self, hash: &Hash) -> io::Result<(ServedFile, PathBuf)> {
+    /// The file of `hash`, its version, and where it is on disk: copied
+    /// out, so the table is not held while the blob is sent.
+    fn file(&self, hash: &Hash) -> io::Result<Found> {
         let files = self.files.lock().unwrap_or_else(|p| p.into_inner());
         let files = files
             .as_ref()
@@ -93,19 +103,41 @@ impl Served {
                 "this blob is not in the version served",
             )
         })?;
-        Ok((file.clone(), files.layout.on_disk(&file.path)))
+        let entry = files.entry(file);
+        Ok(Found {
+            manifest: files.manifest.clone(),
+            index: file.index,
+            plaintext_hash: file.plaintext_hash,
+            plaintext_len: entry.size,
+            path: files.layout.on_disk(&entry.path),
+        })
     }
 
     fn blob_len(&self, hash: &Hash) -> Option<u64> {
-        let plaintext_len = self
-            .files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()?
-            .files
-            .get(hash.as_bytes())?
-            .plaintext_len;
+        let plaintext_len = {
+            let files = self.files.lock().unwrap_or_else(|p| p.into_inner());
+            let files = files.as_ref()?;
+            files.entry(files.files.get(hash.as_bytes())?).size
+        };
         Some(crate::blob::blob_len(self.cipher().as_ref(), plaintext_len))
+    }
+}
+
+/// A served file as an export or a probe found it, copied out of the table.
+struct Found {
+    /// The version it was found in, and its entry's index there.
+    manifest: Arc<Manifest>,
+    index: u32,
+    plaintext_hash: [u8; 32],
+    plaintext_len: u64,
+    /// Where it is on disk.
+    path: PathBuf,
+}
+
+impl Found {
+    /// Its path in the stick, in the version it was found in.
+    fn stick_path(&self) -> &str {
+        &self.manifest.entries[self.index as usize].path
     }
 }
 
@@ -188,26 +220,26 @@ async fn export_bao(
         ended: None,
     };
     // Not in the version: nothing to tell.
-    let (file, path) = match served.file(&hash) {
+    let found = match served.file(&hash) {
         Ok(found) => found,
         Err(error) => {
             sender.sender.send(failed(error)).await.ok();
             return;
         }
     };
-    match export(served, hash, &file, &path, ranges, &mut sender).await {
+    match export(served, hash, &found, ranges, &mut sender).await {
         Err(Refused::ReaderGone) => {}
         // Not even begun: the file cannot be opened or its outboard is not
         // there. Not served from now on.
         Err(Refused::Unreadable(error)) => {
             tracing::debug!(%error, "a blob was not served");
-            not_served(served, hash, &file.path, false);
+            not_served(served, hash, &found, false);
             sender.sender.send(failed(error)).await.ok();
         }
         Ok(()) => {
             if let Some(changed) = sender.ended {
                 tracing::debug!(changed, "a transfer ended early");
-                not_served(served, hash, &file.path, changed);
+                not_served(served, hash, &found, changed);
             }
         }
     }
@@ -219,25 +251,25 @@ async fn export_bao(
 /// of another size, else could not be read (gone, or a disk unplugged).
 pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::serving::Probe {
     let look = move |hash| {
-        let Ok((file, path)) = served.file(&hash) else {
+        let Ok(found) = served.file(&hash) else {
             return false;
         };
-        let changed = match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.len() == file.plaintext_len => false,
+        let changed = match std::fs::metadata(&found.path) {
+            Ok(metadata) if metadata.len() == found.plaintext_len => false,
             Ok(_) => true,
             Err(_) => {
-                not_served(&served, hash, &file.path, false);
+                not_served(&served, hash, &found, false);
                 return false;
             }
         };
         let tree = BaoTree::new(
-            crate::blob::blob_len(served.cipher().as_ref(), file.plaintext_len),
+            crate::blob::blob_len(served.cipher().as_ref(), found.plaintext_len),
             BLOCK_SIZE,
         );
         let can = !changed
             && (tree.outboard_size() == 0 || open_outboard(&served.outboards, &hash, tree).is_ok());
         if !can {
-            not_served(&served, hash, &file.path, changed);
+            not_served(&served, hash, &found, changed);
         }
         can
     };
@@ -247,23 +279,24 @@ pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::s
     }
 }
 
-/// `hash`, as served from `path`, is not served from now on, and the owner
+/// `hash`, as `found` served it, is not served from now on, and the owner
 /// is told; nothing if the table serves it from another path now (a newer
-/// version, or a file made since).
-fn not_served(served: &Served, hash: Hash, path: &str, changed: bool) {
+/// version, or a file made since): the paths are compared, the versions'
+/// indexes name different files.
+fn not_served(served: &Served, hash: Hash, found: &Found, changed: bool) {
     let mut table = served.files.lock().unwrap_or_else(|p| p.into_inner());
     let Some(files) = table.as_mut() else { return };
     if files
         .files
         .get(hash.as_bytes())
-        .is_some_and(|file| &*file.path == path)
+        .is_some_and(|file| files.entry(file).path == found.stick_path())
     {
         files.files.remove(hash.as_bytes());
         (served.on_not_served)(hash, changed);
     }
 }
 
-/// Serves `hash` from `file` at `path`: an error before anything is sent if
+/// Serves `hash` from `found`: an error before anything is sent if
 /// its file cannot be opened or its outboard is not there; otherwise
 /// bao-tree sends what it checked, and ends with its own error at the first
 /// group that differs from the tree (a changed file) or the first read that
@@ -271,16 +304,16 @@ fn not_served(served: &Served, hash: Hash, path: &str, changed: bool) {
 async fn export(
     served: &Served,
     hash: Hash,
-    file: &ServedFile,
-    path: &std::path::Path,
+    found: &Found,
     ranges: ChunkRanges,
     sender: &mut ToSender,
 ) -> Result<(), Refused> {
+    let path = &found.path;
     let blob = MadeBlob::open(
         path,
         served.cipher(),
-        file.plaintext_len,
-        &file.plaintext_hash,
+        found.plaintext_len,
+        &found.plaintext_hash,
     )
     .and_then(|blob| match &served.reads {
         Some(reads) => reads.through_turns(blob, path),

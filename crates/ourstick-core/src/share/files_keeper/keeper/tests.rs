@@ -3,27 +3,41 @@ use std::path::Path;
 use super::*;
 use crate::manifest::Entry;
 
-fn listed(path: &str, hash: u8, served: bool) -> Listed {
-    Listed {
-        entry: Entry {
-            path: path.to_owned(),
-            size: 10,
-            mtime: 0,
-            hash: [hash; 32],
-        },
+/// An entry of a version, with whether it is served.
+fn listed(path: &str, hash: u8, served: bool) -> (Entry, Listed) {
+    let entry = Entry {
+        path: path.to_owned(),
+        size: 10,
+        mtime: 0,
+        hash: [hash; 32],
+    };
+    let listed = Listed {
         served,
         stamp: None,
-    }
+    };
+    (entry, listed)
 }
 
-/// A keeper of the version `[version; 32]` listing `entries`.
-fn keeper(version: u8, entries: Vec<Listed>) -> Keeper {
-    let mut keeper = Keeper::default();
+/// `keeper` learns the version `[version; 32]` listing `entries`.
+fn learn(keeper: &mut Keeper, version: u8, entries: Vec<(Entry, Listed)>) {
+    let (entries, listed): (Vec<Entry>, Vec<Listed>) = entries.into_iter().unzip();
+    let manifest = Manifest {
+        partial: false,
+        name: String::new(),
+        entries,
+    };
     keeper.learn(
         [version; 32],
         StickLayout::new(Path::new("/x"), &[]),
-        entries,
+        Arc::new(manifest),
+        &listed,
     );
+}
+
+/// A keeper of the version `[version; 32]` listing `entries`.
+fn keeper(version: u8, entries: Vec<(Entry, Listed)>) -> Keeper {
+    let mut keeper = Keeper::default();
+    learn(&mut keeper, version, entries);
     keeper
 }
 
@@ -122,11 +136,7 @@ fn a_new_version_starts_afresh() {
     let mut keeper = keeper(1, vec![listed("a", 1, false), listed("b", 2, false)]);
     keeper.asked([2; 32]);
     keeper.failed_now([1; 32]);
-    keeper.learn(
-        [2; 32],
-        StickLayout::new(Path::new("/x"), &[]),
-        vec![listed("c", 1, false)],
-    );
+    learn(&mut keeper, 2, vec![listed("c", 1, false)]);
     assert_eq!(keeper.manifest_hash, Some([2; 32]));
     assert!(keeper.failed.is_empty());
     let blob = keeper.next().unwrap();

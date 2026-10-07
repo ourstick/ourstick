@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use bao_tree::BaoTree;
 
@@ -20,15 +21,15 @@ use crate::transport::{BlobHash, ServedFile, ServedFiles};
 /// The version being served.
 pub(super) struct Version {
     pub(super) manifest_hash: BlobHash,
-    /// Its files the store serves now.
+    /// Its files the store serves now, with its manifest (shared, ADR 0019).
     pub(super) served: ServedFiles,
-    /// Every file of the version, in manifest order.
-    pub(super) entries: Vec<Listed>,
+    /// For each entry of the manifest, by index: what the keeper needs.
+    pub(super) listed: Vec<Listed>,
 }
 
-/// A file of the version.
+/// What the keeper keeps of one entry of the version.
+#[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Listed {
-    pub(super) entry: Entry,
     /// Whether the store serves it now (else it lacks its plaintext hash or
     /// its outboard).
     pub(super) served: bool,
@@ -80,36 +81,30 @@ pub(super) fn load_version(
         std::ops::ControlFlow::Continue(())
     })?;
     let mut files = HashMap::with_capacity(manifest.entries.len());
-    let mut entries = Vec::with_capacity(manifest.entries.len());
-    for (entry, record) in manifest.entries.into_iter().zip(recorded) {
+    let mut listed = Vec::with_capacity(manifest.entries.len());
+    for (index, (entry, record)) in manifest.entries.iter().zip(recorded).enumerate() {
         let stamp = record.map(|(_, stamp)| stamp);
-        match record.and_then(|(plaintext_hash, _)| plaintext_hash) {
-            Some(plaintext_hash) if has_outboard(outboards, cipher, &entry) => {
-                files.insert(
-                    entry.hash,
-                    ServedFile {
-                        path: entry.path.as_str().into(),
-                        plaintext_len: entry.size,
-                        plaintext_hash,
-                    },
-                );
-                entries.push(Listed {
-                    entry,
-                    served: true,
-                    stamp,
+        let served = match record.and_then(|(plaintext_hash, _)| plaintext_hash) {
+            Some(plaintext_hash) if has_outboard(outboards, cipher, entry) => {
+                // A blob at several paths is served from its first.
+                files.entry(entry.hash).or_insert(ServedFile {
+                    index: u32::try_from(index).expect("fewer than 2^32 entries"),
+                    plaintext_hash,
                 });
+                true
             }
-            _ => entries.push(Listed {
-                entry,
-                served: false,
-                stamp,
-            }),
-        }
+            _ => false,
+        };
+        listed.push(Listed { served, stamp });
     }
     Ok(Some(Version {
         manifest_hash,
-        served: ServedFiles { layout, files },
-        entries,
+        served: ServedFiles {
+            layout,
+            manifest: Arc::new(manifest),
+            files,
+        },
+        listed,
     }))
 }
 

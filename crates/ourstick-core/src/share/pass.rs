@@ -252,10 +252,10 @@ async fn pass(
                 if previous.changes(&merged) {
                     same_layout(owner, &layout).await?;
                     let publication = versions
-                        .publish(&mut signed, partial_manifest(&name, merged.clone()), reused)
+                        .publish(&mut signed, partial_manifest(&name, merged), reused)
                         .await?;
                     on_event(PassEvent::Published(&publication));
-                    previous.published(merged);
+                    previous.published(publication.manifest.clone());
                 }
                 next_partial = Some(Instant::now() + timing.every);
             }

@@ -105,8 +105,7 @@ impl Served {
         })?;
         let entry = files.entry(file);
         Ok(Found {
-            manifest: files.manifest.clone(),
-            index: file.index,
+            stick_path: entry.path.as_str().into(),
             plaintext_hash: file.plaintext_hash,
             plaintext_len: entry.size,
             path: files.layout.on_disk(&entry.path),
@@ -123,22 +122,15 @@ impl Served {
     }
 }
 
-/// A served file as an export or a probe found it, copied out of the table.
+/// A served file as an export or a probe found it, copied out of the table
+/// (not its version's manifest, which a long transfer would keep alive).
 struct Found {
-    /// The version it was found in, and its entry's index there.
-    manifest: Arc<Manifest>,
-    index: u32,
+    /// Its path in the stick, in the version it was found in.
+    stick_path: Box<str>,
     plaintext_hash: [u8; 32],
     plaintext_len: u64,
     /// Where it is on disk.
     path: PathBuf,
-}
-
-impl Found {
-    /// Its path in the stick, in the version it was found in.
-    fn stick_path(&self) -> &str {
-        &self.manifest.entries[self.index as usize].path
-    }
 }
 
 /// Starts the store of a stick whose outboards are in `outboards`, its
@@ -289,7 +281,7 @@ fn not_served(served: &Served, hash: Hash, found: &Found, changed: bool) {
     if files
         .files
         .get(hash.as_bytes())
-        .is_some_and(|file| files.entry(file).path == found.stick_path())
+        .is_some_and(|file| *files.entry(file).path == *found.stick_path)
     {
         files.files.remove(hash.as_bytes());
         (served.on_not_served)(hash, changed);

@@ -8,10 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use common::{keep_going, noise, Owner, Reader};
-use ourstick_core::cipher::cipher_for;
-use ourstick_core::share::served_files;
 use ourstick_core::transport::Publisher;
-use ourstick_core::{CipherId, Store};
+use ourstick_core::Store;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_comes_whole_from_blobs_made_when_asked() {
@@ -30,21 +28,10 @@ async fn a_folder_comes_whole_from_blobs_made_when_asked() {
         .iter()
         .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
         .collect();
-    // No keeper: nothing would be served but the manifest.
     let owner = Owner::bare(&listed).await;
     let publication = owner.publish().await;
-    let stick_id = owner.signing_key.stick_id();
-    let table = served_files(
-        owner.store.as_ref(),
-        &stick_id,
-        publication.manifest.clone(),
-    )
-    .unwrap();
-    assert_eq!(table.files.len(), files.len());
-    owner.publisher.serve_files(
-        cipher_for(CipherId::XChaCha20Poly1305, &owner.stick_key),
-        table,
-    );
+    // Every file was read by the pass: nothing to make, no pass asked for.
+    let (passes, _) = keep_files(&owner);
 
     let reader = Reader::new();
     reader
@@ -57,6 +44,7 @@ async fn a_folder_comes_whole_from_blobs_made_when_asked() {
     // No suitcase was ever made.
     let suitcases = owner.publisher.cache_dir().join("suitcases");
     assert_eq!(std::fs::read_dir(suitcases).map_or(0, |dir| dir.count()), 0);
+    assert_eq!(passes.load(Ordering::Relaxed), 0);
     owner.publisher.shutdown().await;
 }
 
@@ -126,6 +114,10 @@ async fn the_keeper_is_handed_the_version_published() {
     let owner = Owner::bare(&listed).await;
     keep_files(&owner);
     let first = owner.publish().await;
+    // A pass that changes nothing: the manifest kept, not a second copy.
+    let again = owner.publish().await;
+    assert!(!again.new_version);
+    assert!(Arc::ptr_eq(&first.manifest, &again.manifest));
     std::fs::write(owner.folder.path().join("extra.txt"), b"new").unwrap();
     let second = owner.publish().await;
     assert_ne!(first.manifest_hash, second.manifest_hash);

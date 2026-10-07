@@ -16,17 +16,20 @@ pub struct PublishedVersion {
 }
 
 /// For publishers: tells the owner's files keeper, through `published`,
-/// of the version `manifest_hash`, unless it is the one it has.
+/// of the version `manifest_hash`, unless it is the one it has. Returns
+/// the manifest kept: the one it has, if the same version.
 pub fn hand_over(
     published: &watch::Sender<Option<PublishedVersion>>,
     manifest_hash: BlobHash,
     manifest: Arc<Manifest>,
-) {
+) -> Arc<Manifest> {
+    let mut kept = manifest.clone();
     published.send_if_modified(|version| {
-        if version
+        if let Some(version) = version
             .as_ref()
-            .is_some_and(|version| version.manifest_hash == manifest_hash)
+            .filter(|version| version.manifest_hash == manifest_hash)
         {
+            kept = version.manifest.clone();
             return false;
         }
         *version = Some(PublishedVersion {
@@ -35,6 +38,7 @@ pub fn hand_over(
         });
         true
     });
+    kept
 }
 
 #[cfg(test)]
@@ -49,13 +53,16 @@ mod tests {
     async fn the_keeper_is_told_of_each_new_version_once() {
         let published = watch::Sender::new(None);
         let mut versions = published.subscribe();
-        hand_over(&published, [1; 32], manifest());
+        let first = hand_over(&published, [1; 32], manifest());
         assert!(versions.has_changed().unwrap());
         let version = versions.borrow_and_update().clone().unwrap();
         assert_eq!(version.manifest_hash, [1; 32]);
-        // The same version again (an unchanged folder): nothing to tell.
-        hand_over(&published, [1; 32], manifest());
+        assert!(Arc::ptr_eq(&first, &version.manifest));
+        // The same version again (an unchanged folder): nothing to tell,
+        // and the manifest kept is the first, not a second copy.
+        let again = hand_over(&published, [1; 32], manifest());
         assert!(!versions.has_changed().unwrap());
+        assert!(Arc::ptr_eq(&again, &first));
         hand_over(&published, [2; 32], manifest());
         assert!(versions.has_changed().unwrap());
         assert_eq!(versions.borrow().as_ref().unwrap().manifest_hash, [2; 32]);

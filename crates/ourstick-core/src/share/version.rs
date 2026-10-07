@@ -83,9 +83,9 @@ impl<P: Publisher> Versions<'_, P> {
                 record
             }
         };
-        let manifest = Arc::new(manifest);
-        self.publisher
-            .publish(record.clone(), manifest_blob, manifest.clone())
+        let manifest = self
+            .publisher
+            .publish(record.clone(), manifest_blob, Arc::new(manifest))
             .await?;
         let seq = record.unverified_record().seq;
         tracing::info!(

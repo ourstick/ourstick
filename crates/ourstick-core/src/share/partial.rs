@@ -5,16 +5,19 @@
 //! file leave the stick only because this pass has not reached it; a file
 //! that did leave is gone at once.
 
-use crate::manifest::Entry;
+use std::sync::Arc;
+
+use crate::manifest::{Entry, Manifest};
 
 /// The files of the last pass, and what was last published.
 #[derive(Debug)]
 pub(super) struct Previous {
     /// In manifest order.
     entries: Vec<Entry>,
-    /// What was last published; `None`: `entries`, not yet another (one
-    /// copy, not two, of a list that may be long).
-    published: Option<Vec<Entry>>,
+    /// What was last published, the manifest the publisher keeps (ADR
+    /// 0019); `None`: `entries`, not yet another (one copy, not two, of a
+    /// list that may be long).
+    published: Option<Arc<Manifest>>,
 }
 
 impl Previous {
@@ -45,11 +48,14 @@ impl Previous {
     /// last pass's files): a partial version that changes nothing is not
     /// published.
     pub(super) fn changes(&self, merged: &[Entry]) -> bool {
-        self.published.as_deref().unwrap_or(&self.entries) != merged
+        self.published
+            .as_ref()
+            .map_or(&self.entries, |manifest| &manifest.entries)
+            != merged
     }
 
-    pub(super) fn published(&mut self, merged: Vec<Entry>) {
-        self.published = Some(merged);
+    pub(super) fn published(&mut self, manifest: Arc<Manifest>) {
+        self.published = Some(manifest);
     }
 }
 
@@ -99,7 +105,11 @@ mod tests {
         let merged = previous.merged(&[entry("a", 1)], Some("b"));
         assert_eq!(paths(&merged), vec!["a", "c"]);
         assert!(previous.changes(&merged));
-        previous.published(merged.clone());
+        previous.published(Arc::new(Manifest {
+            partial: true,
+            name: String::new(),
+            entries: merged.clone(),
+        }));
         assert!(!previous.changes(&merged));
     }
 }

@@ -349,3 +349,38 @@ async fn a_reader_that_goes_away_is_no_fault_of_the_blob() {
         .unwrap();
     assert_eq!(got, stick.blobs[0].1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failure_at_an_old_path_leaves_the_blob_served_at_a_new_one() {
+    let stick = stick(&[("a", content(10))]);
+    let hash = Hash::from_bytes(stick.blobs[0].0);
+    // An export of the first version, still going when the file is renamed.
+    let old = stick.served.file(&hash).unwrap();
+    std::fs::rename(stick.folder.path().join("a"), stick.folder.path().join("b")).unwrap();
+    let mut renamed = (*stick.manifest).clone();
+    renamed.entries[0].path = "b".to_owned();
+    stick.served.set(
+        cipher(),
+        ServedFiles {
+            layout: StickLayout::new(stick.folder.path(), &[]),
+            manifest: Arc::new(renamed),
+            files: HashMap::from([(
+                *hash.as_bytes(),
+                ServedFile {
+                    index: 0,
+                    plaintext_hash: old.plaintext_hash,
+                },
+            )]),
+        },
+        |_| {},
+    );
+    // Its file "a" is gone: no fault of the blob, served from "b" now.
+    not_served(&stick.served, hash, &old, false);
+    assert!(stick.served.blob_len(&hash).is_some());
+    assert!(stick.told.lock().unwrap().is_empty());
+    // Failing at its current path, it is no longer served.
+    let current = stick.served.file(&hash).unwrap();
+    not_served(&stick.served, hash, &current, false);
+    assert_eq!(stick.served.blob_len(&hash), None);
+    assert_eq!(stick.told.lock().unwrap().clone(), vec![(hash, false)]);
+}

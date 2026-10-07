@@ -207,7 +207,7 @@ impl Publisher for IrohPublisher {
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
         decoded: Arc<Manifest>,
-    ) -> Result<(), TransportError> {
+    ) -> Result<Arc<Manifest>, TransportError> {
         let manifest_hash = record.unverified_record().manifest_hash;
         let manifest = Hash::from_bytes(manifest_hash);
         if Hash::new(&manifest_blob) != manifest {
@@ -239,8 +239,11 @@ impl Publisher for IrohPublisher {
                 old.shutdown().await.ok();
             });
         }
-        crate::transport::hand_over(&self.published, manifest_hash, decoded);
-        Ok(())
+        Ok(crate::transport::hand_over(
+            &self.published,
+            manifest_hash,
+            decoded,
+        ))
     }
 
     fn serve_files(&self, cipher: Arc<dyn crate::cipher::Cipher>, files: ServedFiles) {

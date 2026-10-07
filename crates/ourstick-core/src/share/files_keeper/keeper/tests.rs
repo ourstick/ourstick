@@ -86,6 +86,46 @@ fn identical_files_are_one_blob_at_every_path() {
 }
 
 #[test]
+fn a_blob_served_from_a_copy_is_not_made() {
+    // The first path had no usable record; a copy of it did.
+    let mut keeper = keeper(
+        1,
+        vec![
+            listed("a", 1, false),
+            listed("b", 2, false),
+            listed("c", 1, true),
+        ],
+    );
+    assert_eq!(next_hash(&mut keeper), Some([2; 32]));
+    assert_eq!(next_hash(&mut keeper), None);
+}
+
+#[test]
+fn a_file_asked_for_before_its_version_came_goes_first_when_it_comes() {
+    let mut keeper = keeper(1, vec![listed("a", 1, false)]);
+    keeper.asked_maybe_early([3; 32]);
+    keeper.asked_maybe_early([3; 32]);
+    assert_eq!(keeper.early.len(), 1);
+    learn(
+        &mut keeper,
+        2,
+        vec![
+            listed("a", 1, false),
+            listed("b", 2, false),
+            listed("c", 3, false),
+        ],
+    );
+    assert!(keeper.early.is_empty());
+    assert_eq!(next_hash(&mut keeper), Some([3; 32]));
+    assert_eq!(next_hash(&mut keeper), Some([1; 32]));
+    // Only so many are remembered.
+    for byte in 0..=EARLY_ASKS as u8 {
+        keeper.asked_maybe_early([100u8.wrapping_add(byte); 32]);
+    }
+    assert_eq!(keeper.early.len(), EARLY_ASKS);
+}
+
+#[test]
 fn a_file_that_failed_waits_longer_each_time() {
     let mut keeper = keeper(1, vec![listed("a", 1, false)]);
     assert_eq!(next_hash(&mut keeper), Some([1; 32]));

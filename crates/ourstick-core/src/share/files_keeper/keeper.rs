@@ -33,7 +33,15 @@ pub(super) struct Keeper {
     wanted: VecDeque<usize>,
     /// Could not be read: when it was last tried, and the wait after that.
     failed: HashMap<BlobHash, (Instant, Duration)>,
+    /// Asked for before its version came (a reader quicker than the
+    /// keeper): wanted once it comes. At most `EARLY_ASKS`.
+    early: VecDeque<BlobHash>,
+    /// The version whose records could not be read last, told once.
+    unreadable: Option<BlobHash>,
 }
+
+/// How many blobs asked for before their version the keeper remembers.
+const EARLY_ASKS: usize = 64;
 
 impl Keeper {
     /// Serves what it can of `published`, unless it is the version it has.
@@ -47,7 +55,8 @@ impl Keeper {
         let Some(published) = published else {
             return;
         };
-        if self.manifest_hash == Some(published.manifest_hash) {
+        let hash = published.manifest_hash;
+        if self.manifest_hash == Some(hash) {
             return;
         }
         let loaded = {
@@ -67,8 +76,18 @@ impl Keeper {
             .await
         };
         match loaded {
-            Ok(version) => self.take(version, publisher, context),
-            Err(error) => tracing::warn!(%error, "the current version could not be read"),
+            Ok(version) => {
+                self.unreadable = None;
+                self.take(version, publisher, context);
+            }
+            // Tried again at the next look; told once.
+            Err(error) if self.unreadable == Some(hash) => {
+                tracing::debug!(%error, "the current version still could not be read");
+            }
+            Err(error) => {
+                self.unreadable = Some(hash);
+                tracing::warn!(%error, "the current version could not be read");
+            }
         }
     }
 
@@ -103,7 +122,11 @@ impl Keeper {
         self.pending = BTreeMap::new();
         for (index, (entry, listed)) in manifest.entries.iter().zip(listed).enumerate() {
             let index = u32::try_from(index).expect("fewer than 2^32 entries");
-            if self.known.contains_key(&entry.hash) {
+            if let Some(first) = self.known.get(&entry.hash) {
+                // Served from a copy: nothing to make.
+                if listed.served {
+                    self.pending.remove(&(*first as usize));
+                }
                 self.copies.entry(entry.hash).or_default().push(index);
                 continue;
             }
@@ -117,6 +140,9 @@ impl Keeper {
         self.wanted.clear();
         // A new version may have them at other paths: tried afresh.
         self.failed.clear();
+        for hash in std::mem::take(&mut self.early) {
+            self.asked(hash);
+        }
         if !self.pending.is_empty() {
             tracing::debug!(files = self.pending.len(), "files to make ready");
         }
@@ -167,9 +193,7 @@ impl Keeper {
                 served: false,
                 ..
             } => {
-                // Not known: a blob of another version, which comes to the
-                // keeper as it is published.
-                self.asked(hash);
+                self.asked_maybe_early(hash);
             }
             // The store could not serve it (rule 4).
             Demand::NotServed { hash, changed } => {
@@ -180,6 +204,17 @@ impl Keeper {
                 }
             }
             Demand::Asked { .. } | Demand::Closed { .. } => {}
+        }
+    }
+
+    /// A reader waits on `hash`; if it is not known, it may be of a version
+    /// not come yet (it comes as it is published): wanted once it comes.
+    fn asked_maybe_early(&mut self, hash: BlobHash) {
+        if !self.asked(hash) && !self.early.contains(&hash) {
+            if self.early.len() == EARLY_ASKS {
+                self.early.pop_front();
+            }
+            self.early.push_back(hash);
         }
     }
 

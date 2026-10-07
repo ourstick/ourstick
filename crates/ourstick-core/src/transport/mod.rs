@@ -187,13 +187,15 @@ pub trait Publisher: Send + Sync {
     /// served from memory) and the blobs of `manifest`, its decoded content;
     /// others stop being served at once. A blob of it not served yet (its
     /// file not made ready) is answered "not ready". The owner's files
-    /// keeper is handed `manifest` (ADR 0019).
+    /// keeper is handed `manifest` (ADR 0019); the manifest kept is
+    /// returned: the one kept before if it is the same version, so there
+    /// is one copy of it, not two.
     fn publish(
         &self,
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
         manifest: std::sync::Arc<crate::manifest::Manifest>,
-    ) -> impl Future<Output = Result<(), TransportError>> + Send;
+    ) -> impl Future<Output = Result<std::sync::Arc<crate::manifest::Manifest>, TransportError>> + Send;
 
     /// The version published last, from now on: what the owner's files
     /// keeper serves (ADR 0019).

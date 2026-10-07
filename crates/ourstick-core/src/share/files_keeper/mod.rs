@@ -114,7 +114,8 @@ pub async fn keep_files<P: Publisher + 'static>(
             },
             changed = versions.changed() => {
                 if changed.is_err() {
-                    // The publisher is gone: readers can no longer ask.
+                    // Never while this keeper holds its publisher (and the
+                    // sender with it); ended rather than spun on.
                     break Ok(());
                 }
                 let version = versions.borrow_and_update().clone();

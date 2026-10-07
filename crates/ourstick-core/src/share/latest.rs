@@ -73,9 +73,9 @@ pub async fn serve_latest(
         })
         .await?;
     // Its files are "not ready" until the files keeper serves them.
-    owner
+    let manifest = owner
         .publisher
-        .publish(record.clone(), manifest_blob, manifest.clone())
+        .publish(record.clone(), manifest_blob, manifest)
         .await?;
     tracing::info!(
         seq,

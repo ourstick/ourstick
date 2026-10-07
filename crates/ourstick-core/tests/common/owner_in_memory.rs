@@ -69,15 +69,14 @@ impl Publisher for MemoryPublisher {
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
         decoded: Arc<Manifest>,
-    ) -> Result<(), TransportError> {
+    ) -> Result<Arc<Manifest>, TransportError> {
         let manifest = *blake3::hash(&manifest_blob).as_bytes();
         let mut served = self.served.lock().unwrap();
         served.blobs.insert(manifest, manifest_blob);
         served.record = Some(record);
         served.allowed = decoded.entries.iter().map(|entry| entry.hash).collect();
         served.allowed.insert(manifest);
-        hand_over(&served.published, manifest, decoded);
-        Ok(())
+        Ok(hand_over(&served.published, manifest, decoded))
     }
     fn published(&self) -> tokio::sync::watch::Receiver<Option<PublishedVersion>> {
         self.served.lock().unwrap().published.subscribe()

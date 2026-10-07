@@ -53,8 +53,13 @@ stays the same.
    may ask for are its entries') and keeps the version published last in
    a `watch` (`Publisher::published`). A restart's `serve_latest` decodes
    the cache file and publishes it the same way, so the keeper never reads
-   that file. `Publication::manifest` is the same `Arc`, so the watcher's
-   and the app's "current" manifest is that one too, not a copy.
+   that file. `publish` returns the manifest it kept (the one it had, if
+   the version is the same, as after a pass that changed nothing), and
+   `Publication::manifest` is that `Arc`; so the watcher's and the app's
+   "current" manifest, and what the pass last published (`Previous`, a
+   part of rule 5), are that one too, not copies. An export copies out
+   its file's path only, not its version's manifest. `share/served.rs`
+   is gone: `load_version` is the one place that decides what is served.
 2. **The served table by index, with its version.** `ServedFiles` holds the
    version's `Arc<Manifest>` and maps a blob's hash to the index of its
    first entry, with its plaintext hash; the path and size are read from

@@ -104,3 +104,7 @@ fn has_outboard(outboards: &Path, cipher: &dyn Cipher, entry: &Entry) -> bool {
         || std::fs::metadata(outboard_path(outboards, &entry.hash))
             .is_ok_and(|metadata| metadata.len() == tree.outboard_size())
 }
+
+#[cfg(test)]
+#[path = "version_tests.rs"]
+mod tests;

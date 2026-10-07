@@ -290,12 +290,20 @@ Reviewed by two other models; this version takes in their changes.
    least a quarter as many bytes as OurStick and at least 4 MB (what the
    system reads ahead for OurStick's own files stays under that), whatever
    the windows' time; or when the windows were slow by timing (rule 3) and
-   the disk did at least 64 operations OurStick did not ask for (another
+   the disk did at least 64 operations more than OurStick's own (another
    program reading small things here and there moves few bytes but costs a
-   seek each; slow with no one there is not giving way). **They are gone**
+   seek each; slow with no one there is not giving way). OurStick's own
+   operations are counted as one per 64 KiB it took from the disk and two
+   a file begun, not its read calls (the kernel merges small ones and
+   reads ahead); a larger request of its own only makes others look
+   fewer. The second test needs a window of at least 4 MB from the disk
+   (one from memory tells nothing of speed); the first does not, so a
+   folder of tiny files still sees a copy beside it. **They are gone**
    when one window shows neither. Two in a row: another program's writes
    reach the disk in bursts, every few seconds. Speeds are still learned
-   from timing (for the pause, and for windows without counters).
+   from timing, from windows of at least 4 MB from the disk with no one
+   else (for the pause, and for windows without counters). Each device's
+   physical disk is found once and kept.
 5. **What it cannot tell apart.** OurStick's own writes on that disk (its
    state, a receiver writing to the same disk) and a second OurStick on
    another partition of it count as someone else: OurStick gives way to

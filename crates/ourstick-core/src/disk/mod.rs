@@ -2,5 +2,6 @@
 //! judgement ([`share`]) and its turns ([`turns`]), for the catalogue, the
 //! owner's files keeper and transfers alike.
 
+pub mod counters;
 pub mod share;
 pub mod turns;

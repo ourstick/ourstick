@@ -145,9 +145,6 @@ impl SharedReader {
         let window = &mut state.window;
         window.bytes += bytes;
         window.timed_bytes += bytes;
-        if bytes > 0 {
-            window.reads += 1;
-        }
         if begins && bytes > 0 {
             window.timed_files += 1;
         }

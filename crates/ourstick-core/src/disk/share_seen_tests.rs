@@ -12,8 +12,8 @@ fn ms(milliseconds: u64) -> Duration {
 }
 
 /// A window of 64 MB read in `took`, the disk moving `disk_read` and
-/// `disk_written` bytes in `ops` operations meanwhile; OurStick made 1024
-/// read calls.
+/// `disk_written` bytes in `ops` operations meanwhile (OurStick's own
+/// counted as 1024, one per 64 KiB).
 fn window(
     share: &mut DiskShare,
     took: u64,
@@ -33,7 +33,6 @@ fn window(
                 written_bytes: disk_written,
             },
             ours: 64 * MB,
-            reads: 1024,
         },
     )
 }
@@ -92,11 +91,27 @@ fn read_ahead_and_metadata_are_not_someone_else() {
 }
 
 #[test]
-fn a_window_mostly_from_memory_is_not_judged() {
+fn a_window_from_memory_is_judged_only_by_what_others_moved() {
     let mut share = learned();
-    // OurStick read 64 MB, 1 MB of it from the disk; others moved 50 MB.
+    // OurStick took 1 MB from the disk and was slow; no one else moved
+    // anything much: nothing, and nothing learned.
     for _ in 0..3 {
+        window(&mut share, 5000, MB, MB, 5000);
+    }
+    assert!(!share.giving_way());
+    // Others moved 50 MB meanwhile (a folder of tiny files beside a copy):
+    // someone is there.
+    for _ in 0..2 {
         window(&mut share, 50, MB, 50 * MB, 100);
+    }
+    assert!(share.giving_way());
+}
+
+#[test]
+fn others_under_four_megabytes_are_no_one() {
+    let mut share = learned();
+    for _ in 0..4 {
+        window(&mut share, 500, 64 * MB, 3 * MB, 600);
     }
     assert!(!share.giving_way());
 }

@@ -23,8 +23,6 @@ pub(super) struct Window {
     /// Every read's time, the second reads' too: what is paused for.
     pub(super) took: Duration,
     pub(super) bytes: u64,
-    /// Read calls made in it.
-    pub(super) reads: u64,
     /// What the kernel counted on the disk while its reads ran (ADR 0013,
     /// amendment 1): summed over its spans of reading, from `since`.
     pub(super) disk: Counters,
@@ -59,7 +57,6 @@ impl Window {
         (!self.uncounted && self.spans > 0).then_some(Seen {
             disk: self.disk,
             ours: self.bytes,
-            reads: self.reads,
         })
     }
 }
@@ -181,7 +178,6 @@ impl<R: Read + Seek> Read for Timed<'_, R> {
         let started = timer.elapsed();
         let read = self.file.read(buffer)?;
         let took = timer.elapsed().saturating_sub(started);
-        window.reads += 1;
         self.at += read as u64;
         window.took += took;
         window.bytes += read as u64;

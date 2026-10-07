@@ -114,3 +114,8 @@ fn the_real_system_answers_for_this_disk() {
         assert!(now.ops > 0);
     }
 }
+
+#[test]
+fn no_counters_never_count() {
+    assert_eq!(NoCounters.read(&DiskId::Device(0x801)), None);
+}

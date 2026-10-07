@@ -290,5 +290,4 @@ fn only_the_traffic_while_transfers_read_is_counted_in_their_window() {
     let seen = state.window.seen().unwrap();
     assert_eq!(seen.disk.read_bytes, 15 << 20);
     assert_eq!(seen.ours, 15 << 20);
-    assert_eq!(seen.reads, 2);
 }

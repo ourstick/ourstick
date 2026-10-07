@@ -286,8 +286,6 @@ Reviewed by two other models; this version takes in their changes.
    and written; OurStick's share of it is what its readers read
    (`Window::bytes`), but never more than the disk's reads (what came from
    memory took nothing from the disk). The rest is **someone else's**.
-   A window in which OurStick took under 4 MB from the disk (read from
-   memory) is not judged.
 4. **Someone else is there** when, two windows in a row, others moved at
    least a quarter as many bytes as OurStick and at least 4 MB (what the
    system reads ahead for OurStick's own files stays under that), whatever

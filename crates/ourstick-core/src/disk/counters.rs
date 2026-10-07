@@ -3,7 +3,9 @@
 //! `/sys/dev/block/MAJOR:MINOR/stat`, followed down to the physical disk;
 //! elsewhere nothing, and the disk is judged by timing alone.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use super::turns::DiskId;
 
@@ -57,20 +59,39 @@ impl DiskCounters for NoCounters {
 pub struct SystemCounters {
     /// `/sys`, or a fake tree in tests.
     sys: PathBuf,
+    /// Each device's physical disk's `stat` file, found once: a device is
+    /// counted twice a window, and finding it reads several files.
+    found: Mutex<HashMap<(u64, u64), Option<PathBuf>>>,
 }
 
 impl Default for SystemCounters {
     fn default() -> Self {
-        Self {
-            sys: PathBuf::from("/sys"),
-        }
+        Self::under("/sys")
     }
 }
 
 impl SystemCounters {
     /// Counters read under `sys` instead of `/sys` (tests).
     pub fn under(sys: impl Into<PathBuf>) -> Self {
-        Self { sys: sys.into() }
+        Self {
+            sys: sys.into(),
+            found: Mutex::default(),
+        }
+    }
+
+    /// The `stat` file of the physical disk under device `major:minor`.
+    fn stat_of(&self, major: u64, minor: u64) -> Option<PathBuf> {
+        let mut found = self
+            .found
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        found
+            .entry((major, minor))
+            .or_insert_with(|| {
+                let device = self.sys.join("dev/block").join(format!("{major}:{minor}"));
+                physical(&device).map(|disk| disk.join("stat"))
+            })
+            .clone()
     }
 }
 
@@ -87,9 +108,8 @@ impl DiskCounters for SystemCounters {
         if major == 0 {
             return None;
         }
-        let device = self.sys.join("dev/block").join(format!("{major}:{minor}"));
-        let disk = physical(&device)?;
-        parse_stat(&std::fs::read_to_string(disk.join("stat")).ok()?)
+        let stat = self.stat_of(major, minor)?;
+        parse_stat(&std::fs::read_to_string(stat).ok()?)
     }
 }
 

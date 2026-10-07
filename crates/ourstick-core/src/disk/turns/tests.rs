@@ -1,5 +1,6 @@
 use super::*;
 use std::io::{Read, Seek, SeekFrom};
+use std::time::Instant;
 
 const MB: usize = 1 << 20;
 

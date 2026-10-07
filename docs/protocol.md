@@ -236,7 +236,11 @@ carries only the key). Every file blob of that stick must use the same cipher.
   disk's turns, one reader a window (64 MB or 64 files) at a time, and is
   timed; when windows take over three times their usual time twice in a
   row, the owner reads a tenth of the time until one takes under two and a
-  half times. A file readers wait for goes first, three windows to
+  half times. On Linux the kernel's counters of the physical disk decide
+  instead (ADR 0013, amendment 1): someone else is there when, two windows
+  in a row, others moved a quarter of what the owner took from the disk
+  and at least 4 MB, or a slow window came with 64 operations (and two a
+  file) the owner did not ask for. A file readers wait for goes first, three windows to
   one. Blobs sent are read through the turns too (ADR 0017, amendment 1):
   all transfers of a stick from one disk are one reader, which reads in
   one turn at once, for a window, and loses it to the next reader in the

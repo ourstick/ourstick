@@ -41,6 +41,17 @@ pub trait DiskCounters: Send + Sync {
     fn read(&self, disk: &DiskId) -> Option<Counters>;
 }
 
+/// No counters: every disk judged by timing alone (tests that make reads
+/// slow with a fake clock, which no kernel counts).
+#[derive(Debug, Default)]
+pub struct NoCounters;
+
+impl DiskCounters for NoCounters {
+    fn read(&self, _: &DiskId) -> Option<Counters> {
+        None
+    }
+}
+
 /// The kernel's counters (Linux); none elsewhere.
 #[derive(Debug)]
 pub struct SystemCounters {

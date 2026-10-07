@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::Owner;
+use ourstick_core::disk::counters::NoCounters;
 use ourstick_core::disk::turns::{DiskTurns, Timer};
 use ourstick_core::share::{run_pass, PassEvent, PassOptions};
 use ourstick_core::watcher::Owner as Publishing;
@@ -53,7 +54,12 @@ async fn a_pass_gives_way_while_reads_are_slow_and_says_so() {
     let owning = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
-        disks: Arc::new(DiskTurns::new(timer.clone())),
+        // Reads made slow by a fake clock, which no kernel counts: judged
+        // by timing alone (ADR 0013, amendment 1).
+        disks: Arc::new(DiskTurns::with_counters(
+            timer.clone(),
+            Arc::new(NoCounters),
+        )),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,
@@ -97,7 +103,12 @@ async fn a_pass_that_fails_while_giving_way_says_it_no_longer_is() {
     let owning = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
-        disks: Arc::new(DiskTurns::new(timer.clone())),
+        // Reads made slow by a fake clock, which no kernel counts: judged
+        // by timing alone (ADR 0013, amendment 1).
+        disks: Arc::new(DiskTurns::with_counters(
+            timer.clone(),
+            Arc::new(NoCounters),
+        )),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
         stick_key: &owner.stick_key,

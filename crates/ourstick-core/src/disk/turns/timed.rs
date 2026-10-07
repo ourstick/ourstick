@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::{Disk, DiskId, DiskTurns};
-use crate::disk::share::{ReaderKind, WINDOW_BYTES, WINDOW_FILES};
+use crate::disk::counters::Counters;
+use crate::disk::share::{ReaderKind, Seen, WINDOW_BYTES, WINDOW_FILES};
 
 /// What one turn has read.
 #[derive(Debug, Default)]
@@ -22,6 +23,45 @@ pub(super) struct Window {
     /// Every read's time, the second reads' too: what is paused for.
     pub(super) took: Duration,
     pub(super) bytes: u64,
+    /// Read calls made in it.
+    pub(super) reads: u64,
+    /// What the kernel counted on the disk while its reads ran (ADR 0013,
+    /// amendment 1): summed over its spans of reading, from `since`.
+    pub(super) disk: Counters,
+    pub(super) since: Option<Counters>,
+    pub(super) spans: u32,
+    /// A count could not be read: judged by timing alone.
+    pub(super) uncounted: bool,
+}
+
+impl Window {
+    /// A span of reading begins; `now` is the disk's count, if any.
+    pub(super) fn count_from(&mut self, now: Option<Counters>) {
+        match now {
+            Some(now) => self.since = Some(now),
+            None => self.uncounted = true,
+        }
+    }
+
+    /// A span of reading ends.
+    pub(super) fn count_to(&mut self, now: Option<Counters>) {
+        match (self.since.take(), now) {
+            (Some(since), Some(now)) => {
+                self.disk.add(since.until(now));
+                self.spans += 1;
+            }
+            _ => self.uncounted = true,
+        }
+    }
+
+    /// What the kernel saw of it, where it could count every span.
+    pub(super) fn seen(&self) -> Option<Seen> {
+        (!self.uncounted && self.spans > 0).then_some(Seen {
+            disk: self.disk,
+            ours: self.bytes,
+            reads: self.reads,
+        })
+    }
 }
 
 /// One reader of a disk (a catalogue pass, a file made ready): its turn
@@ -71,7 +111,8 @@ impl DiskReader {
 
     /// Gives the turn back now (the end of a part), judging what was read.
     pub fn end_window(&mut self) {
-        if let Some(window) = self.window.take() {
+        if let Some(mut window) = self.window.take() {
+            window.count_to(self.disk.count());
             self.disk.give_back(Some(&window));
         }
     }
@@ -80,7 +121,9 @@ impl DiskReader {
     fn window(&mut self) -> io::Result<&mut Window> {
         if self.window.is_none() {
             self.disk.take_turn(self.urgent, self.go_on.as_ref())?;
-            self.window = Some(Window::default());
+            let mut window = Window::default();
+            window.count_from(self.disk.count());
+            self.window = Some(window);
         }
         Ok(self.window.as_mut().expect("just set"))
     }
@@ -138,6 +181,7 @@ impl<R: Read + Seek> Read for Timed<'_, R> {
         let started = timer.elapsed();
         let read = self.file.read(buffer)?;
         let took = timer.elapsed().saturating_sub(started);
+        window.reads += 1;
         self.at += read as u64;
         window.took += took;
         window.bytes += read as u64;

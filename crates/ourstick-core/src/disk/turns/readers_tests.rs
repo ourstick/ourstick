@@ -61,6 +61,7 @@ fn readers_say_whether_any_of_their_disks_gives_way() {
                 2,
                 64 << 20,
                 Duration::from_millis(took),
+                None,
             );
         }
     }

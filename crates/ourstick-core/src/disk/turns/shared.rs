@@ -93,6 +93,9 @@ impl SharedReader {
                 if state.in_flight > 0 || self.disk.resume(turn) {
                     if state.in_flight == 0 {
                         state.busy_since = self.disk.timer.elapsed();
+                        // A span of reading begins: counted from here.
+                        let now = self.disk.count();
+                        state.window.count_from(now);
                     }
                     state.in_flight += 1;
                     return Ok(());
@@ -142,6 +145,9 @@ impl SharedReader {
         let window = &mut state.window;
         window.bytes += bytes;
         window.timed_bytes += bytes;
+        if bytes > 0 {
+            window.reads += 1;
+        }
         if begins && bytes > 0 {
             window.timed_files += 1;
         }
@@ -154,6 +160,8 @@ impl SharedReader {
         let busy = self.disk.timer.elapsed().saturating_sub(state.busy_since);
         state.window.took += busy;
         state.window.timed += busy;
+        let now = self.disk.count();
+        state.window.count_to(now);
         let Some(turn) = state.turn else { return };
         if state.closing {
             let window = std::mem::replace(&mut state.window, transfers_window());

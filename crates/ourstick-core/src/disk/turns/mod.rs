@@ -9,47 +9,24 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::disk::counters::{Counters, DiskCounters, SystemCounters};
 use crate::disk::share::{DiskLoad, DiskShare};
+
+#[cfg(test)]
+use crate::disk::counters::NoCounters;
 
 mod id;
 mod shared;
 mod timed;
+mod timer;
 
 pub use id::DiskId;
 pub use shared::SharedReader;
 use timed::Window;
 pub use timed::{DiskReader, Readers, Timed};
-
-/// A clock that never goes back, and a way to wait (blocking): real in the
-/// app and the CLI, a fake in tests. Not the core's `Clock`, which tells
-/// wall time in milliseconds for records and can jump.
-pub trait Timer: Send + Sync {
-    /// Time since some fixed start.
-    fn elapsed(&self) -> Duration;
-    fn sleep(&self, duration: Duration);
-}
-
-/// The system's monotonic clock.
-#[derive(Debug)]
-pub struct SystemTimer(Instant);
-
-impl Default for SystemTimer {
-    fn default() -> Self {
-        Self(Instant::now())
-    }
-}
-
-impl Timer for SystemTimer {
-    fn elapsed(&self) -> Duration {
-        self.0.elapsed()
-    }
-
-    fn sleep(&self, duration: Duration) {
-        std::thread::sleep(duration);
-    }
-}
+pub use timer::{StopOnDrop, SystemTimer, Timer};
 
 /// A pause is slept in slices this long at most, checking between them
 /// whether to stop (a stick stopped, its drive ejected).
@@ -68,13 +45,22 @@ const IDLE_GRACE: Duration = Duration::from_millis(50);
 /// Made once by the app or the CLI and given to every stick.
 pub struct DiskTurns {
     timer: Arc<dyn Timer>,
+    counters: Arc<dyn DiskCounters>,
     disks: Mutex<HashMap<DiskId, Arc<Disk>>>,
 }
 
 impl DiskTurns {
+    /// With the kernel's counters where there are some (ADR 0013,
+    /// amendment 1).
     pub fn new(timer: Arc<dyn Timer>) -> Self {
+        Self::with_counters(timer, Arc::new(SystemCounters::default()))
+    }
+
+    /// With the given counters (tests).
+    pub fn with_counters(timer: Arc<dyn Timer>, counters: Arc<dyn DiskCounters>) -> Self {
         Self {
             timer,
+            counters,
             disks: Mutex::new(HashMap::new()),
         }
     }
@@ -86,8 +72,10 @@ impl DiskTurns {
 
     pub fn get(&self, id: DiskId) -> Arc<Disk> {
         lock(&self.disks)
-            .entry(id)
-            .or_insert_with(|| Arc::new(Disk::new(self.timer.clone())))
+            .entry(id.clone())
+            .or_insert_with(|| {
+                Arc::new(Disk::counted(self.timer.clone(), id, self.counters.clone()))
+            })
             .clone()
     }
 }
@@ -101,6 +89,8 @@ impl std::fmt::Debug for DiskTurns {
 /// One disk: its judgement and its queue of turns.
 pub struct Disk {
     timer: Arc<dyn Timer>,
+    id: DiskId,
+    counters: Arc<dyn DiskCounters>,
     state: Mutex<DiskState>,
     turn_free: Condvar,
 }
@@ -143,12 +133,25 @@ impl Default for DiskState {
 }
 
 impl Disk {
+    /// A disk without the kernel's counters.
+    #[cfg(test)]
     fn new(timer: Arc<dyn Timer>) -> Self {
+        Self::counted(timer, DiskId::Unknown, Arc::new(NoCounters))
+    }
+
+    fn counted(timer: Arc<dyn Timer>, id: DiskId, counters: Arc<dyn DiskCounters>) -> Self {
         Self {
             timer,
+            id,
+            counters,
             state: Mutex::new(DiskState::default()),
             turn_free: Condvar::new(),
         }
+    }
+
+    /// What the kernel counts on this disk now, if it can. Blocking.
+    pub(super) fn count(&self) -> Option<Counters> {
+        self.counters.read(&self.id)
     }
 
     /// Whether OurStick gives way on this disk now. (A disk's own, not
@@ -250,6 +253,7 @@ impl Disk {
                 window.timed_files,
                 window.timed_bytes,
                 window.timed,
+                window.seen(),
             );
             let not_before = self.timer.elapsed() + pause.max(state.load.pause_for(window.took));
             state.not_before = state.not_before.max(not_before);
@@ -271,6 +275,7 @@ impl Disk {
                     window.timed_files,
                     window.timed_bytes,
                     window.timed,
+                    window.seen(),
                 )
             } else {
                 Duration::ZERO
@@ -342,24 +347,6 @@ impl DiskState {
         } else {
             0
         };
-    }
-}
-
-/// A flag set when this is dropped: a task whose future is dropped (its
-/// stick stopped) stops waiting for a disk, through its `go_on`.
-#[derive(Debug, Default)]
-pub struct StopOnDrop(Arc<std::sync::atomic::AtomicBool>);
-
-impl StopOnDrop {
-    /// Whether the task was dropped, for its `go_on`.
-    pub fn flag(&self) -> Arc<std::sync::atomic::AtomicBool> {
-        self.0.clone()
-    }
-}
-
-impl Drop for StopOnDrop {
-    fn drop(&mut self) {
-        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

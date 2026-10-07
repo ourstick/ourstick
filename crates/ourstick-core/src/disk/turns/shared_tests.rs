@@ -253,3 +253,42 @@ fn transfers_on_two_disks_read_at_once() {
     one.leave(1, true);
     other.leave(1, true);
 }
+
+/// Counters moved by hand.
+#[derive(Default)]
+struct FakeCounters(Mutex<crate::disk::counters::Counters>);
+
+impl FakeCounters {
+    fn read_mb(&self, mb: u64) {
+        lock(&self.0).read_bytes += mb << 20;
+    }
+}
+
+impl crate::disk::counters::DiskCounters for FakeCounters {
+    fn read(&self, _: &crate::disk::turns::DiskId) -> Option<crate::disk::counters::Counters> {
+        Some(*lock(&self.0))
+    }
+}
+
+#[test]
+fn only_the_traffic_while_transfers_read_is_counted_in_their_window() {
+    let timer = Arc::new(FakeTimer::default());
+    let counters = Arc::new(FakeCounters::default());
+    let turns = crate::disk::turns::DiskTurns::with_counters(timer.clone(), counters.clone());
+    let reader = SharedReader::new(turns.get(crate::disk::turns::DiskId::Device(1)));
+    // A span of 10 MB read…
+    reader.join(&go_on).unwrap();
+    counters.read_mb(10);
+    reader.leave(10 << 20, true);
+    // …a catalogue's 50 MB between two spans (not this window's)…
+    counters.read_mb(50);
+    // …and 5 MB more.
+    reader.join(&go_on).unwrap();
+    counters.read_mb(5);
+    reader.leave(5 << 20, true);
+    let state = lock(&reader.state);
+    let seen = state.window.seen().unwrap();
+    assert_eq!(seen.disk.read_bytes, 15 << 20);
+    assert_eq!(seen.ours, 15 << 20);
+    assert_eq!(seen.reads, 2);
+}

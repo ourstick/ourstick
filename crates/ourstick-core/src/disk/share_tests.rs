@@ -201,10 +201,10 @@ fn disk_share_is_a_disk_load() {
     let mut load: Box<dyn DiskLoad> = Box::new(DiskShare::default());
     let folder = ReaderKind::Folder;
     for _ in 0..3 {
-        load.after_window(folder, 2, 64 * MB, ms(500));
+        load.after_window(folder, 2, 64 * MB, ms(500), None);
     }
-    load.after_window(folder, 2, 64 * MB, ms(3000));
-    assert!(load.after_window(folder, 2, 64 * MB, ms(3000)) > Duration::ZERO);
+    load.after_window(folder, 2, 64 * MB, ms(3000), None);
+    assert!(load.after_window(folder, 2, 64 * MB, ms(3000), None) > Duration::ZERO);
     assert!(load.giving_way());
     assert_eq!(load.pause_for(ms(500)), ms(4500));
 }

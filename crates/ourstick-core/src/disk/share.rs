@@ -41,6 +41,26 @@ const BIG_FILE: u64 = 1 << 20;
 /// ahead by the system). Such a window changes nothing and teaches no best.
 const FASTEST_BYTES_PER_SECOND: f64 = 1e9;
 const FASTEST_FILE: Duration = Duration::from_micros(200);
+/// With the kernel's counters (ADR 0013, amendment 1): someone else moved
+/// at least this much in a window (what the system reads ahead for
+/// OurStick's own files stays under it)…
+const OTHERS_FLOOR: u64 = 4 << 20;
+/// …and at least this part of what OurStick took from the disk.
+const OTHERS_SHARE: u64 = 4;
+/// A slow window is someone else's when the disk did this many operations
+/// OurStick did not ask for, plus two a file begun (its metadata).
+const OTHERS_OPS: u64 = 64;
+
+/// What the kernel saw of a window (ADR 0013, amendment 1): the disk's
+/// traffic while OurStick read it, and what OurStick read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Seen {
+    pub disk: crate::disk::counters::Counters,
+    /// What OurStick's reader read in the window (some from memory).
+    pub ours: u64,
+    /// The read calls OurStick made.
+    pub reads: u64,
+}
 
 /// What judges how a disk is shared (ADR 0013): the timing of OurStick's
 /// own windows ([`DiskShare`]) today; the system's disk counters could
@@ -48,12 +68,14 @@ const FASTEST_FILE: Duration = Duration::from_micros(200);
 pub trait DiskLoad: Send {
     /// A window read by a reader of `kind`: the pause before the next
     /// (zero at full speed).
+    /// `seen`: what the kernel counted meanwhile, where it can.
     fn after_window(
         &mut self,
         kind: ReaderKind,
         files: u64,
         bytes: u64,
         took: Duration,
+        seen: Option<Seen>,
     ) -> Duration;
     /// The pause after reading that is not judged (a second read).
     fn pause_for(&self, took: Duration) -> Duration;
@@ -68,8 +90,12 @@ impl DiskLoad for DiskShare {
         files: u64,
         bytes: u64,
         took: Duration,
+        seen: Option<Seen>,
     ) -> Duration {
-        DiskShare::after_window_of(self, kind, files, bytes, took)
+        match seen {
+            Some(seen) => DiskShare::after_window_seen(self, kind, files, bytes, took, seen),
+            None => DiskShare::after_window_of(self, kind, files, bytes, took),
+        }
     }
 
     fn pause_for(&self, took: Duration) -> Duration {
@@ -130,6 +156,8 @@ pub struct DiskShare {
     folder: Learned,
     transfers: Learned,
     slow_in_a_row: u32,
+    /// Windows in a row someone else was seen in, by the kernel's counters.
+    others_in_a_row: u32,
     /// Windows in a row not fast while giving way.
     held_back: u32,
     giving_way: bool,
@@ -237,6 +265,97 @@ impl DiskShare {
         self.pause(took)
     }
 
+    /// A window the kernel's counters saw (ADR 0013, amendment 1): someone
+    /// else is there when, two windows in a row, others moved a quarter of
+    /// what OurStick took from the disk and 4 MB, or the window was slow
+    /// and the disk did operations OurStick did not ask for; gone at the
+    /// first window with neither. Not judged when OurStick took under 4 MB
+    /// from the disk (read from memory). Speeds are learned from windows
+    /// with no one else.
+    pub fn after_window_seen(
+        &mut self,
+        kind: ReaderKind,
+        files: u64,
+        bytes: u64,
+        took: Duration,
+        seen: Seen,
+    ) -> Duration {
+        let ours = seen.ours.min(seen.disk.read_bytes);
+        if ours < OTHERS_FLOOR {
+            return self.pause(took);
+        }
+        let all = seen.disk.read_bytes.saturating_add(seen.disk.written_bytes);
+        let others = all.saturating_sub(ours);
+        let others_ops = seen.disk.ops.saturating_sub(seen.reads);
+        let ratio = self.ratio(kind, files, bytes, took);
+        let slow = ratio.is_some_and(|ratio| ratio > SLOW_RATIO);
+        let moved = others >= OTHERS_FLOOR && others.saturating_mul(OTHERS_SHARE) >= ours;
+        let busy = slow && others_ops >= OTHERS_OPS + 2 * files;
+        let someone = moved || busy;
+        if !someone {
+            self.learn(kind, files, bytes, took);
+        }
+        let was = self.giving_way;
+        if someone {
+            self.others_in_a_row += 1;
+            if self.others_in_a_row >= SLOW_IN_A_ROW {
+                self.giving_way = true;
+            }
+        } else {
+            self.others_in_a_row = 0;
+            self.giving_way = false;
+        }
+        if was != self.giving_way {
+            tracing::debug!(
+                giving_way = self.giving_way,
+                window_ms = took.as_millis() as u64,
+                ratio = ratio.unwrap_or(0.0),
+                ours,
+                others,
+                others_ops,
+                files,
+                "the disk is shared differently (kernel's counters)"
+            );
+        }
+        self.pause(took)
+    }
+
+    /// The learned speeds of `kind` for a window of `files` and `bytes`:
+    /// which kind of window, its units, and their recent speeds.
+    fn units(&mut self, kind: ReaderKind, files: u64, bytes: u64) -> (bool, u64, &mut Recent) {
+        let big = files == 0 || bytes / files >= BIG_FILE;
+        let learned = match kind {
+            ReaderKind::Folder => &mut self.folder,
+            ReaderKind::Transfers => &mut self.transfers,
+        };
+        if big {
+            (true, bytes, &mut learned.per_byte)
+        } else {
+            (false, files, &mut learned.per_file)
+        }
+    }
+
+    /// How many times what it should have taken a window took, if known
+    /// (not read from memory, and enough windows of its kind learned).
+    fn ratio(&mut self, kind: ReaderKind, files: u64, bytes: u64, took: Duration) -> Option<f64> {
+        let seconds = took.as_secs_f64();
+        let (big, units, best) = self.units(kind, files, bytes);
+        if units == 0 || from_memory(big, units, seconds) {
+            return None;
+        }
+        let expected = best.expected_per_unit()? * units as f64;
+        (expected > 0.0).then(|| seconds / expected)
+    }
+
+    /// Learns a window's speed, unless it came from memory.
+    fn learn(&mut self, kind: ReaderKind, files: u64, bytes: u64, took: Duration) {
+        let seconds = took.as_secs_f64();
+        let (big, units, best) = self.units(kind, files, bytes);
+        if units > 0 && !from_memory(big, units, seconds) {
+            best.learn(seconds / units as f64);
+        }
+    }
+
     /// The pause after `took` of reading that is not judged (a second
     /// read of a file): as after a window, without judging it.
     pub fn pause_for(&self, took: Duration) -> Duration {
@@ -252,6 +371,20 @@ impl DiskShare {
     }
 }
 
+/// Faster than any disk: `units` (bytes, or files) read in `seconds` came
+/// from memory.
+fn from_memory(big: bool, units: u64, seconds: f64) -> bool {
+    if big {
+        units as f64 > FASTEST_BYTES_PER_SECOND * seconds
+    } else {
+        seconds / (units as f64) < FASTEST_FILE.as_secs_f64()
+    }
+}
+
 #[cfg(test)]
 #[path = "share_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "share_seen_tests.rs"]
+mod seen_tests;

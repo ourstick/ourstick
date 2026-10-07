@@ -252,7 +252,7 @@ than the disk, and a window read from memory undid the giving way), and
 an older fault: `ourstick share` ignored Ctrl-C during its first pass.
 
 
-## Amendment 1: on Linux, the kernel's counters say who else is there (proposed, 2026-10-07)
+## Amendment 1: on Linux, the kernel's counters say who else is there (accepted 2026-10-07; built, measured next)
 
 Timing alone proved not enough (ADR 0017's 40, 100 and 200 GB tests from
 G to the Expansion disk, 2026-10-07): the owner said "Sending slowly" 8,

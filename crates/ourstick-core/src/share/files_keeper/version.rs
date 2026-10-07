@@ -3,20 +3,18 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 
 use bao_tree::BaoTree;
 
-use super::super::latest::load_latest_manifest;
 use super::super::ShareError;
-use crate::blob::{blob_len, decrypt_blob};
+use crate::blob::blob_len;
 use crate::cipher::Cipher;
 use crate::layout::StickLayout;
 use crate::manifest::hashing::{outboard_path, BLOCK_SIZE};
-use crate::manifest::{Entry, FileStamp, Manifest};
+use crate::manifest::{Entry, FileStamp};
 use crate::stick_id::StickId;
 use crate::store::Store;
-use crate::transport::{BlobHash, ServedFile, ServedFiles};
+use crate::transport::{BlobHash, PublishedVersion, ServedFile, ServedFiles};
 
 /// The version being served.
 pub(super) struct Version {
@@ -37,30 +35,20 @@ pub(super) struct Listed {
     pub(super) stamp: Option<FileStamp>,
 }
 
-/// The latest version the owner published, split into what can be served
-/// now and what must be made; `None` before the first. Blocking.
+/// The version the owner published, `manifest_hash` with its `manifest`
+/// as the publisher decoded it (ADR 0019), split into what can be served
+/// now and what must be made. Blocking.
 pub(super) fn load_version(
     store: &dyn Store,
     stick_id: &StickId,
-    cache_dir: &Path,
     outboards: &Path,
     cipher: &dyn Cipher,
-) -> Result<Option<Version>, ShareError> {
-    let owned = store.owned_stick(stick_id)?.ok_or(ShareError::NotOwned)?;
-    let Some(record) = owned.latest_record else {
-        return Ok(None);
-    };
-    let manifest_hash = record.unverified_record().manifest_hash;
-    let Some(blob) = load_latest_manifest(cache_dir, &manifest_hash) else {
-        return Ok(None);
-    };
-    // Decoded, then the blob and its plaintext go (ADR 0019).
-    let manifest = {
-        let mut plaintext = Vec::new();
-        decrypt_blob(cipher, &mut blob.as_slice(), &mut plaintext)?;
-        drop(blob);
-        Manifest::from_bytes(&plaintext)?
-    };
+    published: PublishedVersion,
+) -> Result<Version, ShareError> {
+    let PublishedVersion {
+        manifest_hash,
+        manifest,
+    } = published;
     // Read again with each version: linked entries come and go.
     let layout = StickLayout::load(store, stick_id)?;
     // What the store recorded of each entry's file, by the entry's index:
@@ -97,15 +85,15 @@ pub(super) fn load_version(
         };
         listed.push(Listed { served, stamp });
     }
-    Ok(Some(Version {
+    Ok(Version {
         manifest_hash,
         served: ServedFiles {
             layout,
-            manifest: Arc::new(manifest),
+            manifest,
             files,
         },
         listed,
-    }))
+    })
 }
 
 /// Whether `entry`'s blob needs no outboard (one 16 KiB group) or has one

@@ -37,7 +37,7 @@ async fn a_folder_comes_whole_from_blobs_made_when_asked() {
     let table = served_files(
         owner.store.as_ref(),
         &stick_id,
-        std::sync::Arc::new(publication.manifest.clone()),
+        publication.manifest.clone(),
     )
     .unwrap();
     assert_eq!(table.files.len(), files.len());
@@ -105,6 +105,34 @@ async fn the_files_keeper_serves_each_version() {
     let reader = Reader::new();
     reader
         .download(&owner.ticket(&publication), &mut keep_going)
+        .await
+        .unwrap();
+    for (name, bytes) in &files {
+        assert_eq!(&reader.read(name), bytes, "{name}");
+    }
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_keeper_is_handed_the_version_published() {
+    // The manifest kept for a restart is gone: the keeper reads it not
+    // from there but from the publisher (ADR 0019), whether it starts
+    // before a version is published or after.
+    let files = files_of(10);
+    let listed: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    let owner = Owner::bare(&listed).await;
+    keep_files(&owner);
+    let first = owner.publish().await;
+    std::fs::write(owner.folder.path().join("extra.txt"), b"new").unwrap();
+    let second = owner.publish().await;
+    assert_ne!(first.manifest_hash, second.manifest_hash);
+    std::fs::remove_file(owner.publisher.cache_dir().join("latest-manifest.blob")).unwrap();
+    let reader = Reader::new();
+    reader
+        .download(&owner.ticket(&second), &mut keep_going)
         .await
         .unwrap();
     for (name, bytes) in &files {

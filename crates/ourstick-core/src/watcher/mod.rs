@@ -7,6 +7,7 @@ mod events;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use events::{FolderEvents, NotifyEvents, Nudge, PeriodicEvents, WatchError};
@@ -202,7 +203,7 @@ pub async fn follow_folder(
     owner: &Owner<'_, impl Publisher>,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
-    current: Manifest,
+    current: Arc<Manifest>,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
     follow(owner, events, timing, current, false, on_event).await;
@@ -215,7 +216,7 @@ pub async fn follow_folder_reading_first(
     owner: &Owner<'_, impl Publisher>,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
-    current: Manifest,
+    current: Arc<Manifest>,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {
     follow(owner, events, timing, current, true, on_event).await;
@@ -225,7 +226,7 @@ async fn follow(
     owner: &Owner<'_, impl Publisher>,
     events: &mut impl FolderEvents,
     timing: WatchTiming,
-    mut current: Manifest,
+    mut current: Arc<Manifest>,
     pass_first: bool,
     on_event: &mut (dyn FnMut(WatchEvent<'_>) + Send),
 ) {

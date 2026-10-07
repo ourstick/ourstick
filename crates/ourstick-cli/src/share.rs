@@ -325,7 +325,7 @@ const RESCAN_EVERY: Duration = Duration::from_secs(60);
 async fn serve(
     owner: &Owner<'_, IrohPublisher>,
     mut events: impl FolderEvents,
-    current: ourstick_core::Manifest,
+    current: std::sync::Arc<ourstick_core::Manifest>,
     readers: std::pin::Pin<&mut impl std::future::Future<Output = ()>>,
     started: Instant,
 ) -> Result<()> {

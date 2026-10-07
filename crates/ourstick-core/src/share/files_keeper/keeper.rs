@@ -11,7 +11,7 @@ use super::{Context, FIRST_RETRY, LONGEST_RETRY};
 use crate::blocking::run_blocking;
 use crate::layout::StickLayout;
 use crate::manifest::{FileStamp, Manifest};
-use crate::transport::{BlobHash, Demand, Publisher, ServedFile};
+use crate::transport::{BlobHash, Demand, PublishedVersion, Publisher, ServedFile};
 
 /// The keeper's state, by entry index into the version's manifest (ADR
 /// 0019): a blob's place is its first entry's index.
@@ -36,43 +36,38 @@ pub(super) struct Keeper {
 }
 
 impl Keeper {
-    /// Whether the owner published another version since the last read.
-    pub(super) async fn version_changed(&self, context: &Context) -> bool {
-        let store = context.store.clone();
-        let stick_id = context.stick_id;
-        let latest = run_blocking(move || store.owned_stick(&stick_id)).await;
-        let latest = latest.ok().flatten().and_then(|owned| {
-            owned
-                .latest_record
-                .map(|record| record.unverified_record().manifest_hash)
-        });
-        latest.is_some() && latest != self.manifest_hash
-    }
-
-    /// Reads the latest version and serves what it can of it.
-    pub(super) async fn reload(&mut self, publisher: &impl Publisher, context: &Context) {
+    /// Serves what it can of `published`, unless it is the version it has.
+    /// If its records cannot be read, it stays the old one until asked again.
+    pub(super) async fn reload(
+        &mut self,
+        published: Option<PublishedVersion>,
+        publisher: &impl Publisher,
+        context: &Context,
+    ) {
+        let Some(published) = published else {
+            return;
+        };
+        if self.manifest_hash == Some(published.manifest_hash) {
+            return;
+        }
         let loaded = {
             let store = context.store.clone();
             let stick_id = context.stick_id;
-            let cache_dir = context.cache_dir.clone();
             let outboards = context.outboards.clone();
             let cipher = context.cipher.clone();
             run_blocking(move || {
                 load_version(
                     store.as_ref(),
                     &stick_id,
-                    &cache_dir,
                     &outboards,
                     cipher.as_ref(),
+                    published,
                 )
             })
             .await
         };
         match loaded {
-            Ok(Some(version)) if self.manifest_hash != Some(version.manifest_hash) => {
-                self.take(version, publisher, context);
-            }
-            Ok(_) => {}
+            Ok(version) => self.take(version, publisher, context),
             Err(error) => tracing::warn!(%error, "the current version could not be read"),
         }
     }
@@ -165,22 +160,16 @@ impl Keeper {
         })
     }
 
-    pub(super) async fn on_demand(
-        &mut self,
-        event: Demand,
-        publisher: &impl Publisher,
-        context: &Context,
-    ) {
+    pub(super) async fn on_demand(&mut self, event: Demand, context: &Context) {
         match event {
             Demand::Asked {
                 hash,
                 served: false,
                 ..
             } => {
-                // Not known: a blob of a newer version.
-                if !self.asked(hash) && self.version_changed(context).await {
-                    self.reload(publisher, context).await;
-                }
+                // Not known: a blob of another version, which comes to the
+                // keeper as it is published.
+                self.asked(hash);
             }
             // The store could not serve it (rule 4).
             Demand::NotServed { hash, changed } => {

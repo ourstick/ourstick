@@ -7,8 +7,8 @@
 
 pub mod diagnosis;
 pub mod iroh;
+mod published;
 
-use std::collections::HashSet;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::path::Path;
@@ -18,6 +18,7 @@ use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId, Ticket};
 
 pub use diagnosis::{describe_network, relay_reasons, NetworkReport};
+pub use published::{hand_over, PublishedVersion};
 
 /// A BLAKE3 hash of a blob.
 pub type BlobHash = [u8; 32];
@@ -183,15 +184,20 @@ pub trait Publisher: Send + Sync {
     fn cache_dir(&self) -> &Path;
 
     /// Starts serving `record`, with `manifest_blob` (the blob it names,
-    /// served from memory) and the blobs in `allowed`; others stop being
-    /// served at once. An allowed blob not served yet (its file not made
-    /// ready) is answered "not ready".
+    /// served from memory) and the blobs of `manifest`, its decoded content;
+    /// others stop being served at once. A blob of it not served yet (its
+    /// file not made ready) is answered "not ready". The owner's files
+    /// keeper is handed `manifest` (ADR 0019).
     fn publish(
         &self,
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
-        allowed: HashSet<BlobHash>,
+        manifest: std::sync::Arc<crate::manifest::Manifest>,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
+
+    /// The version published last, from now on: what the owner's files
+    /// keeper serves (ADR 0019).
+    fn published(&self) -> tokio::sync::watch::Receiver<Option<PublishedVersion>>;
 
     /// Serves the blobs of `files` from the owner's own store from now on,
     /// made from the files when they are asked for, in place of what it

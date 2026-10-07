@@ -5,7 +5,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use ourstick_core::transport::{BlobHash, Demand, NetworkReport, Publisher, TransportError};
+use ourstick_core::manifest::Manifest;
+use ourstick_core::transport::{
+    hand_over, BlobHash, Demand, NetworkReport, PublishedVersion, Publisher, TransportError,
+};
 use ourstick_core::{AddressHint, NodeId, SignedManifestRecord};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -22,6 +25,8 @@ pub struct Served {
     pub(crate) demand: Option<UnboundedSender<Demand>>,
     /// When a reader was last told "not ready".
     pub(crate) last_not_ready: Option<std::time::Instant>,
+    /// The version published last, for the owner's files keeper.
+    pub(crate) published: Arc<tokio::sync::watch::Sender<Option<PublishedVersion>>>,
     /// Where readers' sealed reports go, once the owner's side took them
     /// (ADR 0015).
     pub(crate) reports: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
@@ -63,15 +68,19 @@ impl Publisher for MemoryPublisher {
         &self,
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
-        allowed: HashSet<BlobHash>,
+        decoded: Arc<Manifest>,
     ) -> Result<(), TransportError> {
         let manifest = *blake3::hash(&manifest_blob).as_bytes();
         let mut served = self.served.lock().unwrap();
         served.blobs.insert(manifest, manifest_blob);
         served.record = Some(record);
-        served.allowed = allowed;
+        served.allowed = decoded.entries.iter().map(|entry| entry.hash).collect();
         served.allowed.insert(manifest);
+        hand_over(&served.published, manifest, decoded);
         Ok(())
+    }
+    fn published(&self) -> tokio::sync::watch::Receiver<Option<PublishedVersion>> {
+        self.served.lock().unwrap().published.subscribe()
     }
     fn activity(&self) -> tokio::sync::watch::Receiver<ourstick_core::transport::ReaderActivity> {
         tokio::sync::watch::channel(Default::default()).1

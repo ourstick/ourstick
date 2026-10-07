@@ -116,7 +116,7 @@ pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
         served,
         ticket,
         data,
-        manifest: publication.manifest,
+        manifest: (*publication.manifest).clone(),
         signing_key,
         _folder: folder,
     }

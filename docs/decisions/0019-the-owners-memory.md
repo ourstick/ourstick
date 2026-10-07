@@ -1,7 +1,8 @@
 # ADR 0019: The owner's memory
 
-**Status:** proposed — 2026-10-07. Reviewed by two other models against
-our code; this version takes in their changes.
+**Status:** accepted — 2026-10-07. Reviewed by two other models against
+our code; this version takes in their changes. Rules 1–4 built; rule 1 as
+built is told below it.
 
 ## Context
 
@@ -46,6 +47,14 @@ stays the same.
    plaintext as soon as they are decoded. So the manifest is decoded once
    per version, not again by the keeper two seconds later, and its
    version comes at once rather than at the keeper's next look.
+
+   *As built:* the publisher is handed the manifest with its blob
+   (`Publisher::publish(record, blob, Arc<Manifest>)`; the blobs readers
+   may ask for are its entries') and keeps the version published last in
+   a `watch` (`Publisher::published`). A restart's `serve_latest` decodes
+   the cache file and publishes it the same way, so the keeper never reads
+   that file. `Publication::manifest` is the same `Arc`, so the watcher's
+   and the app's "current" manifest is that one too, not a copy.
 2. **The served table by index, with its version.** `ServedFiles` holds the
    version's `Arc<Manifest>` and maps a blob's hash to the index of its
    first entry, with its plaintext hash; the path and size are read from

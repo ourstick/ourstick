@@ -4,15 +4,15 @@
 //! pass publishes, minutes later for a big folder), and for the owner's
 //! files keeper, which needs to know the current files (ADR 0017).
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use super::{Owner, Publication, ShareError};
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::cipher_for;
 use crate::manifest::Manifest;
-use crate::transport::{BlobHash, Publisher};
+use crate::transport::Publisher;
 
 /// Where the latest manifest blob is kept.
 fn latest_path(cache_dir: &Path) -> PathBuf {
@@ -64,19 +64,18 @@ pub async fn serve_latest(
     let Some(blob) = blob else {
         return Ok(None);
     };
-    let manifest_blob = blob.clone();
     let cipher = cipher_for(owned.cipher, owner.stick_key);
-    let manifest = run_blocking(move || -> Result<Manifest, ShareError> {
-        let mut plaintext = Vec::new();
-        decrypt_blob(cipher.as_ref(), &mut blob.as_slice(), &mut plaintext)?;
-        Ok(Manifest::from_bytes(&plaintext)?)
-    })
-    .await?;
-    let allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
+    let (manifest_blob, manifest) =
+        run_blocking(move || -> Result<(Vec<u8>, Arc<Manifest>), ShareError> {
+            let mut plaintext = Vec::new();
+            decrypt_blob(cipher.as_ref(), &mut blob.as_slice(), &mut plaintext)?;
+            Ok((blob, Arc::new(Manifest::from_bytes(&plaintext)?)))
+        })
+        .await?;
     // Its files are "not ready" until the files keeper serves them.
     owner
         .publisher
-        .publish(record.clone(), manifest_blob, allowed)
+        .publish(record.clone(), manifest_blob, manifest.clone())
         .await?;
     tracing::info!(
         seq,

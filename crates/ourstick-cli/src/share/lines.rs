@@ -203,7 +203,7 @@ mod tests {
     fn publication(seq: u64) -> ourstick_core::share::Publication {
         let key = ourstick_core::StickSigningKey::from_bytes(&[1; 32]);
         ourstick_core::share::Publication {
-            manifest: ourstick_core::Manifest::empty(),
+            manifest: std::sync::Arc::new(ourstick_core::Manifest::empty()),
             manifest_hash: [0; 32],
             seq,
             record: key.sign_record(seq, [0; 32]),

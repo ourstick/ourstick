@@ -81,7 +81,8 @@ pub fn plan_share(root: &Path, cipher: &dyn Cipher) -> Result<SharePlan, ShareEr
 /// A published version of a stick.
 #[derive(Debug, Clone)]
 pub struct Publication {
-    pub manifest: Manifest,
+    /// Shared with the owner's files keeper and the watcher (ADR 0019).
+    pub manifest: Arc<Manifest>,
     pub manifest_hash: BlobHash,
     /// The `seq` of `record`, for the ticket's manifest hint.
     pub seq: u64,

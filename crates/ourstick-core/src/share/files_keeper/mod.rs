@@ -25,8 +25,8 @@ use crate::stick_id::StickId;
 use crate::store::Store;
 use crate::transport::{BlobHash, Publisher};
 
-/// How often the keeper looks whether the owner published another version
-/// (a deletion, a rename or a linked folder brings no new blob to ask for).
+/// How often the keeper tries again the files that could not be read, and
+/// a version whose records could not be read.
 const LOOK_EVERY: Duration = Duration::from_secs(2);
 /// A file that could not be read is tried again after this, then after
 /// twice as long each time, up to `LONGEST_RETRY`.
@@ -76,14 +76,16 @@ pub async fn keep_files<P: Publisher + 'static>(
         store,
         stick_id,
         cipher: cipher_for(owned.cipher, &stick_key),
-        cache_dir: publisher.cache_dir().to_path_buf(),
         outboards: outboards_dir(publisher.cache_dir()),
         disks,
         pass_wanted,
         stop: Arc::new(AtomicBool::new(false)),
     };
+    // Each version as the owner publishes it, decoded once (ADR 0019).
+    let mut versions = publisher.published();
     let mut keeper = Keeper::default();
-    keeper.reload(&publisher, &context).await;
+    let first = versions.borrow_and_update().clone();
+    keeper.reload(first, &publisher, &context).await;
     // A blob being made, and the version it was made for.
     let mut job: Option<(Option<BlobHash>, Making)> = None;
     let mut look = tokio::time::interval(LOOK_EVERY);
@@ -97,7 +99,7 @@ pub async fn keep_files<P: Publisher + 'static>(
         }
         tokio::select! {
             event = demand.recv() => match event {
-                Some(event) => keeper.on_demand(event, &publisher, &context).await,
+                Some(event) => keeper.on_demand(event, &context).await,
                 None => break Ok(()),
             },
             done = async { (&mut job.as_mut().expect("guarded").1).await }, if job.is_some() => {
@@ -110,11 +112,18 @@ pub async fn keep_files<P: Publisher + 'static>(
                     Err(error) => tracing::warn!(%error, "making a file ready failed"),
                 }
             },
+            changed = versions.changed() => {
+                if changed.is_err() {
+                    // The publisher is gone: readers can no longer ask.
+                    break Ok(());
+                }
+                let version = versions.borrow_and_update().clone();
+                keeper.reload(version, &publisher, &context).await;
+            },
             _ = look.tick() => {
                 keeper.retry_due();
-                if keeper.version_changed(&context).await {
-                    keeper.reload(&publisher, &context).await;
-                }
+                let version = versions.borrow().clone();
+                keeper.reload(version, &publisher, &context).await;
             }
         }
     };
@@ -131,7 +140,6 @@ struct Context {
     store: Arc<dyn Store>,
     stick_id: StickId,
     cipher: Arc<dyn Cipher>,
-    cache_dir: PathBuf,
     outboards: PathBuf,
     disks: Arc<DiskTurns>,
     pass_wanted: PassWanted,

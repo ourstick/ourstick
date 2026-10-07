@@ -164,20 +164,26 @@ impl Owner {
     /// Serves `publication` again, with the blob `extra` allowed too (served
     /// by no store: "not ready").
     pub async fn allow_also(&self, publication: &Publication, extra: [u8; 32]) {
-        let mut allowed: std::collections::HashSet<_> = publication
-            .manifest
-            .entries
-            .iter()
-            .map(|entry| entry.hash)
-            .collect();
-        allowed.insert(extra);
+        // Allowed as an entry of the manifest served, which only the
+        // publisher sees: the blob served is the published one.
+        let mut allowed = (*publication.manifest).clone();
+        allowed.entries.push(ourstick_core::manifest::Entry {
+            path: "extra".to_owned(),
+            size: 0,
+            mtime: 0,
+            hash: extra,
+        });
         let manifest_blob = ourstick_core::share::load_latest_manifest(
             self.publisher.cache_dir(),
             &publication.manifest_hash,
         )
         .unwrap();
         self.publisher
-            .publish(publication.record.clone(), manifest_blob, allowed)
+            .publish(
+                publication.record.clone(),
+                manifest_blob,
+                std::sync::Arc::new(allowed),
+            )
             .await
             .unwrap();
     }

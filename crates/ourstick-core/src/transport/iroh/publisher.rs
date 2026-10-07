@@ -19,10 +19,13 @@ use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::report_protocol::{ReportServer, REPORT_ALPN, WAITING_REPORTS};
 use super::serving::{Serving, StoreId};
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
+use crate::manifest::Manifest;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::{AddressHint, NodeId};
-use crate::transport::{BlobHash, Demand, Publisher, ServedFiles, TransportError};
+use crate::transport::{
+    BlobHash, Demand, PublishedVersion, Publisher, ServedFiles, TransportError,
+};
 
 /// Serves one stick; its cache lives under `cache_dir`. Cheap to clone:
 /// clones share everything (the owner's files keeper holds one), and
@@ -49,6 +52,8 @@ pub struct IrohPublisher {
     /// the demand ends (and the owner's keeper with it) once the handler,
     /// which holds the strong one, is gone with the router.
     demand_sender: tokio::sync::mpsc::WeakUnboundedSender<Demand>,
+    /// The version published last, for the owner's files keeper.
+    published: Arc<tokio::sync::watch::Sender<Option<PublishedVersion>>>,
     /// Readers' sealed reports (ADR 0015), until the owner's side takes them.
     reports: Arc<Mutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>>,
     activity: Activity,
@@ -153,6 +158,7 @@ impl IrohPublisher {
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
             demand_sender: demand_sender.downgrade(),
+            published: Arc::new(tokio::sync::watch::Sender::new(None)),
             reports: Arc::new(Mutex::new(Some(reports))),
             activity,
             reporter,
@@ -200,9 +206,10 @@ impl Publisher for IrohPublisher {
         &self,
         record: SignedManifestRecord,
         manifest_blob: Vec<u8>,
-        allowed: HashSet<BlobHash>,
+        decoded: Arc<Manifest>,
     ) -> Result<(), TransportError> {
-        let manifest = Hash::from_bytes(record.unverified_record().manifest_hash);
+        let manifest_hash = record.unverified_record().manifest_hash;
+        let manifest = Hash::from_bytes(manifest_hash);
         if Hash::new(&manifest_blob) != manifest {
             return Err(storage("the manifest blob is not the record's"));
         }
@@ -212,7 +219,11 @@ impl Publisher for IrohPublisher {
         let id = self.next_store.fetch_add(1, Ordering::Relaxed);
         self.serving.add_store(id, (*store).clone());
         self.serving.set_ready(id, manifest);
-        let mut allowed: HashSet<Hash> = allowed.into_iter().map(Hash::from_bytes).collect();
+        let mut allowed: HashSet<Hash> = decoded
+            .entries
+            .iter()
+            .map(|entry| Hash::from_bytes(entry.hash))
+            .collect();
         allowed.insert(manifest);
         self.serving.allow(allowed);
         *self
@@ -228,6 +239,7 @@ impl Publisher for IrohPublisher {
                 old.shutdown().await.ok();
             });
         }
+        crate::transport::hand_over(&self.published, manifest_hash, decoded);
         Ok(())
     }
 
@@ -285,6 +297,10 @@ impl Publisher for IrohPublisher {
             return;
         };
         served.add(manifest, files, |hash| self.serving.set_ready(*id, hash));
+    }
+
+    fn published(&self) -> tokio::sync::watch::Receiver<Option<PublishedVersion>> {
+        self.published.subscribe()
     }
 
     fn readers_waiting(&self, window: std::time::Duration) -> bool {

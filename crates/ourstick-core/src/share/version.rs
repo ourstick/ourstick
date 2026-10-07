@@ -2,7 +2,6 @@
 //! record with the next `seq` (or the latest one again, for the same
 //! manifest), and the blobs readers may ask for.
 
-use std::collections::HashSet;
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -16,7 +15,7 @@ use crate::manifest::Manifest;
 use crate::record::{next_seq, SignedManifestRecord};
 use crate::stick_id::StickSigningKey;
 use crate::store::Store;
-use crate::transport::{BlobHash, Publisher};
+use crate::transport::Publisher;
 
 /// What was last signed for a stick, kept up to date through a pass.
 #[derive(Debug, Clone)]
@@ -84,9 +83,9 @@ impl<P: Publisher> Versions<'_, P> {
                 record
             }
         };
-        let allowed: HashSet<BlobHash> = manifest.entries.iter().map(|entry| entry.hash).collect();
+        let manifest = Arc::new(manifest);
         self.publisher
-            .publish(record.clone(), manifest_blob, allowed)
+            .publish(record.clone(), manifest_blob, manifest.clone())
             .await?;
         let seq = record.unverified_record().seq;
         tracing::info!(

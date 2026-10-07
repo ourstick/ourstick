@@ -161,7 +161,7 @@ async fn first_publication(
     store: &Arc<dyn Store>,
     keys: &StickKeys,
     pass_wanted: PassWanted,
-) -> Result<(Manifest, Option<String>, bool)> {
+) -> Result<(Arc<Manifest>, Option<String>, bool)> {
     let stick_id = keys.stick.stick_id;
     let disks = app.state::<crate::state::AppState>().disks.clone();
     tauri::async_runtime::spawn({
@@ -222,7 +222,7 @@ async fn first_publication(
                 tauri::async_runtime::spawn_blocking(move || latest_hint(store.as_ref(), &stick_id))
                     .await??
             };
-            (Manifest::empty(), hint)
+            (Arc::new(Manifest::empty()), hint)
         }
     };
     // Wait for the home relay, so the link carries it.
@@ -249,7 +249,7 @@ struct Shared {
     publisher: IrohPublisher,
     keys: StickKeys,
     store: Arc<dyn Store>,
-    current: Manifest,
+    current: Arc<Manifest>,
     /// The folder was not read at start: a pass comes first.
     read_again: bool,
     lock: SharingLocks,

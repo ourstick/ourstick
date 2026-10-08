@@ -10,6 +10,15 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       `Cargo.toml`) and push the repository there. Today it lives only on the
       private `hetzner` remote.
 
+## Keys and computers (ADR 0021, rule 7)
+
+- **"Move to another computer"**: a stick's keys never move by themselves;
+  an explicit action sends them to the new computer and stops the stick on
+  the old one, so there is never a second owner. A later ADR.
+- **Linux: notice a copied home folder** (the Secret Service's keyring file
+  comes along): another machine id than the one the device recorded, so
+  ask before sharing its sticks.
+
 ## Giving way
 
 - **Giving way when nobody else uses the disk, after a restart** (ADR 0017

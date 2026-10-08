@@ -1,7 +1,8 @@
 # ADR 0021: On macOS, the keys in the data protection keychain
 
-**Status:** proposed — 2026-10-08. Reviewed by two other models against
-our code and Apple's rules; this version takes in their changes.
+**Status:** accepted — 2026-10-08. Reviewed by two other models against
+our code and Apple's rules; this version takes in their changes. Giorgos
+approved the `protected` feature, and rule 7.
 
 ## Context
 
@@ -103,6 +104,18 @@ keys already in the login keychain must be moved, not replaced.
    missing or expired, or whose signature (`codesign -d --entitlements :-`)
    lacks the access group. The profile is not in the repo (it names the
    team and the certificate).
+
+7. **Keys stay on the computer that made them, on every system.** A
+   stick's keys on two computers would be two owners of one stick: the
+   same identity on the network, each serving its own files. So no key
+   moves by itself, owner's or reader's, on any system: macOS by
+   `ThisDeviceOnly` (rule 1), Windows by `CRED_PERSIST_LOCAL_MACHINE`
+   (already), Linux as far as its keyring allows (the Secret Service's file
+   is copied with a home folder; noticing that the computer changed, and
+   asking before sharing, is a later step). Moving a stick to a new computer
+   becomes an explicit action of the app ("Move to another computer"),
+   which stops it on the old one: a later ADR. The same rule for received
+   sticks keeps it one rule: a new computer adds their links again.
 
 ## What Giorgos does, once
 

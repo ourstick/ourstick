@@ -47,9 +47,9 @@ rand = "0.8"
 # async-io runtime so blocking calls never collide with tokio.
 keyring-core = "1"
 zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-crypto-rust"] }
-# macOS: the login ("legacy") keychain. The "protected" store needs entitlements
-# an unsigned app does not have.
-apple-native-keyring-store = { version = "1", features = ["keychain"] }
+# macOS: the login ("legacy") keychain, and the data protection keychain
+# ("protected", ADR 0021) for the app signed with its entitlements.
+apple-native-keyring-store = { version = "1", features = ["keychain", "protected"] }
 # Windows: the user's Credential Manager.
 windows-native-keyring-store = "1.1"
 argon2 = { version = "0.6", default-features = false, features = ["alloc"] }

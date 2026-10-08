@@ -178,9 +178,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   for the log.
 - **macOS asks for the Downloads folder** ("OurStick requests access to
   files in the Downloads folder", 2026-10-08), for sticks received there,
-  with macOS's generic text: add `NSDownloadsFolderUsageDescription` to
-  `src-tauri/Info.plist` with ADR 0020's, and ask only when a stick is
-  first received there.
+  with macOS's generic text (our own, `NSDownloadsFolderUsageDescription`,
+  is in `src-tauri/Info.plist` since ADR 0020); ask only when a stick is
+  first received there, not at start.
 - **The signed app asked for the keychain password 14 times** at its
   first start (2026-10-08): once per keychain item (3 for each stick of
   its own, 1 for each received, 1 for the device), as a new program. Check that a

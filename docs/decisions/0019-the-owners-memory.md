@@ -119,6 +119,15 @@ versions before (d5e2309) and after, one after the other:
 (Both readers were stopped after 80 minutes, at 62 000 and 69 000 files:
 the VM writes slowly; the owner's peak comes while it reads, before.)
 
+macOS (the MacBook, 2026-10-08), the same 100 000 files and order as on
+Windows, two runs of each version (its RSS sampled every few seconds,
+`ps`):
+
+| | before | after |
+|---|---|---|
+| RSS at most | 152 MB, 151 MB | 99 MB, 115 MB |
+| RSS at the end, a reader downloading | 117 MB, 115 MB | 99 MB, 95 MB |
+
 On Linux, not the 90 MB expected: at the peak, the last publish, the pass's own
 entries and their merge (rule 5) hold about 27 MB, the manifest's bytes
 being encoded 8 MB, the keeper's and the table's maps 12 MB, and about

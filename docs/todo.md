@@ -165,11 +165,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   of the generic text), notice when it was declined, and then say so
   plainly with a button that opens System Settings → Privacy & Security →
   Local Network, until it is allowed.
-- **A removed or forgotten stick leaves its lock file** in the data folder
-  (`share-<id>.lock`, `download-<id>.lock`, `locks.rs`): on the Mac,
-  2026-10-08, ten empty files for sticks no longer there. Remove it with
-  the stick, once its lock is released (another process may hold it:
-  only if it can be taken).
 - **"Open folder" of a received stick whose folder is gone shows a raw
   error** (2026-10-08, the Mac): `Launcher "/usr/bin/open" "--" "…"
   failed with ExitStatus(unix_wait_status(256))`, in red, under "Its

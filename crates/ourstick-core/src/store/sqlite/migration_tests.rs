@@ -276,8 +276,12 @@ fn migration_23_keeps_the_device_and_takes_the_protected_keychain() {
     assert_eq!(device.node_id.map(|id| id.0), Some([9; 32]));
     assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
     assert!(store.local_network_explained().unwrap());
-    // The new value is allowed.
+    // Old copies only with the new store.
     let connection = Connection::open(&path).unwrap();
+    assert!(connection
+        .execute("UPDATE device SET old_keys_left = 1", [])
+        .is_err());
+    // The new value is allowed.
     connection
         .execute(
             "UPDATE device SET secret_backend = 'protected-keychain'",

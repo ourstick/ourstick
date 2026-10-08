@@ -101,6 +101,7 @@ mod tests {
             copying: std::sync::Mutex::default(),
             local_network_explained: Default::default(),
             keys_wait: Default::default(),
+            started_moved: false,
             network_open: tokio::sync::watch::Sender::new(true),
         }
     }

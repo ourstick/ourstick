@@ -47,6 +47,9 @@ pub struct AppState {
     pub local_network_explained: std::sync::atomic::AtomicBool,
     /// The start waits for the keys' move (ADR 0021): its step comes first.
     pub keys_wait: std::sync::atomic::AtomicBool,
+    /// This run began with the keys already in the data protection keychain:
+    /// only then may the login keychain's old copies go (ADR 0021).
+    pub started_moved: bool,
     /// Open once nothing waits for that step: every endpoint the app binds
     /// waits for it (`local_network::may_bind`), the one place that decides.
     pub network_open: tokio::sync::watch::Sender<bool>,
@@ -57,6 +60,9 @@ impl AppState {
         let data_dir = device::data_dir()?;
         let store = device::open_store(&data_dir)?;
         let open = !crate::local_network::step_due(store.as_ref());
+        let started_moved = store.device()?.is_some_and(|device| {
+            device.secret_backend == ourstick_core::store::SecretBackend::ProtectedKeychain
+        });
         Ok(Self {
             data_dir,
             store,
@@ -65,6 +71,7 @@ impl AppState {
             copying: std::sync::Mutex::default(),
             local_network_explained: std::sync::atomic::AtomicBool::new(false),
             keys_wait: std::sync::atomic::AtomicBool::new(false),
+            started_moved,
             network_open: tokio::sync::watch::Sender::new(open),
         })
     }

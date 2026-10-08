@@ -132,7 +132,10 @@ fn main() {
             // due (ADR 0020): macOS asks right after it.
             // The keys' move comes first, in the window (ADR 0021): nothing
             // reads a key before it is done or put off.
-            let due = crate::keys::move_due(store).ok().flatten();
+            let due = crate::keys::move_due(store).unwrap_or_else(|error| {
+                tracing::warn!(error = %format!("{error:#}"), "whether the keys must move is not known");
+                None
+            });
             if due == Some(0) {
                 // No key yet: nothing for macOS to ask about.
                 if let Err(error) = crate::keys::move_now(store, &state.data_dir) {

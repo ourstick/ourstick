@@ -63,6 +63,10 @@ fn finish_pending(state: &AppState) -> Result<Vec<String>> {
 
 /// [`finish_pending`] off the async runtime; its failures told.
 pub(crate) async fn finish_pending_off_thread(app: &AppHandle) {
+    // Not before the keys' step (ADR 0021): start_app does it after.
+    if crate::keys::waiting(&app.state::<AppState>()) {
+        return;
+    }
     let handle = app.clone();
     let finished =
         tauri::async_runtime::spawn_blocking(move || finish_pending(&handle.state::<AppState>()))
@@ -130,7 +134,7 @@ pub fn start_app(app: &AppHandle) {
                 )?;
             }
             crate::local_network::remember(&state);
-            crate::keys::finish_move(state.store.as_ref());
+            crate::keys::finish_move(&state);
             for stick in sticks {
                 // A move of the first stick stopped halfway is finished.
                 let home = crate::drive::sticks_home()?;

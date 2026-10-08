@@ -23,7 +23,10 @@ fn device_store() -> MemoryStore {
     owned.node_id = Some(crate::ticket::NodeId([6; 32]));
     store.add_owned_stick(&owned).unwrap();
     store
-        .add_joined_stick(&JoinedStick::new(stick(2), "/r", 0))
+        .add_joined_stick(&JoinedStick {
+            kind: crate::store::StickKind::App,
+            ..JoinedStick::new(stick(2), "/r", 0)
+        })
         .unwrap();
     store
 }
@@ -228,4 +231,21 @@ fn the_old_copies_stay_if_the_new_store_lacks_one() {
     assert!(finish_move(&store, &old, &new).is_err());
     assert!(store.old_keys_left().unwrap());
     assert!(old.get(&SecretName::StickKey(stick(1))).unwrap().is_some());
+}
+
+#[test]
+fn a_stick_the_cli_got_has_no_link_to_move_and_one_being_removed_goes_along() {
+    let store = device_store();
+    store
+        .add_joined_stick(&JoinedStick::new(stick(3), "/c", 0))
+        .unwrap();
+    let mut gone = OwnedStick::new(stick(4), "g", "/g", CipherId::None, 0);
+    gone.node_id = Some(crate::ticket::NodeId([7; 32]));
+    store.add_owned_stick(&gone).unwrap();
+    store.mark_removing(&stick(4)).unwrap();
+    let to_move = secrets_to_move(&store).unwrap();
+    assert!(!to_move.required.contains(&SecretName::Ticket(stick(3))));
+    assert!(to_move.optional.contains(&SecretName::Ticket(stick(3))));
+    assert!(!to_move.required.contains(&SecretName::StickKey(stick(4))));
+    assert!(to_move.optional.contains(&SecretName::StickKey(stick(4))));
 }

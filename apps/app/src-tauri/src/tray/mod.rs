@@ -161,6 +161,13 @@ fn menu_lines(sticks: &[TrayStick]) -> Vec<Line> {
 }
 
 fn act(app: &AppHandle, action: Action) {
+    // The keys' step first (ADR 0021): the window shows it.
+    if crate::keys::waiting(&app.state::<AppState>())
+        && !matches!(action, Action::Open | Action::Quit)
+    {
+        show_main(app);
+        return;
+    }
     let result = match action {
         Action::Open => {
             show_main(app);

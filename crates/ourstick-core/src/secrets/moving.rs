@@ -49,22 +49,27 @@ pub fn secrets_to_move(store: &dyn Store) -> Result<ToMove, StoreError> {
     {
         to_move.required.push(SecretName::NodeKey);
     }
-    let removing: Vec<_> = store
-        .removing_sticks()?
-        .into_iter()
-        .map(|stick| stick.stick_id)
-        .collect();
     for stick in store.owned_sticks()? {
-        let list = if removing.contains(&stick.stick_id) {
-            &mut to_move.optional
-        } else {
-            &mut to_move.required
-        };
-        list.push(SecretName::StickSigningKey(stick.stick_id));
-        list.push(SecretName::StickKey(stick.stick_id));
+        to_move
+            .required
+            .push(SecretName::StickSigningKey(stick.stick_id));
+        to_move.required.push(SecretName::StickKey(stick.stick_id));
         if stick.node_id.is_some() {
-            list.push(SecretName::StickNodeKey(stick.stick_id));
+            to_move
+                .required
+                .push(SecretName::StickNodeKey(stick.stick_id));
         }
+    }
+    // Being removed: what is left of their keys goes along, to be deleted
+    // from where the device then keeps them.
+    for stick in store.removing_sticks()? {
+        to_move
+            .optional
+            .push(SecretName::StickSigningKey(stick.stick_id));
+        to_move.optional.push(SecretName::StickKey(stick.stick_id));
+        to_move
+            .optional
+            .push(SecretName::StickNodeKey(stick.stick_id));
     }
     for retired in store.retired_sticks()? {
         to_move
@@ -79,7 +84,8 @@ pub fn secrets_to_move(store: &dyn Store) -> Result<ToMove, StoreError> {
         .map(|stick| stick.stick_id)
         .collect();
     for joined in store.joined_sticks()? {
-        if forgetting.contains(&joined.stick_id) {
+        // Only the app keeps a received stick's link; `get` is given it.
+        if forgetting.contains(&joined.stick_id) || joined.kind != crate::store::StickKind::App {
             to_move.optional.push(SecretName::Ticket(joined.stick_id));
         } else {
             to_move.required.push(SecretName::Ticket(joined.stick_id));

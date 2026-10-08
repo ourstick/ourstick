@@ -117,6 +117,24 @@ keys already in the login keychain must be moved, not replaced.
    which stops it on the old one: a later ADR. The same rule for received
    sticks keeps it one rule: a new computer adds their links again.
 
+## As built (after the code reviews)
+
+- A build without its provisioning profile (a debug build, a plain
+  `cargo tauri build`) keeps the login keychain for a device it makes: the
+  app looks for `Contents/embedded.provisionprofile` in its own bundle,
+  which only `make-dmg.sh` puts there. A property of the build, not a
+  setting.
+- A Mac that only received sticks had no `device` row before; its keys are
+  taken to be in the login keychain, and the move makes the row first.
+- Until the keys' step is done or put off, the window shows only it, and
+  the tray and the mount watcher do nothing that reads a key.
+- The old copies go only at a start that began with the keys already
+  moved, and while they are there, a key deleted goes from both stores.
+- A received stick's link is required only for the app's (the CLI is given
+  it, never keeps it); the keys of a stick being removed go along.
+- A locked keychain is recognized by its code (`errSecInteractionNotAllowed`,
+  in the error's `Debug`), not its message, which macOS translates.
+
 ## What Giorgos does, once
 
 In the Apple Developer account (Certificates, Identifiers & Profiles):

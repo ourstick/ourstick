@@ -44,7 +44,12 @@ decoded=$(mktemp)
 trap 'rm -f "$decoded"' EXIT
 security cms -D -i "$provisioning" > "$decoded"
 expires=$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$decoded")
-if [ "$(date -j -f "%a %b %d %T %Z %Y" "$expires" +%s)" -le "$(date +%s)" ]; then
+expires_at=$(date -j -f "%a %b %d %T %Z %Y" "$expires" +%s 2>/dev/null || true)
+if [ -z "$expires_at" ]; then
+  echo "The provisioning profile's expiry ($expires) could not be read." >&2
+  exit 1
+fi
+if [ "$expires_at" -le "$(date +%s)" ]; then
   echo "The provisioning profile expired on $expires: make a new one." >&2
   exit 1
 fi
@@ -57,14 +62,16 @@ cd "$root/apps/app"
 # Tauri signs the app with the hardened runtime and a secure timestamp,
 # which notarization requires, with the keychain entitlements and the
 # profile inside the bundle; the frontend is already built.
-config=$(printf '{"build":{"beforeBuildCommand":""},"bundle":{"macOS":{"entitlements":"OurStick.entitlements","files":{"embedded.provisionprofile":"%s"}}}}' "$provisioning")
+config=$(python3 -c 'import json, sys; print(json.dumps({"build": {"beforeBuildCommand": ""}, "bundle": {"macOS": {"entitlements": "OurStick.entitlements", "files": {"embedded.provisionprofile": sys.argv[1]}}}}))' "$provisioning")
 bundles=app,dmg
 [ "$notarize" = 0 ] && bundles=app
 APPLE_SIGNING_IDENTITY="$identity" cargo tauri build --bundles "$bundles" --config "$config"
 
 app="$root/target/release/bundle/macos/OurStick.app"
+signed=$(codesign -d --entitlements :- "$app" 2>/dev/null || true)
 if [ ! -f "$app/Contents/embedded.provisionprofile" ] ||
-  ! codesign -d --entitlements :- "$app" 2>/dev/null | grep -q "$app_id"; then
+  ! grep -q "keychain-access-groups" <<<"$signed" ||
+  ! grep -q "$app_id" <<<"$signed"; then
   echo "The app was signed without the keychain entitlements or its profile: not sent." >&2
   exit 1
 fi

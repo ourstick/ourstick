@@ -8,10 +8,22 @@ export interface AppState {
   platform: Platform;
   /** No stick yet: show the first launch. */
   first_launch: boolean;
+  /** macOS: the Local Network step comes first (ADR 0020). */
+  explain_local_network: boolean;
 }
 
 export function appState(): Promise<AppState> {
   return invoke("app_state");
+}
+
+/** "Continue" on the Local Network step: the sticks start, and macOS asks. */
+export function localNetworkExplained(): Promise<void> {
+  return invoke("local_network_explained");
+}
+
+/** Opens System Settings → Privacy & Security → Local Network (macOS). */
+export function openLocalNetworkSettings(): Promise<void> {
+  return invoke("open_local_network_settings");
 }
 
 /** Creates the keys and the first stick, called `name` (no size to choose, ADR 0008). */

@@ -31,6 +31,8 @@ pub(crate) async fn blocking<T: Send + 'static>(
 pub struct AppStateView {
     platform: &'static str,
     first_launch: bool,
+    /// The Local Network step comes first (ADR 0020, macOS).
+    explain_local_network: bool,
 }
 
 #[tauri::command]
@@ -45,9 +47,14 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     })
     .await?;
     let first_launch = state.sticks_now().await.map_err(shown)?.is_empty() && !receives;
+    let explain_local_network = {
+        let state = state.inner();
+        crate::local_network::must_explain(state)
+    };
     Ok(AppStateView {
         platform: std::env::consts::OS,
         first_launch,
+        explain_local_network,
     })
 }
 
@@ -65,6 +72,9 @@ pub async fn plug_in(
     }
     let data_dir = state.data_dir.clone();
     let store = state.store.clone();
+    let explained = state
+        .local_network_explained
+        .load(std::sync::atomic::Ordering::Relaxed);
     let made = blocking(move || {
         let secrets = device::open_system_keyring()?;
         check_secret_store(secrets.as_ref())?;
@@ -74,6 +84,9 @@ pub async fn plug_in(
         // One program makes the device and the stick at a time.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
         device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
+        if explained {
+            store.set_local_network_explained()?;
+        }
         if !crate::state::app_sticks(store.as_ref())?.is_empty() {
             return Ok(None);
         }

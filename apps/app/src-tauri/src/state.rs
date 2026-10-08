@@ -42,6 +42,11 @@ pub struct AppState {
     pub disks: Arc<DiskTurns>,
     /// Sticks being copied onto now (a drop): another drop waits.
     pub copying: std::sync::Mutex<std::collections::HashSet<StickId>>,
+    /// The Local Network step was shown in this run (ADR 0020), remembered
+    /// in the store once the device exists.
+    pub local_network_explained: std::sync::atomic::AtomicBool,
+    /// The start (sharing, receiving) waits for that step.
+    pub start_waits: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -54,6 +59,8 @@ impl AppState {
             sticks: tokio::sync::Mutex::new(HashMap::new()),
             disks: Arc::new(DiskTurns::new(Arc::new(SystemTimer::default()))),
             copying: std::sync::Mutex::default(),
+            local_network_explained: std::sync::atomic::AtomicBool::new(false),
+            start_waits: std::sync::atomic::AtomicBool::new(false),
         })
     }
 

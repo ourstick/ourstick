@@ -1,6 +1,7 @@
 <script lang="ts">
   import { appState, type AppState } from "./lib/api";
   import FirstLaunch from "./lib/FirstLaunch.svelte";
+  import LocalNetworkStep from "./lib/LocalNetworkStep.svelte";
   import Main from "./lib/Main.svelte";
   import Share from "./lib/Share.svelte";
   import Confirm from "./lib/Confirm.svelte";
@@ -34,6 +35,8 @@
   <Confirm quitting={true} stickId={null} />
 {:else if failure}
   <main class="card"><p class="error">{failure}</p></main>
+{:else if app?.explain_local_network}
+  <LocalNetworkStep onDone={load} />
 {:else if app?.first_launch && !receiving}
   <FirstLaunch onDone={load} onReceive={() => (receiving = true)} />
 {:else if app}

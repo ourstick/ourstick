@@ -129,6 +129,7 @@ pub fn start_app(app: &AppHandle) {
                     backend,
                 )?;
             }
+            crate::local_network::remember(&state);
             for stick in sticks {
                 // A move of the first stick stopped halfway is finished.
                 let home = crate::drive::sticks_home()?;

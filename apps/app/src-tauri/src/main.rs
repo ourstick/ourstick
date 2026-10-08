@@ -9,6 +9,7 @@ mod commands;
 mod dialog;
 mod drive;
 mod inhibit;
+mod local_network;
 mod making;
 #[cfg(target_os = "macos")]
 mod menu;
@@ -126,7 +127,13 @@ fn main() {
                 || store
                     .forgetting_joined_sticks()
                     .is_ok_and(|sticks| !sticks.is_empty());
-            if pending {
+            if pending && local_network::must_explain(&state) {
+                // Nothing binds an endpoint before the window's Local
+                // Network step (ADR 0020): macOS asks right after it.
+                state
+                    .start_waits
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            } else if pending {
                 sharing::start_app(app.handle());
             }
             sharing::watch_mount(app.handle());
@@ -134,6 +141,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
+            local_network::local_network_explained,
+            local_network::open_local_network_settings,
             commands::plug_in,
             stick_commands::stick,
             stick_life_commands::sticks,

@@ -99,6 +99,8 @@ mod tests {
                 ourstick_core::disk::turns::SystemTimer::default(),
             ))),
             copying: std::sync::Mutex::default(),
+            local_network_explained: Default::default(),
+            start_waits: Default::default(),
         }
     }
 

@@ -210,7 +210,7 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   (`enableGTKAppId` plus a `SimpleAction` on tao's application worked), but
   without an activation token, so the Quit dialog opened behind the other
   windows. Not worth the app id's cost (the `.desktop` file must then be
-  named `com.ourstick.app.desktop`).
+  named `com.ourstick.OurStick.desktop`).
 - **Windows: Quit's dialog flashed and closed once** (2026-10-02, build
   85db938, the VM): tray → Quit showed "Quit OurStick?" for a split second,
   then it was gone and the app kept running. Not seen again with 634b568

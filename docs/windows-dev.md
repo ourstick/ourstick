@@ -96,7 +96,7 @@ The NSIS installer puts the app in `%LOCALAPPDATA%\OurStick`, the folder that
 also holds OurStick's data (database, blob cache). Its uninstaller removes
 the files it installed and then the folder only if it is empty, so the data
 stays, and with it every shared link; its "Delete the application data"
-box removes `%LOCALAPPDATA%\com.ourstick.app`, which OurStick does not use.
+box removes `%LOCALAPPDATA%\com.ourstick.OurStick`, which OurStick does not use.
 
 ### What needs the desktop session
 

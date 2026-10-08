@@ -131,6 +131,33 @@ pub fn open_system_keyring() -> Result<Box<dyn SecretStore>, DeviceError> {
     }))
 }
 
+/// Opens the system store `backend` names (ADR 0021, rule 2): a device's
+/// keys are read where its row says they are, never where this system keeps
+/// them by default. A key file needs its passphrase, so it is opened by the
+/// front end; a store of another system is refused.
+pub fn open_keyring(backend: &SecretBackend) -> Result<Box<dyn SecretStore>, DeviceError> {
+    match backend {
+        #[cfg(target_os = "linux")]
+        SecretBackend::SecretService => {
+            Ok(Box::new(crate::secrets::KeyringStore::secret_service()?))
+        }
+        #[cfg(target_os = "macos")]
+        SecretBackend::Keychain => Ok(Box::new(crate::secrets::KeyringStore::keychain()?)),
+        #[cfg(target_os = "macos")]
+        SecretBackend::ProtectedKeychain => {
+            Ok(Box::new(crate::secrets::KeyringStore::protected_keychain()?))
+        }
+        #[cfg(windows)]
+        SecretBackend::CredentialManager => {
+            Ok(Box::new(crate::secrets::KeyringStore::credential_manager()?))
+        }
+        other => Err(DeviceError::Secret(SecretError::Unavailable {
+            store: backend_name(other),
+            reason: "this system does not have it, or it needs a passphrase".to_owned(),
+        })),
+    }
+}
+
 /// 32 random bytes, for a node key.
 pub fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];
@@ -195,6 +222,7 @@ pub fn backend_name(backend: &SecretBackend) -> String {
     match backend {
         SecretBackend::SecretService => "the Secret Service".to_owned(),
         SecretBackend::Keychain => "the macOS keychain".to_owned(),
+        SecretBackend::ProtectedKeychain => "the macOS data protection keychain".to_owned(),
         SecretBackend::CredentialManager => "the Windows Credential Manager".to_owned(),
         SecretBackend::KeyFile(path) => format!("the key file {}", path.display()),
     }

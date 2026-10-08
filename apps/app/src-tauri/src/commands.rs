@@ -1,7 +1,7 @@
 //! The commands the UI may call. Each one calls only `ourstick-core`, and its
 //! errors reach the UI as text meant for users.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use ourstick_core::device;
 use ourstick_core::secrets::check_secret_store;
 
@@ -73,11 +73,9 @@ pub async fn plug_in(
         .local_network_explained
         .load(std::sync::atomic::Ordering::Relaxed);
     let made = blocking(move || {
-        let secrets = device::open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         check_secret_store(secrets.as_ref())?;
-        let Some(backend) = device::system_keyring_backend() else {
-            bail!("this system has no keyring OurStick can use yet");
-        };
+        let backend = crate::keys::backend(store.as_ref())?;
         // One program makes the device and the stick at a time.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
         device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;

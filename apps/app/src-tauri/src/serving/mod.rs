@@ -71,7 +71,7 @@ pub async fn start(
         let data_dir = data_dir.clone();
         let store = store.clone();
         move || -> Result<(SharingLocks, StickKeys)> {
-            let secrets = device::open_system_keyring()?;
+            let secrets = crate::keys::secrets(store.as_ref())?;
             check_secret_store(secrets.as_ref())?;
             let (lock, stick) = locks::lock_for_sharing(&data_dir, store.as_ref(), &stick_id)?;
             let keys = device::load_stick(store.as_ref(), secrets.as_ref(), stick)?;

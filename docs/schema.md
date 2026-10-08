@@ -25,7 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 22
+## Version 23
+
+Version 23 (`0023_protected_keychain.sql`, ADR 0021) lets
+`device.secret_backend` be `protected-keychain`, the data protection keychain
+of the app on macOS; the table is made again with the same rows.
 
 Version 22 (`0022_local_network_explained.sql`, ADR 0020) added
 `device.local_network_explained` (0 for every device before, so an upgraded
@@ -93,7 +97,7 @@ its node key, which its older sticks use.
 |------------------|---------|----------------------------------------------------------|
 | `id`             | INTEGER | Always 1                                                 |
 | `node_id`        | BLOB 32 or NULL | iroh NodeId (public key) of the device's own node key, used by sticks made before version 11; NULL on a device made after |
-| `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS), `credential-manager` (Windows) or `key-file` |
+| `secret_backend` | TEXT    | `secret-service` (Linux), `keychain` (macOS: the login keychain, the CLI's and the app's before ADR 0021), `protected-keychain` (macOS: the app's data protection keychain, ADR 0021), `credential-manager` (Windows) or `key-file`. The keys are read only from the store this names |
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
 | `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible (checked by the store; the column checks only that it is not empty); NULL (the usual) shows only the kind of computer |

@@ -302,7 +302,7 @@ pub async fn start_all(app: &AppHandle) {
         if received.is_empty() {
             return Ok(Vec::new());
         }
-        let secrets = ourstick_core::device::open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         let mut found = Vec::new();
         for joined in received {
             let lock = take_retrying(|| download_lock(&data_dir, &joined.stick_id));

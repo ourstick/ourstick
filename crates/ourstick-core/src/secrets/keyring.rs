@@ -15,6 +15,15 @@ use super::{Durability, SecretError, SecretName, SecretStore};
 
 const SERVICE: &str = "ourstick";
 
+/// The app's keychain access group on macOS (ADR 0021): our team's prefix
+/// and the app's bundle identifier, as its entitlements name it.
+#[cfg(target_os = "macos")]
+pub const APP_ACCESS_GROUP: &str = "HHL7R3Q3XB.com.ourstick.OurStick";
+
+/// macOS's `errSecInteractionNotAllowed`: the keychain is locked (the user
+/// has not logged in since the Mac started).
+const KEYCHAIN_LOCKED: &str = "-25308";
+
 /// A [`SecretStore`] backed by the system keyring.
 pub struct KeyringStore {
     store: Arc<CredentialStore>,
@@ -64,6 +73,28 @@ impl KeyringStore {
         })
     }
 
+    /// Opens the data protection keychain (ADR 0021), in the app's own access
+    /// group: it never asks the user, and only the app signed by our team
+    /// with that group (and its provisioning profile) can read it. Items are
+    /// readable once the user has logged in since the Mac started, and never
+    /// leave this Mac (`ThisDeviceOnly`: no backup or Migration Assistant
+    /// takes them to another, rule 7).
+    #[cfg(target_os = "macos")]
+    pub fn protected_keychain() -> Result<Self, SecretError> {
+        const NAME: &str = "the macOS data protection keychain";
+        let config = HashMap::from([("access-group", APP_ACCESS_GROUP)]);
+        let store = apple_native_keyring_store::protected::Store::new_with_configuration(&config)
+            .map_err(|error| SecretError::Unavailable {
+            store: NAME.to_owned(),
+            reason: error.to_string(),
+        })?;
+        Ok(Self {
+            store,
+            name: NAME,
+            modifiers: &[("access-policy", "AfterFirstUnlockThisDeviceOnly")],
+        })
+    }
+
     /// Opens the user's Credential Manager.
     ///
     /// Entries are kept on this computer only (`CRED_PERSIST_LOCAL_MACHINE`):
@@ -108,6 +139,13 @@ fn to_secret_error(store: &str, error: KeyringError) -> SecretError {
             store,
             reason: "no store was configured".to_owned(),
         },
+        // Locked: to be tried again once unlocked, never taken as missing.
+        KeyringError::PlatformFailure(error) if error.to_string().contains(KEYCHAIN_LOCKED) => {
+            SecretError::AccessDenied {
+                store,
+                reason: "the keychain is locked until you log in".to_owned(),
+            }
+        }
         // The operating system's own error message; it carries no secret.
         KeyringError::PlatformFailure(error) => SecretError::Backend {
             store,

@@ -5,7 +5,6 @@
 use std::path::PathBuf;
 
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::device::open_system_keyring;
 use ourstick_core::download::{mark_received_folder, take_stick};
 use ourstick_core::locks::{download_lock, take_retrying, LockError};
 use ourstick_core::places::check_received_folder;
@@ -139,7 +138,7 @@ pub async fn add_received(
             std::fs::create_dir_all(&folder)?;
             mark_received_folder(&folder, &stick_id)?;
             // Kept only where secrets are safe; never in a plain file.
-            let secrets = open_system_keyring()?;
+            let secrets = crate::keys::secrets(store.as_ref())?;
             ourstick_core::check_secret_store(secrets.as_ref())?;
             keep_ticket(secrets.as_ref(), &ticket)?;
             Ok(lock)
@@ -161,10 +160,11 @@ pub async fn add_received(
         // Nothing of it left: its mark, its folder if still empty, and its
         // saved sharing link go.
         let made_folder = folder.clone();
+        let store = state.store.clone();
         let _ = super::work(move || {
             ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
             let _ = std::fs::remove_dir(&made_folder);
-            let secrets = open_system_keyring()?;
+            let secrets = crate::keys::secrets(store.as_ref())?;
             secrets.delete(&ourstick_core::secrets::SecretName::Ticket(stick_id))?;
             Ok(())
         })
@@ -190,7 +190,7 @@ pub async fn add_received(
                 // start.
                 ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
                 let _ = std::fs::remove_dir(&made_folder);
-                let secrets = open_system_keyring()?;
+                let secrets = crate::keys::secrets(store.as_ref())?;
                 if let Some(lock) = &lock {
                     forget_received(store.as_ref(), secrets.as_ref(), &data_dir, &stick_id, lock)?;
                 }
@@ -273,7 +273,7 @@ pub async fn resume_received(
         let joined = store
             .joined_stick(&stick_id)?
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))?;
-        let secrets = open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         Ok((read_ticket(secrets.as_ref(), &stick_id)?, joined.output_dir))
     })
     .await?;
@@ -302,7 +302,7 @@ pub async fn forget_received_stick(
             Some(lock) => lock,
             None => take_retrying(|| download_lock(&data_dir, &stick_id))?,
         };
-        let secrets = open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         Ok(forget_received(
             store.as_ref(),
             secrets.as_ref(),

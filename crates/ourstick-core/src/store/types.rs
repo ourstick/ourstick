@@ -13,8 +13,10 @@ use crate::ticket::NodeId;
 pub enum SecretBackend {
     /// The freedesktop Secret Service (Linux).
     SecretService,
-    /// The login keychain (macOS).
+    /// The login keychain (macOS), before ADR 0021, and the CLI's.
     Keychain,
+    /// The data protection keychain (macOS), the app's since ADR 0021.
+    ProtectedKeychain,
     /// The user's Credential Manager (Windows).
     CredentialManager,
     /// A key file the user chose.

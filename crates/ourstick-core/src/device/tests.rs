@@ -237,3 +237,14 @@ fn two_sticks_never_share_a_node_key() {
     assert_ne!(next.stick.stick_id, first.stick.stick_id);
     assert_ne!(next.node_key, first.node_key);
 }
+
+#[test]
+fn a_store_this_system_does_not_have_is_refused_not_replaced() {
+    // A key file needs its passphrase; no other system's store opens here.
+    let path = std::path::PathBuf::from("/keys");
+    assert!(open_keyring(&SecretBackend::KeyFile(path)).is_err());
+    #[cfg(not(target_os = "macos"))]
+    assert!(open_keyring(&SecretBackend::ProtectedKeychain).is_err());
+    #[cfg(not(windows))]
+    assert!(open_keyring(&SecretBackend::CredentialManager).is_err());
+}

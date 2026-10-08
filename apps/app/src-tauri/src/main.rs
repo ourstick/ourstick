@@ -9,6 +9,7 @@ mod commands;
 mod dialog;
 mod drive;
 mod inhibit;
+mod keys;
 mod local_network;
 mod making;
 #[cfg(target_os = "macos")]

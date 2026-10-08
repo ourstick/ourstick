@@ -2,7 +2,6 @@
 //! list, a new link, removal. Each stops the stick's share first and keeps
 //! it busy meanwhile, so nothing starts it halfway.
 
-use ourstick_core::device;
 use ourstick_core::locks::{stick_lock, take_retrying};
 use ourstick_core::stick_life::{give_new_link, remove_stick};
 use ourstick_core::stick_names::{folder_name, new_stick_name};
@@ -113,7 +112,7 @@ pub async fn new_link(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = blocking(move || {
-        let secrets = device::open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         // The stick's own lock, as for every change of a stick; not the
         // device node key's, which another older stick may be using.
         let _lock = take_retrying(|| stick_lock(&data_dir, &stick))?;
@@ -158,7 +157,7 @@ pub async fn remove(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let removed = blocking(move || {
-        let secrets = device::open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         let lock = take_retrying(|| stick_lock(&data_dir, &stick))?;
         let removed = remove_stick(
             store.as_ref(),
@@ -243,7 +242,7 @@ pub async fn new_stick(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = blocking(move || {
-        let secrets = device::open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         // One program makes a stick at a time: names and folders stay
         // unique.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;

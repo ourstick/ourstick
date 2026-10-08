@@ -29,6 +29,7 @@ pub(super) fn device(connection: &Connection) -> Result<Option<Device>, StoreErr
     let secret_backend = match (backend.as_str(), key_file_path) {
         ("secret-service", None) => SecretBackend::SecretService,
         ("keychain", None) => SecretBackend::Keychain,
+        ("protected-keychain", None) => SecretBackend::ProtectedKeychain,
         ("credential-manager", None) => SecretBackend::CredentialManager,
         ("key-file", Some(path)) => SecretBackend::KeyFile(PathBuf::from(path)),
         _ => return Err(StoreError::Corrupt(format!("secret_backend {backend}"))),
@@ -47,6 +48,7 @@ pub(super) fn create_device(connection: &Connection, device: &Device) -> Result<
     let (backend, key_file_path) = match &device.secret_backend {
         SecretBackend::SecretService => ("secret-service", None),
         SecretBackend::Keychain => ("keychain", None),
+        SecretBackend::ProtectedKeychain => ("protected-keychain", None),
         SecretBackend::CredentialManager => ("credential-manager", None),
         SecretBackend::KeyFile(path) => ("key-file", Some(path_str(path)?)),
     };

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ourstick_core::clock::SystemClock;
-use ourstick_core::device::{open_system_keyring, random_key};
+use ourstick_core::device::random_key;
 use ourstick_core::download::Reporter;
 use ourstick_core::received::{reader_key, reader_key_if_any};
 use ourstick_core::report::ReportState;
@@ -27,8 +27,9 @@ pub(super) async fn reporter_for(
     ticket: Ticket,
 ) -> Option<Arc<Reporter>> {
     let store = app.state::<AppState>().store.clone();
+    let keys = store.clone();
     let made = super::work(move || {
-        let secrets = open_system_keyring()?;
+        let secrets = crate::keys::secrets(keys.as_ref())?;
         Ok(reader_key(secrets.as_ref(), &stick_id)?)
     })
     .await;
@@ -55,7 +56,7 @@ pub(super) async fn report_once(app: &AppHandle, stick_id: StickId, state: Repor
     let app_state = app.state::<AppState>();
     let store = app_state.store.clone();
     let known = super::work(move || {
-        let secrets = open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         let Some(key) = reader_key_if_any(secrets.as_ref(), &stick_id)? else {
             return Ok(None);
         };

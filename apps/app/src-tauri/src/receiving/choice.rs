@@ -2,7 +2,6 @@
 //! 1): its top-level entries, or a top-level folder's, with their ticks, and
 //! saving a choice.
 
-use ourstick_core::device::open_system_keyring;
 use ourstick_core::download::{entries_in, LeftOut, Tick};
 use ourstick_core::store::Store;
 use ourstick_core::untrusted::escape;
@@ -245,7 +244,7 @@ pub async fn choose_what_to_get(
         let Some(folder) = save_choice(store.as_ref(), &stick_id, &left_out)? else {
             return Ok(None);
         };
-        let secrets = open_system_keyring()?;
+        let secrets = crate::keys::secrets(store.as_ref())?;
         Ok(Some((read_ticket(secrets.as_ref(), &stick_id)?, folder)))
     })
     .await?;

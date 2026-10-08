@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ourstick_core::secrets::check_secret_store;
 use ourstick_core::stick_life::{finish_new_links, finish_removals};
 use ourstick_core::{device, locks, StickId};
@@ -30,7 +30,7 @@ fn problems(app: &AppHandle, messages: Vec<String>) {
 /// told. At start and after a drive is mounted (a new link waits for its
 /// drive). Blocking.
 fn finish_pending(state: &AppState) -> Result<Vec<String>> {
-    let secrets = device::open_system_keyring()?;
+    let secrets = crate::keys::secrets(state.store.as_ref())?;
     let store = state.store.as_ref();
     let mut failed = Vec::new();
     for (name, error) in finish_removals(
@@ -117,9 +117,9 @@ pub fn start_app(app: &AppHandle) {
                     state.store.set_image_path(&oldest.stick_id, &image)?;
                 }
             }
-            let secrets = device::open_system_keyring()?;
+            let secrets = crate::keys::secrets(state.store.as_ref())?;
             check_secret_store(secrets.as_ref())?;
-            let backend = device::system_keyring_backend().context("no keyring on this system")?;
+            let backend = crate::keys::backend(state.store.as_ref())?;
             {
                 let _setup = locks::setup_lock(&state.data_dir)?;
                 device::open_device(

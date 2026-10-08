@@ -130,6 +130,7 @@ pub fn start_app(app: &AppHandle) {
                 )?;
             }
             crate::local_network::remember(&state);
+            crate::keys::finish_move(state.store.as_ref());
             for stick in sticks {
                 // A move of the first stick stopped halfway is finished.
                 let home = crate::drive::sticks_home()?;

@@ -33,6 +33,9 @@ pub struct AppStateView {
     first_launch: bool,
     /// The Local Network step comes first (ADR 0020, macOS).
     explain_local_network: bool,
+    /// The keys' move to the data protection keychain comes first, with how
+    /// many keys macOS asks about (ADR 0021).
+    move_keys: Option<usize>,
 }
 
 #[tauri::command]
@@ -48,10 +51,17 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     .await?;
     let first_launch = state.sticks_now().await.map_err(shown)?.is_empty() && !receives;
     let explain_local_network = !*state.network_open.borrow();
+    let move_keys = if state.keys_wait.load(std::sync::atomic::Ordering::Relaxed) {
+        let store = state.store.clone();
+        blocking(move || crate::keys::move_due(store.as_ref())).await?
+    } else {
+        None
+    };
     Ok(AppStateView {
         platform: std::env::consts::OS,
         first_launch,
         explain_local_network,
+        move_keys,
     })
 }
 
@@ -140,6 +150,27 @@ pub async fn open_in_file_manager(
         .map_err(shown)?;
     let shown = blocking(move || Ok(drive::shown_at(&stick.root_path))).await?;
     open_folder(&app, shown).await
+}
+
+/// The keys' step (ADR 0021): `later`, the start goes on with the login
+/// keychain for this run; otherwise the keys move first. A failure keeps
+/// them where they were and says why; the step stays for "Try again".
+#[tauri::command]
+pub async fn move_keys(
+    later: bool,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    if !later {
+        let store = state.store.clone();
+        let data_dir = state.data_dir.clone();
+        blocking(move || crate::keys::move_now(store.as_ref(), &data_dir)).await?;
+    }
+    if state.keys_wait.swap(false, Ordering::Relaxed) {
+        crate::sharing::start_app(&app);
+    }
+    Ok(())
 }
 
 /// Opens `folder` in the file manager, saying in plain words why not: gone

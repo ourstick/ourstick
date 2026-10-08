@@ -32,6 +32,57 @@ fn for_a_new_device(macos: bool, debug: bool) -> Result<SecretBackend> {
     }
 }
 
+/// How many keys a move to the data protection keychain would read (macOS
+/// asks once for each), if this device's keys are still in the login
+/// keychain and this build can keep them there (ADR 0021, rule 3).
+pub fn move_due(store: &dyn Store) -> Result<Option<usize>> {
+    let from_login = matches!(
+        store.device()?.map(|device| device.secret_backend),
+        Some(SecretBackend::Keychain)
+    );
+    if !from_login
+        || for_a_new_device(cfg!(target_os = "macos"), cfg!(debug_assertions))?
+            != SecretBackend::ProtectedKeychain
+    {
+        return Ok(None);
+    }
+    let to_move = ourstick_core::secrets::secrets_to_move(store)?;
+    Ok(Some(to_move.required.len() + to_move.optional.len()))
+}
+
+/// Moves the keys (the user said Continue). Blocking; under the setup lock.
+pub fn move_now(store: &dyn Store, data_dir: &std::path::Path) -> Result<usize> {
+    let _setup = ourstick_core::locks::setup_lock(data_dir)?;
+    let from = device::open_keyring(&SecretBackend::Keychain)?;
+    let to = device::open_keyring(&SecretBackend::ProtectedKeychain)?;
+    ourstick_core::check_secret_store(to.as_ref())?;
+    Ok(ourstick_core::secrets::move_keys(
+        store,
+        from.as_ref(),
+        to.as_ref(),
+    )?)
+}
+
+/// At a start after a move: the login keychain's old copies go, once every
+/// key reads from the new store. A failure only waits for the next start.
+pub fn finish_move(store: &dyn Store) {
+    if !store.old_keys_left().unwrap_or(false) {
+        return;
+    }
+    let finished = (|| -> Result<bool> {
+        let from = device::open_keyring(&SecretBackend::Keychain)?;
+        let to = device::open_keyring(&SecretBackend::ProtectedKeychain)?;
+        Ok(ourstick_core::secrets::finish_move(
+            store,
+            from.as_ref(),
+            to.as_ref(),
+        )?)
+    })();
+    if let Err(error) = finished {
+        tracing::warn!(%error, "the old copies of the moved keys stay for now");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,6 +93,20 @@ mod tests {
             for_a_new_device(true, false).unwrap(),
             SecretBackend::ProtectedKeychain
         );
+    }
+
+    #[test]
+    fn a_device_already_in_the_data_protection_keychain_has_nothing_to_move() {
+        let store = ourstick_core::MemoryStore::new();
+        assert_eq!(move_due(&store).unwrap(), None, "no device");
+        store
+            .create_device(&ourstick_core::store::Device {
+                node_id: None,
+                secret_backend: SecretBackend::ProtectedKeychain,
+                created_at_ms: 0,
+            })
+            .unwrap();
+        assert_eq!(move_due(&store).unwrap(), None);
     }
 
     #[test]

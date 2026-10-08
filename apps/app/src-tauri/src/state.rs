@@ -45,6 +45,8 @@ pub struct AppState {
     /// The Local Network step was shown in this run (ADR 0020), remembered
     /// in the store once the device exists.
     pub local_network_explained: std::sync::atomic::AtomicBool,
+    /// The start waits for the keys' move (ADR 0021): its step comes first.
+    pub keys_wait: std::sync::atomic::AtomicBool,
     /// Open once nothing waits for that step: every endpoint the app binds
     /// waits for it (`local_network::may_bind`), the one place that decides.
     pub network_open: tokio::sync::watch::Sender<bool>,
@@ -62,6 +64,7 @@ impl AppState {
             disks: Arc::new(DiskTurns::new(Arc::new(SystemTimer::default()))),
             copying: std::sync::Mutex::default(),
             local_network_explained: std::sync::atomic::AtomicBool::new(false),
+            keys_wait: std::sync::atomic::AtomicBool::new(false),
             network_open: tokio::sync::watch::Sender::new(open),
         })
     }

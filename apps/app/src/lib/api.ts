@@ -10,6 +10,8 @@ export interface AppState {
   first_launch: boolean;
   /** macOS: the Local Network step comes first (ADR 0020). */
   explain_local_network: boolean;
+  /** macOS: the keys' move comes first, with how many keys (ADR 0021). */
+  move_keys: number | null;
 }
 
 export function appState(): Promise<AppState> {

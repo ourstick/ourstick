@@ -130,7 +130,20 @@ fn main() {
                     .is_ok_and(|sticks| !sticks.is_empty());
             // Its endpoints wait for the window's Local Network step, if
             // due (ADR 0020): macOS asks right after it.
-            if pending {
+            // The keys' move comes first, in the window (ADR 0021): nothing
+            // reads a key before it is done or put off.
+            let due = crate::keys::move_due(store).ok().flatten();
+            if due == Some(0) {
+                // No key yet: nothing for macOS to ask about.
+                if let Err(error) = crate::keys::move_now(store, &state.data_dir) {
+                    tracing::warn!(%error, "the empty keychain was not moved");
+                }
+            }
+            if due.is_some_and(|keys| keys > 0) {
+                state
+                    .keys_wait
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            } else if pending {
                 sharing::start_app(app.handle());
             }
             sharing::watch_mount(app.handle());
@@ -140,6 +153,7 @@ fn main() {
             commands::app_state,
             local_network::local_network_explained,
             local_network::open_local_network_settings,
+            commands::move_keys,
             commands::plug_in,
             stick_commands::stick,
             stick_life_commands::sticks,

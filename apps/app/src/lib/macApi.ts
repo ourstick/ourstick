@@ -16,3 +16,8 @@ export function localNetworkExplained(): Promise<void> {
 export function openLocalNetworkSettings(): Promise<void> {
   return invoke("open_local_network_settings");
 }
+
+/** The keys' step (ADR 0021): move them now, or (`later`) not in this run. */
+export function moveKeys(later: boolean): Promise<void> {
+  return invoke("move_keys", { later });
+}

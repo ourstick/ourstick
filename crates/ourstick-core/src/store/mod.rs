@@ -292,6 +292,14 @@ pub trait Store: Send + Sync {
     /// invisible, or before the device is set up.
     fn set_receiver_name(&self, name: Option<&str>) -> Result<(), StoreError>;
 
+    /// Whether the app explained the Local Network permission on this
+    /// device (ADR 0020); false before the device is set up.
+    fn local_network_explained(&self) -> Result<bool, StoreError>;
+
+    /// It was explained: true if remembered, false if the device is not set
+    /// up yet (to be told again once it is).
+    fn set_local_network_explained(&self) -> Result<bool, StoreError>;
+
     /// The counter of a received stick's next report, kept so it grows
     /// across restarts and a clock set back: the clock's time, or the last
     /// one plus one.

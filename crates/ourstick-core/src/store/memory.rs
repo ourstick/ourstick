@@ -358,6 +358,17 @@ impl Store for MemoryStore {
         reports::set_receiver_name(self, name)
     }
 
+    fn local_network_explained(&self) -> Result<bool, StoreError> {
+        let state = self.state();
+        Ok(state.device.is_some() && state.local_network_explained)
+    }
+
+    fn set_local_network_explained(&self) -> Result<bool, StoreError> {
+        let mut state = self.state();
+        state.local_network_explained = state.device.is_some();
+        Ok(state.local_network_explained)
+    }
+
     fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
         reports::next_report_counter(self, stick_id, now_ms)
     }

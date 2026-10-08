@@ -279,6 +279,18 @@ fn the_receivers_name_is_theirs_and_checked(store: &dyn Store) {
     assert_eq!(store.receiver_name().unwrap(), None);
 }
 
+fn the_local_network_step_is_remembered_once_the_device_is_set_up(store: &dyn Store) {
+    assert!(!store.local_network_explained().unwrap());
+    assert!(
+        !store.set_local_network_explained().unwrap(),
+        "no device yet"
+    );
+    store.create_device(&device()).unwrap();
+    assert!(!store.local_network_explained().unwrap());
+    assert!(store.set_local_network_explained().unwrap());
+    assert!(store.local_network_explained().unwrap());
+}
+
 fn a_counter_grows_even_when_the_clock_goes_back(store: &dyn Store) {
     let stick = JoinedStick {
         kind: StickKind::App,
@@ -313,5 +325,6 @@ for_every_store!(
     lines_older_than_ninety_days_are_not_shown_and_go,
     reports_are_only_for_sticks_shared_here_and_go_with_them,
     the_receivers_name_is_theirs_and_checked,
+    the_local_network_step_is_remembered_once_the_device_is_set_up,
     a_counter_grows_even_when_the_clock_goes_back,
 );

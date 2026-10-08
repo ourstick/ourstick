@@ -352,6 +352,23 @@ impl Store for SqliteStore {
         reports::set_receiver_name(&self.connection(), name)
     }
 
+    fn local_network_explained(&self) -> Result<bool, StoreError> {
+        Ok(self
+            .connection()
+            .query_row("SELECT local_network_explained FROM device", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()?
+            == Some(1))
+    }
+
+    fn set_local_network_explained(&self) -> Result<bool, StoreError> {
+        let updated = self
+            .connection()
+            .execute("UPDATE device SET local_network_explained = 1", [])?;
+        Ok(updated > 0)
+    }
+
     fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
         reports::next_report_counter(&mut self.connection(), stick_id, now_ms)
     }

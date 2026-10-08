@@ -31,6 +31,7 @@ pub(super) struct State {
     /// Readers' latest reports on owned sticks (ADR 0015).
     pub(super) reports: BTreeMap<[u8; 32], BTreeMap<crate::report::ReaderId, reports::Line>>,
     pub(super) receiver_name: Option<String>,
+    pub(super) local_network_explained: bool,
     pub(super) report_counters: BTreeMap<[u8; 32], u64>,
 }
 

@@ -25,9 +25,13 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 21
+## Version 22
 
-Version 21 (`0021_no_cache_claims.sql`, ADR 0017) deletes the `space_claims` rows
+Version 22 (`0022_local_network_explained.sql`, ADR 0020) added
+`device.local_network_explained` (0 for every device before, so an upgraded
+Mac shows the step once).
+
+Version 21 (`0021_no_cache_claims.sql`, ADR 0017) deleted the `space_claims` rows
 of kind `cache`. The kind is still allowed, so no database is refused, and is
 never written. No column changed.
 
@@ -93,6 +97,7 @@ its node key, which its older sticks use.
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
 | `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible (checked by the store; the column checks only that it is not empty); NULL (the usual) shows only the kind of computer |
+| `local_network_explained` | INTEGER | 1 once the app showed, on macOS, the step that explains the Local Network permission before macOS asks (ADR 0020); only that it was shown, never the permission's state, which macOS keeps |
 
 If a secret that the database says exists is missing from the recorded
 backend, that is an error for the user to resolve, never a reason to generate

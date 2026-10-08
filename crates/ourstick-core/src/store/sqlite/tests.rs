@@ -9,7 +9,7 @@ use crate::ticket::NodeId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 21);
+    assert_eq!(SCHEMA_VERSION, 22);
 }
 
 #[test]

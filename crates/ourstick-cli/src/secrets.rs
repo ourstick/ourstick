@@ -78,6 +78,12 @@ pub fn open_secrets(
     params: KeyFileParams,
 ) -> Result<(Box<dyn SecretStore>, SecretBackend)> {
     match (recorded, choice) {
+        // Only the app, signed with its keychain entitlements, can read
+        // these (ADR 0021).
+        (Some(SecretBackend::ProtectedKeychain), _) => bail!(
+            "this Mac's keys are kept by the OurStick app. Share from the app, or \
+             use the CLI with its own data folder (OURSTICK_DATA_DIR) and --key-file."
+        ),
         (Some(SecretBackend::KeyFile(recorded)), choice) => {
             if let SecretsChoice::KeyFile(given) = choice {
                 if absolute(given)? != *recorded {
@@ -204,6 +210,20 @@ mod tests {
         .err()
         .expect("an error");
         assert!(error.to_string().contains("the macOS keychain"), "{error}");
+    }
+
+    #[test]
+    fn keys_the_app_keeps_say_to_share_from_the_app() {
+        let path = std::path::PathBuf::from("/keys.oskf");
+        for choice in [SecretsChoice::Default, SecretsChoice::KeyFile(path)] {
+            let error = open(Some(&SecretBackend::ProtectedKeychain), &choice, &GOOD)
+                .err()
+                .expect("an error");
+            assert!(
+                error.to_string().contains("kept by the OurStick app"),
+                "{error}"
+            );
+        }
     }
 
     #[test]

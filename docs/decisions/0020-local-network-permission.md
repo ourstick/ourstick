@@ -52,26 +52,25 @@ is fixed. The protocol does not change.
    `local_network_explained`, with its migration and `docs/schema.md`),
    meaning only "the step was shown", never the permission's state. Not
    on Linux or Windows.
-3. **Is it declined? A probe, to be proven on the Mac first.** In
-   `ourstick-core`, behind a trait (`LocalNetwork::access() -> Access`)
-   with a fake for tests and the macOS implementation in a
-   `cfg(target_os = "macos")` module, using `std::net::UdpSocket` only (no
-   new dependency): a socket connected to a private address of this
-   computer's own IPv4 network, neither its own nor the router's (`.254`
-   of its /24, else the next one down), sends twice, 100 ms apart, to
-   port 9 (discard). `ErrorKind::HostUnreachable` (`EHOSTUNREACH`) on both
-   gives `Declined`. Success
-   gives `NotDeclined`: allowed, or not answered yet (the send may be what
-   makes macOS ask). No private IPv4 on an attached interface (IPv6-only,
-   a VPN's full tunnel), or any other error, gives `Unknown`, never
-   `Declined`. Other systems: always `NotDeclined`. At most every 10
-   seconds, in `spawn_blocking`. A state counts only once two probes in a
-   row agree: while macOS's question is still open, sends are refused as
-   if declined. If the Mac shows that the probe cannot tell (`sendto`
-   succeeding while declined), the fallback is evidence instead: iroh's
-   own sends to the peer's private addresses failing with
-   `EHOSTUNREACH` (to be looked for in its metrics or logs), and this
-   ADR is amended before building.
+3. **Is it declined? A probe.** In `ourstick-core`, behind a trait
+   (`LocalNetwork::access() -> Access`) with a fake for tests, using
+   `std::net::UdpSocket` only (no new dependency): a socket connected to
+   another address of this computer's own private IPv4 /24 (`.253`, or
+   `.252` if that is its own; not the router: macOS lets every app reach
+   it), sends twice, 100 ms apart, to port 9 (discard). macOS refuses a
+   connected socket's sends with `EPIPE` ("Broken pipe") when the
+   permission is declined or not answered yet, at once, every time; that
+   is `Declined`. Allowed, the sends go (`Ok`), and for an address no
+   computer has they fail later with `EHOSTDOWN` or `EHOSTUNREACH` (the
+   router's ARP gave up): those, and "connection refused", are
+   `NotDeclined`, never `Declined`. An unconnected `send_to` cannot tell
+   the two apart (`EHOSTUNREACH` both ways), so it is not used. No private
+   IPv4 (IPv6-only, a VPN's full tunnel) or any other error: `Unknown`.
+   Other systems: always `NotDeclined`. At most every 10 seconds, in
+   `spawn_blocking`. Not answered yet looks the same as declined, so the
+   app's first-start step (rule 2) is what keeps the message from showing
+   while macOS's question is still open: the facts of rule 5 start only
+   after it.
 4. **Same network?** Each side asks iroh for the other's addresses,
    `Endpoint::remote_info(peer).addrs()`: what iroh learned of the peer
    over the relay (its candidate direct addresses, perhaps stale), a
@@ -123,24 +122,28 @@ is fixed. The protocol does not change.
    Terminal reach this network: allow it in System Settings → Privacy &
    Security → Local Network."
 
-## To verify on the Mac first
+## Seen on the Mac (2026-10-08, macOS 26.7, the signed bundle)
 
-The question is still open there (neither answer pressed yet): a build
-with the probe alone, run in the signed bundle, logging what it sees.
+A build that ran the probe every 2 seconds, from macOS's question to the
+answer "Don't Allow" and then allowing it in Settings, against
+`192.168.1.253` (no computer there) and the router `192.168.1.1`:
 
-- What the probe sees while macOS's question is open, after "Don't
-  Allow", and after allowing in Settings: `EHOSTUNREACH` synchronously or
-  not, on the first send or the second, with the router or another
-  address of the /24.
-- That the bind (portmapper) is what makes macOS ask, and that rule 1's
-  text is what it shows.
-- That the Settings link opens the Local Network list on macOS 26.
-- That once allowed, a new connection goes direct, and whether the one
-  going on does, with and without `network_change()`.
-- That the Linux PC and the Mac on one Wi-Fi, the Mac declined, really go
-  through the relay, and with it allowed go direct.
-- How to ask again for a test (a new bundle identifier, or a reset of the
-  privacy database); recorded here once tried.
+| | connected `send` to .253 | `send_to` .253 | the router |
+|---|---|---|---|
+| question open | `EPIPE`, `EPIPE` | `EHOSTUNREACH` | goes |
+| declined | `EPIPE`, `EPIPE` | `EHOSTUNREACH` | goes |
+| allowed | `Ok`, `Ok`; then `EHOSTDOWN`/`EHOSTUNREACH` in turns (no ARP answer) | `Ok`, then the same | goes |
+
+Allowed in Settings, the running app could send at once (the next probe,
+within 2 seconds): no restart. Settings listed OurStick twice (the
+installed app and the test build, one bundle identifier at two paths),
+each with its own switch.
+
+Still to see: that the bind is what makes macOS ask and rule 1's text is
+what it shows; that the Settings link opens that list; that a connection
+already on the relay goes direct once allowed (with and without
+`network_change()`); the Linux PC and the Mac on one Wi-Fi, declined and
+allowed; and how to ask again for a test.
 
 ## Tests
 

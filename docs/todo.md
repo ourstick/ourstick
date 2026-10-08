@@ -165,8 +165,14 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   of the generic text), notice when it was declined, and then say so
   plainly with a button that opens System Settings → Privacy & Security →
   Local Network, until it is allowed.
-- **The signed app asked for the keychain password 3–4 times** at its
-  first start (2026-10-08): once per key, as a new program. Check that a
+- **macOS asks for the Downloads folder** ("OurStick requests access to
+  files in the Downloads folder", 2026-10-08), for sticks received there,
+  with macOS's generic text: add `NSDownloadsFolderUsageDescription` to
+  `src-tauri/Info.plist` with ADR 0020's, and ask only when a stick is
+  first received there.
+- **The signed app asked for the keychain password 14 times** at its
+  first start (2026-10-08): once per keychain item (3 for each stick of
+  its own, 1 for each received, 1 for the device), as a new program. Check that a
   restart and the next signed build ask nothing; then move the keys to
   the data protection keychain (below), which never asks.
 - **macOS asks for the keychain password once per key, again after every

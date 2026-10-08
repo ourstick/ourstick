@@ -1,28 +1,34 @@
 use super::*;
 
-fn unreachable() -> io::Result<()> {
-    Err(io::Error::from(io::ErrorKind::HostUnreachable))
+fn error(kind: io::ErrorKind) -> io::Result<()> {
+    Err(io::Error::from(kind))
 }
 
 #[test]
-fn every_send_refused_as_unreachable_is_declined() {
-    assert_eq!(classify(&[unreachable(), unreachable()]), Access::Declined);
+fn every_send_refused_as_a_broken_pipe_is_declined() {
+    let refused = || error(io::ErrorKind::BrokenPipe);
+    assert_eq!(classify(&[refused(), refused()]), Access::Declined);
 }
 
 #[test]
-fn every_send_gone_is_not_declined() {
+fn sends_that_went_or_found_no_computer_are_not_declined() {
     assert_eq!(classify(&[Ok(()), Ok(())]), Access::NotDeclined);
+    // Allowed, to an address nobody has: the router's ARP gave up.
+    let down = Err(io::Error::from_raw_os_error(HOST_DOWN));
+    let unreachable = error(io::ErrorKind::HostUnreachable);
+    assert_eq!(classify(&[unreachable, down]), Access::NotDeclined);
     // The first answered by "port unreachable": it went.
-    let refused = Err(io::Error::from(io::ErrorKind::ConnectionRefused));
+    let refused = error(io::ErrorKind::ConnectionRefused);
     assert_eq!(classify(&[Ok(()), refused]), Access::NotDeclined);
 }
 
 #[test]
 fn anything_else_cannot_be_told() {
     assert_eq!(classify(&[]), Access::Unknown);
-    assert_eq!(classify(&[Ok(()), unreachable()]), Access::Unknown);
-    let other = Err(io::Error::from(io::ErrorKind::NetworkUnreachable));
-    assert_eq!(classify(&[other]), Access::Unknown);
+    let mixed = [Ok(()), error(io::ErrorKind::BrokenPipe)];
+    assert_eq!(classify(&mixed), Access::Unknown);
+    let other = [error(io::ErrorKind::NetworkUnreachable)];
+    assert_eq!(classify(&other), Access::Unknown);
 }
 
 #[test]

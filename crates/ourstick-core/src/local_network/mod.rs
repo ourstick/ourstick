@@ -61,7 +61,8 @@ pub fn own_ipv4() -> Option<Ipv4Addr> {
 
 /// Where to probe from `own`: another address of its /24, `.253` (or
 /// `.252` if that is its own), chosen to be neither this computer nor,
-/// usually, its router. `None` unless `own` is private (RFC 1918).
+/// usually, its router (which macOS lets every app reach). `None` unless
+/// `own` is private (RFC 1918).
 pub fn probe_target(own: Ipv4Addr) -> Option<Ipv4Addr> {
     if !own.is_private() {
         return None;
@@ -86,18 +87,29 @@ pub fn probe(target: Ipv4Addr) -> Vec<io::Result<()>> {
     vec![first, second]
 }
 
-/// What a probe's sends say: declined only if every one was refused as
-/// unreachable, not declined only if every one went. "Connection refused"
-/// went: it is the answer (ICMP port unreachable) to an earlier send.
+/// macOS's `EHOSTDOWN`: no computer answered for the address (ARP).
+const HOST_DOWN: i32 = 64;
+
+/// What a probe's sends say (seen on macOS 26, ADR 0020): a connected
+/// socket's sends are refused with "broken pipe" while the permission is
+/// declined (or not answered yet). Allowed, they go, and to an address no
+/// computer has they fail later as host down or unreachable; "connection
+/// refused" answers an earlier send. Declined only if every send was
+/// refused so; not declined only if every one went or failed so.
 pub fn classify(sends: &[io::Result<()>]) -> Access {
-    let unreachable = |result: &io::Result<()>| matches!(result, Err(error) if error.kind() == io::ErrorKind::HostUnreachable);
+    let refused = |result: &io::Result<()>| matches!(result, Err(error) if error.kind() == io::ErrorKind::BrokenPipe);
     let went = |result: &io::Result<()>| match result {
         Ok(()) => true,
-        Err(error) => error.kind() == io::ErrorKind::ConnectionRefused,
+        Err(error) => {
+            matches!(
+                error.kind(),
+                io::ErrorKind::HostUnreachable | io::ErrorKind::ConnectionRefused
+            ) || error.raw_os_error() == Some(HOST_DOWN)
+        }
     };
     if sends.is_empty() {
         Access::Unknown
-    } else if sends.iter().all(unreachable) {
+    } else if sends.iter().all(refused) {
         Access::Declined
     } else if sends.iter().all(went) {
         Access::NotDeclined

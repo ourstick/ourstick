@@ -133,10 +133,13 @@ In the Apple Developer account (Certificates, Identifiers & Profiles):
 
 ## To verify on the Mac first
 
-- A throwaway build: whether a team-prefixed application group
-  (`com.apple.security.application-groups`, not restricted on macOS 15)
-  works as the access group without a profile; if it does, this ADR drops
-  the profile.
+- ~~A throwaway build: whether a team-prefixed application group works as
+  the access group without a profile.~~ Tried on 2026-10-08 (macOS 26.7,
+  a binary signed with the Developer ID, the hardened runtime and
+  `com.apple.security.application-groups` =
+  [`HHL7R3Q3XB.com.ourstick.OurStick`]): every write, read and delete in
+  that group refused with `errSecMissingEntitlement` (-34018), as unsigned.
+  The profile is needed.
 - That the signed app with the profile starts, reads and writes, and asks
   nothing; that an item survives an update signed the same way; that it
   works on an Intel Mac too.

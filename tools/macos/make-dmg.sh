@@ -44,7 +44,9 @@ decoded=$(mktemp)
 trap 'rm -f "$decoded"' EXIT
 security cms -D -i "$provisioning" > "$decoded"
 expires=$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$decoded")
-expires_at=$(date -j -f "%a %b %d %T %Z %Y" "$expires" +%s 2>/dev/null || true)
+# PlistBuddy writes the date in English; a Greek (or any) locale would not
+# read "Mon Oct".
+expires_at=$(LC_ALL=C date -j -f "%a %b %d %T %Z %Y" "$expires" +%s 2>/dev/null || true)
 if [ -z "$expires_at" ]; then
   echo "The provisioning profile's expiry ($expires) could not be read." >&2
   exit 1

@@ -142,7 +142,23 @@ within 2 seconds): no restart. Settings listed OurStick twice (the
 installed app and the test build, one bundle identifier at two paths),
 each with its own switch.
 
-Still to see: that the bind is what makes macOS ask and rule 1's text is
+The signed app (afecc37), the Mac receiving 2 GB from the Linux PC on one
+Wi-Fi (2026-10-08), the Mac's permission declined before the app started:
+
+- With Tailscale up on both, the data went over Tailscale's 100.x
+  addresses at 14.5 MB/s (a `utun` interface is no local network), after
+  a first connection that found nothing for 50 seconds ("The sender's
+  computer is off"). With the router's hairpin (the owner's public
+  address), it can go direct too.
+- With Tailscale down on the PC: through the relay at about 1 MB/s, and
+  after about 15 seconds the received stick showed "This is slow: the
+  sender is on your network, but OurStick is not allowed to reach it."
+  with Open Settings. Five minutes later, still declined and with nothing
+  touched, a direct path 192.168.1.20 → 192.168.1.30 opened (the owner had
+  sent first, holepunching; macOS seems to let a reply through) and the
+  message went by itself. Not proven; to see again.
+
+Still to see: Open Settings pressed; that the bind is what makes macOS ask and rule 1's text is
 what it shows; that the Settings link opens that list; that a connection
 already on the relay goes direct once allowed (with and without
 `network_change()`); the Linux PC and the Mac on one Wi-Fi, declined and

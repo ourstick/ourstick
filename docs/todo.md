@@ -156,6 +156,19 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   same folder back reads all of it again (104 GB on a slow disk, twice in the
   test). Keep the records of a removed entry for a while, keyed by its path,
   and reuse them if the same path is linked again with unchanged stamps.
+- **macOS: the Local Network permission must not be skipped** (seen on
+  2026-10-08 with the first signed build). Declined, two computers on one
+  network cannot reach each other directly, and a transfer between them
+  goes through a relay, slowly. macOS lets anyone decline it, so the app
+  must: explain it before macOS asks (a step of its own at first start,
+  and `NSLocalNetworkUsageDescription` in the bundle's Info.plist instead
+  of the generic text), notice when it was declined, and then say so
+  plainly with a button that opens System Settings → Privacy & Security →
+  Local Network, until it is allowed.
+- **The signed app asked for the keychain password 3–4 times** at its
+  first start (2026-10-08): once per key, as a new program. Check that a
+  restart and the next signed build ask nothing; then move the keys to
+  the data protection keychain (below), which never asks.
 - **macOS asks for the keychain password once per key, again after every
   unsigned build** (seen on the Mac: "many times", for the stick's three
   keys). Sign the app with a Developer ID before the first release, so

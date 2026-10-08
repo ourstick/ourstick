@@ -21,6 +21,7 @@
   import AlreadyThere from "./AlreadyThere.svelte";
   import EntryList from "./EntryList.svelte";
   import ReaderList from "./ReaderList.svelte";
+  import LocalNetworkNote from "./LocalNetworkNote.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
   import { answerAlreadyThere, cancelQueued, closeTooBig, dropOn, dropsOf, queuedNames } from "./stickDrops.svelte";
@@ -41,6 +42,7 @@
     preparing: false,
     relay_only: null,
     giving_way: false,
+    local_network_declined: false,
   });
   let dropping = $state(false);
   /** The stick's drops: kept per stick, so they survive this view. */
@@ -255,7 +257,9 @@
     {/if}
   {/if}
   <ReaderList {stickId} />
-  {#if activity.relay_only}
+  {#if activity.local_network_declined}
+    <LocalNetworkNote other="someone downloading" />
+  {:else if activity.relay_only}
     <p class="error">{activity.relay_only}</p>
   {/if}
 

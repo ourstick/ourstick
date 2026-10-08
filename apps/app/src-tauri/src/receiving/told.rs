@@ -146,6 +146,9 @@ impl Told {
                 shown.done = landed.bytes(shown.total);
                 progress_only = true;
             }
+            ReceiveEvent::Download(DownloadEvent::LocalNetworkDeclined { declined }) => {
+                shown.local_network_declined = declined;
+            }
             ReceiveEvent::Download(DownloadEvent::WaitingForMore { .. }) => {
                 shown.state = "getting_more";
             }

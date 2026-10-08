@@ -11,6 +11,7 @@
   import LeftOutWords from "./LeftOutWords.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
   import ChooseWhat from "./ChooseWhat.svelte";
+  import LocalNetworkNote from "./LocalNetworkNote.svelte";
 
   let {
     entry,
@@ -123,6 +124,9 @@
   <p class:error={entry.state === "stopped"} class="doing">{doing}</p>
   {#if entry.state === "downloading"}
     <div class="bar"><div class="fill" style="width: {fraction * 100}%"></div></div>
+  {/if}
+  {#if entry.local_network_declined}
+    <LocalNetworkNote other="the sender" />
   {/if}
   {#if entry.state === "stopped"}
     <p><button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Try again</button></p>

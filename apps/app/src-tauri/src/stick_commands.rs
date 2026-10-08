@@ -34,6 +34,8 @@ pub struct SharingView {
     relay_only: Option<&'static str>,
     /// Sending slowly, so another program can use the disk.
     giving_way: bool,
+    /// A reader on this network is kept on the relay by macOS (ADR 0020).
+    local_network_declined: bool,
 }
 
 /// One top-level entry of the stick.
@@ -186,6 +188,7 @@ fn sharing_view(
         preparing: activity.preparing,
         relay_only: activity.relay_only,
         giving_way: activity.giving_way,
+        local_network_declined: activity.local_network_declined,
     }
 }
 

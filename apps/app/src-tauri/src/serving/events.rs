@@ -59,6 +59,10 @@ pub struct ActivityView {
     /// Sending slowly, so another program can use the disk (ADR 0017,
     /// amendment 1).
     pub giving_way: bool,
+    /// A reader on this network stays on the relay because macOS declines
+    /// OurStick the local network (ADR 0020); then `relay_only` is `None`:
+    /// this says more.
+    pub local_network_declined: bool,
 }
 
 impl From<ReaderActivity> for ActivityView {
@@ -67,8 +71,10 @@ impl From<ReaderActivity> for ActivityView {
             readers: activity.readers,
             bytes_per_second: activity.bytes_per_second,
             preparing: activity.preparing,
-            relay_only: activity.only_relayed.then(relay_only_message),
+            relay_only: (activity.only_relayed && !activity.local_network_declined)
+                .then(relay_only_message),
             giving_way: activity.giving_way,
+            local_network_declined: activity.local_network_declined,
         }
     }
 }
@@ -114,6 +120,12 @@ mod tests {
         };
         let view = ActivityView::from(waiting);
         assert!(view.preparing && view.readers == 1 && view.relay_only.is_none());
+        let declined = ActivityView::from(ReaderActivity {
+            only_relayed: true,
+            local_network_declined: true,
+            ..ReaderActivity::default()
+        });
+        assert!(declined.local_network_declined && declined.relay_only.is_none());
         assert!(!ActivityView::from(ReaderActivity::default()).preparing);
     }
 }

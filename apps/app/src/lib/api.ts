@@ -55,6 +55,8 @@ export interface Sharing {
   relay_only: string | null;
   /** Sending slowly, so another program can use the disk. */
   giving_way: boolean;
+  /** A reader on this network is kept on the relay by macOS (ADR 0020). */
+  local_network_declined: boolean;
 }
 
 export interface Stick {
@@ -99,6 +101,8 @@ export interface Activity {
   relay_only: string | null;
   /** Sending slowly, so another program can use the disk. */
   giving_way: boolean;
+  /** A reader on this network is kept on the relay by macOS (ADR 0020). */
+  local_network_declined: boolean;
 }
 
 export function stick(stickId: string): Promise<Stick> {
@@ -294,6 +298,8 @@ export interface ReceivedEntry {
   total: number;
   /** When it began waiting (ms since 1970), for "since 14:30". */
   since_ms: number | null;
+  /** The sender is on this network, but macOS keeps OurStick from it (ADR 0020). */
+  local_network_declined: boolean;
   /** What is not got (its last part, escaped), whether its files are
    * already here, and the folder it is inside (escaped; null at the top). */
   left_out: { shown: string; here: boolean; inside: string | null }[];

@@ -60,6 +60,9 @@ pub struct Shown {
     pub total: u64,
     /// When it began waiting (ms since the epoch), for "since 14:30".
     pub since_ms: Option<u64>,
+    /// The sender is on this network but reached only through the relay:
+    /// macOS declines OurStick the local network (ADR 0020).
+    pub local_network_declined: bool,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

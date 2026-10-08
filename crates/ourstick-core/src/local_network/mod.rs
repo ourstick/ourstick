@@ -2,6 +2,10 @@
 //! declined, its sends to an address on an attached network fail at once,
 //! and a peer on the same network can only be reached through a relay.
 
+mod same_network;
+
+pub use same_network::same_network;
+
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::time::Duration;

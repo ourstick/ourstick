@@ -34,11 +34,12 @@ const EXPLAIN_AFTER: Duration = Duration::from_secs(6);
 /// This device's network and the likely reasons the data uses the relay.
 fn relay_explanation(fetcher: &IrohFetcher, ticket: &Ticket, elapsed: Duration) -> Vec<String> {
     let report = fetcher.network_report();
+    let on_this_network = fetcher.on_this_network(ticket);
     let mut lines = vec![format!(
         "[{}] Using the relay. Likely reasons:",
         clock(elapsed)
     )];
-    for reason in relay_reasons(report.as_ref(), &ticket.address_hints) {
+    for reason in relay_reasons(report.as_ref(), &ticket.address_hints, on_this_network) {
         lines.push(format!("        - {reason}"));
     }
     if let Some(report) = report {

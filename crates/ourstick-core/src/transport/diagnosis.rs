@@ -46,15 +46,30 @@ pub fn describe_network(report: &NetworkReport) -> String {
 }
 
 /// Reasons, most likely first, why the data comes through a relay. `local` is
-/// this device's report (`None` while it is still being measured).
-pub fn relay_reasons(local: Option<&NetworkReport>, owner_hints: &[AddressHint]) -> Vec<String> {
+/// this device's report (`None` while it is still being measured);
+/// `on_this_network`, whether the owner is on this computer's network (ADR
+/// 0020): then a Mac's declined Local Network permission, on either side,
+/// is the likeliest.
+pub fn relay_reasons(
+    local: Option<&NetworkReport>,
+    owner_hints: &[AddressHint],
+    on_this_network: bool,
+) -> Vec<String> {
     let owner_has_ipv6 = owner_hints
         .iter()
         .any(|hint| matches!(hint, AddressHint::Ipv6 { .. }));
-    let Some(local) = local else {
-        return vec!["this device has not finished checking its network yet".to_owned()];
-    };
     let mut reasons = Vec::new();
+    if on_this_network {
+        reasons.push(
+            "the owner is on this network: if it is a Mac, it may need to allow OurStick \
+             in System Settings → Privacy & Security → Local Network"
+                .to_owned(),
+        );
+    }
+    let Some(local) = local else {
+        reasons.push("this device has not finished checking its network yet".to_owned());
+        return reasons;
+    };
     if !local.udp_v4 && !local.udp_v6 {
         reasons.push(
             "UDP does not get through on this network; only the relay (over HTTPS) works"
@@ -124,7 +139,7 @@ mod tests {
 
     #[test]
     fn hotspot_with_an_ipv6_owner_blames_firewalls_and_cgnat() {
-        let reasons = relay_reasons(Some(&hotspot()), &[ipv4_hint(), ipv6_hint()]);
+        let reasons = relay_reasons(Some(&hotspot()), &[ipv4_hint(), ipv6_hint()], false);
         assert!(reasons[0].contains("both sides have IPv6"), "{reasons:?}");
         assert!(
             reasons[1].contains("changes the public port"),
@@ -135,7 +150,7 @@ mod tests {
 
     #[test]
     fn owner_without_ipv6_is_named() {
-        let reasons = relay_reasons(Some(&hotspot()), &[ipv4_hint()]);
+        let reasons = relay_reasons(Some(&hotspot()), &[ipv4_hint()], false);
         assert!(reasons[0].contains("owner offered no IPv6"), "{reasons:?}");
     }
 
@@ -146,7 +161,7 @@ mod tests {
             public_v6: None,
             ..hotspot()
         };
-        let reasons = relay_reasons(Some(&local), &[ipv6_hint()]);
+        let reasons = relay_reasons(Some(&local), &[ipv6_hint()], false);
         assert!(
             reasons[0].contains("this network has no IPv6"),
             "{reasons:?}"
@@ -155,18 +170,25 @@ mod tests {
 
     #[test]
     fn no_udp_at_all_is_the_only_reason() {
-        let reasons = relay_reasons(Some(&NetworkReport::default()), &[ipv6_hint()]);
+        let reasons = relay_reasons(Some(&NetworkReport::default()), &[ipv6_hint()], false);
         assert_eq!(reasons.len(), 1);
         assert!(reasons[0].contains("UDP does not get through"));
     }
 
     #[test]
     fn unknown_report_says_so() {
-        let reasons = relay_reasons(None, &[]);
+        let reasons = relay_reasons(None, &[], false);
         assert_eq!(
             reasons,
             vec!["this device has not finished checking its network yet"]
         );
+    }
+
+    #[test]
+    fn an_owner_on_this_network_names_a_macs_local_network_first() {
+        let reasons = relay_reasons(Some(&hotspot()), &[ipv4_hint()], true);
+        assert!(reasons[0].contains("Local Network"));
+        assert!(relay_reasons(None, &[], true)[0].contains("Local Network"));
     }
 
     #[test]

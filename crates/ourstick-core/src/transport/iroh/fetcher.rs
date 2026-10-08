@@ -54,7 +54,7 @@ fn route_of(addr: &iroh::TransportAddr) -> Route {
 /// A reader's local blob stores for one stick, and the endpoint to reach
 /// owners.
 pub struct IrohFetcher {
-    endpoint: Endpoint,
+    pub(super) endpoint: Endpoint,
     batches: Batches,
     relay_description: String,
     /// Whether the local network is declined (ADR 0020), for every

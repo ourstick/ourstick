@@ -219,6 +219,19 @@ so Spotlight leaves it alone.
   Linux), mounts it or adds the bookmark, and opens panel 1.
 - Shown once. There is no size to choose (ADR 0008).
 
+## macOS: the Local Network permission (ADR 0020)
+
+- At the first start of a version with ADR 0020, on macOS only, the window
+  opens on one screen before anything else: "One question from macOS.
+  OurStick will ask to find devices on your local network. Allow it…"
+  `Continue`. Nothing binds an endpoint before it, so macOS asks right
+  after; shown once per device.
+- While a declined permission keeps the other computer, on this network,
+  on the relay: on the received stick, or under a stick's activity, "This
+  is slow: the sender (someone downloading) is on your network, but
+  OurStick is not allowed to reach it. (System Settings → Privacy &
+  Security → Local Network)" and `Open Settings`. It goes once allowed.
+
 ## Semantics that must hold
 
 - **Eject ≠ stop sharing.** Eject only unmounts. Sharing continues, tray stays.

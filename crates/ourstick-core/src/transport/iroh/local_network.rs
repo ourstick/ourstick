@@ -9,8 +9,9 @@ use std::time::Instant;
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointId, TransportAddr};
 
-use super::fetcher::current_path;
+use super::fetcher::{current_path, IrohFetcher};
 use crate::local_network::{same_network, Access, DeclinedHere, SharedProbe, LOOK_EVERY};
+use crate::ticket::{AddressHint, Ticket};
 use crate::transport::PathKind;
 
 /// Whether `peer` is on this computer's network: its addresses as iroh
@@ -29,6 +30,29 @@ pub(super) async fn on_this_network(endpoint: &Endpoint, peer: EndpointId) -> bo
         None => Vec::new(),
     };
     same_network(&ours, &theirs)
+}
+
+impl IrohFetcher {
+    /// Whether the owner of `ticket` is on this computer's network, by the
+    /// ticket's address hints (ADR 0020).
+    pub fn on_this_network(&self, ticket: &Ticket) -> bool {
+        let ours: Vec<IpAddr> = self
+            .endpoint
+            .addr()
+            .ip_addrs()
+            .map(|addr| addr.ip())
+            .collect();
+        let theirs: Vec<IpAddr> = ticket
+            .address_hints
+            .iter()
+            .filter_map(|hint| match hint {
+                AddressHint::Ipv4 { ip, .. } => Some((*ip).into()),
+                AddressHint::Ipv6 { ip, .. } => Some((*ip).into()),
+                AddressHint::Relay { .. } => None,
+            })
+            .collect();
+        same_network(&ours, &theirs)
+    }
 }
 
 /// Tells `tell` whenever it changes whether a declined permission keeps

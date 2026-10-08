@@ -1,7 +1,8 @@
 # ADR 0020: The Local Network permission on macOS
 
-**Status:** proposed — 2026-10-08. Reviewed by two other models against
-our code and iroh 1.2; this version takes in their changes.
+**Status:** accepted — 2026-10-08. Reviewed by two other models against
+our code and iroh 1.2; this version takes in their changes. Built; what
+differs is under "As built".
 
 ## Context
 
@@ -144,6 +145,25 @@ what it shows; that the Settings link opens that list; that a connection
 already on the relay goes direct once allowed (with and without
 `network_change()`); the Linux PC and the Mac on one Wi-Fi, declined and
 allowed; and how to ask again for a test.
+
+## As built
+
+- The probe, the same-network test and the ten-second facts are in
+  `local_network/`; iroh's side (`transport/iroh/local_network.rs`)
+  watches each connection, the owner's (`handler.rs`, its endpoint now
+  bound before the handler) and the reader's (`fetcher.rs`). The probe is
+  shared per endpoint and asked at most every ten seconds.
+- A connection already on the relay when the permission is allowed goes
+  direct with the download's next look for a direct path (ADR 0006's
+  relay watch connects again after a minute, then less often); no
+  `network_change()` call.
+- Rule 6, the generic message: `relay_reasons` names a Mac's Local
+  Network first when the owner is on this network, by the ticket's hints
+  (the CLI's `get`). The owner's firewall message is unchanged: it cannot
+  tell which reader is on its network when it is not itself declined.
+- The step is remembered in `device.local_network_explained`; on a first
+  launch, before the device exists, it is kept for the run and written
+  once the device is set up.
 
 ## Tests
 

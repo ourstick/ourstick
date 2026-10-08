@@ -646,7 +646,17 @@ gets; the blob's bytes are then made from the file as above.
 The owner watches the paths of every reader's blob connection. If one
 reader stays on the relay for 30 seconds and no reader has ever reached the
 owner directly since sharing started, the owner reports that readers come
-only through the relay (`ReaderActivity::only_relayed`). Direct paths need
+only through the relay (`ReaderActivity::only_relayed`).
+
+On macOS a declined Local Network permission looks the same from the other
+side (ADR 0020): the Mac cannot send to an address on its own network, so
+two computers on one network stay on the relay. Only the Mac can tell: each
+side, for each connection on the relay to a peer on its network (a private
+IPv4 in the same /24, or an IPv6 in the same /64, as iroh learned the peer's
+addresses), probes the permission every ten seconds; declined for ten
+seconds, the owner sets `ReaderActivity::local_network_declined` and the
+reader tells `DownloadEvent::LocalNetworkDeclined`. The owner's message is
+then this one, not the firewall's. Nothing is sent for it. Direct paths need
 the owner to receive what readers send, so this most likely means a
 firewall drops it (on Windows, "Cancel" on the Windows Firewall question
 can; with hole punching it often does not, since the owner sends first). The CLI prints a line once, and the app shows a message

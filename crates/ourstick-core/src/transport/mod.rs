@@ -338,6 +338,12 @@ pub trait PeerConnection: Send + Sync {
     /// Whether a direct (non-relay) path to the peer is open right now.
     fn has_direct_path(&self) -> bool;
 
+    /// Whether the owner, on this computer's network, stays on the relay
+    /// because macOS declines OurStick the local network here (ADR 0020).
+    fn local_network_declined(&self) -> bool {
+        false
+    }
+
     /// Asks the owner for the latest signed record of `stick_id`. The record is
     /// not verified here.
     fn fetch_record(

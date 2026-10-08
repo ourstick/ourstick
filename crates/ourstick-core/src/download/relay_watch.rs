@@ -17,6 +17,8 @@ pub(super) const LONGEST_WAIT: Duration = Duration::from_secs(30 * 60);
 pub(super) struct RelayWatch {
     on_relay_since: Option<Instant>,
     wait: Duration,
+    /// Whether a declined local network was last told (ADR 0020).
+    declined: bool,
 }
 
 impl Default for RelayWatch {
@@ -24,11 +26,21 @@ impl Default for RelayWatch {
         Self {
             on_relay_since: None,
             wait: FIRST_LOOK_AFTER,
+            declined: false,
         }
     }
 }
 
 impl RelayWatch {
+    /// Whether a declined local network keeps the data on the relay `now`:
+    /// `Some` when that is not what was last told.
+    pub(super) fn declined(&mut self, now: bool) -> Option<bool> {
+        (now != self.declined).then(|| {
+            self.declined = now;
+            now
+        })
+    }
+
     /// Takes in where data came from at `now`; true when it is time to
     /// connect again.
     pub(super) fn on_check(&mut self, relay: bool, now: Instant) -> bool {
@@ -82,5 +94,14 @@ mod tests {
         assert!(!watch.on_check(true, start + Duration::from_secs(10)));
         // Continuously on the relay again for the first wait only.
         assert!(watch.on_check(true, start + Duration::from_secs(10) + FIRST_LOOK_AFTER));
+    }
+
+    #[test]
+    fn a_declined_local_network_is_told_when_it_changes() {
+        let mut watch = RelayWatch::default();
+        assert_eq!(watch.declined(false), None, "not declined at first");
+        assert_eq!(watch.declined(true), Some(true));
+        assert_eq!(watch.declined(true), None);
+        assert_eq!(watch.declined(false), Some(false));
     }
 }

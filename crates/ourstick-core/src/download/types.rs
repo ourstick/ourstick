@@ -29,6 +29,12 @@ pub enum DownloadEvent<'a> {
     ConnectionLost {
         reason: &'a str,
     },
+    /// Whether the owner, on this computer's network, is reached only
+    /// through the relay because macOS declines OurStick the local network
+    /// here (ADR 0020); told when it changes.
+    LocalNetworkDeclined {
+        declined: bool,
+    },
     /// The data has come through the relay for a while: a new connection
     /// looks for a direct path, and the download goes on where it was.
     LookingForDirect,

@@ -18,9 +18,11 @@ use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::watch;
 
 use super::batches::Batches;
+use super::local_network::watch_declined;
 use super::record_protocol::{request_record, RECORD_ALPN};
 use super::report_protocol::report_on;
 use super::{absolute, bind, is_relay, network_report, owner_addr, IrohConfig};
+use crate::local_network::SharedProbe;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
 use crate::ticket::Ticket;
@@ -55,6 +57,9 @@ pub struct IrohFetcher {
     endpoint: Endpoint,
     batches: Batches,
     relay_description: String,
+    /// Whether the local network is declined (ADR 0020), for every
+    /// connection.
+    probe: Arc<SharedProbe>,
 }
 
 fn storage(error: impl std::fmt::Display) -> TransportError {
@@ -75,6 +80,7 @@ impl IrohFetcher {
             endpoint,
             batches,
             relay_description: config.relay_description(),
+            probe: Arc::new(SharedProbe::new(config.local_network())),
         })
     }
 }
@@ -106,6 +112,15 @@ impl Fetcher for IrohFetcher {
         let (path_sender, path_receiver) = watch::channel(current_path(&blobs));
         let usage = UsageByPath::default();
         let watcher = tokio::spawn(watch_path(blobs.clone(), path_sender, usage.clone()));
+        let (declined_sender, declined) = watch::channel(false);
+        let declined_watcher = tokio::spawn(watch_declined(
+            blobs.clone(),
+            self.endpoint.clone(),
+            self.probe.clone(),
+            move |now| {
+                declined_sender.send_replace(now);
+            },
+        ));
         Ok(IrohConnection {
             endpoint: self.endpoint.clone(),
             batches: self.batches.clone(),
@@ -114,6 +129,8 @@ impl Fetcher for IrohFetcher {
             path_receiver,
             watcher,
             usage,
+            declined,
+            declined_watcher,
         })
     }
 
@@ -219,6 +236,9 @@ pub struct IrohConnection {
     path_receiver: watch::Receiver<PathKind>,
     watcher: tokio::task::JoinHandle<()>,
     usage: UsageByPath,
+    /// Whether a declined local network keeps it on the relay (ADR 0020).
+    declined: watch::Receiver<bool>,
+    declined_watcher: tokio::task::JoinHandle<()>,
 }
 
 fn is_hash_mismatch(error: &GetError) -> bool {
@@ -261,6 +281,10 @@ impl PeerConnection for IrohConnection {
 
     fn has_direct_path(&self) -> bool {
         self.blobs.paths().iter().any(|path| path.is_ip())
+    }
+
+    fn local_network_declined(&self) -> bool {
+        *self.declined.borrow()
     }
 
     fn usage(&self) -> PathUsage {
@@ -358,6 +382,7 @@ impl PeerConnection for IrohConnection {
 
     async fn close(self) {
         self.watcher.abort();
+        self.declined_watcher.abort();
         self.blobs.close(0u32.into(), b"bye");
     }
 }

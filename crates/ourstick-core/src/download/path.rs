@@ -46,6 +46,12 @@ impl<'a> ReceivingPath<'a> {
         }
     }
 
+    /// Whether the connection says a declined local network keeps it on the
+    /// relay (ADR 0020): `Some` when it changed since last told.
+    pub(super) fn declined(&mut self, now: bool) -> Option<bool> {
+        self.watch.declined(now)
+    }
+
     /// A new connection is being made to look for a direct path.
     pub(super) fn looked(&mut self) {
         self.watch.looked();

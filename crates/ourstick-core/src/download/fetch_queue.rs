@@ -330,6 +330,13 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
             if check.changed {
                 told = on_event(DownloadEvent::PathChanged { path: check.kind });
             }
+            if let Some(declined) = watch
+                .receiving
+                .declined(connection.local_network_declined())
+                .filter(|_| told.is_continue())
+            {
+                told = on_event(DownloadEvent::LocalNetworkDeclined { declined });
+            }
             let announced = {
                 let mut limiter = self.decision.limiter();
                 limiter

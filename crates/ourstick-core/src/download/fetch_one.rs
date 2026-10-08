@@ -71,6 +71,9 @@ pub(super) async fn receive_file(
                 if check.changed {
                     on_event(DownloadEvent::PathChanged { path: check.kind })?;
                 }
+                if let Some(declined) = receiving.declined(connection.local_network_declined()) {
+                    on_event(DownloadEvent::LocalNetworkDeclined { declined })?;
+                }
                 if let Some(limiter) = limiter.as_mut() {
                     if limiter.announce(check.kind == PathKind::Relay) {
                         on_event(DownloadEvent::RelayLimited {

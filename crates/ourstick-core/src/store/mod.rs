@@ -292,6 +292,15 @@ pub trait Store: Send + Sync {
     /// invisible, or before the device is set up.
     fn set_receiver_name(&self, name: Option<&str>) -> Result<(), StoreError>;
 
+    /// The device's keys were moved to the data protection keychain (ADR
+    /// 0021): it is recorded as their store, with whether the login
+    /// keychain still holds the old copies. Refused unless the device's
+    /// keys were in the login keychain or are already moved.
+    fn record_keys_moved(&self, old_keys_left: bool) -> Result<(), StoreError>;
+
+    /// Whether the login keychain still holds copies of moved keys.
+    fn old_keys_left(&self) -> Result<bool, StoreError>;
+
     /// Whether the app explained the Local Network permission on this
     /// device (ADR 0020); false before the device is set up.
     fn local_network_explained(&self) -> Result<bool, StoreError>;

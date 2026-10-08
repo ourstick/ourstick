@@ -291,6 +291,33 @@ fn the_local_network_step_is_remembered_once_the_device_is_set_up(store: &dyn St
     assert!(store.local_network_explained().unwrap());
 }
 
+fn moved_keys_are_recorded_only_from_the_macos_keychain(store: &dyn Store) {
+    assert!(store.record_keys_moved(true).is_err(), "no device yet");
+    store
+        .create_device(&Device {
+            secret_backend: crate::store::SecretBackend::Keychain,
+            ..device()
+        })
+        .unwrap();
+    assert!(!store.old_keys_left().unwrap());
+    store.record_keys_moved(true).unwrap();
+    let recorded = store.device().unwrap().unwrap().secret_backend;
+    assert_eq!(recorded, crate::store::SecretBackend::ProtectedKeychain);
+    assert!(store.old_keys_left().unwrap());
+    // The old copies gone.
+    store.record_keys_moved(false).unwrap();
+    assert!(!store.old_keys_left().unwrap());
+}
+
+fn keys_elsewhere_are_never_recorded_as_moved(store: &dyn Store) {
+    store.create_device(&device()).unwrap();
+    assert!(store.record_keys_moved(false).is_err());
+    assert_eq!(
+        store.device().unwrap().unwrap().secret_backend,
+        device().secret_backend
+    );
+}
+
 fn a_counter_grows_even_when_the_clock_goes_back(store: &dyn Store) {
     let stick = JoinedStick {
         kind: StickKind::App,
@@ -326,5 +353,7 @@ for_every_store!(
     reports_are_only_for_sticks_shared_here_and_go_with_them,
     the_receivers_name_is_theirs_and_checked,
     the_local_network_step_is_remembered_once_the_device_is_set_up,
+    moved_keys_are_recorded_only_from_the_macos_keychain,
+    keys_elsewhere_are_never_recorded_as_moved,
     a_counter_grows_even_when_the_clock_goes_back,
 );

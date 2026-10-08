@@ -358,6 +358,29 @@ impl Store for MemoryStore {
         reports::set_receiver_name(self, name)
     }
 
+    fn record_keys_moved(&self, old_keys_left: bool) -> Result<(), StoreError> {
+        use crate::store::SecretBackend;
+        let mut state = self.state();
+        let Some(device) = state.device.as_mut() else {
+            return Err(StoreError::Inconsistent("this device is not set up yet"));
+        };
+        if !matches!(
+            device.secret_backend,
+            SecretBackend::Keychain | SecretBackend::ProtectedKeychain
+        ) {
+            return Err(StoreError::Inconsistent(
+                "the device's keys are not in the macOS keychain",
+            ));
+        }
+        device.secret_backend = SecretBackend::ProtectedKeychain;
+        state.old_keys_left = old_keys_left;
+        Ok(())
+    }
+
+    fn old_keys_left(&self) -> Result<bool, StoreError> {
+        Ok(self.state().old_keys_left)
+    }
+
     fn local_network_explained(&self) -> Result<bool, StoreError> {
         let state = self.state();
         Ok(state.device.is_some() && state.local_network_explained)

@@ -68,3 +68,34 @@ pub(super) fn create_device(connection: &Connection, device: &Device) -> Result<
         Err(error) => Err(error.into()),
     }
 }
+
+/// A 0/1 column of the device row; false before the device is set up.
+pub(super) fn flag(connection: &Connection, column: &'static str) -> Result<bool, StoreError> {
+    Ok(connection
+        .query_row(&format!("SELECT {column} FROM device"), [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()?
+        == Some(1))
+}
+
+pub(super) fn set_local_network_explained(connection: &Connection) -> Result<bool, StoreError> {
+    Ok(connection.execute("UPDATE device SET local_network_explained = 1", [])? > 0)
+}
+
+pub(super) fn record_keys_moved(
+    connection: &Connection,
+    old_keys_left: bool,
+) -> Result<(), StoreError> {
+    let updated = connection.execute(
+        "UPDATE device SET secret_backend = 'protected-keychain', old_keys_left = ?1
+         WHERE secret_backend IN ('keychain', 'protected-keychain')",
+        [old_keys_left],
+    )?;
+    if updated == 0 {
+        return Err(StoreError::Inconsistent(
+            "the device's keys are not in the macOS keychain",
+        ));
+    }
+    Ok(())
+}

@@ -11,6 +11,7 @@ mod key_file;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod keyring;
 mod memory;
+mod moving;
 
 use std::fmt;
 
@@ -22,6 +23,9 @@ pub use key_file::{KeyFileParams, KeyFileStore};
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub use keyring::KeyringStore;
 pub use memory::MemorySecretStore;
+pub use moving::{
+    all_there, copy_secrets, delete_old, finish_move, move_keys, secrets_to_move, MoveError, ToMove,
+};
 
 /// How long a store keeps what is written to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -29,7 +29,8 @@ no column for them. It only records *which* secret store this device uses.
 
 Version 23 (`0023_protected_keychain.sql`, ADR 0021) lets
 `device.secret_backend` be `protected-keychain`, the data protection keychain
-of the app on macOS; the table is made again with the same rows.
+of the app on macOS, and adds `device.old_keys_left` (0 for every device
+before); the table is made again with the same rows.
 
 Version 22 (`0022_local_network_explained.sql`, ADR 0020) added
 `device.local_network_explained` (0 for every device before, so an upgraded
@@ -101,6 +102,7 @@ its node key, which its older sticks use.
 | `key_file_path`  | TEXT    | Path of the key file; set if and only if `key-file`      |
 | `created_at_ms`  | INTEGER | When the device was set up                               |
 | `receiver_name`  | TEXT or NULL | The name this device's receiver chose to show senders (ADR 0015): 1–40 characters, not blank, none invisible (checked by the store; the column checks only that it is not empty); NULL (the usual) shows only the kind of computer |
+| `old_keys_left` | INTEGER | 1 while the login keychain still holds the copies of keys moved to the data protection keychain (ADR 0021), deleted at a later start once every key reads from the new store; only with `protected-keychain` |
 | `local_network_explained` | INTEGER | 1 once the app showed, on macOS, the step that explains the Local Network permission before macOS asks (ADR 0020); only that it was shown, never the permission's state, which macOS keeps |
 
 If a secret that the database says exists is missing from the recorded

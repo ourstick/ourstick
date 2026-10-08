@@ -1,7 +1,8 @@
 -- ADR 0021: on macOS the app keeps its secrets in the data protection
 -- keychain: secret_backend may now be 'protected-keychain'. SQLite cannot
--- change a CHECK constraint, so the table is made again with the same rows.
--- See docs/schema.md.
+-- change a CHECK constraint, so the table is made again with the same rows;
+-- old_keys_left says the login keychain still holds the copies moved from it,
+-- deleted at a later start. See docs/schema.md.
 
 CREATE TABLE device_new (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
@@ -17,7 +18,9 @@ CREATE TABLE device_new (
     created_at_ms   INTEGER NOT NULL CHECK (created_at_ms >= 0),
     receiver_name   TEXT    CHECK (length(receiver_name) > 0),
     local_network_explained INTEGER NOT NULL DEFAULT 0
-        CHECK (local_network_explained IN (0, 1))
+        CHECK (local_network_explained IN (0, 1)),
+    old_keys_left   INTEGER NOT NULL DEFAULT 0
+        CHECK (old_keys_left IN (0, 1) AND (old_keys_left = 0 OR secret_backend = 'protected-keychain'))
 ) STRICT;
 
 INSERT INTO device_new (id, node_id, secret_backend, key_file_path, created_at_ms,

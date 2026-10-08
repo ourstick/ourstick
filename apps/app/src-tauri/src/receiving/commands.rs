@@ -17,7 +17,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use super::{keep_ticket, read_ticket, start, Receivers, Shown};
-use crate::commands::shown;
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState};
 
 /// The pasted text as a sharing link. The error never repeats it.
@@ -349,7 +348,6 @@ pub async fn open_received_folder(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
     let stick_id = stick_id_of(&stick_id)?;
     let store = state.store.clone();
     let joined = super::work(move || {
@@ -358,9 +356,7 @@ pub async fn open_received_folder(
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))
     })
     .await?;
-    app.opener()
-        .open_path(joined.output_dir.to_string_lossy(), None::<&str>)
-        .map_err(|error| shown(error.into()))
+    crate::commands::open_folder(&app, joined.output_dir).await
 }
 
 #[cfg(test)]

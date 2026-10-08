@@ -165,12 +165,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   of the generic text), notice when it was declined, and then say so
   plainly with a button that opens System Settings → Privacy & Security →
   Local Network, until it is allowed.
-- **"Open folder" of a received stick whose folder is gone shows a raw
-  error** (2026-10-08, the Mac): `Launcher "/usr/bin/open" "--" "…"
-  failed with ExitStatus(unix_wait_status(256))`, in red, under "Its
-  folder is not there". Say "This folder is not there any more." instead
-  (or leave the button out while it is not there); the opener's error is
-  for the log.
 - **macOS asks for the Downloads folder** ("OurStick requests access to
   files in the Downloads folder", 2026-10-08), for sticks received there,
   with macOS's generic text (our own, `NSDownloadsFolderUsageDescription`,

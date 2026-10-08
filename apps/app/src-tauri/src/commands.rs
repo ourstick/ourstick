@@ -136,13 +136,41 @@ pub async fn open_in_file_manager(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
     let stick = state
         .stick_now(&stick_id_of(&stick_id)?)
         .await
         .map_err(shown)?;
     let shown = blocking(move || Ok(drive::shown_at(&stick.root_path))).await?;
+    open_folder(&app, shown).await
+}
+
+/// Opens `folder` in the file manager, saying in plain words why not: gone
+/// (deleted, or its disk unplugged), or the file manager refused (its own
+/// words go to the log, not to the user).
+pub(crate) async fn open_folder(app: &AppHandle, folder: std::path::PathBuf) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let checked = folder.clone();
+    if !blocking(move || Ok(checked.is_dir())).await? {
+        return Err(not_there());
+    }
     app.opener()
-        .open_path(shown.to_string_lossy(), None::<&str>)
-        .map_err(|error| error.to_string())
+        .open_path(folder.to_string_lossy(), None::<&str>)
+        .map_err(|error| {
+            tracing::warn!(%error, "the file manager did not open a folder");
+            "The folder could not be opened in the file manager.".to_owned()
+        })
+}
+
+fn not_there() -> String {
+    "This folder is not there any more (deleted or moved, or its disk is unplugged).".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_folder_that_is_not_there_is_said_in_plain_words() {
+        assert!(not_there().starts_with("This folder is not there"));
+    }
 }

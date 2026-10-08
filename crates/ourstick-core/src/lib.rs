@@ -13,6 +13,7 @@ pub mod download;
 pub mod drive;
 pub mod layout;
 pub mod linked;
+pub mod local_network;
 pub mod locks;
 pub mod manifest;
 pub mod places;

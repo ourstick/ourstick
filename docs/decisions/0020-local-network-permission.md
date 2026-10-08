@@ -1,96 +1,156 @@
 # ADR 0020: The Local Network permission on macOS
 
-**Status:** proposed — 2026-10-08.
+**Status:** proposed — 2026-10-08. Reviewed by two other models against
+our code and iroh 1.2; this version takes in their changes.
 
 ## Context
 
 Since macOS 15, an app must be allowed to reach devices on the local
 network ("Allow "OurStick" to find devices on local networks?"). The first
 signed build asked on its first start (2026-10-08, macOS 26.7). Declined,
-macOS refuses every datagram the app sends to an address on an attached
-network: two computers on one Wi-Fi cannot reach each other directly, so a
-transfer between them goes through a relay, at a fraction of the speed,
-and nothing tells the user why. Transfers over the internet are not
-affected (their direct paths go to public addresses).
+macOS refuses what the app sends to an address on an attached network: two
+computers on one Wi-Fi cannot reach each other directly (a direct path
+needs both sides to send), so a transfer between them goes through a
+relay, at a fraction of the speed, and nothing tells the user why.
+Transfers over the internet are not affected (their direct paths go to
+public addresses), nor are Tailscale's 100.64.0.0/10 addresses (a `utun`
+interface, not a local network), nor two programs on one Mac (loopback).
 
 macOS decides; an app cannot make the permission required, ask a second
 time, or read its state. Once declined, it can only be allowed in System
-Settings → Privacy & Security → Local Network. The CLI is not affected the
-same way: run from Terminal it is Terminal's permission, over ssh none.
+Settings → Privacy & Security → Local Network. The permission belongs to
+the responsible process, keyed by the bundle identifier
+(`com.ourstick.OurStick`) and signature: WKWebView's helpers count as the
+app; the CLI, run from Terminal, has Terminal's; over ssh, none applies;
+`cargo tauri dev` has the terminal's, so this is tested in the signed
+bundle only.
+
+What asks, today: iroh's bind. Its portmapper (UPnP, NAT-PMP, PCP) talks to
+the router as soon as an endpoint is bound, and `sharing::start_app` binds
+the sticks' endpoints in `setup()` when any stick exists. So macOS asks at
+the app's first start, whatever the app is showing then.
 
 ## Decision
 
-Tell the user before macOS asks, and say so plainly whenever a declined
+Explain it before macOS asks, and say so plainly whenever a declined
 permission is what makes a transfer slow, with the way to fix it, until it
-is fixed. Nothing changes in the protocol or the transfers.
+is fixed. The protocol does not change.
 
-1. **Our own words in macOS's question.** `NSLocalNetworkUsageDescription`
-   in the bundle's `Info.plist` (Tauri merges `src-tauri/Info.plist`):
-   "OurStick sends sticks directly to computers on the same network. Without
-   this, they go through a relay server, much more slowly."
-2. **A step before macOS asks.** At the app's first start on macOS, before
-   any sharing or receiving starts networking, one screen: "OurStick will
-   ask to find devices on your local network. Allow it: sticks then go
-   straight to computers on the same network, much faster." `Continue`
-   then runs the probe (rule 3), which makes macOS ask at that moment
-   rather than in the middle of something else. Shown once (a row in
-   SQLite, not a file); not on Linux or Windows.
-3. **A probe: is it declined?** In `ourstick-core`, behind a trait
-   (`LocalNetwork::access() -> Access { Allowed, Declined, Unknown }`), the
-   macOS implementation sends one UDP datagram from an unbound socket to the
-   default gateway (or to the first private IPv4 of an attached network)
-   on the discard port; `EHOSTUNREACH` / `ENETUNREACH` right away means
-   declined, success means allowed (or not decided yet: the send itself
-   makes macOS ask), anything else unknown. Other systems: always
-   `Allowed`. It is run at most every 10 seconds, in `spawn_blocking`.
-   Tests use a fake.
-4. **Same network?** A peer is on this computer's network when one of its
-   IPv4 address hints is private (RFC 1918) and in the same /24 as one of
-   this endpoint's own private IPv4 addresses, or one of its IPv6 hints is
-   in the same /64 as one of ours (ULA or global). /24 and /64 are a
-   heuristic: a wider netmask is missed (no message), and a wrong match
-   alone shows nothing (rule 5 needs the other two). Reading the
-   interfaces' real prefixes would need `netwatch` as a direct dependency;
-   not now.
-5. **When it is said.** On a receiver (the app's received sticks view, a
-   transfer in progress), and on an owner (the activity line), when all
-   three hold for 10 seconds: the peer is on the same network (rule 4),
-   the path to it is the relay (`PathKind::Relay`), and the probe says
-   declined. The message stays while the three hold, and goes once the
-   permission is allowed (the probe says so) or the path becomes direct:
+1. **Our own words in macOS's question.** A new `src-tauri/Info.plist`
+   (Tauri merges it into the bundle's) with
+   `NSLocalNetworkUsageDescription`: "OurStick sends sticks directly to
+   computers on the same network. Without this, they go through a relay
+   server, much more slowly."
+2. **A step before macOS asks.** On macOS, at the first start of a version
+   with this ADR (a fresh install, or an upgrade: an earlier answer cannot
+   be read, rule 3 then tells), the window opens on one screen before
+   anything else: "OurStick will ask to find devices on your local network.
+   Allow it: sticks then go straight to computers on the same network,
+   much faster." `Continue`. The app binds no endpoint (`start_app` and
+   the receiving side wait) until `Continue`; so macOS asks right after
+   it, for the bind. Remembered in the `device` table (a new column,
+   `local_network_explained`, with its migration and `docs/schema.md`),
+   meaning only "the step was shown", never the permission's state. Not
+   on Linux or Windows.
+3. **Is it declined? A probe, to be proven on the Mac first.** In
+   `ourstick-core`, behind a trait (`LocalNetwork::access() -> Access`)
+   with a fake for tests and the macOS implementation in a
+   `cfg(target_os = "macos")` module, using `std::net::UdpSocket` only (no
+   new dependency): a socket connected to a private address of this
+   computer's own IPv4 network, neither its own nor the router's (`.254`
+   of its /24, else the next one down), sends twice, 100 ms apart, to
+   port 9 (discard). `ErrorKind::HostUnreachable` (`EHOSTUNREACH`) on both
+   gives `Declined`. Success
+   gives `NotDeclined`: allowed, or not answered yet (the send may be what
+   makes macOS ask). No private IPv4 on an attached interface (IPv6-only,
+   a VPN's full tunnel), or any other error, gives `Unknown`, never
+   `Declined`. Other systems: always `NotDeclined`. At most every 10
+   seconds, in `spawn_blocking`. A state counts only once two probes in a
+   row agree: while macOS's question is still open, sends are refused as
+   if declined. If the Mac shows that the probe cannot tell (`sendto`
+   succeeding while declined), the fallback is evidence instead: iroh's
+   own sends to the peer's private addresses failing with
+   `EHOSTUNREACH` (to be looked for in its metrics or logs), and this
+   ADR is amended before building.
+4. **Same network?** Each side asks iroh for the other's addresses,
+   `Endpoint::remote_info(peer).addrs()`: what iroh learned of the peer
+   over the relay (its candidate direct addresses, perhaps stale), a
+   snapshot, asked again at each 10-second check. On the reader this
+   includes the ticket's hints; on the owner it is the only source (the
+   ticket carries the owner's hints only). A peer is on this computer's
+   network when one of its addresses is private IPv4 (RFC 1918) in the
+   same /24 as one of this computer's own, or IPv6 (ULA or global, not
+   link-local) in the same /64; this computer's own addresses excluded
+   (the same Mac). /24 and /64 are a heuristic: a wider network is missed
+   (no message), and a wrong match alone shows nothing (rule 5 needs the
+   other two). The interfaces' real prefixes would come from `netwatch`
+   (already in `Cargo.lock` through iroh), but as a direct dependency it
+   needs approval; not asked for now.
+5. **When it is said, and where.** In the core, as facts, not words: for
+   a connection, "local network declined here" holds when, for 10
+   seconds, the peer is on the same network (rule 4), the path to it is
+   the relay (`PathKind::Relay`), and the probe says `Declined`. The
+   reader's progress and the owner's `ReaderActivity` carry it; the words,
+   the button and the delay's display belong to the app and the CLI (as
+   `serving/events.rs::relay_only_message` does). The app shows, on the
+   receiving view of that stick or the owner's activity line:
    > This is slow: the other computer is on your network, but OurStick
    > is not allowed to reach it. `Open Settings`
+   > (System Settings → Privacy & Security → Local Network)
    `Open Settings` opens
    `x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork`
-   (through the opener plugin). It replaces, for that peer, the generic
-   relay message (ADR 0006 v2, "Reader paths"): it is more precise.
-6. **The CLI** prints one line, once, under the same three conditions,
-   naming Terminal: "macOS does not let Terminal reach this network: allow
-   it in System Settings → Privacy & Security → Local Network."
+   through the opener plugin (its capability allowing that scheme); the
+   path under it stays in case the link fails. It takes the place of the
+   generic relay message for that peer. It goes when the probe says
+   `NotDeclined` or the path becomes direct; if the path stays on the
+   relay, the generic message returns (the other side may be the one
+   declined). Allowed while a connection is on the relay, a new
+   connection goes direct; the one going on may stay on the relay until
+   the next transfer, unless the app calls `Endpoint::network_change()`
+   when the probe turns `NotDeclined` (to be tried on the Mac). The
+   message names no text from the peer.
+6. **Only the declined side can know.** A Mac that declined, sharing to a
+   Linux or Windows reader on the same network: the reader's probe says
+   `NotDeclined`, so it shows the generic relay message; the owner shows
+   this one. Both Macs declined: each shows it; one allowing clears its
+   own. `docs/protocol.md` ("Reader paths") says that a Mac's declined
+   permission, on either side, looks like a firewall to the other, and
+   the generic message (ADR 0006 v2, `relay_reasons`) adds "If the other
+   computer is a Mac, it may need to allow OurStick on its local network."
+   when the peer is on the same network.
+7. **The CLI** prints one line, once, under the same facts (on `get`, and
+   on `share` from `ReaderActivity`), naming Terminal: "macOS does not let
+   Terminal reach this network: allow it in System Settings → Privacy &
+   Security → Local Network."
 
-## To verify on the Mac first (the permission is declined there now)
+## To verify on the Mac first
 
-- That the probe (rule 3) sees `EHOSTUNREACH` in the signed app, and
-  success once allowed; and whether the gateway is the right target on a
-  network with client isolation.
-- That the Settings URL opens the Local Network list on macOS 26.
-- That a running app, once allowed, reaches the peer directly without a
-  restart (iroh tries direct paths again by itself), and how soon.
-- That the probe at "Continue" (rule 2) makes macOS ask, and that rule 1's
-  text is what it shows. Asking again needs a new bundle identifier or a
-  reset of the privacy database; note how.
-- That two Macs (or a Mac and the Linux PC) on one Wi-Fi with the
-  permission declined really go through the relay, and with it allowed go
-  direct: the message must match what happens.
+The question is still open there (neither answer pressed yet): a build
+with the probe alone, run in the signed bundle, logging what it sees.
+
+- What the probe sees while macOS's question is open, after "Don't
+  Allow", and after allowing in Settings: `EHOSTUNREACH` synchronously or
+  not, on the first send or the second, with the router or another
+  address of the /24.
+- That the bind (portmapper) is what makes macOS ask, and that rule 1's
+  text is what it shows.
+- That the Settings link opens the Local Network list on macOS 26.
+- That once allowed, a new connection goes direct, and whether the one
+  going on does, with and without `network_change()`.
+- That the Linux PC and the Mac on one Wi-Fi, the Mac declined, really go
+  through the relay, and with it allowed go direct.
+- How to ask again for a test (a new bundle identifier, or a reset of the
+  privacy database); recorded here once tried.
 
 ## Tests
 
-The probe's result mapped from each error (a fake socket); same-network
-matching (private /24, a public address, a /16 neighbour not matched,
-IPv6 /64, no hints); the message's conditions as a small state machine
-over time (10 seconds, cleared by allowed or direct, not shown for a
-public peer); the first-start step shown once (SQLite row). The rest by
-hand, as above.
+The probe's result mapped from each error, and two-in-a-row agreement (a
+fake); same-network matching (private /24, a public address, a /16
+neighbour not matched, IPv6 /64, link-local ignored, our own address
+excluded, 100.64/10 not matched, no addresses); the facts over time (10
+seconds, cleared by `NotDeclined` or a direct path, not for a peer on
+another network); the step shown once and the endpoints bound only after
+it (the `device` column). The rest by hand, as above.
 
 ## Alternatives considered
 
@@ -98,7 +158,12 @@ hand, as above.
 - **Only the first-start step.** A user who declines, or changes it
   later, is back to slow transfers with no reason given.
 - **Only the message during a transfer.** It comes after the user has
-  already said no, often without reading; the step before it makes the
-  "yes" likely in the first place.
+  already said no, often without reading; the step makes the "yes"
+  likely in the first place.
 - **The message whenever the permission is declined.** Most transfers go
   over the internet, where it does not matter; telling then is noise.
+- **The reader's addresses in its signed progress report (ADR 0015)**, for
+  the owner's rule 4: a protocol change, and the reader's private
+  addresses sent on purpose; `remote_info` already has them.
+- **Detect only from iroh's failed sends.** No probe to prove, but it
+  depends on what iroh exposes; kept as the fallback of rule 3.

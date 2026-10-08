@@ -127,13 +127,9 @@ fn main() {
                 || store
                     .forgetting_joined_sticks()
                     .is_ok_and(|sticks| !sticks.is_empty());
-            if pending && local_network::must_explain(&state) {
-                // Nothing binds an endpoint before the window's Local
-                // Network step (ADR 0020): macOS asks right after it.
-                state
-                    .start_waits
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-            } else if pending {
+            // Its endpoints wait for the window's Local Network step, if
+            // due (ADR 0020): macOS asks right after it.
+            if pending {
                 sharing::start_app(app.handle());
             }
             sharing::watch_mount(app.handle());

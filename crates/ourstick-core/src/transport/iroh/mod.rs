@@ -22,7 +22,16 @@ use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayUrl, SecretKey, TransportAddr};
 
 use super::TransportError;
-use crate::local_network::{LocalNetwork, SystemLocalNetwork};
+use crate::local_network::{LocalNetwork, SharedProbe, SystemLocalNetwork};
+
+/// The system's probe, shared by every endpoint of the program: each stick
+/// has its own (ADR 0009), and one answer serves them all.
+fn system_probe() -> Arc<SharedProbe> {
+    static PROBE: std::sync::OnceLock<Arc<SharedProbe>> = std::sync::OnceLock::new();
+    PROBE
+        .get_or_init(|| Arc::new(SharedProbe::new(Arc::new(SystemLocalNetwork))))
+        .clone()
+}
 use crate::ticket::{AddressHint, NodeId, Ticket, MAX_ADDRESS_HINTS};
 
 pub use fetcher::{IrohConnection, IrohFetcher};
@@ -46,8 +55,9 @@ pub struct IrohConfig {
     secret_key: [u8; 32],
     network: Network,
     relays: Relays,
-    /// Asked whether macOS declines the local network (ADR 0020).
-    local_network: Arc<dyn LocalNetwork>,
+    /// Asked whether macOS declines the local network (ADR 0020): one for
+    /// the whole program unless a test gives another.
+    local_network: Arc<SharedProbe>,
 }
 
 /// Which relays a [`Network::Public`] node uses (ADR 0006: configurable, not
@@ -69,17 +79,17 @@ impl IrohConfig {
             secret_key,
             network,
             relays: Relays::default(),
-            local_network: Arc::new(SystemLocalNetwork),
+            local_network: system_probe(),
         }
     }
 
-    pub(super) fn local_network(&self) -> Arc<dyn LocalNetwork> {
+    pub(super) fn local_network(&self) -> Arc<SharedProbe> {
         self.local_network.clone()
     }
 
     /// What tells whether the local network is declined (a fake in tests).
     pub fn with_local_network(mut self, local_network: Arc<dyn LocalNetwork>) -> Self {
-        self.local_network = local_network;
+        self.local_network = Arc::new(SharedProbe::new(local_network));
         self
     }
 

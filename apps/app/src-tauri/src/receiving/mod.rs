@@ -176,6 +176,7 @@ async fn run(
     let store_dir = received_store_dir(&state.data_dir, &stick_id);
     // A reader needs no lasting identity: a fresh node key per run.
     let config = IrohConfig::new(random_key(), Network::Public);
+    crate::local_network::may_bind(&state).await;
     let fetcher = match IrohFetcher::start(&config, &store_dir).await {
         Ok(fetcher) => fetcher,
         Err(error) => {

@@ -4,7 +4,6 @@
 
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Instant;
 
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointId, TransportAddr};
@@ -68,7 +67,12 @@ pub(super) async fn watch_declined(
     let mut said = false;
     let mut ticker = tokio::time::interval(LOOK_EVERY);
     loop {
-        ticker.tick().await;
+        // Each look at its tick's time, so ten seconds of facts are told at
+        // the second look, not the third; until the connection closes.
+        let at = tokio::select! {
+            at = ticker.tick() => at.into_std(),
+            _ = connection.closed() => return,
+        };
         let relay = current_path(&connection) == PathKind::Relay;
         let same = relay && on_this_network(&endpoint, connection.remote_id()).await;
         // The probe only when it could matter.
@@ -77,7 +81,7 @@ pub(super) async fn watch_declined(
         } else {
             Access::Unknown
         };
-        let now = declined.check(same, relay, access, Instant::now());
+        let now = declined.check(same, relay, access, at);
         if now != said {
             said = now;
             tell(now);

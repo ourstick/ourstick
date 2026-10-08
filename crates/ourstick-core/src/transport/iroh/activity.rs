@@ -218,7 +218,7 @@ impl Activity {
                 only_relayed,
                 preparing: readers > 0 && preparing,
                 giving_way: readers > 0 && giving_way(),
-                local_network_declined: declined,
+                local_network_declined: readers > 0 && declined,
             };
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;

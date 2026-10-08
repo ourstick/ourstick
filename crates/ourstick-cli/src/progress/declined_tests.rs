@@ -17,4 +17,6 @@ fn a_declined_local_network_names_terminal_and_where_to_allow_it() {
     assert!(line.starts_with("[00:12] ") && line.contains("Terminal") && line.contains("Local"));
     let allowed = DownloadEvent::LocalNetworkDeclined { declined: false };
     assert!(progress.on_event(allowed, secs(30)).is_empty());
+    let again = DownloadEvent::LocalNetworkDeclined { declined: true };
+    assert!(progress.on_event(again, secs(40)).is_empty(), "once a run");
 }

@@ -1,12 +1,25 @@
 //! Whether a peer is on this computer's network (ADR 0020, rule 4): one of
 //! its addresses private IPv4 in the same /24 as one of ours, or IPv6 (not
 //! link-local) in the same /64; our own addresses are not a peer's (the
-//! same computer). A heuristic: a wider network is missed.
+//! same computer). Two homes on the same router defaults (192.168.1.x
+//! both) are told apart by their public IPv4 addresses, when both are
+//! known: one network is behind one. A heuristic: a wider network is
+//! missed.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Whether any of `theirs` is on the network of one of `ours`.
 pub fn same_network(ours: &[IpAddr], theirs: &[IpAddr]) -> bool {
+    let ours_public: Vec<&IpAddr> = ours.iter().filter(|ip| public_v4(ip)).collect();
+    let theirs_public: Vec<&IpAddr> = theirs.iter().filter(|ip| public_v4(ip)).collect();
+    if !ours_public.is_empty()
+        && !theirs_public.is_empty()
+        && !theirs_public
+            .iter()
+            .any(|theirs| ours_public.contains(theirs))
+    {
+        return false;
+    }
     theirs
         .iter()
         .filter(|theirs| !ours.contains(theirs))
@@ -22,6 +35,23 @@ fn neighbours(ours: &IpAddr, theirs: &IpAddr) -> bool {
             local_or_global(ours) && local_or_global(theirs) && same_64(ours, theirs)
         }
         _ => false,
+    }
+}
+
+/// A public IPv4 address: not private, loopback, link-local, unspecified
+/// or the shared 100.64.0.0/10 (carrier NAT, Tailscale).
+fn public_v4(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, ..] = ip.octets();
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || (a == 100 && (64..128).contains(&b)))
+        }
+        IpAddr::V6(_) => false,
     }
 }
 
@@ -76,6 +106,30 @@ mod tests {
         ));
         assert!(!same_network(&ips(&["192.168.1.20"]), &[]));
         assert!(!same_network(&[], &ips(&["192.168.1.20"])));
+    }
+
+    #[test]
+    fn two_homes_on_the_same_router_defaults_are_told_apart_by_their_public_address() {
+        // Both 192.168.1.x, behind different public addresses.
+        assert!(!same_network(
+            &ips(&["192.168.1.20", "203.0.113.10"]),
+            &ips(&["192.168.1.23", "198.51.100.7"])
+        ));
+        // Behind the same one: one network.
+        assert!(same_network(
+            &ips(&["192.168.1.20", "203.0.113.10"]),
+            &ips(&["192.168.1.23", "203.0.113.10"])
+        ));
+        // One side's public address unknown: by the /24 alone.
+        assert!(same_network(
+            &ips(&["192.168.1.20"]),
+            &ips(&["192.168.1.23", "198.51.100.7"])
+        ));
+        // A carrier NAT's shared range is not a public address.
+        assert!(same_network(
+            &ips(&["192.168.1.20", "100.70.1.1"]),
+            &ips(&["192.168.1.23", "100.80.2.2"])
+        ));
     }
 
     #[test]

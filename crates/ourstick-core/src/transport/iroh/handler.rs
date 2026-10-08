@@ -127,6 +127,9 @@ impl ProtocolHandler for BlobsHandler {
         }
         watch.abort();
         declined.abort();
+        // Ended before the connection is forgotten: a last "declined" told
+        // while it stopped would otherwise stay.
+        let _ = declined.await;
         self.events
             .connection_closed(|| ConnectionClosed { connection_id: id })
             .await

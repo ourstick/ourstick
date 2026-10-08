@@ -114,6 +114,7 @@ pub async fn preview_link(
         .collect();
     let blobs = state.data_dir.join("previews").join(hex);
     let config = IrohConfig::new(random_key(), Network::Public);
+    crate::local_network::may_bind(&state).await;
     let fetcher = IrohFetcher::start(&config, &blobs).await.map_err(|error| {
         tracing::warn!(%error, "a preview's networking");
         "This computer's network could not be started. Check it, then try again.".to_owned()

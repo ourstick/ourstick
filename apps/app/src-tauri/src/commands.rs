@@ -47,10 +47,7 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     })
     .await?;
     let first_launch = state.sticks_now().await.map_err(shown)?.is_empty() && !receives;
-    let explain_local_network = {
-        let state = state.inner();
-        crate::local_network::must_explain(state)
-    };
+    let explain_local_network = !*state.network_open.borrow();
     Ok(AppStateView {
         platform: std::env::consts::OS,
         first_launch,

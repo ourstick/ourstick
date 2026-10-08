@@ -49,15 +49,16 @@ impl SharedProbe {
         }
     }
 
-    /// What the probe says, asked again if its answer is older than
-    /// `LOOK_EVERY`; on a blocking thread.
+    /// What the probe says, asked again if its answer is from an earlier
+    /// look (a look every `LOOK_EVERY` asks anew; connections looking at
+    /// about the same time share one answer); on a blocking thread.
     pub async fn access(&self) -> Access {
         let cached = *self
             .last
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some((at, access)) = cached {
-            if at.elapsed() < LOOK_EVERY {
+            if at.elapsed() < LOOK_EVERY / 2 {
                 return access;
             }
         }
@@ -123,7 +124,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_probe_is_asked_at_most_every_ten_seconds() {
+    async fn the_probe_is_asked_once_per_look() {
         let counting = Arc::new(Counting(AtomicUsize::new(0)));
         let shared = SharedProbe::new(counting.clone());
         assert_eq!(shared.access().await, Access::Declined);

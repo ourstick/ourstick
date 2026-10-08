@@ -322,7 +322,7 @@ async fn report_readers(publisher: &IrohPublisher, started: Instant) {
         sending_slowly = now.giving_way;
         before = now.readers;
         relay_only_said |= now.only_relayed;
-        declined_said = now.local_network_declined;
+        declined_said |= now.local_network_declined;
     }
 }
 

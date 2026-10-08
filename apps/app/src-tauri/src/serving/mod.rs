@@ -85,6 +85,7 @@ pub async fn start(
     let config = IrohConfig::new(keys.node_key, Network::Public);
     // Transfers read through the disks' turns too (ADR 0017).
     let turns = app.state::<crate::state::AppState>().disks.clone();
+    crate::local_network::may_bind(&app.state::<crate::state::AppState>()).await;
     let publisher = IrohPublisher::start(&config, stick_id, &cache_dir, turns).await?;
     // Who has it (ADR 0015): readers' reports kept from the start.
     if let Some(reports) = publisher.take_reports() {

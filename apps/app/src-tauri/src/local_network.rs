@@ -14,18 +14,24 @@ use crate::state::AppState;
 const SETTINGS: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork";
 
-/// Whether the step is still to be shown: on macOS only, once per device.
-pub fn must_explain(state: &AppState) -> bool {
-    needs_step(
-        cfg!(target_os = "macos"),
-        state.local_network_explained.load(Ordering::Relaxed),
-        || state.store.local_network_explained().unwrap_or(false),
-    )
+/// Whether the step is due here: on macOS only, once per device. Blocking.
+pub fn step_due(store: &dyn ourstick_core::Store) -> bool {
+    needs_step(cfg!(target_os = "macos"), false, || {
+        store.local_network_explained().unwrap_or(false)
+    })
 }
 
 /// On `macos`, unless shown in this run or remembered.
 fn needs_step(macos: bool, shown_now: bool, remembered: impl FnOnce() -> bool) -> bool {
     macos && !shown_now && !remembered()
+}
+
+/// Waits, before an endpoint is bound, until the step is done (at once
+/// when there is none): macOS asks at the first bind, right after it.
+pub async fn may_bind(state: &AppState) {
+    let mut open = state.network_open.subscribe();
+    // The sender lives as long as the state: never closed while waiting.
+    let _ = open.wait_for(|open| *open).await;
 }
 
 /// Remembers the step, once the device exists (it may have been shown
@@ -38,19 +44,17 @@ pub fn remember(state: &AppState) {
     }
 }
 
-/// "Continue" on the step: remembered, and the sticks that waited for it
-/// start (macOS asks then, for the first endpoint bound).
+/// "Continue" on the step: every endpoint waiting binds now (macOS asks),
+/// and the step is remembered once the device exists.
 #[tauri::command]
-pub async fn local_network_explained(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn local_network_explained(state: State<'_, AppState>) -> Result<(), String> {
     state.local_network_explained.store(true, Ordering::Relaxed);
+    state.network_open.send_replace(true);
     let store = state.store.clone();
-    // False before the device is set up: remembered once it is.
-    blocking(move || Ok(store.set_local_network_explained()?)).await?;
-    if state.start_waits.swap(false, Ordering::Relaxed) {
-        crate::sharing::start_app(&app);
+    // False before the device is set up: remembered once it is. A failure
+    // only means the step comes again next time.
+    if let Err(error) = blocking(move || Ok(store.set_local_network_explained()?)).await {
+        tracing::warn!(%error, "the Local Network step could not be remembered");
     }
     Ok(())
 }
@@ -81,6 +85,39 @@ mod tests {
             !needs_step(false, false, || false),
             "not on Linux or Windows"
         );
+    }
+
+    fn state(open: bool) -> AppState {
+        use std::sync::Arc;
+        AppState {
+            data_dir: std::env::temp_dir(),
+            store: Arc::new(ourstick_core::MemoryStore::new()),
+            sticks: tokio::sync::Mutex::default(),
+            disks: Arc::new(ourstick_core::disk::turns::DiskTurns::new(Arc::new(
+                ourstick_core::disk::turns::SystemTimer::default(),
+            ))),
+            copying: std::sync::Mutex::default(),
+            local_network_explained: Default::default(),
+            network_open: tokio::sync::watch::Sender::new(open),
+        }
+    }
+
+    #[tokio::test]
+    async fn endpoints_wait_for_the_step_and_bind_once_it_is_done() {
+        let state = std::sync::Arc::new(state(false));
+        let waiting = {
+            let state = state.clone();
+            tokio::spawn(async move { may_bind(&state).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!waiting.is_finished(), "the step is not done yet");
+        state.network_open.send_replace(true);
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .expect("bound once the step is done")
+            .unwrap();
+        // With no step due, at once.
+        may_bind(&self::state(true)).await;
     }
 
     #[test]

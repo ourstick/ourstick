@@ -66,7 +66,9 @@ is fixed. The protocol does not change.
    router's ARP gave up): those, and "connection refused", are
    `NotDeclined`, never `Declined`. An unconnected `send_to` cannot tell
    the two apart (`EHOSTUNREACH` both ways), so it is not used. No private
-   IPv4 (IPv6-only, a VPN's full tunnel) or any other error: `Unknown`.
+   IPv4 (IPv6-only) or any other error: `Unknown`. A VPN's full tunnel
+   whose own address is private probes the tunnel, which macOS does not
+   gate: `NotDeclined`, a message missed, never a false one.
    Other systems: always `NotDeclined`. At most every 10 seconds, in
    `spawn_blocking`. Not answered yet looks the same as declined, so the
    app's first-start step (rule 2) is what keeps the message from showing
@@ -164,6 +166,25 @@ allowed; and how to ask again for a test.
 - The step is remembered in `device.local_network_explained`; on a first
   launch, before the device exists, it is kept for the run and written
   once the device is set up.
+- One place decides when the app may bind: `local_network::may_bind`,
+  awaited before every endpoint (a stick's publisher, a received stick's
+  fetcher, a link's preview), open once the step is done or not due. So
+  the tray's Start sharing or Mount, before the step, waits too. Until
+  "Continue", an upgraded Mac shares nothing: the window opens on the
+  step at start.
+- One probe for the whole program (each stick has its own endpoint, ADR
+  0009), one answer per look; each look counts at its tick's time, so the
+  message comes ten seconds after the facts begin, at the second look.
+- The same-network test also compares public IPv4 addresses when both
+  sides' are known: two homes on the same router defaults (192.168.1.x)
+  are not one network.
+- The owner's message only while someone downloads; a reader's watchers
+  end with its connection (closed, or dropped on an error).
+- A reader that connects again (to look for a direct path) starts its
+  facts afresh: the message goes for ten seconds, then comes back.
+- Not covered by the two-peer tests: on one machine a peer's addresses
+  are this computer's own, never "on this network", so the iroh glue
+  (`watch_declined`, `on_this_network`) is checked by hand on the Mac.
 
 ## Tests
 

@@ -45,6 +45,8 @@ fn describe(path: PathKind) -> &'static str {
 #[derive(Debug, Default)]
 pub struct Progress {
     path: Option<PathKind>,
+    /// The declined local network was told (ADR 0020): once a run.
+    declined_said: bool,
     total: u64,
     /// Sizes of the files of the current version finished in this run
     /// (each version tells every file again: those here as already here).
@@ -201,11 +203,14 @@ impl Progress {
                 untrusted(reason)
             )],
             // Run from Terminal, the CLI has Terminal's permission (ADR 0020).
-            DownloadEvent::LocalNetworkDeclined { declined: true } => vec![format!(
+            DownloadEvent::LocalNetworkDeclined { declined: true } if !self.declined_said => {
+                self.declined_said = true;
+                vec![format!(
                 "[{at}] The owner is on this network, but macOS does not let Terminal reach it: \
                  allow it in System Settings → Privacy & Security → Local Network."
-            )],
-            DownloadEvent::LocalNetworkDeclined { declined: false } => Vec::new(),
+                )]
+            }
+            DownloadEvent::LocalNetworkDeclined { .. } => Vec::new(),
             DownloadEvent::LookingForDirect => vec![format!(
                 "[{at}] Through the relay for a while: connecting again to look for a direct path \
                  (the download goes on where it was)."

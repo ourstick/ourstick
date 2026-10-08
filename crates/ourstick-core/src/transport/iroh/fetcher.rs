@@ -80,7 +80,7 @@ impl IrohFetcher {
             endpoint,
             batches,
             relay_description: config.relay_description(),
-            probe: Arc::new(SharedProbe::new(config.local_network())),
+            probe: config.local_network(),
         })
     }
 }
@@ -270,6 +270,14 @@ fn get_error(error: GetError) -> TransportError {
     }
 }
 
+/// Dropped without `close` (an error on the way): its watchers end too.
+impl Drop for IrohConnection {
+    fn drop(&mut self) {
+        self.watcher.abort();
+        self.declined_watcher.abort();
+    }
+}
+
 impl PeerConnection for IrohConnection {
     fn path(&self) -> PathKind {
         *self.path_receiver.borrow()
@@ -381,6 +389,7 @@ impl PeerConnection for IrohConnection {
     }
 
     async fn close(self) {
+        // The watchers end with the drop below too.
         self.watcher.abort();
         self.declined_watcher.abort();
         self.blobs.close(0u32.into(), b"bye");

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount, tick } from "svelte";
+  import { linkOnClipboard } from "./macApi";
   import {
     addReceived,
     chooseFolder,
@@ -57,11 +59,39 @@
     }
   }
 
+  let field: HTMLTextAreaElement;
+
+  /** As tall as the link: all of it shows, however long. */
+  function grow() {
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  }
+
   /** The link changed: what was shown is not of it any more. */
   function edited() {
+    grow();
     if (text !== looked) {
       preview = null;
       parent = null;
+    }
+  }
+
+  // A link the user just copied (from a message) is put in for them.
+  onMount(async () => {
+    const copied = await linkOnClipboard().catch(() => null);
+    if (copied && !text) {
+      text = copied;
+      await tick();
+      grow();
+      field.select();
+    }
+  });
+
+  /** Enter looks at the link, as in a one-line field; the link has no lines. */
+  function keydown(event: KeyboardEvent) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      field.form?.requestSubmit();
     }
   }
 
@@ -125,14 +155,17 @@
     <label>
       Paste the sharing link someone sent you
       <!-- svelte-ignore a11y_autofocus -->
-      <input
+      <textarea
+        bind:this={field}
         bind:value={text}
         oninput={edited}
+        onkeydown={keydown}
+        rows="1"
         autofocus
         disabled={looking || adding}
         spellcheck="false"
         autocomplete="off"
-      />
+      ></textarea>
     </label>
     <div class="row">
       <button type="button" onclick={onCancel} disabled={adding}>Cancel</button>
@@ -202,6 +235,12 @@
 </section>
 
 <style>
+  /* The whole link shows: it wraps anywhere and the field grows with it. */
+  textarea {
+    resize: none;
+    overflow: hidden;
+    word-break: break-all;
+  }
   .add {
     display: flex;
     flex-direction: column;

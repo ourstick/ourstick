@@ -170,8 +170,10 @@ select {
   padding: 0 12px;
 }
 
-/* A name is typed and selected like any text. */
-input {
+/* A name is typed and selected like any text; a link too, in a field that
+   grows with it. */
+input,
+textarea {
   font: inherit;
   color: var(--text);
   background: var(--card);
@@ -190,7 +192,12 @@ input[type="checkbox"] {
   accent-color: var(--accent);
 }
 
-input:focus {
+textarea {
+  padding: 6px 8px;
+}
+
+input:focus,
+textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }

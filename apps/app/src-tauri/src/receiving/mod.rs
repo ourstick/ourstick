@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::state::AppState;
 
 pub mod choice;
+pub mod clipboard;
 pub mod commands;
 mod holder;
 pub mod preview;

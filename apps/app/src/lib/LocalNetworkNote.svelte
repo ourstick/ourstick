@@ -1,7 +1,7 @@
 <script lang="ts">
   // ADR 0020: a transfer is slow because macOS declines OurStick the local
   // network, and the other computer is on it. Stays while that holds.
-  import { openLocalNetworkSettings } from "./api";
+  import { openLocalNetworkSettings } from "./macApi";
 
   let { other }: { other: string } = $props();
   let failure = $state<string | null>(null);

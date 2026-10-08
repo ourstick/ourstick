@@ -1,7 +1,7 @@
 <script lang="ts">
   // ADR 0020: on macOS, before anything reaches the network, so that macOS
   // asks right after "Continue", when the user expects it.
-  import { localNetworkExplained } from "./api";
+  import { localNetworkExplained } from "./macApi";
 
   let { onDone }: { onDone: () => void } = $props();
   let busy = $state(false);

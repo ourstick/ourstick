@@ -148,6 +148,7 @@ fn main() {
             problems::app_problem,
             receiving::commands::received,
             receiving::preview::preview_link,
+            receiving::clipboard::link_on_clipboard,
             receiving::commands::choose_folder,
             receiving::commands::add_received,
             receiving::commands::pause_received,

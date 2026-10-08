@@ -19,6 +19,8 @@ set -euo pipefail
 identity=${OURSTICK_SIGNING_IDENTITY:?set it to the Developer ID Application identity}
 profile=${OURSTICK_NOTARY_PROFILE:-ourstick-notary}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# rustup's folder, if the shell's profile does not add it.
+command -v cargo >/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
 
 if [ ! -f "$root/apps/app/dist/index.html" ]; then
   echo "apps/app/dist is missing: build the frontend and copy it here first." >&2

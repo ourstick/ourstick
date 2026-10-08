@@ -165,6 +165,28 @@ In the Apple Developer account (Certificates, Identifiers & Profiles):
   "Deny" on one of them.
 - That every link still works after the move, and after the deletion.
 
+## Seen on the Mac (2026-10-08, macOS 26.7, the MacBook)
+
+The app built by `make-dmg.sh` (0f568f9 and bf7efe5) with the profile and
+the entitlements, on a device whose row said `keychain`:
+
+- With no key yet, the move was silent; a stick made then
+  ("Test keychain") asked for no password. (A first try installed the
+  previous build instead: `make-dmg.sh` had stopped on the profile's
+  expiry, which `date` did not read in the Greek Terminal; now read in the
+  C locale.)
+- With that stick's three keys in the login keychain (made by the previous
+  build, signed with the same Developer ID): "One last password", Continue,
+  no password asked (the items already trusted that signature); the row
+  became `protected-keychain` with `old_keys_left = 1`, the three items
+  still in the login keychain.
+- Quit and opened again: no password; the three login-keychain items gone,
+  `old_keys_left = 0`; the stick shared, its keys read from the data
+  protection keychain.
+
+Still to see: a move from items an unsigned build made (macOS asks then,
+once per item), "Deny" on one of them, and an Intel Mac.
+
 ## Files that change
 
 `secrets/keyring.rs` (the protected store), `device.rs` (`open_secrets`),

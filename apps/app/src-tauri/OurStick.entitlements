@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ADR 0021: the data protection keychain, in the app's own access group.
+     Restricted: signed only by tools/macos/make-dmg.sh, with the Developer
+     ID provisioning profile embedded, or macOS refuses to start the app. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.application-identifier</key>
+	<string>HHL7R3Q3XB.com.ourstick.OurStick</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>HHL7R3Q3XB</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>HHL7R3Q3XB.com.ourstick.OurStick</string>
+	</array>
+</dict>
+</plist>

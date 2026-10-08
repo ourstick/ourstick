@@ -2,8 +2,10 @@
 //! declined, its sends to an address on an attached network fail at once,
 //! and a peer on the same network can only be reached through a relay.
 
+mod declined;
 mod same_network;
 
+pub use declined::{DeclinedHere, SharedProbe, DECLINED_AFTER, LOOK_EVERY};
 pub use same_network::same_network;
 
 use std::io;

@@ -120,6 +120,9 @@ pub struct ReaderActivity {
     /// using a disk their files are read from (ADR 0013; ADR 0017,
     /// amendment 1).
     pub giving_way: bool,
+    /// A reader on this computer's network stays on the relay because macOS
+    /// declines OurStick the local network here (ADR 0020).
+    pub local_network_declined: bool,
 }
 
 /// What readers ask for, as the owner's policy needs it (ADR 0007).

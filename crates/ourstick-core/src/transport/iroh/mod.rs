@@ -5,6 +5,7 @@ mod activity;
 mod batches;
 mod fetcher;
 mod handler;
+mod local_network;
 mod made_store;
 mod publisher;
 mod reader_paths;
@@ -15,11 +16,13 @@ mod serving;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayUrl, SecretKey, TransportAddr};
 
 use super::TransportError;
+use crate::local_network::{LocalNetwork, SystemLocalNetwork};
 use crate::ticket::{AddressHint, NodeId, Ticket, MAX_ADDRESS_HINTS};
 
 pub use fetcher::{IrohConnection, IrohFetcher};
@@ -43,6 +46,8 @@ pub struct IrohConfig {
     secret_key: [u8; 32],
     network: Network,
     relays: Relays,
+    /// Asked whether macOS declines the local network (ADR 0020).
+    local_network: Arc<dyn LocalNetwork>,
 }
 
 /// Which relays a [`Network::Public`] node uses (ADR 0006: configurable, not
@@ -64,7 +69,18 @@ impl IrohConfig {
             secret_key,
             network,
             relays: Relays::default(),
+            local_network: Arc::new(SystemLocalNetwork),
         }
+    }
+
+    pub(super) fn local_network(&self) -> Arc<dyn LocalNetwork> {
+        self.local_network.clone()
+    }
+
+    /// What tells whether the local network is declined (a fake in tests).
+    pub fn with_local_network(mut self, local_network: Arc<dyn LocalNetwork>) -> Self {
+        self.local_network = local_network;
+        self
     }
 
     /// Which relays to use with [`Network::Public`].

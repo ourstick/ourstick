@@ -170,7 +170,7 @@ impl Fetcher for IrohFetcher {
     }
 }
 
-fn current_path(connection: &Connection) -> PathKind {
+pub(super) fn current_path(connection: &Connection) -> PathKind {
     let paths = connection.paths();
     match paths.iter().find(|path| path.is_selected()) {
         Some(path) if is_relay(path.remote_addr()) => PathKind::Relay,

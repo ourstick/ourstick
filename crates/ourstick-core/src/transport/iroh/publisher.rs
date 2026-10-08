@@ -19,6 +19,7 @@ use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::report_protocol::{ReportServer, REPORT_ALPN, WAITING_REPORTS};
 use super::serving::{Serving, StoreId};
 use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
+use crate::local_network::SharedProbe;
 use crate::manifest::Manifest;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -123,13 +124,15 @@ impl IrohPublisher {
         });
         let (demand_sender, demand) = tokio::sync::mpsc::unbounded_channel();
         let (report_sender, reports) = tokio::sync::mpsc::channel(WAITING_REPORTS);
+        let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let handler = BlobsHandler::new(
             serving.clone(),
             activity.clone(),
             RELAY_ONLY_AFTER,
             demand_sender.clone(),
+            endpoint.clone(),
+            Arc::new(SharedProbe::new(config.local_network())),
         );
-        let endpoint: Endpoint = bind(config, Vec::new()).await?;
         let router = Router::builder(endpoint)
             .accept(iroh_blobs::ALPN, handler)
             .accept(

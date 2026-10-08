@@ -1,7 +1,7 @@
 //! What readers are doing, seen from the owner: how many are downloading right
 //! now, and how fast data leaves. Fed by iroh-blobs' transfer events.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -41,6 +41,8 @@ struct Counters {
     direct: bool,
     /// A reader stayed on the relay for a while, at least once.
     relay_only: bool,
+    /// Connections kept on the relay by a declined local network (ADR 0020).
+    declined: HashSet<u64>,
     /// When bytes last left, and when a reader was last told "not ready".
     sent_at: Option<Instant>,
     not_ready_at: Option<Instant>,
@@ -148,6 +150,17 @@ impl Activity {
         self.counters().relay_only = true;
     }
 
+    /// Whether a declined local network keeps the reader on `connection` on
+    /// the relay (ADR 0020).
+    pub(super) fn local_network_declined(&self, connection: u64, declined: bool) {
+        let mut counters = self.counters();
+        if declined {
+            counters.declined.insert(connection);
+        } else {
+            counters.declined.remove(&connection);
+        }
+    }
+
     /// A transfer on `connection` ended, completed or not.
     pub(super) fn ended(&self, connection: u64) {
         self.ended_at(connection, Instant::now());
@@ -160,6 +173,7 @@ impl Activity {
         counters.active.remove(&connection);
         counters.idle_since.remove(&connection);
         counters.waiting_since.remove(&connection);
+        counters.declined.remove(&connection);
     }
 
     fn ended_at(&self, connection: u64, now: Instant) {
@@ -181,13 +195,14 @@ impl Activity {
         loop {
             ticker.tick().await;
             let now = Instant::now();
-            let (readers, sent, only_relayed, preparing) = {
+            let (readers, sent, only_relayed, preparing, declined) = {
                 let mut counters = self.counters();
                 (
                     counters.readers(now),
                     counters.sent,
                     counters.only_relayed(),
                     counters.preparing(now),
+                    !counters.declined.is_empty(),
                 )
             };
             samples.push_back((now, sent));
@@ -203,6 +218,7 @@ impl Activity {
                 only_relayed,
                 preparing: readers > 0 && preparing,
                 giving_way: readers > 0 && giving_way(),
+                local_network_declined: declined,
             };
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;
@@ -323,6 +339,19 @@ mod tests {
         assert!(!only_relayed(&activity), "one direct reader is enough");
         activity.reached_only_by_relay();
         assert!(!only_relayed(&activity));
+    }
+
+    #[test]
+    fn a_declined_local_network_counts_while_its_connection_lasts() {
+        let activity = Activity::new();
+        let declined = |activity: &Activity| !activity.counters().declined.is_empty();
+        activity.local_network_declined(1, true);
+        activity.local_network_declined(2, true);
+        assert!(declined(&activity));
+        activity.local_network_declined(1, false);
+        assert!(declined(&activity), "still for the other");
+        activity.closed(2);
+        assert!(!declined(&activity), "a closed connection no longer counts");
     }
 
     #[test]

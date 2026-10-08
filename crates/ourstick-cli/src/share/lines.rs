@@ -297,9 +297,7 @@ mod tests {
         let busy = |readers| ReaderActivity {
             readers,
             bytes_per_second: 2_100_000,
-            only_relayed: false,
-            preparing: false,
-            giving_way: false,
+            ..ReaderActivity::default()
         };
         assert_eq!(
             readers_line(0, &busy(1), at).unwrap(),

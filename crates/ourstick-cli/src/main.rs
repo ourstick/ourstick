@@ -2,6 +2,7 @@
 
 mod display;
 mod get;
+mod link_input;
 mod ls;
 mod progress;
 mod qr;
@@ -42,7 +43,11 @@ files whose size and modification times changed since the last share;
 `get` never overwrites a file changed in its folder, and keeps files that left
 the stick. With --follow it keeps running and downloads every new version.
 
-Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'";
+Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'. A ticket
+given as an argument can be read by every user of this computer (ps), and
+its part after # is the stick's key: on a shared computer give `-` instead,
+and paste it when asked (it is not shown), or pipe it in
+(ourstick get - --out <folder> < link.txt).";
 
 enum Command {
     Share {
@@ -171,12 +176,18 @@ async fn run() -> Result<()> {
             secrets,
             rescan,
         } => share::run(&folder, name.as_deref(), secrets, rescan).await,
-        Command::List { ticket } => ls::run(&ticket).await,
+        Command::List { ticket } => match link_input::link_from(&ticket) {
+            Ok(link) => ls::run(&link).await,
+            Err(error) => Err(error),
+        },
         Command::Get {
             ticket,
             output,
             follow,
-        } => get::run(&ticket, output, follow).await,
+        } => match link_input::link_from(&ticket) {
+            Ok(link) => get::run(&link, output, follow).await,
+            Err(error) => Err(error),
+        },
         Command::Help => {
             println!("{USAGE}");
             Ok(())

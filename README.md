@@ -24,7 +24,12 @@ ourstick share <folder>                  # prints a link and a QR code, then ser
 ourstick ls '<link>'                     # lists the files
 ourstick get '<link>' [--out <folder>]   # downloads them; run again to resume
 ourstick get '<link>' --follow           # ... and every new version as it comes
+ourstick get - [--out <folder>]          # the link asked for (not shown), or piped in
 ```
+
+A link given as an argument can be read by every user of the computer (`ps`),
+and its part after `#` is the stick's key: on a shared computer, give `-` and
+paste it when asked, or `ourstick get - < link.txt`.
 
 While `share` runs, changes to the folder are shared as they happen; only
 files that changed are encrypted again (judged by size and modification

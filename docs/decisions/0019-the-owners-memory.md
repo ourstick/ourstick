@@ -107,7 +107,19 @@ rules 1–4 and the reviews' fixes:
 | heap at most | 176 MB | 116 MB |
 | RSS at most (under heaptrack) | 219 MB | 153 MB |
 
-Not the 90 MB expected: at the peak, the last publish, the pass's own
+Windows (the VM), 2026-10-08, the owner of the same 100 000 files from a
+fresh share, its own reader started once it had read them all, the
+versions before (d5e2309) and after, one after the other:
+
+| | before | after |
+|---|---|---|
+| working set at most | 124 MB | 93 MB |
+| private bytes at most | 84 MB | 59 MB |
+
+(Both readers were stopped after 80 minutes, at 62 000 and 69 000 files:
+the VM writes slowly; the owner's peak comes while it reads, before.)
+
+On Linux, not the 90 MB expected: at the peak, the last publish, the pass's own
 entries and their merge (rule 5) hold about 27 MB, the manifest's bytes
 being encoded 8 MB, the keeper's and the table's maps 12 MB, and about
 28 MB is iroh's and tokio's. Rule 5 is next if a stick of a million files

@@ -39,45 +39,29 @@ struct LinuxTray {
 
 struct Tray {
     app: AppHandle,
-    /// The green dot, laid over the icon while someone downloads.
-    dot: Vec<ksni::Icon>,
+    /// OurStick's glyph, white for GNOME's dark top bar, and with the green
+    /// dot while someone downloads (the same pictures as on Windows).
+    icon: Vec<ksni::Icon>,
+    active_icon: Vec<ksni::Icon>,
 }
 
-/// The icon theme's USB drive: it follows the panel's theme and size. Stands
-/// in until OurStick has its own tray icon.
-const ICON_NAME: &str = "drive-removable-media-usb";
-
-/// Size of the overlay, in pixels; the panel scales it to the icon.
-const DOT_SIZE: usize = 32;
-
-/// The green of the dot (#2EA44F, as on macOS).
-const DOT_GREEN: [u8; 3] = [0x2e, 0xa4, 0x4f];
-
-/// A green dot in the bottom right corner, as a StatusNotifierItem pixmap
-/// (ARGB32, big-endian), with a dark rim so that it reads on any icon.
-fn green_dot() -> Vec<ksni::Icon> {
-    let centre = DOT_SIZE as f32 * 0.75;
-    let radius = DOT_SIZE as f32 * 0.22;
-    let rim = 1.5;
-    let mut data = Vec::with_capacity(DOT_SIZE * DOT_SIZE * 4);
-    for y in 0..DOT_SIZE {
-        for x in 0..DOT_SIZE {
-            let distance =
-                ((x as f32 + 0.5 - centre).powi(2) + (y as f32 + 0.5 - centre).powi(2)).sqrt();
-            // Soft edge over one pixel.
-            let coverage = (radius + rim - distance + 0.5).clamp(0.0, 1.0);
-            let alpha = (coverage * 255.0).round() as u8;
-            let [red, green, blue] = if distance <= radius {
-                DOT_GREEN
-            } else {
-                [0x1a, 0x1a, 0x1a]
-            };
-            data.extend_from_slice(&[alpha, red, green, blue]);
+/// A PNG as a StatusNotifierItem pixmap: ARGB32, big-endian.
+fn pixmap(png: &[u8]) -> Vec<ksni::Icon> {
+    let image = match tauri::image::Image::from_bytes(png) {
+        Ok(image) => image,
+        Err(error) => {
+            tracing::warn!(%error, "the tray icon could not be read");
+            return Vec::new();
         }
-    }
+    };
+    let data = image
+        .rgba()
+        .chunks_exact(4)
+        .flat_map(|rgba| [rgba[3], rgba[0], rgba[1], rgba[2]])
+        .collect();
     vec![ksni::Icon {
-        width: DOT_SIZE as i32,
-        height: DOT_SIZE as i32,
+        width: image.width() as i32,
+        height: image.height() as i32,
         data,
     }]
 }
@@ -92,7 +76,8 @@ pub fn create(app: &AppHandle) -> Result<()> {
     });
     let tray = Tray {
         app: app.clone(),
-        dot: green_dot(),
+        icon: pixmap(include_bytes!("../../icons/tray-light.png")),
+        active_icon: pixmap(include_bytes!("../../icons/tray-light-active.png")),
     };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -231,15 +216,11 @@ impl ksni::Tray for Tray {
         "OurStick".into()
     }
 
-    fn icon_name(&self) -> String {
-        ICON_NAME.into()
-    }
-
-    fn overlay_icon_pixmap(&self) -> Vec<ksni::Icon> {
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         if self.shown().active {
-            self.dot.clone()
+            self.active_icon.clone()
         } else {
-            Vec::new()
+            self.icon.clone()
         }
     }
 
@@ -291,15 +272,18 @@ mod tests {
     }
 
     #[test]
-    fn the_dot_is_green_in_the_corner_and_clear_elsewhere() {
-        let dot = &green_dot()[0];
-        assert_eq!(dot.data.len(), DOT_SIZE * DOT_SIZE * 4);
-        let pixel = |x: usize, y: usize| {
-            let at = (y * DOT_SIZE + x) * 4;
-            &dot.data[at..at + 4]
+    fn the_icons_are_pixmaps_with_the_dot_only_when_active() {
+        let icon = &pixmap(include_bytes!("../../icons/tray-light.png"))[0];
+        let active = &pixmap(include_bytes!("../../icons/tray-light-active.png"))[0];
+        assert_eq!((icon.width, icon.height), (64, 64));
+        assert_eq!(icon.data.len(), 64 * 64 * 4);
+        let pixel = |icon: &ksni::Icon, x: usize, y: usize| {
+            let at = (y * 64 + x) * 4;
+            icon.data[at..at + 4].to_vec()
         };
-        // ARGB: opaque green at the dot's centre, clear at the top left.
-        assert_eq!(pixel(24, 24), &[255, 0x2e, 0xa4, 0x4f]);
-        assert_eq!(pixel(2, 2)[0], 0);
+        // ARGB: the dot's centre is opaque green only on the active icon.
+        assert_eq!(pixel(active, 51, 11), vec![255, 0x2e, 0xa4, 0x4f]);
+        assert_eq!(pixel(icon, 51, 11)[0], 0);
+        assert_eq!(pixel(icon, 1, 1)[0], 0);
     }
 }

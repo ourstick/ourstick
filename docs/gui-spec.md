@@ -223,8 +223,8 @@ so Spotlight leaves it alone.
 
 - At the first start of a version with ADR 0020, on macOS only, the window
   opens on one screen before anything else: "macOS will ask you a
-  question. Next, macOS will ask whether OurStick may find devices on your
-  local network. Please choose Allow…" `Continue`. Nothing binds an endpoint before it, so macOS asks right
+  question. Choose Allow, so OurStick can send data directly to nearby
+  computers, much faster." `Continue`. Nothing binds an endpoint before it, so macOS asks right
   after; shown once per device.
 - While a declined permission keeps the other computer, on this network,
   on the relay: on the received stick, or under a stick's activity, "This

@@ -14,7 +14,9 @@
       await moveKeys(later);
       onDone();
     } catch (error) {
-      failure = String(error);
+      // The core's words start in lower case, as its errors do.
+      const said = String(error);
+      failure = said.charAt(0).toUpperCase() + said.slice(1);
     } finally {
       busy = false;
     }

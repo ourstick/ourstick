@@ -167,10 +167,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   does not hide a file there). A user may delete it, and the stick then
   counts as ejected. Mark it hidden and system (`attrib +h +s`) when it is
   made, and on start for existing ones.
-- **Third-party licences in the packages.** Before the first public package,
-  ship a THIRD-PARTY notices file (e.g. made with `cargo about`), including
-  the Unicode-3.0 licence of the ICU crates (`icu_normalizer` for stick
-  names, already used by iroh through `url`/`idna`).
+- **Third-party licences:** done (2026-10-09). `THIRD-PARTY-LICENSES.html`
+  at the root, shipped in every package (`bundle.resources`); made again
+  with `tools/licenses/make.sh` whenever the dependencies change. Still to
+  do: a link to it from the app (an About line).
 - **The GUI mockup shows one stick.** `docs/gui-mockup.html` and its image
   predate the stick list and the `⋯` menu (step 7a-iii); redraw them once
   the manual round has settled the layout.

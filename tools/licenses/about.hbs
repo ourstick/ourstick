@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OurStick: third-party licences</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 52em; margin: 2em auto; padding: 0 1em; color: #222; background: #fff; }
+  pre { white-space: pre-wrap; background: #f6f6f6; padding: 1em; border-radius: 6px; font-size: 12px; }
+  h2 { margin-top: 2em; }
+  li { margin: 0.1em 0; }
+</style>
+</head>
+<body>
+<h1>Third-party licences</h1>
+<p>OurStick is made with these open-source libraries, each under the licence
+shown. Their source code is at crates.io (https://crates.io/crates/NAME) and
+in the repositories they name. OurStick's own code is under the Apache-2.0
+licence; the name OurStick is a trademark.</p>
+<h2>Licences used</h2>
+<ul>
+{{#each overview}}
+  <li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+{{/each}}
+</ul>
+{{#each licenses}}
+<h2 id="{{id}}">{{name}}</h2>
+<p>Used by:</p>
+<ul>
+{{#each used_by}}
+  <li>{{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}</li>
+{{/each}}
+</ul>
+<pre>{{text}}</pre>
+{{/each}}
+</body>
+</html>

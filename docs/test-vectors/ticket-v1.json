@@ -29,7 +29,7 @@
       "stick_key": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc",
       "public_part": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040bac020d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce10300c0a80114d1220120010db8000000000000000000000001d122021b68747470733a2f2f72656c61792e6578616d706c652e6f72672e2f220313b6",
       "secret_part": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc9ed7fa61",
-      "link": "https://ourstick.com/s/aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyidadakqaiu2eraciabbw4aaaaaaaaaaaaaaaaaaaoreibbw2duoryhgorpf5zgk3dbpexgk6dbnvygyzjon5zgolrpeibrhnq#lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgj5v72me"
+      "link": "https://ourstick.com/s/#aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyidadakqaiu2eraciabbw4aaaaaaaaaaaaaaaaaaaoreibbw2duoryhgorpf5zgk3dbpexgk6dbnvygyzjon5zgolrpeibrhnq.lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgj5v72me"
     },
     {
       "name": "no-hints",
@@ -42,7 +42,7 @@
       "stick_key": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcc",
       "public_part": "0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8235f6d24c29d114f2078f96bc86acdc95ef9038fc0d9761aadd8d2f89e0d040bac020d197521d9a48760576da1c87dfd828a60d397ea1e16f92a5b7c44b4f4060ce100ee8e9e2f",
       "secret_part": "5d71baf02e0b55b040acbcc2f3ba5dc193f7acef4e4120a29c3112b0d69debcce53b435c",
-      "link": "https://ourstick.com/s/aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyia52hj4ly#lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgoko2dlq"
+      "link": "https://ourstick.com/s/#aeb2cb576phbbpq5odorrz2lycmwpzgwgcn2kdk7dxoimzaskuy3qi27nusmfhirj4qhr6llzbvm3sk67eby7qgzoynk3wgs7cpa2balvqba2glvehm2jb3ak5w2dsd57wbiuygts7vb4fxzfjnxyrfu6qdazyia52hj4ly.lvy3v4bobnk3aqfmxtbphos5ygj7plhpjzasbiu4gejlbvu55pgoko2dlq"
     }
   ],
   "records": [

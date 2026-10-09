@@ -28,8 +28,8 @@ ourstick get - [--out <folder>]          # the link asked for (not shown), or pi
 ```
 
 A link given as an argument can be read by every user of the computer (`ps`),
-and its part after `#` is the stick's key: on a shared computer, give `-` and
-paste it when asked, or `ourstick get - < link.txt`.
+and it carries the stick's key: on a shared computer, give `-` and paste it
+when asked, or `ourstick get - < link.txt`.
 
 While `share` runs, changes to the folder are shared as they happen; only
 files that changed are encrypted again (judged by size and modification

@@ -1,5 +1,6 @@
-# Nothing from other sites, ever: the link page holds a stick's key in its
-# address (after "#"), which any script it loaded could read.
+# Nothing from other sites, ever: the link page holds a whole ticket, the
+# stick's key included, in its address (after "#"), which any script it
+# loaded could read.
 /*
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Referrer-Policy: no-referrer
@@ -8,5 +9,3 @@
 /THIRD-PARTY-LICENSES.html
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
-/s/*
-  Cache-Control: no-store

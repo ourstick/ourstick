@@ -19,7 +19,7 @@ from Crypto.Signature import eddsa
 
 TICKET_FORMAT_VERSION = 1
 RECORD_FORMAT_VERSION = 1
-LINK_PREFIX = "https://ourstick.com/s/"
+LINK_PREFIX = "https://ourstick.com/s/#"
 RECORD_CONTEXT = b"OurStick manifest record v1\x00"
 
 
@@ -80,7 +80,7 @@ def ticket_vector(name: str, seed: bytes, node_id: bytes, manifest_seq: int,
         "stick_key": stick_key.hex(),
         "public_part": public.hex(),
         "secret_part": secret.hex(),
-        "link": f"{LINK_PREFIX}{base32(public)}#{base32(secret)}",
+        "link": f"{LINK_PREFIX}{base32(public)}.{base32(secret)}",
     }
 
 

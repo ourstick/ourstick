@@ -29,7 +29,7 @@ mod tests {
     fn only_a_whole_link_is_taken() {
         assert_eq!(link_in(""), None);
         assert_eq!(link_in("hello"), None);
-        assert_eq!(link_in("https://ourstick.com/s/not-a-link"), None);
+        assert_eq!(link_in("https://ourstick.com/s/#not-a-link"), None);
     }
 
     #[test]

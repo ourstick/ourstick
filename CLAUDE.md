@@ -56,8 +56,9 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
   και έχει δικό του hash. Ο παραλήπτης το κατεβάζει πρώτο.
 - **Ticket**: ό,τι χρειάζεται ο παραλήπτης. Το ticket έχει δημόσιο μέρος (StickId, NodeId,
   address hints, manifest seq και hash ως hint) και μυστικό μέρος (StickKey). Κωδικοποιείται
-  σε string (base32) και σε QR, και ως `https://ourstick.com/s/<δημόσιο>#<μυστικό>`. Το μυστικό
-  ζει μόνο στο fragment, ποτέ σε query ή path. Ποτέ custom scheme `ourstick://` που κουβαλά κλειδί.
+  σε string (base32) και σε QR, και ως `https://ourstick.com/s/#<δημόσιο>.<μυστικό>`. Όλο το
+  ticket (και το δημόσιο μέρος, που έχει τις διευθύνσεις του αποστολέα) ζει μόνο στο fragment,
+  ποτέ σε query ή path. Ποτέ custom scheme `ourstick://` που κουβαλά κλειδί.
   Ένα ticket ΔΕΝ πρέπει ποτέ να καταγράφεται σε log.
 - **Peer**: κόμβος που συμμετέχει σε ένα stick. Ρόλοι: `Owner`, `Reader`, `Seed`.
   Ο cloud/self-hosted seed είναι απλώς ένας Peer με ρόλο Seed. Το πρωτόκολλο δεν τον ξεχωρίζει.

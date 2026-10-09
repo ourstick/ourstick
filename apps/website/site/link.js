@@ -1,10 +1,13 @@
-// The page a sharing link opens without the app. The part after "#" is the
-// stick's key: the browser never sends it to us, and this page only copies
-// it to the clipboard when asked. It is never sent, stored or shown.
+// The page a sharing link opens without the app,
+// https://ourstick.com/s/#<public>.<secret>. All of it after "#" (the stick's
+// key, and who and where the sender is): the browser never sends it to us,
+// and this page only copies it to the clipboard when asked. It is never
+// sent, stored or shown.
 (function () {
   var button = document.getElementById("copy");
   var said = document.getElementById("copied");
-  if (!location.hash) {
+  // Punctuation a chat app left at its end is not part of it (the app drops it).
+  if (!/^#[a-z2-7]+\.[a-z2-7]+[.,;:!?)\]}>"'`]*$/i.test(location.hash)) {
     document.getElementById("have-it").hidden = true;
     document.getElementById("broken").hidden = false;
     return;

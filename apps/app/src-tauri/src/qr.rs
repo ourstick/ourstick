@@ -56,7 +56,7 @@ pub fn rgba(text: &str, scale: usize) -> Result<(Vec<u8>, u32, u32)> {
 mod tests {
     use super::*;
 
-    const LINK: &str = "https://ourstick.com/s/EXAMPLEPUBLICPART#examplesecretpart";
+    const LINK: &str = "https://ourstick.com/s/#EXAMPLEPUBLICPART.examplesecretpart";
 
     #[test]
     fn the_svg_has_one_square_per_dark_module() {

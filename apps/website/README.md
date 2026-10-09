@@ -1,10 +1,10 @@
 # ourstick.com
 
 The static site: the home page with the downloads, the page a sharing link
-opens without the app (`/s/<public>#<secret>`), privacy, and the third-party
+opens without the app (`/s/#<public>.<secret>`), privacy, and the third-party
 licences. Served by Cloudflare Pages. Nothing on it loads from other sites:
-the link page holds a stick's key in its address, after `#`, which any
-foreign script could read (`site/_headers`).
+the link page holds a whole ticket, the stick's key included, in its
+address after `#`, which any foreign script could read (`site/_headers`).
 
 ## Deploying
 
@@ -25,8 +25,8 @@ scripts.
 
 ## Checking a deploy
 
-- `https://ourstick.com/s/abc#xyz` shows "Someone sent you a stick", and
-  `https://ourstick.com/s/abc` shows "This link is not whole".
+- `https://ourstick.com/s/#abc.xyz` shows "Someone sent you a stick", and
+  `https://ourstick.com/s/#abc` shows "This link is not whole".
 - The browser's console shows no CSP errors, and the response headers have
   the `Content-Security-Policy` of `_headers`.
 - `THIRD-PARTY-LICENSES.html` has its styles.

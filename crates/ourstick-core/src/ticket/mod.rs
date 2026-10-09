@@ -1,8 +1,9 @@
 //! A ticket is everything a reader needs to open a stick.
 //!
 //! It has a public part (who and where) and a secret part (the key), and is
-//! shared as `https://ourstick.com/s/<public>#<secret>`. The secret lives only in
-//! the URL fragment. See `docs/protocol.md` for the byte layout.
+//! shared as `https://ourstick.com/s/#<public>.<secret>`. Both live only in the
+//! URL fragment, which no browser sends to a server. See `docs/protocol.md`
+//! for the byte layout.
 //!
 //! A ticket grants read access to whoever holds it. It must never be logged:
 //! `Debug` hides the key, and there is no `Display`, only [`Ticket::to_link`].
@@ -102,11 +103,11 @@ impl fmt::Debug for Ticket {
 /// Why a ticket could not be read or written. The messages are meant for users.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TicketError {
-    #[error("this is not an OurStick ticket (expected {LINK_PREFIX}…#…)")]
+    #[error("this is not an OurStick ticket (expected {LINK_PREFIX}…)")]
     NotATicket,
     #[error("the ticket is too long to be an OurStick ticket")]
     TooLong,
-    #[error("the ticket has no key after '#'; was the whole link copied?")]
+    #[error("the ticket has no key at its end; was the whole link copied?")]
     MissingSecret,
     #[error("the ticket is damaged or incomplete; ask for it again")]
     PublicPartDamaged,

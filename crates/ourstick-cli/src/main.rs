@@ -43,9 +43,9 @@ files whose size and modification times changed since the last share;
 `get` never overwrites a file changed in its folder, and keeps files that left
 the stick. With --follow it keeps running and downloads every new version.
 
-Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/…#…'. A ticket
+Quote the ticket, e.g. ourstick get 'https://ourstick.com/s/#…'. A ticket
 given as an argument can be read by every user of this computer (ps), and
-its part after # is the stick's key: on a shared computer give `-` instead,
+it carries the stick's key: on a shared computer give `-` instead,
 and paste it when asked (it is not shown), or pipe it in
 (ourstick get - --out <folder> < link.txt).";
 

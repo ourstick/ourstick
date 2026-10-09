@@ -409,15 +409,26 @@ implementation against them.
 ### Text form
 
 ```
-https://ourstick.com/s/<public>#<secret>
+https://ourstick.com/s/#<public>.<secret>
 ```
 
 `<public>` and `<secret>` are the byte strings below in base32 (RFC 4648
 alphabet, lowercase, no padding). Decoders accept either case, and also accept
-the bare form `<public>#<secret>` without the `https://ourstick.com/s/` prefix.
+the bare form `<public>.<secret>` without the `https://ourstick.com/s/#` prefix
+(text without the prefix counts as a ticket only if its public part is at
+least 164 characters, the shortest one: "notes.txt" is not a damaged ticket).
+Punctuation around a link (`(…)`, `<…>`, a final `.` or `,`) is ignored:
+neither base32 nor the prefix begins or ends with it.
+Our site's address with less after it (`https://ourstick.com/s/`, or with
+anything else in its path) is a link cut short: "damaged or incomplete".
 
-The secret lives only in the URL fragment, which browsers never send to a
-server. It never goes in the path or query. There is no custom URL scheme
+The whole ticket lives in the URL fragment, which browsers never send to a
+server: the site that serves the page a link opens (ourstick.com, and the
+link previews of chat apps that fetch it) learns neither the key nor who and
+where the sender is (the public part holds the sender's node id and network
+addresses). Nothing of a ticket goes in the path or query. (Until 2026-10-09,
+before any release, the public part was in the path; that form is no longer
+read.) There is no custom URL scheme
 (`ourstick://`) carrying a key: any app could claim such a scheme and receive it.
 Tickets are never written to logs.
 

@@ -188,11 +188,11 @@ mod tests {
 
     #[test]
     fn the_mail_carries_the_whole_link_encoded() {
-        let link = "https://ourstick.com/s/ABC#secret";
+        let link = "https://ourstick.com/s/#ABC.secret";
         let url = mailto(link);
         assert!(url.starts_with("mailto:?subject=A%20stick%20for%20you&body="));
         // '#', '/', ':' and newlines must not end or split the URL.
-        assert!(url.contains("https%3A%2F%2Fourstick.com%2Fs%2FABC%23secret"));
+        assert!(url.contains("https%3A%2F%2Fourstick.com%2Fs%2F%23ABC.secret"));
         assert!(!url[7..].contains(['#', '/', '\n', ' ']));
     }
 }

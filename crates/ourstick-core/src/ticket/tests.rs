@@ -32,7 +32,7 @@ fn link() -> String {
 fn split(link: &str) -> (&str, &str) {
     link.strip_prefix(LINK_PREFIX)
         .unwrap()
-        .split_once('#')
+        .split_once('.')
         .unwrap()
 }
 
@@ -65,20 +65,6 @@ fn link_has_expected_shape() {
 }
 
 #[test]
-fn key_is_only_in_the_fragment() {
-    let link = link();
-    let (before_fragment, _) = link.split_once('#').unwrap();
-    assert!(!before_fragment.contains('?'));
-
-    let (public, _) = split(&link);
-    let public = data_encoding::BASE32_NOPAD
-        .decode(public.to_ascii_uppercase().as_bytes())
-        .unwrap();
-    let key = ticket().stick_key;
-    assert!(!public.windows(32).any(|window| window == key.as_bytes()));
-}
-
-#[test]
 fn link_is_deterministic() {
     assert_eq!(link(), link());
 }
@@ -103,7 +89,16 @@ fn debug_hides_key() {
 
 #[test]
 fn parse_reports_not_a_ticket() {
-    for text in ["", "hello", "#abc", "https://example.com/s/abc#def"] {
+    for text in [
+        "",
+        "hello",
+        "#abc",
+        "https://example.com/s/#abc.def",
+        "https://ourstick.com/",
+        "notes.txt",
+        "example.com",
+        "a.b",
+    ] {
         assert_eq!(
             text.parse::<Ticket>(),
             Err(TicketError::NotATicket),
@@ -115,8 +110,9 @@ fn parse_reports_not_a_ticket() {
 #[test]
 fn parse_reports_missing_secret() {
     let link = link();
-    let (without_secret, _) = link.split_once('#').unwrap();
-    for text in [without_secret.to_owned(), format!("{without_secret}#")] {
+    // The last dot: "ourstick.com" has one too.
+    let (without_secret, _) = link.rsplit_once('.').unwrap();
+    for text in [without_secret.to_owned(), format!("{without_secret}.")] {
         assert_eq!(
             text.parse::<Ticket>(),
             Err(TicketError::MissingSecret),
@@ -130,7 +126,7 @@ fn parse_reports_damaged_public_part() {
     let link = link();
     let (public, secret) = split(&link);
 
-    let truncated = format!("{}#{secret}", &public[..public.len() - 8]);
+    let truncated = format!("{}.{secret}", &public[..public.len() - 8]);
     assert_eq!(
         truncated.parse::<Ticket>(),
         Err(TicketError::PublicPartDamaged)
@@ -138,7 +134,7 @@ fn parse_reports_damaged_public_part() {
 
     let mut changed: Vec<char> = public.chars().collect();
     changed[10] = if changed[10] == 'a' { 'b' } else { 'a' };
-    let changed = format!("{}#{secret}", changed.iter().collect::<String>());
+    let changed = format!("{}.{secret}", changed.iter().collect::<String>());
     assert_eq!(
         changed.parse::<Ticket>(),
         Err(TicketError::PublicPartDamaged)
@@ -146,11 +142,11 @@ fn parse_reports_damaged_public_part() {
 
     // Not base32: damaged if it carries our prefix, otherwise not a ticket at all.
     assert_eq!(
-        format!("{LINK_PREFIX}not-base32!#{secret}").parse::<Ticket>(),
+        format!("{LINK_PREFIX}not-base32!.{secret}").parse::<Ticket>(),
         Err(TicketError::PublicPartDamaged)
     );
     assert_eq!(
-        format!("not-base32!#{secret}").parse::<Ticket>(),
+        format!("not-base32!.{secret}").parse::<Ticket>(),
         Err(TicketError::NotATicket)
     );
 }
@@ -160,10 +156,10 @@ fn parse_reports_damaged_secret_part() {
     let link = link();
     let (public, secret) = split(&link);
 
-    let truncated = format!("{public}#{}", &secret[..secret.len() - 1]);
+    let truncated = format!("{public}.{}", &secret[..secret.len() - 1]);
     let mut changed: Vec<char> = secret.chars().collect();
     changed[0] = if changed[0] == 'a' { 'b' } else { 'a' };
-    let changed = format!("{public}#{}", changed.iter().collect::<String>());
+    let changed = format!("{public}.{}", changed.iter().collect::<String>());
     for text in [truncated, changed] {
         assert_eq!(
             text.parse::<Ticket>(),
@@ -187,7 +183,7 @@ fn parse_rejects_secret_from_another_ticket() {
     let link = link();
     let (public, _) = split(&link);
     assert_eq!(
-        format!("{public}#{other_secret}").parse::<Ticket>(),
+        format!("{public}.{other_secret}").parse::<Ticket>(),
         Err(TicketError::SecretPartDamaged)
     );
 }
@@ -212,7 +208,7 @@ fn link_from_public(public: &[u8]) -> String {
             .encode(bytes)
             .to_ascii_lowercase()
     };
-    format!("{LINK_PREFIX}{}#{}", encode(public), encode(&secret))
+    format!("{LINK_PREFIX}{}.{}", encode(public), encode(&secret))
 }
 
 #[test]
@@ -292,7 +288,7 @@ fn writer_and_reader_enforce_hint_rules() {
 
 #[test]
 fn parse_rejects_very_long_input_early() {
-    let text = format!("{LINK_PREFIX}{}#abc", "a".repeat(5000));
+    let text = format!("{LINK_PREFIX}{}.abc", "a".repeat(5000));
     assert_eq!(text.parse::<Ticket>(), Err(TicketError::TooLong));
 }
 
@@ -357,3 +353,5 @@ fn manifest_seq_roundtrips_at_the_extremes() {
         assert_eq!(parsed.manifest_hint.seq, seq);
     }
 }
+
+mod link_form;

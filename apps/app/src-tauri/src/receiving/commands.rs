@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn a_wrong_link_is_refused_without_repeating_it() {
-        let secret = "https://ourstick.com/s/abc#very-secret-key";
+        let secret = "https://ourstick.com/s/#abc.very-secret-key";
         let refused = ticket_of(secret).unwrap_err();
         assert!(!refused.contains("very-secret-key"), "{refused}");
         assert!(refused.contains("sharing link"));

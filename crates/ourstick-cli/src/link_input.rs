@@ -40,16 +40,16 @@ mod tests {
     #[test]
     fn a_link_given_as_an_argument_is_taken_as_it_is() {
         assert_eq!(
-            link_from("https://ourstick.com/s/a#b").unwrap(),
-            "https://ourstick.com/s/a#b"
+            link_from("https://ourstick.com/s/#a.b").unwrap(),
+            "https://ourstick.com/s/#a.b"
         );
     }
 
     #[test]
     fn the_first_line_with_text_is_the_link() {
         assert_eq!(
-            first_line("\n  https://ourstick.com/s/a#b  \nmore\n").unwrap(),
-            "https://ourstick.com/s/a#b"
+            first_line("\n  https://ourstick.com/s/#a.b  \nmore\n").unwrap(),
+            "https://ourstick.com/s/#a.b"
         );
         assert!(first_line(" \n\n").is_err());
     }

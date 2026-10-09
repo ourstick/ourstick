@@ -81,7 +81,7 @@ mod tests {
         grid
     }
 
-    const LINK: &str = "https://ourstick.com/s/EXAMPLEPUBLICPART#examplesecretpart";
+    const LINK: &str = "https://ourstick.com/s/#EXAMPLEPUBLICPART.examplesecretpart";
 
     #[test]
     fn lines_hold_exactly_the_code_and_its_quiet_zone() {
@@ -114,7 +114,7 @@ mod tests {
     fn a_real_ticket_fits_in_a_terminal() {
         // As long as a real ticket with IPv4 and IPv6 address hints (417).
         let link = format!(
-            "https://ourstick.com/s/{}#{}",
+            "https://ourstick.com/s/#{}.{}",
             "A".repeat(360),
             "b".repeat(52)
         );

@@ -6,14 +6,14 @@ Drop folders into a stick, send a link or QR code, and the other person sees
 and downloads the files on their PC or phone — as if you handed them a USB stick.
 Peer-to-peer, end-to-end encrypted, no accounts, no size limits.
 
-> Early development. The command-line tool works; the apps do not exist yet.
+> Early development. Download the desktop app at https://ourstick.com.
 
 ## Status
 
 - [x] Core library (manifest, cipher, ticket, store, transport)
 - [x] CLI: `ourstick share` / `ourstick ls` / `ourstick get`
 - [x] The stick follows changes to the shared folder
-- [ ] Desktop app (Linux, Windows, macOS)
+- [x] Desktop app (Linux, Windows, macOS on Apple silicon)
 - [ ] Android
 - [ ] iOS
 

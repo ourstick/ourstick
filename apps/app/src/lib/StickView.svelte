@@ -169,7 +169,7 @@
 
 <section class="view">
   <header class="row spread">
-    <h1 title={current?.name}><span class="drive" aria-hidden="true">▭</span> {current?.name ?? ""}</h1>
+    <h1 title={current?.name}>{current?.name ?? ""}</h1>
     {#if current}
       <div class="row">
         <div class="menu-box">
@@ -308,9 +308,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .drive {
-    font-weight: 400;
   }
   .drop-box {
     flex-shrink: 0;

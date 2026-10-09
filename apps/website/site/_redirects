@@ -1,0 +1,2 @@
+# A sharing link, https://ourstick.com/s/<public>#<secret>, opens one page.
+/s/* /s/index.html 200

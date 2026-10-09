@@ -81,13 +81,12 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **Linux without our usual desktop:** an X11 session, and GNOME without
       the AppIndicator extension. The app must not crash; without a tray host
       it logs why and the window stays reachable.
-- [ ] **Packages:** `.deb` (with a proper `.desktop` file and icon), `.dmg`,
-      `.msi`.
-- [ ] **macOS signing,** once there is an Apple Developer account: a signed
-      app keeps its keychain access across updates.
-- [ ] **macOS data protection keychain** (apple-native-keyring-store's
-      `protected` store), which needs the signed app's entitlements and never
-      prompts.
+- [ ] **Packages:** `.deb` (with a proper `.desktop` file and icon). The
+      `.dmg` (`tools/macos/make-dmg.sh`, signed and notarized) and the
+      Windows `.msi` and NSIS installer are made.
+- [x] **macOS signing** (2026-10-08): Developer ID, notarized; see ADR 0021.
+- [x] **macOS data protection keychain** (2026-10-08, ADR 0021): the keys
+      moved, never asked for again.
 - [ ] **The relay-only message, seen for real:** a reader that cannot come
       directly (e.g. both sides behind strict NATs), downloading for over
       30 s; the app must show how to allow OurStick through the firewall
@@ -154,30 +153,11 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   same folder back reads all of it again (104 GB on a slow disk, twice in the
   test). Keep the records of a removed entry for a while, keyed by its path,
   and reuse them if the same path is linked again with unchanged stamps.
-- **macOS: the Local Network permission must not be skipped** (seen on
-  2026-10-08 with the first signed build). Declined, two computers on one
-  network cannot reach each other directly, and a transfer between them
-  goes through a relay, slowly. macOS lets anyone decline it, so the app
-  must: explain it before macOS asks (a step of its own at first start,
-  and `NSLocalNetworkUsageDescription` in the bundle's Info.plist instead
-  of the generic text), notice when it was declined, and then say so
-  plainly with a button that opens System Settings → Privacy & Security →
-  Local Network, until it is allowed.
 - **macOS asks for the Downloads folder** ("OurStick requests access to
   files in the Downloads folder", 2026-10-08), for sticks received there,
   with macOS's generic text (our own, `NSDownloadsFolderUsageDescription`,
   is in `src-tauri/Info.plist` since ADR 0020); ask only when a stick is
   first received there, not at start.
-- **The signed app asked for the keychain password 14 times** at its
-  first start (2026-10-08): once per keychain item (3 for each stick of
-  its own, 1 for each received, 1 for the device), as a new program. Check that a
-  restart and the next signed build ask nothing; then move the keys to
-  the data protection keychain (below), which never asks.
-- **macOS asks for the keychain password once per key, again after every
-  unsigned build** (seen on the Mac: "many times", for the stick's three
-  keys). Sign the app with a Developer ID before the first release, so
-  updates keep the keychain's permission; and consider one keychain item per
-  stick (its keys together) so a new program asks once per stick.
 - **Windows: Explorer calls the stick "Windows (O:)"**, the label of the
   disk that holds its folder, since a `subst` letter has none of its own.
   Give the letter the name "OurStick" per user (HKCU `...\Explorer\

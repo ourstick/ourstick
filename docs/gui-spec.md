@@ -388,13 +388,9 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 
 ## Before the first public release
 
-- **Sign the macOS app with an Apple Developer ID, and notarize it.** An
-  unsigned build looks like a different program after every rebuild, so the
-  keychain asks the user to allow access to OurStick's keys again, once per
-  key (seen in the manual round: three prompts after a rebuild). A signed app
-  is recognised across updates and never asks. Better still, move the keys to
-  the data protection keychain (apple-native-keyring-store's `protected`
-  store), which needs the signed app's entitlements and never prompts.
+- ~~Sign the macOS app with an Apple Developer ID, and notarize it~~:
+  done (2026-10-08), with the keys in the data protection keychain, which
+  never asks (ADR 0021).
 - Our own relays (ADR 0006).
 - **Sign the Windows installers** (MSI and NSIS). Unsigned, SmartScreen warns
   of an unknown publisher on download and on first start.

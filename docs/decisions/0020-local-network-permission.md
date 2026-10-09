@@ -158,7 +158,10 @@ Wi-Fi (2026-10-08), the Mac's permission declined before the app started:
   sent first, holepunching; macOS seems to let a reply through) and the
   message went by itself. Not proven; to see again.
 
-Still to see: Open Settings pressed; that the bind is what makes macOS ask and rule 1's text is
+Still to see: whether macOS 26 shows rule 1's text at all (every question
+seen so far showed macOS's own, from a build before the text or an
+unsigned one, which macOS also names by its executable, "ourstick-app");
+it asks once per app, so on a Mac that never ran OurStick; Open Settings pressed; that the bind is what makes macOS ask and rule 1's text is
 what it shows; that the Settings link opens that list; that a connection
 already on the relay goes direct once allowed (with and without
 `network_change()`); the Linux PC and the Mac on one Wi-Fi, declined and

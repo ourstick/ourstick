@@ -60,12 +60,24 @@
   }
 
   let field: HTMLTextAreaElement;
+  let focused = $state(false);
+  /** Two lines once it was looked at, while not being edited: room for what
+   * to get. The whole link again when clicked. */
+  let compact = $derived(preview !== null && !focused);
 
   /** As tall as the link: all of it shows, however long. */
   function grow() {
     field.style.height = "auto";
     field.style.height = `${field.scrollHeight}px`;
   }
+
+  $effect(() => {
+    if (compact) {
+      field.style.height = "";
+    } else {
+      grow();
+    }
+  });
 
   /** The link changed: what was shown is not of it any more. */
   function edited() {
@@ -160,6 +172,9 @@
         bind:value={text}
         oninput={edited}
         onkeydown={keydown}
+        onfocus={() => (focused = true)}
+        onblur={() => (focused = false)}
+        class:compact
         rows="1"
         autofocus
         disabled={looking || adding}
@@ -241,6 +256,9 @@
     overflow: hidden;
     word-break: break-all;
   }
+  textarea.compact {
+    height: 3.4em;
+  }
   .add {
     display: flex;
     flex-direction: column;
@@ -248,6 +266,7 @@
     min-width: 0;
     min-height: 0;
     flex: 1 1 auto;
+    overflow-y: auto;
   }
   h1,
   h2 {

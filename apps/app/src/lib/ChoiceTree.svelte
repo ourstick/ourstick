@@ -181,8 +181,10 @@
     flex-direction: column;
     gap: 4px;
     overflow-y: auto;
-    min-height: 0;
-    flex: 1 1 auto;
+    /* As tall as its rows, up to a part of the window: never squeezed to
+       nothing by what is above it (the window scrolls instead). */
+    flex: 0 0 auto;
+    max-height: 40vh;
   }
   .entries li {
     flex-shrink: 0;

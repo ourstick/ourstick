@@ -26,7 +26,7 @@
   <p>
     OurStick is moving its keys to a part of the keychain that never asks for your password again. To read
     them one last time, macOS asks for it up to {keys} {keys === 1 ? "time" : "times"}: each time, type it and
-    choose Allow.
+    choose Always Allow.
   </p>
   {#if busy}<p class="muted">Moving the keys… answer macOS when it asks.</p>{/if}
   {#if failure}

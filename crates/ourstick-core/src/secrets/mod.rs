@@ -106,6 +106,8 @@ pub enum SecretError {
     Unavailable { store: String, reason: String },
     #[error("access to {store} was denied or it is locked: {reason}")]
     AccessDenied { store: String, reason: String },
+    #[error("you chose Deny, so OurStick could not read its keys in {store}")]
+    UserDenied { store: String },
     #[error("{store} does not keep secrets across restarts, so keys would be lost")]
     NotDurable { store: String },
     #[error("{store} did not give back what was written to it: {reason}")]

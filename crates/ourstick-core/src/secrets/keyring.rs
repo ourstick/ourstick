@@ -23,7 +23,10 @@ pub const APP_ACCESS_GROUP: &str = "HHL7R3Q3XB.com.ourstick.OurStick";
 /// macOS's `errSecInteractionNotAllowed`: the keychain is locked (the user
 /// has not logged in since the Mac started). Its `Display` is a localized
 /// message; its `Debug` names the code (`Error { code: -25308, .. }`).
-const KEYCHAIN_LOCKED: &str = "code: -25308";
+const KEYCHAIN_LOCKED: &str = "code: -25308,";
+
+/// macOS's `errSecUserCanceled`: the user chose Deny when macOS asked.
+const USER_CANCELED: &str = "code: -128,";
 
 /// A [`SecretStore`] backed by the system keyring.
 pub struct KeyringStore {
@@ -147,6 +150,9 @@ fn to_secret_error(store: &str, error: KeyringError) -> SecretError {
                 reason: "the keychain is locked until you log in".to_owned(),
             }
         }
+        KeyringError::PlatformFailure(error) if format!("{error:?}").contains(USER_CANCELED) => {
+            SecretError::UserDenied { store }
+        }
         // The operating system's own error message; it carries no secret.
         KeyringError::PlatformFailure(error) => SecretError::Backend {
             store,
@@ -243,9 +249,10 @@ mod tests {
 
     /// As security-framework's error shows itself.
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct Error {
-        #[allow(dead_code)]
         code: i32,
+        message: &'static str,
     }
 
     impl std::fmt::Display for Error {
@@ -260,15 +267,29 @@ mod tests {
     fn a_locked_keychain_is_told_as_locked_in_any_language() {
         let locked = to_secret_error(
             "k",
-            KeyringError::PlatformFailure(Box::new(Error { code: -25308 })),
+            KeyringError::PlatformFailure(Box::new(Error {
+                code: -25308,
+                message: "…",
+            })),
         );
         assert!(
             matches!(locked, SecretError::AccessDenied { .. }),
             "{locked}"
         );
+        let denied = to_secret_error(
+            "k",
+            KeyringError::PlatformFailure(Box::new(Error {
+                code: -128,
+                message: "…",
+            })),
+        );
+        assert!(matches!(denied, SecretError::UserDenied { .. }), "{denied}");
         let other = to_secret_error(
             "k",
-            KeyringError::PlatformFailure(Box::new(Error { code: -34018 })),
+            KeyringError::PlatformFailure(Box::new(Error {
+                code: -34018,
+                message: "…",
+            })),
         );
         assert!(matches!(other, SecretError::Backend { .. }), "{other}");
     }

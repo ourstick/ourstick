@@ -22,11 +22,12 @@
 </script>
 
 <main class="card centred">
-  <h1>One question from macOS</h1>
+  <h1>macOS will ask you a question</h1>
   <p>
-    OurStick will ask to find devices on your local network. Allow it: sticks
-    then go straight to computers on the same network, much faster. Without
-    it, they go through a relay server, slowly.
+    Next, macOS will ask whether OurStick may find devices on your local
+    network. Please choose <strong>Allow</strong>. OurStick then sends sticks
+    directly to computers on the same network, which is much faster. If you
+    don't allow it, they go through a relay server instead, which is slower.
   </p>
   {#if failure}<p class="error">{failure}</p>{/if}
   <div class="actions">

@@ -184,8 +184,25 @@ the entitlements, on a device whose row said `keychain`:
   `old_keys_left = 0`; the stick shared, its keys read from the data
   protection keychain.
 
-Still to see: a move from items an unsigned build made (macOS asks then,
-once per item), "Deny" on one of them, and an Intel Mac.
+Then (2026-10-09), in a data folder of its own (`OURSTICK_DATA_DIR`), a
+stick made by an unsigned build (ad-hoc signature), so its three items
+trusted only that binary:
+
+- "One last password", Continue, "Deny" on macOS's first question: the
+  step said the keys were where they were, with Try again and Not now; the
+  row still `keychain`, the three items still there. Its words were
+  macOS's ("User canceled the operation"); now "you chose Deny, so OurStick
+  could not read its keys" (`errSecUserCanceled`).
+- Try again, "Allow" each time: six questions, two for each item (the
+  store looks an item up, then reads it, and "Allow" holds for one
+  access); with "Always Allow" one each. The step now says Always Allow.
+  The row became `protected-keychain`.
+- Quit and opened again: no question at all; the old items deleted
+  (deleting needs no access to the value), `old_keys_left = 0`, the stick
+  shared.
+
+Still to see: an Intel Mac (not available; a macOS VM on a PC is not
+allowed by Apple's licence and has no T2, so it would show nothing).
 
 ## Files that change
 

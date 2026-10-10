@@ -36,8 +36,6 @@ h1 { font-size: 2.2rem; line-height: 1.15; margin: 0 0 0.6rem; }
 h2 { font-size: 1.15rem; margin: 2.2rem 0 0.6rem; }
 p { margin: 0 0 1rem; }
 .lead { font-size: 1.15rem; color: var(--muted); }
-.brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 600; margin-bottom: 2.5rem; }
-.brand img { width: 32px; height: 32px; }
 a { color: var(--accent); }
 .downloads { display: flex; flex-direction: column; gap: 0.6rem; margin: 1.5rem 0; }
 .download {
@@ -93,5 +91,11 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 }
 .faq dt { font-weight: 600; margin-top: 1rem; }
 .faq dd { margin: 0.25rem 0 0; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 2.5rem; }
+.topbar .logo { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; font-size: 1.25rem; color: var(--text); text-decoration: none; }
+.topbar .logo img { width: 40px; height: 40px; }
+.topbar nav { display: flex; gap: 1.1rem; font-size: 0.95rem; }
+.topbar nav a { color: var(--muted); text-decoration: none; }
+.topbar nav a:hover { color: var(--text); }
 footer { max-width: 40rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-size: 0.85rem; color: var(--muted); }
 footer a { color: var(--muted); }

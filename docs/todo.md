@@ -4,6 +4,23 @@ Things that are waiting on something other than code. Code work belongs in
 the implementation order in `CLAUDE.md`; limits of the code are in
 `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## For 0.1.1 (from the first installs, 2026-10-10)
+
+- [ ] **The Linux package as the App Center shows it:** named `our-stick`
+      (Tauri's kebab case of the product name; make it `ourstick`, and check
+      that it replaces an installed `our-stick`), "Unknown publisher"
+      (maintainer `Giorgos <hi@ourstick.com>`), "License: unknown" (Apache-2.0)
+      and a grey placeholder icon: ship an AppStream file
+      (`/usr/share/metainfo/com.ourstick.OurStick.metainfo.xml`) with the
+      name, summary, licence, home page and icon.
+- [ ] **No version shown anywhere:** neither the app nor the CLI says which
+      version it is (`ourstick --version` is an unknown command), and the
+      site's installers have no version in their names. A version line in the
+      app (and `--version`), so that a report can say which one.
+- [ ] **Rebuild the Windows VM's and the Mac's copies from GitHub:** their
+      checkouts still carry the history from before it was cleaned for
+      publication; a bundle from the current history will not pull there.
+
 ## Keys and computers (ADR 0021, rule 7)
 
 - **"Move to another computer"**: a stick's keys never move by themselves;

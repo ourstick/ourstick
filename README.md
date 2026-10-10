@@ -52,6 +52,11 @@ shared from that device.
 
 ## Development
 
+OurStick is written with Claude (Anthropic) as a programming partner, as the
+commits say. [CLAUDE.md](CLAUDE.md), in Greek, holds the project's rules for
+it; the decisions behind the design are in [docs/decisions](docs/decisions),
+each reviewed before it was built.
+
 Requires Rust 1.91 or newer (`rust-version` in `Cargo.toml`). The floor comes
 from our dependencies, not from our own code:
 

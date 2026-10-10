@@ -1,6 +1,7 @@
 # OurStick — GUI spec (stage 1: desktop)
 
-Reference image: `gui-mockup.png` (5 panels). This spec plus the image are the
+Reference image: `gui-mockup.png` (5 panels), an early mockup: it still shows
+a stick size, which ADR 0008 removed. This spec plus the image are the
 input for the Tauri app. Anything not on the image or in this file is out of
 scope for stage 1.
 

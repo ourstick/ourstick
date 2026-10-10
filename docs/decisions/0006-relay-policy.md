@@ -18,7 +18,7 @@ about 1 MB/s.
 
 Version 1 stopped a large download after 100 MB through the relay and asked
 the user whether to go on. That breaks the promise of the product, a USB stick
-you can send: a stick does not stop halfway and ask questions. The desktop app
+in a link: a stick does not stop halfway and ask questions. The desktop app
 (stage 1, `docs/gui-spec.md`) has no receiver window to ask in, either.
 
 ## Decision

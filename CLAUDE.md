@@ -15,7 +15,7 @@ Tagline: "A USB stick in a link."
 ```
 crates/ourstick-core   ΟΛΗ η λογική. Καμία εξάρτηση από UI, Tauri, ή CLI.
 crates/ourstick-cli    Λεπτό περίβλημα: share / get / list / seed.
-apps/app               Tauri 2 (Rust commands + TypeScript UI). Desktop ΚΑΙ mobile.
+apps/app               Tauri 2 (Rust commands + TypeScript UI). Desktop (mobile αργότερα).
 apps/website           Static site για ourstick.com.
 docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 ```
@@ -159,6 +159,6 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - [ ] Κανένα ticket ή κλειδί σε logs
 - [ ] Αν άλλαξε το protocol ή το schema: ενημερώθηκε το `docs/protocol.md` / migration
 
-## Trademark
+## Όνομα
 
-OurStick είναι εμπορικό σήμα του Γιώργου. Η άδεια Apache-2.0 καλύπτει τον κώδικα, όχι το όνομα.
+Η άδεια Apache-2.0 καλύπτει τον κώδικα, όχι το όνομα OurStick ή το λογότυπο (όρος 6 της άδειας).

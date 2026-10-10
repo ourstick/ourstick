@@ -4,12 +4,6 @@ Things that are waiting on something other than code. Code work belongs in
 the implementation order in `CLAUDE.md`; limits of the code are in
 `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
-## GitHub
-
-- [ ] Make the GitHub organisation (`ourstick`, as in `repository` in
-      `Cargo.toml`) and push the repository there. Today it lives only on the
-      private `hetzner` remote.
-
 ## Keys and computers (ADR 0021, rule 7)
 
 - **"Move to another computer"**: a stick's keys never move by themselves;

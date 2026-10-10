@@ -242,6 +242,7 @@ pub async fn new_stick(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = blocking(move || {
+        crate::keys::ensure_device(store.as_ref(), &data_dir)?;
         let secrets = crate::keys::secrets(store.as_ref())?;
         // One program makes a stick at a time: names and folders stay
         // unique.

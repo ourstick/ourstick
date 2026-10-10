@@ -79,6 +79,32 @@ fn carries_its_profile() -> bool {
     })
 }
 
+/// Records this device if it is not yet: its row holds where its keys are
+/// and the name senders see. Making a stick or receiving one does not need
+/// it (each stick has its own node key, ADR 0009), so a device that only
+/// received, or made its sticks with "New stick…", may have none until the
+/// next start. Blocking; takes the setup lock only when there is no row.
+pub fn ensure_device(store: &dyn Store, data_dir: &std::path::Path) -> Result<()> {
+    if store.device()?.is_some() {
+        return Ok(());
+    }
+    let secrets = secrets(store)?;
+    let backend = backend(store)?;
+    record_device(store, data_dir, secrets.as_ref(), backend)
+}
+
+fn record_device(
+    store: &dyn Store,
+    data_dir: &std::path::Path,
+    secrets: &dyn SecretStore,
+    backend: SecretBackend,
+) -> Result<()> {
+    let _setup = ourstick_core::locks::setup_lock(data_dir)?;
+    // Another program may have recorded it meanwhile: open_device checks.
+    device::open_device(store, data_dir, secrets, backend)?;
+    Ok(())
+}
+
 /// How many keys a move to the data protection keychain would read (macOS
 /// asks once for each), if this device's keys are in the login keychain
 /// and this build can keep them in the new one (ADR 0021, rule 3).
@@ -225,6 +251,27 @@ mod tests {
             .create_device(&device(SecretBackend::ProtectedKeychain))
             .unwrap();
         assert_eq!(move_due(&store).unwrap(), None);
+    }
+
+    #[test]
+    fn a_device_without_its_row_gets_one_once() {
+        let store = ourstick_core::MemoryStore::new();
+        let dir = std::env::temp_dir().join(format!("ourstick-keys-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secrets = MemorySecretStore::new();
+        record_device(&store, &dir, &secrets, SecretBackend::SecretService).unwrap();
+        let made = store.device().unwrap().unwrap();
+        assert_eq!(made.secret_backend, SecretBackend::SecretService);
+        assert_eq!(made.node_id, None, "no node key of its own (ADR 0009)");
+        // A second time keeps it as it is.
+        record_device(&store, &dir, &secrets, SecretBackend::SecretService).unwrap();
+        assert_eq!(
+            store.device().unwrap().unwrap().created_at_ms,
+            made.created_at_ms
+        );
+        store.set_receiver_name(Some("Μαρία")).unwrap();
+        assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

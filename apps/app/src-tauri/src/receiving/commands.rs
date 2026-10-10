@@ -126,6 +126,7 @@ pub async fn add_received(
         let folder = folder.clone();
         super::work(move || {
             check_link(store.as_ref(), &stick_id, StickKind::App)?;
+            crate::keys::ensure_device(store.as_ref(), &data_dir)?;
             // Its lock first: nothing else receives it while it is added.
             let lock = match take_retrying(|| download_lock(&data_dir, &stick_id)) {
                 Err(LockError::DownloadInUse) => anyhow::bail!(

@@ -135,7 +135,12 @@ pub async fn set_receiver_name(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let store = state.store.clone();
-    super::work(move || set_name(store.as_ref(), &name)).await
+    let data_dir = state.data_dir.clone();
+    super::work(move || {
+        crate::keys::ensure_device(store.as_ref(), &data_dir)?;
+        set_name(store.as_ref(), &name)
+    })
+    .await
 }
 
 #[cfg(test)]

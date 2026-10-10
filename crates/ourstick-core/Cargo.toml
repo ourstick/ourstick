@@ -1,6 +1,6 @@
 [package]
 name = "ourstick-core"
-description = "Core library for OurStick — a USB stick you can send"
+description = "Core library for OurStick — a USB stick in a link"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

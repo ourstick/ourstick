@@ -1,4 +1,4 @@
-//! OurStick core: a USB stick you can send.
+//! OurStick core: a USB stick in a link.
 //!
 //! This crate holds all domain logic and depends on no UI.
 //! See CLAUDE.md at the repository root for the architecture rules.

@@ -40,8 +40,8 @@
       "../../../THIRD-PARTY-LICENSES.html": "THIRD-PARTY-LICENSES.html"
     },
     "category": "Utility",
-    "shortDescription": "A USB stick you can send.",
-    "longDescription": "Put folders on a stick, send its link or QR code, and the other person sees and downloads the files on their computer. Peer to peer, encrypted on the device, no accounts, no size limits.",
+    "shortDescription": "A USB stick in a link.",
+    "longDescription": "Put folders on a stick in the OurStick app and send its link or QR code. The other person opens it in OurStick, picks what they want, and downloads it. Straight from your computer to theirs, encrypted on your device. No accounts, no size limits.",
     "homepage": "https://ourstick.com"
   }
 }

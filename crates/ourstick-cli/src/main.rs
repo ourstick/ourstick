@@ -17,7 +17,7 @@ use anyhow::{bail, Result};
 use secrets::SecretsChoice;
 
 const USAGE: &str = "\
-ourstick — a USB stick you can send
+ourstick — a USB stick in a link
 
 Usage:
   ourstick share [--name <name>] [--key-file <path>] [--rescan] <folder>

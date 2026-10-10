@@ -12,7 +12,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      # The desktop app (apps/app) is part of the workspace: its system
+      # libraries, as in the README.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
+            libxdo-dev libssl-dev build-essential file
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

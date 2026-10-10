@@ -80,10 +80,12 @@ fn carries_its_profile() -> bool {
 }
 
 /// Records this device if it is not yet: its row holds where its keys are
-/// and the name senders see. Making a stick or receiving one does not need
-/// it (each stick has its own node key, ADR 0009), so a device that only
-/// received, or made its sticks with "New stick…", may have none until the
-/// next start. Blocking; takes the setup lock only when there is no row.
+/// (so every key goes to one store: on a new Mac, without it, a received
+/// stick's link went to the data protection keychain and the keys after it
+/// to the login keychain), the name senders see and the Local Network step.
+/// Called before any key is written; a device that only receives would
+/// otherwise never get one. Blocking; takes the setup lock only when there
+/// is no row. The caller then calls `local_network::remember`.
 pub fn ensure_device(store: &dyn Store, data_dir: &std::path::Path) -> Result<()> {
     if store.device()?.is_some() {
         return Ok(());
@@ -99,10 +101,25 @@ fn record_device(
     secrets: &dyn SecretStore,
     backend: SecretBackend,
 ) -> Result<()> {
-    let _setup = ourstick_core::locks::setup_lock(data_dir)?;
+    let _setup = setup_lock_waiting(data_dir)?;
     // Another program may have recorded it meanwhile: open_device checks.
     device::open_device(store, data_dir, secrets, backend)?;
     Ok(())
+}
+
+/// The setup lock, waited for up to three seconds: another command of this
+/// app (or another program) may hold it a moment.
+fn setup_lock_waiting(data_dir: &std::path::Path) -> Result<ourstick_core::locks::Lock> {
+    let mut tries = 0;
+    loop {
+        match ourstick_core::locks::setup_lock(data_dir) {
+            Err(ourstick_core::locks::LockError::SetupInUse) if tries < 30 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            lock => return Ok(lock?),
+        }
+    }
 }
 
 /// How many keys a move to the data protection keychain would read (macOS
@@ -256,22 +273,31 @@ mod tests {
     #[test]
     fn a_device_without_its_row_gets_one_once() {
         let store = ourstick_core::MemoryStore::new();
-        let dir = std::env::temp_dir().join(format!("ourstick-keys-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::testing::TempFolder::new();
         let secrets = MemorySecretStore::new();
-        record_device(&store, &dir, &secrets, SecretBackend::SecretService).unwrap();
+        record_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
         let made = store.device().unwrap().unwrap();
         assert_eq!(made.secret_backend, SecretBackend::SecretService);
         assert_eq!(made.node_id, None, "no node key of its own (ADR 0009)");
-        // A second time keeps it as it is.
-        record_device(&store, &dir, &secrets, SecretBackend::SecretService).unwrap();
+        // A second time keeps it as it is, and so does ensure_device,
+        // without opening any keyring.
+        record_device(&store, dir.path(), &secrets, SecretBackend::SecretService).unwrap();
+        ensure_device(&store, dir.path()).unwrap();
         assert_eq!(
             store.device().unwrap().unwrap().created_at_ms,
             made.created_at_ms
         );
         store.set_receiver_name(Some("Μαρία")).unwrap();
         assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
-        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_setup_lock_is_waited_for_then_refused() {
+        let dir = crate::testing::TempFolder::new();
+        let held = ourstick_core::locks::setup_lock(dir.path()).unwrap();
+        assert!(setup_lock_waiting(dir.path()).is_err());
+        drop(held);
+        assert!(setup_lock_waiting(dir.path()).is_ok());
     }
 
     #[test]

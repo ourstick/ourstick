@@ -256,6 +256,8 @@ pub async fn new_stick(
     let _ = app.emit("mount-changed", ());
     refresh_tray(&app).await;
     let made = made?;
+    // The device may be new: the Local Network step is kept with it.
+    crate::local_network::remember(&state);
     tell_unplugged(&app, made.stick_id, made.unplugged);
     start_sharing_later(&app, made.stick_id);
     Ok(stick_hex(&made.stick_id))

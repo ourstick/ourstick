@@ -114,12 +114,17 @@ pub fn seen_as(store: &dyn ourstick_core::store::Store) -> anyhow::Result<SeenAs
 /// Sets the name senders see from what the receiver typed: trimmed, empty
 /// clears it, checked as reports check it (ADR 0015, rule 4).
 pub fn set_name(store: &dyn ourstick_core::store::Store, typed: &str) -> anyhow::Result<()> {
+    Ok(store.set_receiver_name(checked_name(typed)?)?)
+}
+
+/// What the receiver typed, trimmed (empty is none), or why it is refused.
+fn checked_name(typed: &str) -> anyhow::Result<Option<&str>> {
     let name = typed.trim();
     let name = (!name.is_empty()).then_some(name);
     if name.is_some_and(|name| !ourstick_core::report::name_is_allowed(name)) {
         anyhow::bail!("A name is at most 40 characters, with no invisible ones.");
     }
-    Ok(store.set_receiver_name(name)?)
+    Ok(name)
 }
 
 #[tauri::command]
@@ -137,10 +142,14 @@ pub async fn set_receiver_name(
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     super::work(move || {
+        // A refused name touches nothing.
+        checked_name(&name)?;
         crate::keys::ensure_device(store.as_ref(), &data_dir)?;
         set_name(store.as_ref(), &name)
     })
-    .await
+    .await?;
+    crate::local_network::remember(&state);
+    Ok(())
 }
 
 #[cfg(test)]

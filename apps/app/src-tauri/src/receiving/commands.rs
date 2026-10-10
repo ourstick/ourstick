@@ -126,7 +126,6 @@ pub async fn add_received(
         let folder = folder.clone();
         super::work(move || {
             check_link(store.as_ref(), &stick_id, StickKind::App)?;
-            crate::keys::ensure_device(store.as_ref(), &data_dir)?;
             // Its lock first: nothing else receives it while it is added.
             let lock = match take_retrying(|| download_lock(&data_dir, &stick_id)) {
                 Err(LockError::DownloadInUse) => anyhow::bail!(
@@ -141,11 +140,15 @@ pub async fn add_received(
             // Kept only where secrets are safe; never in a plain file.
             let secrets = crate::keys::secrets(store.as_ref())?;
             ourstick_core::check_secret_store(secrets.as_ref())?;
+            // Recorded before the first key, so all keys go to one store.
+            crate::keys::ensure_device(store.as_ref(), &data_dir)?;
             keep_ticket(secrets.as_ref(), &ticket)?;
             Ok(lock)
         })
         .await?
     };
+    // The device may be new: the Local Network step is kept with it.
+    crate::local_network::remember(&state);
     // Held at once: from here on, nothing else receives it.
     receivers.hold(stick_id, Some(made)).await;
     let now = SystemClock.now_ms();

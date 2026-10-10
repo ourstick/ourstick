@@ -98,7 +98,10 @@ mod tests {
             &ips(&["192.168.2.10"])
         ));
         // Public addresses, even in one /24.
-        assert!(!same_network(&ips(&["203.0.113.10"]), &ips(&["203.0.113.11"])));
+        assert!(!same_network(
+            &ips(&["203.0.113.10"]),
+            &ips(&["203.0.113.11"])
+        ));
         // Tailscale's shared range is not a local network.
         assert!(!same_network(
             &ips(&["100.64.0.27"]),

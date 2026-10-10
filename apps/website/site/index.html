@@ -13,7 +13,7 @@
   <main>
     <div class="brand"><img src="/icon.png" alt=""> OurStick</div>
     <h1>A USB stick you can send.</h1>
-    <p class="lead">Put folders on a stick, send its link or QR code, and the other person sees and downloads the files, as if you handed them a USB stick.</p>
+    <p class="lead">Put folders on a virtual stick in the OurStick app, send its link or QR code, and the other person sees and downloads the files, as if you handed them a USB stick.</p>
     <p>Straight from your computer to theirs, encrypted on your device. No accounts, no uploads to a cloud, no size limits. When you add files, the people who have your stick get them too.</p>
     <div class="downloads">
       <a class="download" data-os="macos" href="/downloads/OurStick-macOS.dmg">macOS <small>Apple silicon (M1 and later), macOS 11 or newer · SIZE_MACOS</small></a>
@@ -23,8 +23,77 @@
     <p class="note">Not yet: Macs with an Intel processor, and phones.</p>
     <p class="note">The installers are not signed yet. On Windows, your browser may warn that the file is not commonly downloaded (choose <strong>Keep</strong>), and its first start may say “Windows protected your PC”: choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
     <h2>How it works</h2>
-    <p>OurStick makes a folder on your computer that works like a USB stick. Drop files in it, and share its link. Whoever opens the link with OurStick chooses what to get and downloads it from you, directly when your computers can reach each other, or through a public relay when they cannot. Everything is encrypted before it leaves your computer, and the key is in the link: only people you send it to can read the stick.</p>
-    <p>Your computer has to be on for others to get your stick.</p>
+    <ol class="steps">
+      <li class="step">
+        <svg class="art" viewBox="0 0 120 80" aria-hidden="true">
+          <path class="soft" d="M4 24 h20 l6 6 h22 v30 h-48 z"/>
+          <path class="line" d="M56 40 h12 m-6 -6 l6 6 l-6 6"/>
+          <rect class="window" x="72" y="10" width="44" height="54" rx="5"/>
+          <path class="bar" d="M72 15 a5 5 0 0 1 5 -5 h34 a5 5 0 0 1 5 5 v5 h-44 z"/>
+          <circle class="dot" cx="78" cy="15" r="1.6"/><circle class="dot" cx="83" cy="15" r="1.6"/><circle class="dot" cx="88" cy="15" r="1.6"/>
+          <rect class="accent" x="86" y="26" width="16" height="24" rx="4"/>
+          <rect class="plug" x="89" y="50" width="10" height="7" rx="1.2"/>
+          <path class="arrow" d="M94 44 v-12 m-4 4 l4 -4 l4 4"/>
+        </svg>
+        <div>
+          <h3>1. Make a stick in the OurStick app</h3>
+          <p>A stick is a virtual USB stick: nothing to buy or plug in. Open OurStick, choose “New stick…”, and drop files or folders on it. It also shows up on your computer like a USB drive (a drive letter on Windows, a disk on a Mac), so you can copy things onto it as you would onto a real one.</p>
+        </div>
+      </li>
+      <li class="step">
+        <svg class="art" viewBox="0 0 120 80" aria-hidden="true">
+          <rect class="window" x="2" y="10" width="44" height="54" rx="5"/>
+          <path class="bar" d="M2 15 a5 5 0 0 1 5 -5 h34 a5 5 0 0 1 5 5 v5 h-44 z"/>
+          <circle class="dot" cx="8" cy="15" r="1.6"/><circle class="dot" cx="13" cy="15" r="1.6"/><circle class="dot" cx="18" cy="15" r="1.6"/>
+          <rect class="accent" x="16" y="26" width="16" height="24" rx="4"/>
+          <rect class="plug" x="19" y="50" width="10" height="7" rx="1.2"/>
+          <path class="arrow" d="M24 44 v-12 m-4 4 l4 -4 l4 4"/>
+          <path class="line dashed" d="M50 40 h32"/>
+          <path class="line" d="M76 34 l6 6 l-6 6"/>
+          <rect class="soft" x="88" y="22" width="24" height="24" rx="3"/>
+          <path class="ink" d="M92 26 h6 v6 h-6 z M102 26 h6 v6 h-6 z M92 36 h6 v6 h-6 z M103 37 h2 v2 h-2 z M106 40 h2 v2 h-2 z"/>
+        </svg>
+        <div>
+          <h3>2. Send its link</h3>
+          <p>Press “Share” and copy the link, or show its QR code. Send it any way you like: email, a chat app, a text message. A link looks like this:</p>
+          <p class="link-sample"><span class="link-site">https://ourstick.com/s/#</span><span class="link-where">ag7gk2…4qa</span><span class="link-dot">.</span><span class="link-key">crkp9x…m4t</span></p>
+          <ul class="link-parts">
+            <li><span class="swatch where"></span>where OurStick finds your computer</li>
+            <li><span class="swatch key"></span>the key that unlocks the stick</li>
+          </ul>
+          <p class="note">Both come after “#”, which browsers never send to any website: not even this one sees whose stick it is.</p>
+        </div>
+      </li>
+      <li class="step">
+        <svg class="art" viewBox="0 0 120 80" aria-hidden="true">
+          <rect class="soft" x="6" y="16" width="44" height="30" rx="3"/>
+          <path class="soft" d="M2 50 h52 l-4 6 h-44 z"/>
+          <path class="line" d="M56 32 h22 m-6 -6 l6 6 l-6 6"/>
+          <rect class="soft" x="84" y="16" width="32" height="40" rx="3"/>
+          <path class="check" d="M92 36 l6 6 l11 -12"/>
+        </svg>
+        <div>
+          <h3>3. They choose what to get</h3>
+          <p>They open the link with OurStick (“I got a sharing link”), see what is on your stick, choose what they want and press “Get it”. The files come straight from your computer to theirs. When you add something to the stick, it comes to them too.</p>
+        </div>
+      </li>
+    </ol>
+
+    <h2>For example</h2>
+    <ul class="examples">
+      <li><strong>The holiday photos,</strong> 40 GB of them, to the whole family, without a cloud account or a size limit.</li>
+      <li><strong>A project folder</strong> for a colleague, kept up to date: every file you add or change reaches them.</li>
+      <li><strong>The footage of a film</strong> for the editor, straight from your disk to theirs, at the speed of your connection.</li>
+    </ul>
+
+    <h2>Good to know</h2>
+    <ul class="facts">
+      <li><strong>Your computer has to be on</strong> (and OurStick open) for others to get your stick. There is no copy anywhere else.</li>
+      <li><strong>Everything is encrypted on your computer</strong> before it leaves it (<a href="/privacy.html#encryption">how</a>). The key is only in the link, so anyone who has the link can read the stick: send it only to the people it is for.</li>
+      <li><strong>Directly when possible.</strong> When your computers can reach each other, the files go straight between them. When they cannot, the encrypted data passes through a public relay, more slowly.</li>
+      <li><strong>You see who has it.</strong> OurStick shows how far each computer that got your stick has come (“A Mac has all of it, up to date”), never its name unless its user writes one.</li>
+      <li><strong>To stop sharing,</strong> choose “Change the sharing link…”: the old link stops working for everyone, and you send the new one to whom you want. Or remove the stick.</li>
+    </ul>
   </main>
   <footer>
     <a href="/">OurStick</a> · <a href="/privacy.html">Privacy</a> · <a href="/THIRD-PARTY-LICENSES.html">Third-party licences</a>

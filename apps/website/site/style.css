@@ -6,6 +6,9 @@
   --line: #d9d9de;
   --accent: #0a6cff;
   --accent-text: #ffffff;
+  --green: #2ea44f;
+  --where-bg: #dbe8ff;
+  --key-bg: #ffe4b8;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -17,6 +20,8 @@
     --line: #38383e;
     --accent: #2f7bf0;
     --accent-text: #ffffff;
+    --where-bg: #23365a;
+    --key-bg: #5a4220;
   }
 }
 * { box-sizing: border-box; }
@@ -50,6 +55,41 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outlin
 button {
   font: inherit; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); background: var(--card); color: var(--text);
+}
+h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
+.steps { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: 1.6rem; }
+.step { display: flex; gap: 1.1rem; align-items: flex-start; }
+.step p { margin-bottom: 0.6rem; }
+.art { flex: 0 0 auto; width: 120px; height: 80px; }
+.art .soft { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.art .accent { fill: var(--accent); }
+.art .window { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.art .bar { fill: var(--card); }
+.art .dot { fill: var(--line); }
+.art .arrow { fill: none; stroke: #ffffff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.art .plug { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.art .line { fill: none; stroke: var(--muted); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.art .dashed { stroke-dasharray: 4 5; }
+.art .ink { fill: var(--text); }
+.art .check { fill: none; stroke: var(--green); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.link-sample {
+  font: 0.95rem/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.6rem 0.8rem; overflow-wrap: anywhere;
+}
+.link-site { color: var(--muted); }
+.link-dot { color: var(--muted); }
+.link-where { background: var(--where-bg); border-radius: 3px; padding: 0 2px; }
+.link-key { background: var(--key-bg); border-radius: 3px; padding: 0 2px; }
+.link-parts { list-style: none; padding: 0; margin: 0 0 0.6rem; font-size: 0.92rem; }
+.link-parts li { display: flex; align-items: center; gap: 0.5rem; }
+.swatch { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 3px; }
+.swatch.where { background: var(--where-bg); }
+.swatch.key { background: var(--key-bg); }
+.examples, .facts { padding-left: 1.2rem; }
+.examples li, .facts li { margin-bottom: 0.5rem; }
+@media (max-width: 30rem) {
+  .step { flex-direction: column; gap: 0.5rem; }
 }
 footer { max-width: 40rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-size: 0.85rem; color: var(--muted); }
 footer a { color: var(--muted); }

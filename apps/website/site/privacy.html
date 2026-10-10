@@ -13,6 +13,17 @@
     <div class="brand"><img src="/icon.png" alt=""> OurStick</div>
     <h1>Privacy</h1>
     <p>OurStick has no accounts and no servers of its own that see your files. A stick's files go from the sender's computer to the receiver's, encrypted on the sender's computer with a key that only the link carries.</p>
+    <h2 id="encryption">How it is encrypted</h2>
+    <p>Each stick has its own key, made at random on your computer when you make the stick. It is kept in your computer's own safe for secrets (the Keychain on a Mac, Credential Manager on Windows, the keyring on Linux) and leaves it only inside the link you send.</p>
+    <ul class="facts">
+      <li><strong>The files.</strong> Every file is encrypted on your computer, in pieces of 64 KB, before it is sent (XChaCha20-Poly1305). Each piece is sealed so that it cannot be changed, cut off, reordered or swapped for a piece of another file without the receiver noticing.</li>
+      <li><strong>The list of what is on the stick.</strong> The names of files and folders, their sizes and dates are encrypted the same way. Without the link, nobody sees what a stick holds.</li>
+      <li><strong>What is current.</strong> Each new version of the stick is signed by your computer (Ed25519). A receiver accepts only versions you signed, never an older one, so nobody can pass off another list or an old one as yours.</li>
+      <li><strong>On the way.</strong> The connection between the two computers is encrypted too (QUIC with TLS 1.3), and the receiver checks that it is talking to the computer the link names. A relay, when one is needed, passes on data it cannot read.</li>
+      <li><strong>The receiver's reports</strong> of how far they have come are encrypted with the stick's key and signed by the receiver, so only you can read them and nobody can send them in their name.</li>
+    </ul>
+    <p>What this does not hide: anyone who has the link can read the stick, and can pass it on. Someone watching the network can see that two computers exchange data, how much and when, never what. The encryption has not yet been reviewed by an independent auditor.</p>
+
     <h2>What passes through others</h2>
     <p>OurStick uses iroh, a networking library made by n0. To find each other, the computers ask n0's public discovery service and relays where the other one can be reached. When two computers cannot reach each other directly, the encrypted data goes through one of n0's relays. These see the computers' network addresses and identities, when they connect and how much data passes, never what it is.</p>
     <h2>A sharing link</h2>

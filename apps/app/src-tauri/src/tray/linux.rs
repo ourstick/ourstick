@@ -56,8 +56,10 @@ fn pixmap(png: &[u8]) -> Vec<ksni::Icon> {
     };
     let data = image
         .rgba()
-        .chunks_exact(4)
-        .flat_map(|rgba| [rgba[3], rgba[0], rgba[1], rgba[2]])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[red, green, blue, alpha]| [alpha, red, green, blue])
         .collect();
     vec![ksni::Icon {
         width: image.width() as i32,

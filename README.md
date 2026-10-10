@@ -96,7 +96,5 @@ development server and shows an empty window.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
-
-OurStick and the OurStick logo are trademarks of Giorgos. Use of the name for
-forks or derived products requires permission.
+Apache-2.0. See [LICENSE](LICENSE). The licence covers the code; it gives no
+right to use the name OurStick or its logo (section 6 of the licence).

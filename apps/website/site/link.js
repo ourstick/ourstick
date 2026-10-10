@@ -18,7 +18,7 @@
   }
   button.addEventListener("click", function () {
     navigator.clipboard.writeText(location.href).then(
-      function () { said.textContent = "Copied. Now open OurStick: it finds the link by itself."; },
+      function () { said.textContent = "Copied. Now open the app: it finds the link by itself."; },
       function () { said.textContent = "Could not copy. Copy the address from the address bar."; }
     );
   });

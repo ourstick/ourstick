@@ -91,5 +91,7 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 @media (max-width: 30rem) {
   .step { flex-direction: column; gap: 0.5rem; }
 }
+.faq dt { font-weight: 600; margin-top: 1rem; }
+.faq dd { margin: 0.25rem 0 0; }
 footer { max-width: 40rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-size: 0.85rem; color: var(--muted); }
 footer a { color: var(--muted); }

@@ -10,7 +10,7 @@ address after `#`, which any foreign script could read (`site/_headers`).
 
 1. Build the three installers: the `.dmg` with `tools/macos/make-dmg.sh` on
    the Mac, the NSIS installer in the Windows VM (`docs/windows-dev.md`), the
-   `.deb` with `npm run tauri build -- --bundles deb` in `apps/app`.
+   `.deb` with `tools/linux/make-deb.sh` (it names the package `ourstick`).
 2. `apps/website/make.sh <dmg> <setup.exe> <deb>` puts everything in
    `apps/website/dist`.
 3. `npx wrangler pages deploy apps/website/dist --project-name ourstick`

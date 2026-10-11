@@ -111,9 +111,9 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 .drives figure { margin: 0; flex: 1 1 0; min-width: 0; text-align: center; }
 /* Grown by each picture's width (so as tall as each other), the Mac's
    then a tenth smaller and the Windows one a tenth larger. */
-.drives .mac { flex-grow: 924; }
-.drives .windows { flex-grow: 606; }
-.drives .linux { flex-grow: 690; }
+.drives .mac { flex-grow: 672; }
+.drives .windows { flex-grow: 653; }
+.drives .linux { flex-grow: 526; }
 .drives img { display: block; width: 100%; height: auto; }
 .drives figcaption { font-size: 0.85rem; color: var(--band-text); margin-top: 0.4rem; }
 @media (max-width: 40rem) { .drives { flex-direction: column; align-items: stretch; } }

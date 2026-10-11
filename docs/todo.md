@@ -27,6 +27,12 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       version it is (`ourstick --version` is an unknown command), and the
       site's installers have no version in their names. A version line in the
       app (and `--version`), so that a report can say which one.
+- [ ] **Share stays in sight** when a stick's view is full (fixed on main,
+      to be seen in the 0.1.1 builds).
+- [ ] **The Windows drive's name:** File Explorer shows the stick as
+      "Windows (O:)" (a `subst` letter has its host disk's label; see below).
+      It is in the site's picture. Look again for a way to show the stick's
+      name (a navigation-pane entry, or a VHDX).
 - [ ] **Rebuild the Windows VM's and the Mac's copies from GitHub:** their
       checkouts still carry the history from before it was cleaned for
       publication; a bundle from the current history will not pull there.

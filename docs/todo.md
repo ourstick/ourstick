@@ -17,20 +17,18 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## For 0.1.1 (from the first installs, 2026-10-10)
 
-- [ ] **The Linux package as the App Center shows it:** the package names
-      its maintainer and ships an AppStream file (name, summary, licence,
-      home page, icon), validated with `appstreamcli`. To see in the App
-      Center with the 0.1.1 `.deb`. The package itself is still called
-      `our-stick` (Tauri's kebab case of the product name); the App Center
-      shows the AppStream name.
+- [ ] **The Linux package as the App Center shows it:** for a local `.deb`
+      file, the App Center (ubuntu/app-center, `local_deb_page.dart`) shows
+      the package's name as the title, no publisher, no icon, and the
+      licence PackageKit gives (always "unknown" for a `.deb`); nothing in
+      the package changes that. The AppStream file (0.1.1) is read once it
+      is installed. The name `our-stick` is Tauri's kebab case of the
+      product name, with no setting; `ourstick` would need the `.deb`
+      repacked (with `Conflicts`/`Replaces`/`Provides: our-stick`).
 - [ ] **Share stays in sight** when a stick's view is full (fixed on main,
       to be seen in the 0.1.1 builds).
 - [ ] **Deploy the site with 0.1.1:** its Windows picture now shows the
       stick's entry in File Explorer's pane, which only 0.1.1 makes.
-- [ ] **The VM's `src\ourstick-old` worktree** (a test of 0.1.0, detached)
-      still holds the history from before it was cleaned; `src\ourstick`
-      itself carries the clean one now. Remove the worktree once it is not
-      needed.
 
 ## Keys and computers (ADR 0021, rule 7)
 

@@ -25,8 +25,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       shows the AppStream name.
 - [ ] **Share stays in sight** when a stick's view is full (fixed on main,
       to be seen in the 0.1.1 builds).
-- [ ] **The site's Windows picture** shows "Windows (O:)" only: take it
-      again with the stick's entry in File Explorer's pane (ADR 0023).
+- [ ] **Deploy the site with 0.1.1:** its Windows picture now shows the
+      stick's entry in File Explorer's pane, which only 0.1.1 makes.
 - [ ] **The VM's `src\ourstick-old` worktree** (a test of 0.1.0, detached)
       still holds the history from before it was cleaned; `src\ourstick`
       itself carries the clean one now. Remove the worktree once it is not

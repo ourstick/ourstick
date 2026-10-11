@@ -9,8 +9,9 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] Make the repository public; a GitHub Release with the three
       installers and their SHA256 sums; archive the GitHub page too
       (web.archive.org, archive.is), as was done for the site on 2026-10-11.
-- [ ] Bluesky (`@ourstick.com`, by a DNS record) and Mastodon (fosstodon.org,
-      with `rel="me"` on the site); one post per release.
+- No social accounts for now (decided 2026-10-11): releases are announced on
+  GitHub Releases, users write to hi@ourstick.com, and the name is held on X
+  (@OurStick). One account, if people ask for it after the launch.
 - [ ] The Hacker News post ("Show HN"), with a first comment on what it is,
       why, and what it does not do yet.
 
@@ -33,9 +34,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       "Windows (O:)" (a `subst` letter has its host disk's label; see below).
       It is in the site's picture. Look again for a way to show the stick's
       name (a navigation-pane entry, or a VHDX).
-- [ ] **Rebuild the Windows VM's and the Mac's copies from GitHub:** their
-      checkouts still carry the history from before it was cleaned for
-      publication; a bundle from the current history will not pull there.
+- [ ] **Clone the Windows VM's copy anew from GitHub:** its checkout still
+      carries the history from before it was cleaned for publication, so a
+      bundle from the current history will not pull there. (The Mac's copy
+      is plain files synced by rsync, with no history: nothing to do.)
 
 ## Keys and computers (ADR 0021, rule 7)
 

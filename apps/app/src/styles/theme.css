@@ -196,10 +196,12 @@ textarea {
   padding: 6px 8px;
 }
 
+/* Wholly inside the field: a field at the edge of a scrolling column (the
+   new stick's name) would have the part outside cut off. */
 input:focus,
 textarea:focus {
   outline: 2px solid var(--accent);
-  outline-offset: -1px;
+  outline-offset: -2px;
 }
 
 button.primary {

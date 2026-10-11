@@ -33,7 +33,7 @@ scripts.
 
 ## Media
 
-`site/media/ourstick-demo.mp4`: the one-minute demo, recorded from the app
+`site/media/ourstick-demo.mp4`: the demo (77 s), recorded from the app
 on a Mac and in a Windows VM (a test stick of generated pictures, removed
 afterwards, so the link it shows works no more). Its music is J. S. Bach's
 Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to

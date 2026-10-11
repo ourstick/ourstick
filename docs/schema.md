@@ -25,7 +25,11 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 23
+## Version 24
+
+Version 24 (`0024_settings.sql`, ADR 0024) adds the table `settings`, empty
+for every database before: an upgraded device starts at login, and is told
+so once.
 
 Version 23 (`0023_protected_keychain.sql`, ADR 0021) lets
 `device.secret_backend` be `protected-keychain`, the data protection keychain
@@ -108,6 +112,18 @@ its node key, which its older sticks use.
 If a secret that the database says exists is missing from the recorded
 backend, that is an error for the user to resolve, never a reason to generate
 new keys.
+
+### `settings`
+
+The app's choices on this device (ADR 0024). At most one row (`id = 1`); no
+row means the defaults. Not in `device`, whose row exists only once a first
+key is written: these hold from the first start. The CLI ignores them.
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `id` | INTEGER | Always 1 |
+| `start_at_login` | INTEGER | 1 (the default): the app makes the system start it at login (the `Run` value, the LaunchAgent or the autostart entry); 0: it removes that |
+| `start_at_login_told` | INTEGER | 1 once the window said that the app starts at login, and how to turn it off |
 
 ### `owned_sticks`
 

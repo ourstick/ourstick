@@ -291,6 +291,26 @@ fn the_local_network_step_is_remembered_once_the_device_is_set_up(store: &dyn St
     assert!(store.local_network_explained().unwrap());
 }
 
+fn settings_hold_before_the_device_is_set_up(store: &dyn Store) {
+    let defaults = store.settings().unwrap();
+    assert!(defaults.start_at_login, "on by default (ADR 0024)");
+    assert!(!defaults.start_at_login_told);
+    let off = crate::store::Settings {
+        start_at_login: false,
+        start_at_login_told: true,
+    };
+    store.set_settings(&off).unwrap();
+    assert_eq!(store.settings().unwrap(), off, "kept with no device");
+    store.create_device(&device()).unwrap();
+    assert_eq!(store.settings().unwrap(), off);
+    let on = crate::store::Settings {
+        start_at_login: true,
+        ..off.clone()
+    };
+    store.set_settings(&on).unwrap();
+    assert_eq!(store.settings().unwrap(), on, "a second write replaces");
+}
+
 fn moved_keys_are_recorded_only_from_the_macos_keychain(store: &dyn Store) {
     assert!(store.record_keys_moved(true).is_err(), "no device yet");
     store
@@ -353,6 +373,7 @@ for_every_store!(
     reports_are_only_for_sticks_shared_here_and_go_with_them,
     the_receivers_name_is_theirs_and_checked,
     the_local_network_step_is_remembered_once_the_device_is_set_up,
+    settings_hold_before_the_device_is_set_up,
     moved_keys_are_recorded_only_from_the_macos_keychain,
     keys_elsewhere_are_never_recorded_as_moved,
     a_counter_grows_even_when_the_clock_goes_back,

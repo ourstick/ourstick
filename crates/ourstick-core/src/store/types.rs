@@ -228,3 +228,22 @@ pub struct RetiredStick {
     pub old: StickId,
     pub replaced_by: StickId,
 }
+
+/// The app's choices on this device, kept before the device is set up
+/// (ADR 0024). No row means these defaults.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// The app starts at login (on unless turned off).
+    pub start_at_login: bool,
+    /// The window said once that it does.
+    pub start_at_login_told: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            start_at_login: true,
+            start_at_login_told: false,
+        }
+    }
+}

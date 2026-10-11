@@ -295,3 +295,31 @@ fn migration_23_keeps_the_device_and_takes_the_protected_keychain() {
         crate::store::SecretBackend::ProtectedKeychain
     );
 }
+
+#[test]
+fn migration_24_starts_at_login_for_a_device_from_0_1_0() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    {
+        // 0.1.0's database, version 23.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..23] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 23).unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert_eq!(store.settings().unwrap(), crate::store::Settings::default());
+    assert!(store.settings().unwrap().start_at_login);
+    // One row at most, and only 0 or 1.
+    let connection = Connection::open(&path).unwrap();
+    assert!(connection
+        .execute("INSERT INTO settings (id) VALUES (2)", [])
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO settings (id, start_at_login) VALUES (1, 2)",
+            []
+        )
+        .is_err());
+}

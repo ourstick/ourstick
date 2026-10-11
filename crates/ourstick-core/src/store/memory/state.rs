@@ -33,6 +33,7 @@ pub(super) struct State {
     pub(super) receiver_name: Option<String>,
     pub(super) local_network_explained: bool,
     pub(super) old_keys_left: bool,
+    pub(super) settings: crate::store::Settings,
     pub(super) report_counters: BTreeMap<[u8; 32], u64>,
 }
 

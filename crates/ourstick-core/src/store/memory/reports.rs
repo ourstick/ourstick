@@ -1,5 +1,5 @@
 //! Readers' reports, the receiver's name and report counters, as the
-//! database keeps them (ADR 0015).
+//! database keeps them (ADR 0015); the keys' move (ADR 0021).
 
 use super::MemoryStore;
 use crate::report::{ReaderId, ReaderReport, ReportState};
@@ -134,4 +134,26 @@ pub(super) fn next_report_counter(
     crate::store::check_seq(next)?;
     state.report_counters.insert(key, next);
     Ok(next)
+}
+
+pub(super) fn record_keys_moved(
+    store: &MemoryStore,
+    old_keys_left: bool,
+) -> Result<(), StoreError> {
+    use crate::store::SecretBackend;
+    let mut state = store.state();
+    let Some(device) = state.device.as_mut() else {
+        return Err(StoreError::Inconsistent("this device is not set up yet"));
+    };
+    if !matches!(
+        device.secret_backend,
+        SecretBackend::Keychain | SecretBackend::ProtectedKeychain
+    ) {
+        return Err(StoreError::Inconsistent(
+            "the device's keys are not in the macOS keychain",
+        ));
+    }
+    device.secret_backend = SecretBackend::ProtectedKeychain;
+    state.old_keys_left = old_keys_left;
+    Ok(())
 }

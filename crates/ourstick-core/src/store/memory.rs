@@ -17,7 +17,7 @@ use state::{claim_key, sorted, State};
 use super::{
     check_device, check_drive_letter, check_owned_file, check_owned_stick, path_str, ClaimKind,
     Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile,
-    OwnedStick, RetiredStick, SpaceClaim, Store, StoreError,
+    OwnedStick, RetiredStick, Settings, SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -359,22 +359,7 @@ impl Store for MemoryStore {
     }
 
     fn record_keys_moved(&self, old_keys_left: bool) -> Result<(), StoreError> {
-        use crate::store::SecretBackend;
-        let mut state = self.state();
-        let Some(device) = state.device.as_mut() else {
-            return Err(StoreError::Inconsistent("this device is not set up yet"));
-        };
-        if !matches!(
-            device.secret_backend,
-            SecretBackend::Keychain | SecretBackend::ProtectedKeychain
-        ) {
-            return Err(StoreError::Inconsistent(
-                "the device's keys are not in the macOS keychain",
-            ));
-        }
-        device.secret_backend = SecretBackend::ProtectedKeychain;
-        state.old_keys_left = old_keys_left;
-        Ok(())
+        reports::record_keys_moved(self, old_keys_left)
     }
 
     fn old_keys_left(&self) -> Result<bool, StoreError> {
@@ -394,5 +379,14 @@ impl Store for MemoryStore {
 
     fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
         reports::next_report_counter(self, stick_id, now_ms)
+    }
+
+    fn settings(&self) -> Result<Settings, StoreError> {
+        Ok(self.state().settings.clone())
+    }
+
+    fn set_settings(&self, settings: &Settings) -> Result<(), StoreError> {
+        self.state().settings = settings.clone();
+        Ok(())
     }
 }

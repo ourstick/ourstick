@@ -313,6 +313,12 @@ pub trait Store: Send + Sync {
     /// across restarts and a clock set back: the clock's time, or the last
     /// one plus one.
     fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError>;
+
+    /// The app's choices on this device (ADR 0024); the defaults if none
+    /// was made yet, even before the device is set up.
+    fn settings(&self) -> Result<Settings, StoreError>;
+
+    fn set_settings(&self, settings: &Settings) -> Result<(), StoreError>;
 }
 
 /// Why the store refused an operation. The messages are meant for users.

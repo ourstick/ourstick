@@ -25,8 +25,8 @@ use rows::{blob32, is_constraint_violation, seq_i64, to_u64, OwnedRow, OWNED_COL
 
 use super::{
     check_owned_stick, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, KeepOutcome,
-    KeptReport, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, SpaceClaim,
-    Store, StoreError,
+    KeptReport, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, Settings,
+    SpaceClaim, Store, StoreError,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -370,6 +370,14 @@ impl Store for SqliteStore {
 
     fn next_report_counter(&self, stick_id: &StickId, now_ms: u64) -> Result<u64, StoreError> {
         reports::next_report_counter(&mut self.connection(), stick_id, now_ms)
+    }
+
+    fn settings(&self) -> Result<Settings, StoreError> {
+        device::settings(&self.connection())
+    }
+
+    fn set_settings(&self, settings: &Settings) -> Result<(), StoreError> {
+        device::set_settings(&self.connection(), settings)
     }
 }
 

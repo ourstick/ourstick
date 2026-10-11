@@ -76,7 +76,8 @@
     flex-direction: column;
     gap: 6px;
     flex: 1 1 auto;
-    min-height: 0;
+    /* About three rows, however much else the view shows. */
+    min-height: 110px;
     overflow-y: auto;
   }
   .entries li {

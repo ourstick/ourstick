@@ -294,6 +294,8 @@
     margin: 0;
     gap: 8px;
   }
+  /* When a question, the list of who has it and notes do not all fit,
+     the view scrolls; Share stays in sight at its bottom. */
   .view {
     display: flex;
     flex-direction: column;
@@ -301,6 +303,7 @@
     min-width: 0;
     min-height: 0;
     flex: 1 1 auto;
+    overflow-y: auto;
   }
   header h1 {
     margin: 0;
@@ -364,12 +367,15 @@
     margin: 0;
     color: #2a9d4b;
   }
-  /* Always at the bottom of the window. */
+  /* Always at the bottom of the window, also while the view scrolls. */
   .share {
     width: 100%;
     min-height: calc(var(--button-height) + 8px);
     margin-top: auto;
     flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    box-shadow: 0 -8px 8px var(--card);
   }
   p {
     margin: 0;

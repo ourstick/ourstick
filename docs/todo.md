@@ -4,6 +4,16 @@ Things that are waiting on something other than code. Code work belongs in
 the implementation order in `CLAUDE.md`; limits of the code are in
 `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## Launch (after 0.1.1)
+
+- [ ] Make the repository public; a GitHub Release with the three
+      installers and their SHA256 sums; archive the GitHub page too
+      (web.archive.org, archive.is), as was done for the site on 2026-10-11.
+- [ ] Bluesky (`@ourstick.com`, by a DNS record) and Mastodon (fosstodon.org,
+      with `rel="me"` on the site); one post per release.
+- [ ] The Hacker News post ("Show HN"), with a first comment on what it is,
+      why, and what it does not do yet.
+
 ## For 0.1.1 (from the first installs, 2026-10-10)
 
 - [ ] **The Linux package as the App Center shows it:** named `our-stick`

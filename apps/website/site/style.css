@@ -102,7 +102,7 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 .demo { margin: 1.5rem 0; width: min(64rem, calc(100vw - 3rem)); position: relative; left: 50%; transform: translateX(-50%); }
 .demo video { display: block; width: 100%; height: auto; border-radius: 10px; background: #ffffff; }
 .demo figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.4rem; text-align: center; }
-.drives { display: flex; gap: 0.8rem; align-items: flex-end; margin: 1rem 0 1.2rem; width: min(64rem, calc(100vw - 3rem)); position: relative; left: 50%; transform: translateX(-50%); }
+.drives { display: flex; gap: 0.8rem; align-items: flex-end; margin: 1rem 0 1.2rem; width: min(90rem, calc(100vw - 3rem)); position: relative; left: 50%; transform: translateX(-50%); }
 .drives figure { margin: 0; flex: 1 1 0; min-width: 0; text-align: center; }
 /* Grown by each picture's width, so all three are as tall. */
 .drives .mac { flex-grow: 928; }

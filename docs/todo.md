@@ -33,6 +33,29 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 - [ ] **Deploy the site with 0.1.1:** its Windows picture now shows the
       stick's entry in File Explorer's pane, which only 0.1.1 makes.
 
+## After 0.1.1 (decided 2026-10-12)
+
+- [ ] **Updates on Windows and macOS:** today an installed app never
+      updates itself; whoever has 0.1.0 keeps it until they download a new
+      one from the site. Tauri's `updater` plugin: the app checks a small
+      file on the site for the latest version, downloads it signed and
+      installs it. Needs an update signing key, kept like the others (if it
+      is lost, no installed app can be updated again). An ADR first; it
+      comes before the Snap, since every week without it leaves more
+      installs behind.
+- [ ] **A Snap for Ubuntu:** the App Center shows an icon, a publisher
+      ("verified" with ourstick.com) and a licence only for what the Snap
+      Store gives, never for a `.deb` downloaded from a site (Chrome's
+      shows the same "Unknown publisher"); a snap is also found by search
+      and updates itself (`snapd`; a running app is updated once it is
+      closed, or after about two weeks; `beta` channel for a first round).
+      The hard part is confinement: the system keyring, `~/OurStick`, the
+      file manager's bookmarks; some need the Store's approval. The `.deb`
+      stays on the site for other distributions. An own apt repository,
+      as Chrome does, only if users ask: it adds a signing key kept
+      forever and a repository on every user's system, and still no icon
+      in the App Center. An ADR first.
+
 ## Keys and computers (ADR 0021, rule 7)
 
 - **"Move to another computer"**: a stick's keys never move by themselves;

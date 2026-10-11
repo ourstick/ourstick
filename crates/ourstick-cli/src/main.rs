@@ -26,6 +26,7 @@ Usage:
   ourstick get <ticket> [--out <folder>] [--follow]
                                            Download a stick (resumes if interrupted;
                                            later runs fetch only what changed)
+  ourstick --version                       Which version this is
 
 Without a direct connection, `get` goes on through a relay, at up to 10 Mbps
 while it keeps looking for a direct one; it never stops because of it.
@@ -66,6 +67,7 @@ enum Command {
         follow: bool,
     },
     Help,
+    Version,
 }
 
 fn parse(args: &[String]) -> Result<Command> {
@@ -77,6 +79,7 @@ fn parse(args: &[String]) -> Result<Command> {
         [command, ticket, options @ ..] if command == "get" => parse_get(ticket, options),
         [] => Ok(Command::Help),
         [flag] if flag == "-h" || flag == "--help" || flag == "help" => Ok(Command::Help),
+        [flag] if flag == "-V" || flag == "--version" || flag == "version" => Ok(Command::Version),
         _ => bail!("unknown command\n\n{USAGE}"),
     }
 }
@@ -192,6 +195,10 @@ async fn run() -> Result<()> {
             println!("{USAGE}");
             Ok(())
         }
+        Command::Version => {
+            println!("ourstick {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
     }
 }
 
@@ -252,6 +259,12 @@ mod tests {
         assert!(parse(&args(&["ls", "T", "--out", "dir"])).is_err());
         assert!(matches!(parse(&args(&[])), Ok(Command::Help)));
         assert!(matches!(parse(&args(&["--help"])), Ok(Command::Help)));
+        for flag in ["--version", "-V", "version"] {
+            assert!(
+                matches!(parse(&args(&[flag])), Ok(Command::Version)),
+                "{flag}"
+            );
+        }
         assert!(parse(&args(&["share"])).is_err());
         assert!(parse(&args(&["get", "T", "--in", "dir"])).is_err());
         assert!(matches!(

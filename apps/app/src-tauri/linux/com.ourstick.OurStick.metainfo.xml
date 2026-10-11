@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- How software centres (Ubuntu's App Center, GNOME Software) describe
+     OurStick: AppStream, https://www.freedesktop.org/software/appstream/docs/ -->
+<component type="desktop-application">
+  <id>com.ourstick.OurStick</id>
+  <name>OurStick</name>
+  <summary>A USB stick in a link</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="com.ourstick">
+    <name>Giorgos</name>
+  </developer>
+  <description>
+    <p>
+      Put folders on a stick in the OurStick app and send its link or QR code.
+      The other person opens it in OurStick, picks what they want, and
+      downloads it, straight from your computer to theirs.
+    </p>
+    <p>
+      Encrypted on your device. No accounts, no uploads to a cloud, no size
+      limits. When you add files, the people who have your stick get them too.
+    </p>
+  </description>
+  <launchable type="desktop-id">OurStick.desktop</launchable>
+  <icon type="stock">ourstick-app</icon>
+  <url type="homepage">https://ourstick.com</url>
+  <url type="bugtracker">https://github.com/ourstick/ourstick/issues</url>
+  <url type="vcs-browser">https://github.com/ourstick/ourstick</url>
+  <url type="contact">https://ourstick.com/about</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.1" date="2026-10-11"/>
+    <release version="0.1.0" date="2026-10-10"/>
+  </releases>
+</component>

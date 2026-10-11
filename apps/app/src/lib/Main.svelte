@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
+  import { getVersion } from "@tauri-apps/api/app";
   import {
     appProblem,
     dismissAppProblem,
@@ -34,6 +35,8 @@
   let receivedShown = $derived(receivedEntries.find((entry) => entry.id === selectedReceived) ?? null);
   let creating = $state(false);
   let failure = $state<string | null>(null);
+  /** Shown at the bottom of the sidebar, so a report can say which one. */
+  let version = $state("");
   /** A problem of the whole app, not of one stick. */
   let problem = $state<ShareProblem | null>(null);
   /** Answers to an older look are dropped: they arrive in any order. */
@@ -85,6 +88,7 @@
     refresh();
   }
 
+  getVersion().then((v) => (version = v)).catch(() => {});
   onMount(() => {
     refresh();
     const stops = [
@@ -122,6 +126,7 @@
         onSelect={selectReceived}
         onAdd={() => (shown = { kind: "add" })}
       />
+      {#if version}<p class="version muted">OurStick {version}</p>{/if}
     </div>
     {#if shown?.kind === "own"}
       {#key shown.id}
@@ -161,6 +166,10 @@
     padding-right: 12px;
     border-right: 1px solid var(--border);
     overflow-y: auto;
+  }
+  .version {
+    margin: auto 0 0;
+    font-size: 0.8em;
   }
   .app-problem {
     display: flex;

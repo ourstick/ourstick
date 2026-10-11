@@ -9,12 +9,12 @@ members = [
 exclude = ["third_party"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/ourstick/ourstick"
 homepage = "https://ourstick.com"
-authors = ["Giorgos"]
+authors = ["Giorgos <hi@ourstick.com>"]
 rust-version = "1.91"
 
 [workspace.dependencies]

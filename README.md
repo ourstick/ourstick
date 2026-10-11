@@ -92,7 +92,6 @@ cd apps/app
 npm install
 npm run tauri dev      # the app, reloading as the UI changes
 npm run tauri build    # a release build, with the UI inside
-                       # (the .deb for release: tools/linux/make-deb.sh)
 npm run check          # type-check the UI
 ```
 

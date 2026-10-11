@@ -97,5 +97,8 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 .topbar nav { display: flex; gap: 1.1rem; font-size: 0.95rem; }
 .topbar nav a { color: var(--muted); text-decoration: none; }
 .topbar nav a:hover { color: var(--text); }
+.demo { margin: 1.5rem 0; }
+.demo video { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
+.demo figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.4rem; }
 footer { max-width: 40rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-size: 0.85rem; color: var(--muted); }
 footer a { color: var(--muted); }

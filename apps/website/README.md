@@ -30,3 +30,14 @@ scripts.
 - The browser's console shows no CSP errors, and the response headers have
   the `Content-Security-Policy` of `_headers`.
 - `THIRD-PARTY-LICENSES.html` has its styles.
+
+## Media
+
+`site/media/ourstick-demo.mp4`: the one-minute demo, recorded from the app
+on a Mac and in a Windows VM (a test stick of generated pictures, removed
+afterwards, so the link it shows works no more). Its music is J. S. Bach's
+Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to
+the public domain (CC0) by the Open Goldberg Variations project:
+https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3
+(https://opengoldbergvariations.org). `ourstick-demo-poster.jpg` is its
+first card.

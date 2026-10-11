@@ -77,6 +77,8 @@ mod linux;
 #[cfg(any(target_os = "macos", test))]
 mod macos;
 #[cfg(any(windows, test))]
+mod pane;
+#[cfg(any(windows, test))]
 mod windows;
 
 #[cfg(target_os = "linux")]
@@ -115,6 +117,40 @@ mod platform {
 }
 
 pub use platform::{create, eject, is_mounted, mount, rename, sticks_home};
+
+/// A program to run on Windows without a console window flashing up: the
+/// app has none of its own, so each console program would open one.
+#[cfg(windows)]
+pub fn no_window(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+/// A stick given a new link (a new stick id): on Windows its File Explorer
+/// entry, named after the old id, goes and the new one is written (ADR
+/// 0023); the letter, the bookmark or the image do not depend on the id.
+pub fn link_renewed(old: &ourstick_core::StickId, stick: &OwnedStick) -> Result<()> {
+    #[cfg(windows)]
+    {
+        pane::platform::hide(old)?;
+        mount(stick)?;
+    }
+    #[cfg(not(windows))]
+    let _ = (old, stick);
+    Ok(())
+}
+
+/// At the start, before mounting: on Windows the File Explorer entries of
+/// sticks that are no longer `app_sticks` go (ADR 0023 §7). Best effort.
+pub fn clean_up_left_behind(app_sticks: &[ourstick_core::StickId]) {
+    #[cfg(windows)]
+    pane::platform::clean_up(app_sticks);
+    #[cfg(not(windows))]
+    let _ = app_sticks;
+}
 
 /// The first stick of a version before ADR 0009 is `~/OurStick` itself
 /// (Linux, Windows): it moves into it as `~/OurStick/<folder>` before a

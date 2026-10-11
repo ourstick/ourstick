@@ -1,9 +1,10 @@
 //! Windows: each stick a folder in `%USERPROFILE%\OurStick`, shown as a
-//! drive letter with `subst`. The letter shows the system disk's name (no
-//! label applies to a `subst` drive; see docs/gui-spec.md), the folder
-//! carries the stick's. A `subst` letter lasts until the user logs off, so
+//! drive letter with `subst`, and by its name at the root of File
+//! Explorer's pane ([`super::pane`], ADR 0023). The letter shows the
+//! system disk's name (no label applies to a `subst` drive; see
+//! docs/gui-spec.md). A `subst` letter lasts until the user logs off, so
 //! the app gives it again at every start, asking for the letter it had
-//! before. Eject takes the letter away; the folder stays.
+//! before. Eject takes the letter and the entry away; the folder stays.
 //!
 //! Which letter shows the stick is found by the drive marker (it holds the
 //! StickId), not by reading `subst`'s output, whose code page would garble a
@@ -37,12 +38,12 @@ fn subst_letters_in(output: &[u8]) -> Vec<char> {
 #[cfg(windows)]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home, Renamed, NAME};
+    use crate::drive::pane::platform as pane;
+    use crate::drive::{folder_is_there, home, no_window, Renamed, NAME};
     use anyhow::{bail, Context, Result};
     use ourstick_core::manifest::DRIVE_MARKER;
     use ourstick_core::OwnedStick;
     use std::path::{Path, PathBuf};
-    use std::process::Command;
 
     fn drive_root(letter: char) -> PathBuf {
         PathBuf::from(format!("{letter}:\\"))
@@ -52,7 +53,7 @@ pub mod platform {
     /// read (`X:\: => path`): the path is in a code page that would garble
     /// a non-ASCII folder name.
     fn subst_letters() -> Vec<char> {
-        let Ok(output) = Command::new("subst").output() else {
+        let Ok(output) = no_window("subst").output() else {
             return Vec::new();
         };
         subst_letters_in(&output.stdout)
@@ -75,7 +76,7 @@ pub mod platform {
     }
 
     fn subst(arguments: &[&std::ffi::OsStr]) -> Result<()> {
-        let output = Command::new("subst")
+        let output = no_window("subst")
             .args(arguments)
             .output()
             .context("cannot run subst")?;
@@ -105,10 +106,7 @@ pub mod platform {
     /// The marker hidden and a system file, so Explorer does not show it.
     pub fn hide_marker(root: &Path) {
         let marker = root.join(DRIVE_MARKER);
-        let _ = Command::new("attrib")
-            .args(["+h", "+s"])
-            .arg(&marker)
-            .output();
+        let _ = no_window("attrib").args(["+h", "+s"]).arg(&marker).output();
     }
 
     /// Where the app's sticks are: `%USERPROFILE%\OurStick`, a folder each.
@@ -135,21 +133,21 @@ pub mod platform {
         Ok((root, None))
     }
 
-    /// Gives the stick its letter again (the one it had, if free). The
-    /// folder itself never moves.
+    /// Gives the stick its letter again (the one it had, if free), and
+    /// writes its entry in File Explorer's pane (a failure there is logged:
+    /// the letter and sharing matter more). The folder itself never moves.
     pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
         let root = &stick.root_path;
         if letters_showing(root).is_empty() {
             give_letter(root, stick.drive_letter)?;
         }
         hide_marker(root);
+        pane::show_logged(stick);
         Ok(root.clone())
     }
 
-    /// Takes the stick's letter away. The folder stays, and so does
-    /// sharing.
-    pub fn eject(stick: &OwnedStick) -> Result<()> {
-        for letter in letters_showing(&stick.root_path) {
+    fn take_letters(root: &Path) -> Result<()> {
+        for letter in letters_showing(root) {
             let drive = format!("{letter}:");
             subst(&[drive.as_ref(), "/D".as_ref()])
                 .with_context(|| format!("cannot take the letter {letter}: away"))?;
@@ -157,22 +155,36 @@ pub mod platform {
         Ok(())
     }
 
+    /// Takes the stick's letter and its entry in File Explorer's pane
+    /// away, the entry even if no letter showed the stick any more (after
+    /// a logoff). The folder stays, and so does sharing.
+    pub fn eject(stick: &OwnedStick) -> Result<()> {
+        let letters = take_letters(&stick.root_path);
+        if let Err(error) = pane::hide(&stick.stick_id) {
+            tracing::warn!("{error:#}");
+        }
+        letters
+    }
+
     /// Renames the stick's folder to `folder` (in the same place): its
     /// letter goes first (`subst` keeps the old path) and comes back after;
-    /// a letter that cannot come back is told, not undone. Windows refuses
+    /// a letter that cannot come back is told, not undone. Its entry in
+    /// File Explorer's pane is rewritten in place with `name` and the new
+    /// folder, or as it was if the folder could not move. Windows refuses
     /// while a file in it is open; the error says to close it.
-    pub fn rename(stick: &OwnedStick, folder: &str, _name: &str) -> Result<Renamed> {
+    pub fn rename(stick: &OwnedStick, folder: &str, name: &str) -> Result<Renamed> {
         let root = &stick.root_path;
         let renamed = crate::drive::renamed_root(root, folder)?;
         let letter = letters_showing(root)
             .first()
             .copied()
             .or(stick.drive_letter);
-        eject(stick)?;
+        take_letters(root)?;
         if &renamed != root {
             if let Err(error) = std::fs::rename(root, &renamed) {
-                // The letter comes back where it was.
+                // The letter comes back where it was, the entry as it was.
                 let _ = give_letter(root, letter);
+                pane::show_logged(stick);
                 return Err(error).with_context(|| {
                     format!(
                         "cannot rename {}: if a file in it is open, close it and try again",
@@ -181,8 +193,12 @@ pub mod platform {
                 });
             }
         }
-        let unplugged = give_letter(&renamed, letter)
-            .err()
+        // Both are tried: the entry must follow the folder even without
+        // a letter.
+        let no_letter = give_letter(&renamed, letter).err();
+        let no_entry = pane::show(&stick.stick_id, name, &renamed).err();
+        let unplugged = no_letter
+            .or(no_entry)
             .map(|error| crate::words::told(&error));
         Ok(Renamed {
             root: renamed,

@@ -133,6 +133,12 @@ pub async fn new_link(
         }
     };
     state.sticks.lock().await.remove(&old);
+    // Windows: its File Explorer entry follows the new id (ADR 0023).
+    if let Ok(stick) = state.stick_now(&new).await {
+        if let Err(error) = blocking(move || crate::drive::link_renewed(&old, &stick)).await {
+            tracing::warn!("{error}");
+        }
+    }
     crate::share::close(&app, &old);
     crate::problems::tell(&app, Some(old), crate::serving::ShareProblem::Cleared);
     share_again_if_wanted(&app, &state, new).await;

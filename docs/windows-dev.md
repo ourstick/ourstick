@@ -105,12 +105,20 @@ only work on the VM's desktop:
 
 - **The Credential Manager** answers `ERROR_NO_SUCH_LOGON_SESSION` over ssh.
   The keyring test runs through `tools/windows-vm/desktop.ps1`:
-  `powershell -File desktop.ps1 "cargo test -p ourstick-core -- --ignored keyring"`.
+  `powershell -ExecutionPolicy Bypass -File desktop.ps1 "cargo test -p ourstick-core -- --ignored keyring"`
+  (the VM's execution policy refuses unsigned scripts otherwise).
 - **`subst` letters** belong to the logon session that made them: one made
   over ssh does not show in Explorer.
 - **Screenshots:** QEMU's `screendump` sees nothing once Windows has loaded
   the virtio GPU driver ("no surface"). `desktop.ps1` with
   `winshot.ps1` saves one to `%USERPROFILE%\winshot.png`.
+
+- **The stick's entry in File Explorer's pane** (ADR 0023) is per user:
+  `reg query HKCU\Software\OurStick\NavigationPane /s` lists the entries
+  of each data folder, by class id; each is under
+  `HKCU\Software\Classes\CLSID\{…}` (and `WOW6432Node\CLSID`) and
+  `HKCU\…\Explorer\Desktop\NameSpace\{…}`. `explorer shell:::{…}`
+  opens one.
 
 If the desktop is locked (after the host slept, say), unlock it with QEMU's
 monitor: `sendkey` the local password, then `ret`. The Evaluation expires

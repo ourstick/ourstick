@@ -51,6 +51,11 @@
           "/usr/share/metainfo/com.ourstick.OurStick.metainfo.xml": "linux/com.ourstick.OurStick.metainfo.xml"
         }
       }
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
     }
   }
 }

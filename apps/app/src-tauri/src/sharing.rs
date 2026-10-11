@@ -109,6 +109,9 @@ pub fn start_app(app: &AppHandle) {
             // What a preview left behind (it keeps nothing).
             let _ = std::fs::remove_dir_all(state.data_dir.join("previews"));
             let sticks = state.app_sticks()?;
+            // Windows: File Explorer entries of sticks no longer here.
+            let ids: Vec<StickId> = sticks.iter().map(|stick| stick.stick_id).collect();
+            crate::drive::clean_up_left_behind(&ids);
             // macOS: the first stick's image, from before images were
             // recorded, goes to the oldest stick only, if it is there and no
             // other stick has it; first, as it needs no keys (a keychain

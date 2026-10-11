@@ -40,11 +40,14 @@ platform:
   with `subst` (no admin rights): the letter it had before (kept in the
   database), else `O:`, else `Z:` down to `D:`. A `subst` letter lasts until
   logoff, so the app gives it again at every start. What is left is measured
-  on the folder's disk, not by the letter.
+  on the folder's disk, not by the letter. The letter carries the system
+  disk's name ("Windows (O:)"), so the stick is also an entry at the root of
+  File Explorer's navigation pane, under its own name and OurStick's icon
+  (ADR 0023).
 - **Mobile:** not in stage 1.
 
 **Eject** detaches the image (macOS), removes the bookmark (Linux) or takes
-the drive letter away (Windows). Sharing
+the drive letter and the pane entry away (Windows). Sharing
 goes on with the last published version; changes are picked up again after
 Mount. An ejected stick is never published as empty.
 
@@ -410,8 +413,8 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 - **Windows drive name:** the `subst` letter shows under the system drive's
   label ("Windows (O:)"); neither the per-user nor the machine-wide
   `DriveIcons` label applies to a `subst` drive on Windows 11 24H2 (tried).
-  A named entry in Explorer's navigation pane, or a VHDX, would carry the
-  name "OurStick".
+  The stick's name is shown by its entry in Explorer's navigation pane
+  instead (ADR 0023); only a VHDX would name the letter itself.
 - **`ksni` upstream:** once a `ksni` release has
   `Tray::provide_xdg_activation_token` (pull request #43), drop
   `third_party/ksni` and the `[patch.crates-io]` entry.

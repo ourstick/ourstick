@@ -47,7 +47,7 @@ fn icon(active: bool) -> Result<(Image<'static>, bool)> {
 /// setting cannot be read.
 #[cfg(windows)]
 fn light_taskbar() -> bool {
-    std::process::Command::new("reg")
+    crate::drive::no_window("reg")
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",

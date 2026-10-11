@@ -17,27 +17,20 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## For 0.1.1 (from the first installs, 2026-10-10)
 
-- [ ] **The Linux package as the App Center shows it:** named `our-stick`
-      (Tauri's kebab case of the product name; make it `ourstick`, and check
-      that it replaces an installed `our-stick`), "Unknown publisher"
-      (maintainer `Giorgos <hi@ourstick.com>`), "License: unknown" (Apache-2.0)
-      and a grey placeholder icon: ship an AppStream file
-      (`/usr/share/metainfo/com.ourstick.OurStick.metainfo.xml`) with the
-      name, summary, licence, home page and icon.
-- [ ] **No version shown anywhere:** neither the app nor the CLI says which
-      version it is (`ourstick --version` is an unknown command), and the
-      site's installers have no version in their names. A version line in the
-      app (and `--version`), so that a report can say which one.
+- [ ] **The Linux package as the App Center shows it:** the package names
+      its maintainer and ships an AppStream file (name, summary, licence,
+      home page, icon), validated with `appstreamcli`. To see in the App
+      Center with the 0.1.1 `.deb`. The package itself is still called
+      `our-stick` (Tauri's kebab case of the product name); the App Center
+      shows the AppStream name.
 - [ ] **Share stays in sight** when a stick's view is full (fixed on main,
       to be seen in the 0.1.1 builds).
-- [ ] **The Windows drive's name:** File Explorer shows the stick as
-      "Windows (O:)" (a `subst` letter has its host disk's label; see below).
-      It is in the site's picture. Look again for a way to show the stick's
-      name (a navigation-pane entry, or a VHDX).
-- [ ] **Clone the Windows VM's copy anew from GitHub:** its checkout still
-      carries the history from before it was cleaned for publication, so a
-      bundle from the current history will not pull there. (The Mac's copy
-      is plain files synced by rsync, with no history: nothing to do.)
+- [ ] **The site's Windows picture** shows "Windows (O:)" only: take it
+      again with the stick's entry in File Explorer's pane (ADR 0023).
+- [ ] **The VM's `src\ourstick-old` worktree** (a test of 0.1.0, detached)
+      still holds the history from before it was cleaned; `src\ourstick`
+      itself carries the clean one now. Remove the worktree once it is not
+      needed.
 
 ## Keys and computers (ADR 0021, rule 7)
 
@@ -187,11 +180,6 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   with macOS's generic text (our own, `NSDownloadsFolderUsageDescription`,
   is in `src-tauri/Info.plist` since ADR 0020); ask only when a stick is
   first received there, not at start.
-- **Windows: Explorer calls the stick "Windows (O:)"**, the label of the
-  disk that holds its folder, since a `subst` letter has none of its own.
-  Give the letter the name "OurStick" per user (HKCU `...\Explorer\
-  DriveIcons\<letter>\DefaultLabel`, no admin rights), set with the letter
-  and removed with it.
 - **Windows: the drive marker `.ourstick-drive` shows in Explorer** (a dot
   does not hide a file there). A user may delete it, and the stick then
   counts as ejected. Mark it hidden and system (`attrib +h +s`) when it is
@@ -218,11 +206,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
   takes about 75 GB in `target\debug`; it filled the VM's disk once
   (`LNK1180`). Clean it now and then.
 - **Windows: the stick's drive letter is named after the disk it points
-  into** ("Windows (O:)", not "OurStick (O:)"). A `subst` letter reports its
-  host volume's label; both per-user `DefaultLabel` keys
-  (`HKCU\Software\Classes\Applications\Explorer.exe\Drives\O` and
-  `HKCU\…\Explorer\DriveIcons\O`) were tried in the VM on 2026-10-02 and
-  Explorer ignored them. Only a real volume (a VHD) would carry its own name.
+  into** ("Windows (O:)"); the stick's own name is in File Explorer's pane
+  (ADR 0023). Only a real volume (a VHD) would name the letter itself.
 - **Error words, left minor (reviews of 2026-10-02):** `words::kind` finds
   the store's errors inside LifeError, ShareError, ReceivedError and
   DeviceError, but not inside DownloadError, SpaceError, LockError,

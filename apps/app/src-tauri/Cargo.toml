@@ -26,6 +26,8 @@ tauri-plugin-dialog.workspace = true
 qrcode.workspace = true
 serde.workspace = true
 anyhow.workspace = true
+# Windows: the class id of a stick's File Explorer entry (ADR 0023).
+blake3.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tokio.workspace = true

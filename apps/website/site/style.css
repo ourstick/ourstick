@@ -9,8 +9,8 @@
   --green: #2ea44f;
   --where-bg: #dbe8ff;
   --key-bg: #ffe4b8;
-  --band: #a3a3a8;
-  --band-text: #f5f5f7;
+  --band: #f5f5f7;
+  --band-text: #5f6368;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -112,7 +112,7 @@ h3 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 /* Grown by each picture's width (so as tall as each other), the Mac's
    then a tenth smaller and the Windows one a tenth larger. */
 .drives .mac { flex-grow: 672; }
-.drives .windows { flex-grow: 653; }
+.drives .windows { flex-grow: 652; }
 .drives .linux { flex-grow: 526; }
 .drives img { display: block; width: 100%; height: auto; }
 .drives figcaption { font-size: 0.85rem; color: var(--band-text); margin-top: 0.4rem; }

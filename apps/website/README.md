@@ -41,5 +41,5 @@ the public domain (CC0) by the Open Goldberg Variations project:
 https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3
 (https://opengoldbergvariations.org). `ourstick-demo-poster.jpg` is its
 first card.
-`drive-mac-2.png`, `drive-windows-2.png`, `drive-linux-2.png`: the stick as a
+`drive-mac-2.png`, `drive-windows-3.png`, `drive-linux-2.png`: the stick as a
 drive on each system (the Linux login blurred, its home path cut).

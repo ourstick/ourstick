@@ -33,7 +33,7 @@ scripts.
 
 ## Media
 
-`site/media/ourstick-demo-3.mp4`: the demo (77 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
+`site/media/ourstick-demo-4.mp4`: the demo (89 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
 on a Mac and in a Windows VM (a test stick of generated pictures, removed
 afterwards, so the link it shows works no more). Its music is J. S. Bach's
 Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to
@@ -41,3 +41,5 @@ the public domain (CC0) by the Open Goldberg Variations project:
 https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3
 (https://opengoldbergvariations.org). `ourstick-demo-poster.jpg` is its
 first card.
+`drive-mac.png`, `drive-windows.png`, `drive-linux.png`: the stick as a
+drive on each system (the Linux login blurred, its home path cut).

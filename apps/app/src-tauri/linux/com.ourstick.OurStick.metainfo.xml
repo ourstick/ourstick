@@ -21,7 +21,7 @@
       limits. When you add files, the people who have your stick get them too.
     </p>
   </description>
-  <launchable type="desktop-id">OurStick.desktop</launchable>
+  <launchable type="desktop-id">ourstick.desktop</launchable>
   <icon type="stock">ourstick-app</icon>
   <url type="homepage">https://ourstick.com</url>
   <url type="bugtracker">https://github.com/ourstick/ourstick/issues</url>

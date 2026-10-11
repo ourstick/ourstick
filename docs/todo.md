@@ -22,9 +22,12 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       the package's name as the title, no publisher, no icon, and the
       licence PackageKit gives (always "unknown" for a `.deb`); nothing in
       the package changes that. The AppStream file (0.1.1) is read once it
-      is installed. The name `our-stick` is Tauri's kebab case of the
-      product name, with no setting; `ourstick` would need the `.deb`
-      repacked (with `Conflicts`/`Replaces`/`Provides: our-stick`).
+      is installed. The package is `ourstick` from 0.1.1: Tauri names it
+      after the product name, which `tauri.linux.conf.json` sets to
+      `ourstick` on Linux (the menu still says "OurStick", from
+      `linux/ourstick.desktop`); it conflicts with, replaces and provides
+      `our-stick`, so apt removes 0.1.0 as it installs it (simulated). To
+      see on this computer once "the app here" may restart.
 - [ ] **Share stays in sight** when a stick's view is full (fixed on main,
       to be seen in the 0.1.1 builds).
 - [ ] **Deploy the site with 0.1.1:** its Windows picture now shows the

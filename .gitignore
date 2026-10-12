@@ -15,6 +15,7 @@ apps/website/dist
 *.db-*
 .env
 .env.*
+.wrangler/
 
 # editors / OS
 .idea/

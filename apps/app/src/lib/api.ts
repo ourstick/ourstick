@@ -165,10 +165,6 @@ export function copyQrImage(stickId: string): Promise<void> {
   return invoke("copy_qr_image", { stickId });
 }
 
-export function sendByEmail(stickId: string): Promise<void> {
-  return invoke("send_by_email", { stickId });
-}
-
 export interface ConfirmView {
   sharing: boolean;
   readers: number;

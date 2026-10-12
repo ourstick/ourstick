@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { appState, copyLink, copyQrImage, sendByEmail, shareView, type ShareView } from "./api";
+  import { appState, copyLink, copyQrImage, shareView, type ShareView } from "./api";
 
   // The QR code waits for a phone app: no phone can open a link yet, and a
   // QR image sent by mail is a key nobody can click. Kept for that app.
@@ -58,13 +58,8 @@
     </div>
     {#if SHOW_QR}
       <div class="qr">{@html view.qr_svg}</div>
+      <button onclick={() => act(copyQrImage, "QR image copied.")}>Copy QR image</button>
     {/if}
-    <div class="row two">
-      {#if SHOW_QR}
-        <button onclick={() => act(copyQrImage, "QR image copied.")}>Copy QR image</button>
-      {/if}
-      <button onclick={() => act(sendByEmail, "Your mail program should open now.")}>Send by email</button>
-    </div>
   {:else if loaded}
     <p>The sharing link is not ready yet: the stick is getting ready.</p>
   {/if}
@@ -110,9 +105,6 @@
     width: 100%;
     height: 100%;
     display: block;
-  }
-  .two > button {
-    flex: 1;
   }
   .muted {
     color: var(--muted);

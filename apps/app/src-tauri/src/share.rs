@@ -1,13 +1,11 @@
 //! The Share popup (docs/gui-spec.md, panel 2): a small window with the link,
 //! its QR code, and ways to pass it on. The link is the key: it goes to this
-//! window, the clipboard or the user's mail program when the user asks, and
-//! nowhere else.
+//! window or the clipboard when the user asks, and nowhere else.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tauri::image::Image;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_opener::OpenerExt;
 
 use crate::qr;
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState, Sharing};
@@ -57,7 +55,7 @@ fn open_named(app: &AppHandle, stick_id: &StickId, name: &str) -> Result<()> {
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title(format!("Share \u{201c}{name}\u{201d}"))
         .focused(crate::windows::FOCUS_NEW)
-        .inner_size(400.0, 306.0)
+        .inner_size(400.0, 260.0)
         .resizable(false)
         .build()?;
     crate::windows::show_new(&window);
@@ -141,58 +139,4 @@ pub async fn copy_qr_image(
     app.clipboard()
         .write_image(&Image::new_owned(pixels, width, height))
         .map_err(shown)
-}
-
-/// Opens the user's mail program with the link in the body.
-#[tauri::command]
-pub async fn send_by_email(
-    stick_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let link = required_link(&state, &stick_id).await?;
-    let url = mailto(&link);
-    app.opener()
-        .open_url(url, None::<&str>)
-        .context("no mail program to open")
-        .map_err(|error| crate::words::told(&error))
-}
-
-/// A `mailto:` URL with a subject and the link as the body.
-fn mailto(link: &str) -> String {
-    let body = format!("Here is my OurStick. Open the link to see the files:\n\n{link}\n");
-    format!(
-        "mailto:?subject={}&body={}",
-        percent_encode("A stick for you"),
-        percent_encode(&body)
-    )
-}
-
-/// Percent-encodes everything but the unreserved characters (RFC 3986).
-fn percent_encode(text: &str) -> String {
-    let mut encoded = String::new();
-    for byte in text.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                encoded.push(byte as char)
-            }
-            _ => encoded.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    encoded
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_mail_carries_the_whole_link_encoded() {
-        let link = "https://ourstick.com/s/#ABC.secret";
-        let url = mailto(link);
-        assert!(url.starts_with("mailto:?subject=A%20stick%20for%20you&body="));
-        // '#', '/', ':' and newlines must not end or split the URL.
-        assert!(url.contains("https%3A%2F%2Fourstick.com%2Fs%2F%23ABC.secret"));
-        assert!(!url[7..].contains(['#', '/', '\n', ' ']));
-    }
 }

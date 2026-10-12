@@ -226,7 +226,6 @@ fn main() {
             share::share_view,
             share::copy_link,
             share::copy_qr_image,
-            share::send_by_email,
             dialog::confirm_view,
             dialog::open_dialog,
             dialog::stop_sharing,

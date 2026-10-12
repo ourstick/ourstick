@@ -35,7 +35,7 @@
     <h2>Using it</h2>
     <dl class="faq">
       <dt>Does my computer have to stay on?</dt>
-      <dd>Yes, with OurStick running, while others get your stick: the files come from your computer, and there is no copy anywhere else. A download that stops goes on where it left off when you are back.</dd>
+      <dd>Yes, with OurStick running, while others get your stick: the files come from your computer, and there is no copy anywhere else. OurStick opens by itself when you log in, so a restart does not stop your sticks (turn this off with “Start at login” in its menu). A download that stops goes on where it left off when you are back.</dd>
       <dt>Does the other person need OurStick?</dt>
       <dd>Yes. The link opens a page that explains this and lets them download OurStick; they then copy the link into it. There is no way to download a stick in a browser.</dd>
       <dt>Is there a size limit?</dt>
@@ -48,6 +48,8 @@
       <dd>Yes: send the same link to as many as you like. They all download from your computer, so many at once share your upload speed.</dd>
       <dt>How do I stop sharing?</dt>
       <dd>Choose “Change the sharing link…” for the stick: the old link stops working for everyone, and you send the new one to the people you want. Or remove the stick.</dd>
+      <dt>How do I uninstall OurStick?</dt>
+      <dd>Windows: Settings → Apps → OurStick → Uninstall. Mac: quit OurStick, then move it from Applications to the Bin; also delete <code>~/Library/LaunchAgents/com.ourstick.OurStick.plist</code>, which starts it at login. Linux: <code>sudo apt remove ourstick</code>, and delete <code>~/.config/autostart/ourstick.desktop</code>. Your sticks’ folders and the files you received stay, as on a USB stick you put away.</dd>
       <dt>Phones? Intel Macs?</dt>
       <dd>Not yet. OurStick runs on Windows, on Macs with Apple silicon (M1 and later), and on Linux (Ubuntu 22.04 and Debian 12 or newer).</dd>
     </dl>

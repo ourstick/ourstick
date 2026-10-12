@@ -57,7 +57,7 @@ fn open_named(app: &AppHandle, stick_id: &StickId, name: &str) -> Result<()> {
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title(format!("Share \u{201c}{name}\u{201d}"))
         .focused(crate::windows::FOCUS_NEW)
-        .inner_size(400.0, 560.0)
+        .inner_size(400.0, 306.0)
         .resizable(false)
         .build()?;
     crate::windows::show_new(&window);

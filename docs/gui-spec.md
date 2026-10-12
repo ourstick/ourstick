@@ -179,8 +179,12 @@ so Spotlight leaves it alone.
 
 - One line: "Anyone with this sharing link can read the stick."
 - Link field (read-only, monospace) + `Copy`.
-- QR code of the full link (including `#secret`).
-- `Copy QR image`, `Send by email` (opens mailto: with the link in the body).
+- `Send by email` (opens mailto: with the link in the body).
+- No QR code until there is a phone app: a phone cannot open a link yet,
+  and a QR image passed on by mail cannot be clicked. The code that makes
+  it stays (`qr.rs`, `copy_qr_image`; `SHOW_QR` in `Share.svelte`): with a
+  phone app, the QR of the full link (including `#secret`) and `Copy QR
+  image` come back.
 - Nothing else. No expiry, no permissions, no revoke in stage 1.
 
 ### 3 · Tray icon

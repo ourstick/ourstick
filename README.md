@@ -2,7 +2,7 @@
 
 **A USB stick in a link.**
 
-Put folders on a stick in the OurStick app and send its link or QR code. The
+Put folders on a stick in the OurStick app and send its link. The
 other person opens it in OurStick, picks what they want, and downloads it,
 straight from your computer to theirs. Peer-to-peer, end-to-end encrypted, no
 accounts, no size limits.

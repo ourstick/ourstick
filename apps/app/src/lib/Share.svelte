@@ -4,6 +4,10 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { appState, copyLink, copyQrImage, sendByEmail, shareView, type ShareView } from "./api";
 
+  // The QR code waits for a phone app: no phone can open a link yet, and a
+  // QR image sent by mail is a key nobody can click. Kept for that app.
+  const SHOW_QR = false;
+
   let { stickId }: { stickId: string } = $props();
   let view = $state<ShareView | null>(null);
   let loaded = $state(false);
@@ -44,9 +48,13 @@
       <input class="link" readonly value={view.link} onfocus={(event) => event.currentTarget.select()} />
       <button onclick={() => act(copyLink, "Link copied.")}>Copy</button>
     </div>
-    <div class="qr">{@html view.qr_svg}</div>
+    {#if SHOW_QR}
+      <div class="qr">{@html view.qr_svg}</div>
+    {/if}
     <div class="row two">
-      <button onclick={() => act(copyQrImage, "QR image copied.")}>Copy QR image</button>
+      {#if SHOW_QR}
+        <button onclick={() => act(copyQrImage, "QR image copied.")}>Copy QR image</button>
+      {/if}
       <button onclick={() => act(sendByEmail, "Your mail program should open now.")}>Send by email</button>
     </div>
   {:else if loaded}

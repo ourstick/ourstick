@@ -33,9 +33,10 @@ scripts.
 
 ## Media
 
-`site/media/ourstick-demo-6.mp4`: the demo (89 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
-on a Mac and in a Windows VM (a test stick of generated pictures; its link
-and QR code are blurred, as a link holds the sender's addresses). Its music is J. S. Bach's
+`site/media/ourstick-demo-7.mp4`: the demo (89 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
+on a Mac and in a Windows VM (a test stick of generated pictures; the link
+and QR code it shows are made up over the real ones, as a link holds the
+sender's addresses). Its music is J. S. Bach's
 Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to
 the public domain (CC0) by the Open Goldberg Variations project:
 https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3

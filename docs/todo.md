@@ -27,8 +27,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       Kakavelakis <hi@ourstick.com>" since 2026-10-12; the history before
       is kept in a bundle outside the repo.)
 - [ ] **Release 0.1.1:** the three installers in
-      the release folder (the `.dmg` of 2026-10-12 04:47,
-      the `.exe` and `.deb` of 03:47–03:49), the site deployed with them
+      the release folder (the `.dmg` of 2026-10-12 04:47, the `.exe` and
+      `.deb` of 03:47–03:49), the site deployed with them
       (the Windows picture and the FAQ wait for it), a GitHub Release.
 
 - [ ] **The Linux package as the App Center shows it:** for a local `.deb`
@@ -40,8 +40,8 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       after the product name, which `tauri.linux.conf.json` sets to
       `ourstick` on Linux (the menu still says "OurStick", from
       `linux/ourstick.desktop`); it conflicts with, replaces and provides
-      `our-stick`, so apt removes 0.1.0 as it installs it (simulated). To
-      see on this computer once "the app here" may restart.
+      `our-stick`, so apt removes 0.1.0 as it installs it (simulated; seen
+      on Linux on 2026-10-12).
 - [ ] **Share stays in sight** when a stick's view is full (fixed on main,
       to be seen in the 0.1.1 builds).
 - [ ] **Deploy the site with 0.1.1:** its Windows picture now shows the

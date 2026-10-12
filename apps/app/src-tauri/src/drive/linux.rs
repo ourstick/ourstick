@@ -274,11 +274,11 @@ pub mod platform {
 mod tests {
     use super::*;
 
-    const URI: &str = "file:///home/anna/OurStick";
+    const URI: &str = "file:///home/alice/OurStick";
 
     #[test]
     fn a_path_becomes_a_file_uri() {
-        assert_eq!(file_uri(Path::new("/home/anna/OurStick")), URI);
+        assert_eq!(file_uri(Path::new("/home/alice/OurStick")), URI);
         assert_eq!(
             file_uri(Path::new("/home/a b/Ö")),
             "file:///home/a%20b/%C3%96"
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn the_gtk_bookmark_is_added_once_and_removed_alone() {
-        let theirs = "file:///home/anna/Music\nfile:///home/anna/Work Work\n";
+        let theirs = "file:///home/alice/Music\nfile:///home/alice/Work Work\n";
         let with = with_gtk_bookmark(theirs, URI, "For Maria");
         assert_eq!(with, format!("{theirs}{URI} For Maria\n"));
         assert_eq!(with_gtk_bookmark(&with, URI, "For Maria"), with);
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn the_kde_place_is_added_once_and_removed_alone() {
-        let theirs = "<?xml version=\"1.0\"?>\n<xbel>\n  <bookmark href=\"file:///home/anna\">\n   <title>Home</title>\n  </bookmark>\n</xbel>\n";
+        let theirs = "<?xml version=\"1.0\"?>\n<xbel>\n  <bookmark href=\"file:///home/alice\">\n   <title>Home</title>\n  </bookmark>\n</xbel>\n";
         let with = with_xbel_bookmark(theirs, URI, "Tom & Jerry <3").unwrap();
         assert!(with.contains("drive-removable-media-usb"));
         assert!(with.contains("<title>Tom &amp; Jerry &lt;3</title>"));

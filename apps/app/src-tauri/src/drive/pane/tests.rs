@@ -25,10 +25,10 @@ fn a_sticks_class_id_is_stable_braced_and_its_own() {
 
 #[test]
 fn each_data_folder_has_its_own_list() {
-    let installed = list_name(Path::new(r"C:\Users\anna\AppData\Local\OurStick"));
+    let installed = list_name(Path::new(r"C:\Users\alice\AppData\Local\OurStick"));
     assert_eq!(
         installed,
-        list_name(Path::new(r"C:\Users\anna\AppData\Local\OurStick"))
+        list_name(Path::new(r"C:\Users\alice\AppData\Local\OurStick"))
     );
     assert_ne!(installed, list_name(Path::new(r"C:\dev\data")));
     assert_eq!(installed.len(), 16);
@@ -53,7 +53,7 @@ fn entry_for(name: &str, folder: &str) -> String {
 fn the_entry_file_is_microsofts_recipe_with_the_list_first() {
     let id = class_id(&stick(1));
     let hex = crate::state::stick_hex(&stick(1));
-    let text = entry_for("Holiday photos", r"C:\Users\anna\OurStick\Holiday photos");
+    let text = entry_for("Holiday photos", r"C:\Users\alice\OurStick\Holiday photos");
     let class = |classes: &str| {
         format!(
             "\r\n[{classes}\\{id}]\r\n@=\"Holiday photos\"\r\n\
@@ -66,7 +66,7 @@ fn the_entry_file_is_microsofts_recipe_with_the_list_first() {
              \"CLSID\"=\"{{0E5AAE11-A475-4c5b-AB00-C66DE400274E}}\"\r\n\
              \r\n[{classes}\\{id}\\Instance\\InitPropertyBag]\r\n\
              \"Attributes\"=dword:00000011\r\n\
-             \"TargetFolderPath\"=\"C:\\\\Users\\\\anna\\\\OurStick\\\\Holiday photos\"\r\n\
+             \"TargetFolderPath\"=\"C:\\\\Users\\\\alice\\\\OurStick\\\\Holiday photos\"\r\n\
              \r\n[{classes}\\{id}\\ShellFolder]\r\n\
              \"FolderValueFlags\"=dword:00000028\r\n\"Attributes\"=dword:f080004d\r\n",
             expandable(SHELL32)
@@ -89,12 +89,12 @@ fn only_shell32s_path_is_expanded() {
     assert_eq!(expandable("%A"), "hex(2):25,00,41,00,00,00");
     // Every other value is a plain string: a `%` in a name or a folder
     // stays as it is.
-    let text = entry_for("100% %PATH%", r"C:\Users\anna\OurStick\100% %PATH%");
+    let text = entry_for("100% %PATH%", r"C:\Users\alice\OurStick\100% %PATH%");
     // Once per registry view.
     assert_eq!(text.matches("hex(2):").count(), 2);
     assert!(text.contains("@=\"100% %PATH%\"\r\n"));
     assert!(text
-        .contains("\"TargetFolderPath\"=\"C:\\\\Users\\\\anna\\\\OurStick\\\\100% %PATH%\"\r\n"));
+        .contains("\"TargetFolderPath\"=\"C:\\\\Users\\\\alice\\\\OurStick\\\\100% %PATH%\"\r\n"));
 }
 
 #[test]

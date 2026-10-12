@@ -6,7 +6,7 @@ fn program(system: System, exe: &Path) -> Program<'_> {
     Program {
         system,
         exe,
-        home: Some(Path::new("/Users/anna")),
+        home: Some(Path::new("/Users/alice")),
         debug: false,
         own_data_dir: false,
         appimage: false,
@@ -52,7 +52,7 @@ fn only_the_installed_app_writes_the_entry() {
         }
     }
     let user_mac =
-        PathBuf::from("/Users/anna/Applications/OurStick.app/Contents/MacOS/ourstick-app");
+        PathBuf::from("/Users/alice/Applications/OurStick.app/Contents/MacOS/ourstick-app");
     assert!(may_write(&program(System::MacOs, &user_mac)));
     for exe in [
         r"C:\src\ourstick\target\release\ourstick-app.exe",
@@ -67,12 +67,12 @@ fn only_the_installed_app_writes_the_entry() {
         "/Volumes/OurStick/OurStick.app/Contents/MacOS/ourstick-app",
         "/private/var/folders/x/T/AppTranslocation/1234/d/OurStick.app/Contents/MacOS/ourstick-app",
         "/Applications/ourstick-app",
-        "/Users/anna/Downloads/OurStick.app/Contents/MacOS/ourstick-app",
+        "/Users/alice/Downloads/OurStick.app/Contents/MacOS/ourstick-app",
     ] {
         assert!(!may_write(&program(System::MacOs, Path::new(exe))), "{exe}");
     }
     for exe in [
-        "/home/anna/cargo-target/release/ourstick-app",
+        "/home/alice/cargo-target/release/ourstick-app",
         "/usr/local/bin/ourstick-app",
     ] {
         assert!(!may_write(&program(System::Linux, Path::new(exe))), "{exe}");

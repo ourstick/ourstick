@@ -12,27 +12,27 @@ fn environment<'a>(values: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<std::f
 
 #[test]
 fn the_data_folder_follows_the_system() {
-    let unix = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "")];
+    let unix = [("HOME", "/home/alice"), ("XDG_DATA_HOME", "")];
     assert_eq!(
         data_dir_from(environment(&unix), false).unwrap(),
-        PathBuf::from("/home/anna/.local/share/ourstick")
+        PathBuf::from("/home/alice/.local/share/ourstick")
     );
-    let xdg = [("HOME", "/home/anna"), ("XDG_DATA_HOME", "/data")];
+    let xdg = [("HOME", "/home/alice"), ("XDG_DATA_HOME", "/data")];
     assert_eq!(
         data_dir_from(environment(&xdg), false).unwrap(),
         PathBuf::from("/data/ourstick")
     );
-    let windows = [("LOCALAPPDATA", r"C:\Users\anna\AppData\Local")];
+    let windows = [("LOCALAPPDATA", r"C:\Users\alice\AppData\Local")];
     assert_eq!(
         data_dir_from(environment(&windows), true).unwrap(),
-        PathBuf::from(r"C:\Users\anna\AppData\Local").join("OurStick")
+        PathBuf::from(r"C:\Users\alice\AppData\Local").join("OurStick")
     );
     // $HOME alone does not count on Windows.
     assert!(matches!(
-        data_dir_from(environment(&[("HOME", "/home/anna")]), true),
+        data_dir_from(environment(&[("HOME", "/home/alice")]), true),
         Err(DeviceError::NoHome("%LOCALAPPDATA%"))
     ));
-    let chosen = [("OURSTICK_DATA_DIR", "/elsewhere"), ("HOME", "/home/anna")];
+    let chosen = [("OURSTICK_DATA_DIR", "/elsewhere"), ("HOME", "/home/alice")];
     for windows in [false, true] {
         assert_eq!(
             data_dir_from(environment(&chosen), windows).unwrap(),

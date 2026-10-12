@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+# Not for crates.io: the crates make sense only together, in this repository.
+publish = false
 
 [[bin]]
 name = "ourstick"

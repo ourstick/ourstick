@@ -17,6 +17,20 @@ the implementation order in `CLAUDE.md`; limits of the code are in
 
 ## For 0.1.1 (from the first installs, 2026-10-10)
 
+- [ ] **Start at login (ADR 0024), by hand:** the Mac (0.1.1 installed in
+      Applications on 2026-10-12, its LaunchAgent checked): restart, no
+      window, the Dock click, Login Items. Linux (this computer, where the
+      installed app serves a stick): install the new `.deb`, restart. The
+      Windows round is done (VM, 2026-10-12).
+- [ ] **Before the repo goes public:** the git history's author becomes
+      "Georgios Kakavelakis <hi@ourstick.com>" (rewritten once, with the
+      old history kept in a bundle); then the reviews by Fable, an
+      independent Opus and Sonnet.
+- [ ] **Release 0.1.1:** the three installers in
+      the release folder (the `.dmg` of 2026-10-12 04:47,
+      the `.exe` and `.deb` of 03:47–03:49), the site deployed with them
+      (the Windows picture and the FAQ wait for it), a GitHub Release.
+
 - [ ] **The Linux package as the App Center shows it:** for a local `.deb`
       file, the App Center (ubuntu/app-center, `local_deb_page.dart`) shows
       the package's name as the title, no publisher, no icon, and the

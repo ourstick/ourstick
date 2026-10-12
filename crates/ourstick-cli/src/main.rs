@@ -31,8 +31,9 @@ Usage:
 Without a direct connection, `get` goes on through a relay, at up to 10 Mbps
 while it keeps looking for a direct one; it never stops because of it.
 
-`share` keeps this device's keys in the Secret Service (GNOME Keyring,
-KWallet). Where there is none (macOS for now, SSH sessions, servers), the first
+`share` keeps this device's keys in the system keyring: the Secret Service
+(GNOME Keyring, KWallet) on Linux, the keychain on macOS, the Credential
+Manager on Windows. Where there is none (SSH sessions, servers), the first
 `share --key-file <path>` keeps them in a file protected by a passphrase
 instead; later runs use that file and ask for its passphrase.
 

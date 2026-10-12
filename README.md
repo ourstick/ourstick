@@ -44,8 +44,8 @@ through a public relay, at up to 10 Mbps, while a direct path is still looked
 for; a download never stops because of it.
 
 `share` keeps its keys in the system keyring: the Secret Service (GNOME
-Keyring, KWallet) on Linux, the keychain on macOS. Where there is none (SSH
-sessions, servers, Windows for now), use
+Keyring, KWallet) on Linux, the keychain on macOS, the Credential Manager on
+Windows. Where there is none (SSH sessions, servers), use
 `ourstick share --key-file <path> <folder>` once; later runs use that file and
 ask for its passphrase. Losing the keys or the passphrase ends every link
 shared from that device.

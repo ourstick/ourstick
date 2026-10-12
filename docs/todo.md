@@ -22,10 +22,10 @@ the implementation order in `CLAUDE.md`; limits of the code are in
       window, the Dock click, Login Items. Linux (this computer, where the
       installed app serves a stick): install the new `.deb`, restart. The
       Windows round is done (VM, 2026-10-12).
-- [ ] **Before the repo goes public:** the git history's author becomes
-      "Georgios Kakavelakis <hi@ourstick.com>" (rewritten once, with the
-      old history kept in a bundle); then the reviews by Fable, an
-      independent Opus and Sonnet.
+- [ ] **Before the repo goes public:** the reviews by Fable, an
+      independent Opus and Sonnet. (The history's author is "Georgios
+      Kakavelakis <hi@ourstick.com>" since 2026-10-12; the history before
+      is kept in a bundle outside the repo.)
 - [ ] **Release 0.1.1:** the three installers in
       the release folder (the `.dmg` of 2026-10-12 04:47,
       the `.exe` and `.deb` of 03:47–03:49), the site deployed with them

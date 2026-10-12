@@ -28,12 +28,15 @@ fn many_files() -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
-async fn owner_of(files: &[(String, Vec<u8>)]) -> Owner {
-    let files: Vec<(&str, &[u8])> = files
+fn as_slices(files: &[(String, Vec<u8>)]) -> Vec<(&str, &[u8])> {
+    files
         .iter()
         .map(|(path, data)| (path.as_str(), data.as_slice()))
-        .collect();
-    Owner::new(&files).await
+        .collect()
+}
+
+async fn owner_of(files: &[(String, Vec<u8>)]) -> Owner {
+    Owner::new(&as_slices(files)).await
 }
 
 fn publishing(owner: &Owner) -> Publishing<'_, ourstick_core::transport::iroh::IrohPublisher> {
@@ -149,7 +152,9 @@ async fn a_later_pass_publishes_partial_versions_that_keep_the_rest() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restarted_first_share_goes_on_from_what_it_recorded() {
     let files = many_files();
-    let owner = owner_of(&files).await;
+    // No files' keeper: it records the files it makes ready in the
+    // background, and could put back records the test has just dropped.
+    let owner = Owner::bare(&as_slices(&files)).await;
     let first = run_pass(&publishing(&owner), PassOptions::default(), &mut |_| {})
         .await
         .unwrap()

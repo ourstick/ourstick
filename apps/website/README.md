@@ -33,13 +33,20 @@ scripts.
 
 ## Media
 
-`site/media/ourstick-demo-4.mp4`: the demo (89 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
+`site/media/ourstick-demo-5.mp4`: the demo (89 s; a new version gets a new number, as browsers keep a video for hours), recorded from the app
 on a Mac and in a Windows VM (a test stick of generated pictures, removed
 afterwards, so the link it shows works no more). Its music is J. S. Bach's
 Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to
 the public domain (CC0) by the Open Goldberg Variations project:
 https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3
-(https://opengoldbergvariations.org). `ourstick-demo-poster.jpg` is its
+(https://opengoldbergvariations.org). `ourstick-demo-poster-2.jpg` is its
 first card.
 `drive-mac-2.png`, `drive-windows-4.png`, `drive-linux-2.png`: the stick as a
 drive on each system (the Linux login blurred, its home path cut).
+
+The font, `site/fonts/UbuntuSans.woff2`, is Ubuntu Sans 1.006 by Canonical
+(github.com/canonical/Ubuntu-Sans-fonts, release v1.006, the file
+`webfont/UbuntuSans[wdth,wght].woff2`, unchanged but for its name), under
+the Ubuntu Font Licence 1.0 (`site/fonts/UbuntuSans-LICENCE.txt`, shipped
+beside it). The demo video's titles use the same release's
+`UbuntuSans-Bold.ttf` and `UbuntuSans-Regular.ttf`.

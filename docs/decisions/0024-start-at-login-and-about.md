@@ -169,6 +169,24 @@ write itself, as it writes registry entries (ADR 0023) and bookmarks.
   Startup Applications switch kept. About: every link, the check in step
   with the tray's. The update from 0.1.0: the notice once.
 
+### Tried
+
+- Windows 11 VM, 2026-10-12, the app driven through UI Automation:
+  installed, it wrote `Run` with the quoted path; the notice showed once;
+  About's check off removed the value, on wrote it and Task Manager's
+  switch as enabled; Task Manager's Disabled (written by hand) was kept at
+  a start and the check showed off; after a restart the app started with
+  `--autostarted` and shared the stick, with its window open only while
+  the notice was unread, and none after; a second start with
+  `--autostarted` did nothing, a plain one showed the window; the NSIS
+  uninstall removed `Run` and Task Manager's value and kept the data;
+  `LICENSE.txt` and the libraries' licences are installed. About first
+  opened blank (a window made from a synchronous command on Windows), and
+  Tauri leaves the bundle's copyright out of the app's configuration (read
+  by build.rs instead): both fixed. Not tried there: the tray's items
+  (the same code as About's), the links opening a browser.
+- macOS and Linux: by hand, before the release.
+
 ## Alternatives considered
 
 - **`tauri-plugin-autostart`:** a new dependency with the faults above.

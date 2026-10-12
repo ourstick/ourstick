@@ -14,7 +14,7 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/ourstick/ourstick"
 homepage = "https://ourstick.com"
-authors = ["Giorgos <hi@ourstick.com>"]
+authors = ["Georgios Kakavelakis <hi@ourstick.com>"]
 rust-version = "1.91"
 
 [workspace.dependencies]

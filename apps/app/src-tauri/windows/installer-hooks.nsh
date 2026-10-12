@@ -3,8 +3,10 @@
 ; Uninstalling: the File Explorer entries the app made for its sticks
 ; (ADR 0023), as its lists under HKCU\Software\OurStick\NavigationPane
 ; name them, one subkey per data folder. Only a braced GUID is taken as an
-; entry. Not on an update: the old version is uninstalled first, and the
-; entries would vanish until the app's next start.
+; entry. Then the start at login (ADR 0024): the Run value and Task
+; Manager's switch for it, so that a new install does not inherit an old
+; "Disabled". Not on an update: the old version is uninstalled first, and
+; the entries would vanish until the app's next start.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $UpdateMode <> 1
     Push $R0
@@ -36,6 +38,8 @@
       Goto ourstick_lists
     ourstick_done:
     DeleteRegKey HKCU "Software\OurStick"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OurStick"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "OurStick"
     Pop $R4
     Pop $R3
     Pop $R2

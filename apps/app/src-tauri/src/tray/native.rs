@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use tauri::image::Image;
-use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Wry};
 
@@ -103,10 +103,10 @@ fn item(app: &AppHandle, text: &str, action: Action) -> Result<MenuItem<Wry>> {
     )?)
 }
 
-/// The menu for the app's sticks.
-fn menu(app: &AppHandle, sticks: &[TrayStick]) -> Result<Menu<Wry>> {
+/// The menu for the app's sticks and the login check.
+fn menu(app: &AppHandle, sticks: &[TrayStick], start_at_login: bool) -> Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
-    for line in menu_lines(sticks) {
+    for line in menu_lines(sticks, start_at_login) {
         match line {
             Line::Item(text, action) => menu.append(&item(app, &text, action)?)?,
             Line::Stick(text, items) => {
@@ -123,6 +123,14 @@ fn menu(app: &AppHandle, sticks: &[TrayStick]) -> Result<Menu<Wry>> {
             Line::Note(text) => {
                 menu.append(&MenuItem::new(app, label(&text), false, None::<&str>)?)?
             }
+            Line::Check(text, checked, action) => menu.append(&CheckMenuItem::with_id(
+                app,
+                action.id(),
+                label(&text),
+                true,
+                checked,
+                None::<&str>,
+            )?)?,
             Line::Separator => menu.append(&PredefinedMenuItem::separator(app)?)?,
         }
     }
@@ -135,7 +143,7 @@ pub fn create(app: &AppHandle) -> Result<()> {
         .icon(image)
         .icon_as_template(template)
         .tooltip("OurStick")
-        .menu(&menu(app, &[])?)
+        .menu(&menu(app, &[], false)?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
             let Some(action) = Action::from_id(event.id.as_ref()) else {
@@ -161,12 +169,13 @@ pub fn set_active(app: &AppHandle, active: bool) {
     }
 }
 
-/// The app's sticks, as the menu lists them: the menu is made anew.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>) {
+/// The app's sticks, as the menu lists them, and the login check: the
+/// menu is made anew.
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>, start_at_login: bool) {
     let Some(tray) = app.tray_by_id(TRAY) else {
         return;
     };
-    match menu(app, &sticks) {
+    match menu(app, &sticks, start_at_login) {
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
         }

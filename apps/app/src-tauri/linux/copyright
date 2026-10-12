@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: OurStick
+Upstream-Contact: hi@ourstick.com
+Source: https://ourstick.com
+
+Files: *
+Copyright: 2026 Georgios Kakavelakis
+License: Apache-2.0
+ On Debian systems, the full text of the Apache License, Version 2.0 is in
+ /usr/share/common-licenses/Apache-2.0. The licences of the libraries
+ OurStick is made with are in /usr/lib/ourstick/THIRD-PARTY-LICENSES.html.
+Comment: The name OurStick and its logo are not covered by the licence
+ (section 6).

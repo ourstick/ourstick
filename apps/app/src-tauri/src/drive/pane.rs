@@ -13,6 +13,8 @@ use std::path::Path;
 
 use ourstick_core::StickId;
 
+use crate::registry::{expandable, file, quoted};
+
 const CLASSES: &str = r"HKEY_CURRENT_USER\Software\Classes\CLSID";
 /// Where 32-bit programs look for a class: their Open and Save dialogs
 /// show the entry too, not a blank item.
@@ -60,33 +62,6 @@ pub struct Entry<'a> {
     pub folder: &'a Path,
     /// The program whose first icon the entry shows: the app itself.
     pub icon: &'a Path,
-}
-
-/// A `.reg` string: in quotes, with `\` and `"` escaped. A stick's name
-/// holds no control character (`stick_names`), so no line break.
-fn quoted(text: &str) -> String {
-    format!("\"{}\"", text.replace('\\', r"\\").replace('"', "\\\""))
-}
-
-/// A `REG_EXPAND_SZ` value: its UTF-16LE bytes and the final NUL, in hex.
-fn expandable(text: &str) -> String {
-    let bytes: Vec<String> = text
-        .encode_utf16()
-        .chain([0])
-        .flat_map(u16::to_le_bytes)
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    format!("hex(2):{}", bytes.join(","))
-}
-
-fn file(sections: &[String]) -> String {
-    let mut text = String::from("Windows Registry Editor Version 5.00\r\n");
-    for section in sections {
-        text.push_str("\r\n");
-        text.push_str(&section.replace('\n', "\r\n"));
-        text.push_str("\r\n");
-    }
-    text
 }
 
 /// The class `id` of an entry, under `classes` (64- or 32-bit).
@@ -158,14 +133,11 @@ pub fn odd_values_file(names: &[String], list: &str) -> String {
     )
 }
 
-/// The string values in what `reg query` prints for a list:
-/// `    <name>    REG_SZ    <data>` per value; other lines are skipped.
+/// The string values in what `reg query` prints for a list.
 pub fn listed_in(output: &str) -> Vec<(String, String)> {
-    output
-        .lines()
-        .filter_map(|line| line.strip_prefix("    "))
-        .filter_map(|line| line.split_once("    REG_SZ    "))
-        .map(|(name, data)| (name.to_owned(), data.trim_end().to_owned()))
+    crate::registry::values_in(output, &["REG_SZ"])
+        .into_iter()
+        .map(|(name, _, data)| (name, data))
         .collect()
 }
 
@@ -199,7 +171,7 @@ pub fn left_behind(listed: &[(String, String)], app_sticks: &[StickId]) -> LeftB
 #[cfg(windows)]
 pub mod platform {
     use super::*;
-    use anyhow::{bail, Context, Result};
+    use anyhow::{Context, Result};
     use ourstick_core::OwnedStick;
     use std::path::PathBuf;
 
@@ -209,30 +181,8 @@ pub mod platform {
         Ok((data_dir, list))
     }
 
-    /// Imports `text` as a `.reg` file (UTF-16LE with a BOM, as `reg`
-    /// reads it whatever the code page), named after `tag`.
     fn import(data_dir: &Path, tag: &str, text: &str) -> Result<()> {
-        let path = data_dir.join(format!("pane-{tag}.reg"));
-        let bytes: Vec<u8> = [0xFEFF]
-            .into_iter()
-            .chain(text.encode_utf16())
-            .flat_map(u16::to_le_bytes)
-            .collect();
-        std::fs::write(&path, bytes).with_context(|| format!("cannot write {}", path.display()))?;
-        let output = crate::drive::no_window("reg")
-            .arg("import")
-            .arg(&path)
-            .arg("/reg:64")
-            .output();
-        let _ = std::fs::remove_file(&path);
-        let output = output.context("cannot run reg")?;
-        if !output.status.success() {
-            bail!(
-                "reg import failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(())
+        crate::registry::platform::import(data_dir, &format!("pane-{tag}"), text)
     }
 
     /// Writes the stick's entry (again, in full): its name, its folder,
@@ -273,20 +223,11 @@ pub mod platform {
             return;
         };
         let key = format!("{LISTS}\\{list}");
-        let Ok(output) = crate::drive::no_window("reg")
-            .args(["query", &key, "/reg:64"])
-            .output()
-        else {
-            return;
-        };
-        if !output.status.success() {
+        let Some(output) = crate::registry::platform::query(&key) else {
             // No list yet.
             return;
-        }
-        let found = left_behind(
-            &listed_in(&String::from_utf8_lossy(&output.stdout)),
-            app_sticks,
-        );
+        };
+        let found = left_behind(&listed_in(&output), app_sticks);
         for id in &found.entries {
             match import(&data_dir, id, &removal_file(id, &list)) {
                 Ok(()) => tracing::info!("removed a File Explorer entry left behind"),

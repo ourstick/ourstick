@@ -6,4 +6,6 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 cargo about generate --workspace --config tools/licenses/about.toml \
   --output-file THIRD-PARTY-LICENSES.html tools/licenses/about.hbs
+# The JavaScript in the app's window (needs `npm ci` in apps/app first).
+python3 -I tools/licenses/javascript.py THIRD-PARTY-LICENSES.html apps/app/node_modules
 echo "Made $root/THIRD-PARTY-LICENSES.html"

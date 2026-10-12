@@ -188,16 +188,36 @@ so Spotlight leaves it alone.
   from any stick.
 - Menu: `Open OurStick`; then each stick, `Name — sharing` or `Name — not
   sharing`, with its own submenu: `Share…`, `Eject` / `Mount`, `Stop
-  sharing…` / `Start sharing`; then `New stick…` and `Quit`. The menu is
-  made again whenever a stick is made, renamed, removed, mounted, ejected,
-  or starts or stops sharing.
+  sharing…` / `Start sharing`; then `New stick…`; then `About OurStick`,
+  the `Start at login` check and `Quit`. The menu is made again whenever a
+  stick is made, renamed, removed, mounted, ejected, or starts or stops
+  sharing, and when the check changes.
 - Closing the main window hides it in the tray; it does not stop sharing. On
   Linux it is minimized instead (see Known limitations).
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
   Tauri's, because it has to receive the shell's XDG activation token (see
   Known limitations). GNOME shows it through the AppIndicator extension,
   which Ubuntu ships; without such a host there is no tray icon, and the app
-  logs why.
+  logs why. At login the host may come later: the app tries for 30 seconds,
+  then, if it was started at login, shows its window rather than run unseen.
+
+### Start at login, and About (ADR 0024)
+
+- The app starts at login, on by default: the system's own entry (Windows
+  `Run`, a macOS LaunchAgent, a Linux autostart file), written by the
+  installed app only. Started so (`--autostarted`), it opens no window and
+  shares its sticks; the window opens anyway for the keys' move, the Local
+  Network step or the notice. The notice, once, at the top of the main
+  window: "OurStick opens when you log in, so that your sticks are shared
+  after a restart. You can turn this off in the tray menu or in About."
+- The system's own "off" (Task Manager, Startup Applications) is kept; the
+  check shows it where it can be read (Windows, Linux).
+- About: the icon, name, version and tagline; ourstick.com, Privacy, Report
+  a problem; the start at login check; the copyright line; OurStick's
+  licence and the libraries' licences (the installed files). From the
+  tray, the version line at the foot of the sidebar, and the macOS app
+  menu.
+- macOS: a click on the Dock icon shows the window.
 
 ### 4 · Stop sharing (also on Quit)
 
@@ -423,4 +443,4 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 
 FUSE or any virtual filesystem, right-click "Send
 to" in file managers, multiple sticks, permissions, expiry, revoke, settings
-page, auto-start at login, updates, the receiver window.
+page, updates, the receiver window.

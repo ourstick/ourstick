@@ -10,8 +10,8 @@
 # that has finished).
 param([Parameter(Mandatory)] [string] $Command, [int] $Wait = 3600)
 $tag = [guid]::NewGuid().ToString("N").Substring(0, 8)
-$log = "$env:TEMP\desktop-$tag.log"
-$done = "$env:TEMP\desktop-$tag.done"
+$log = "$env:USERPROFILE\d-$tag.log"
+$done = "$env:USERPROFILE\d-$tag.done"
 $run = "cmd /c cd /d $env:USERPROFILE\src\ourstick && $Command > $log 2>&1 & echo.> $done"
 schtasks /create /tn OurStickDesktop /tr $run /sc once /st 23:59 /it /ru $env:USERNAME /f | Out-Null
 schtasks /run /tn OurStickDesktop | Out-Null
@@ -22,4 +22,4 @@ while (-not (Test-Path $done) -and $seconds -lt $Wait) {
 }
 schtasks /delete /tn OurStickDesktop /f | Out-Null
 Get-Content -ErrorAction SilentlyContinue $log
-Remove-Item -ErrorAction SilentlyContinue $done
+Remove-Item -ErrorAction SilentlyContinue $log, $done

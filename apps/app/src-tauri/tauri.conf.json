@@ -16,7 +16,8 @@
         "title": "OurStick",
         "width": 700,
         "height": 600,
-        "resizable": false
+        "resizable": false,
+        "visible": false
       }
     ],
     "security": {
@@ -37,18 +38,20 @@
       "minimumSystemVersion": "10.15"
     },
     "resources": {
-      "../../../THIRD-PARTY-LICENSES.html": "THIRD-PARTY-LICENSES.html"
+      "../../../THIRD-PARTY-LICENSES.html": "THIRD-PARTY-LICENSES.html",
+      "../../../LICENSE": "LICENSE.txt"
     },
     "category": "Utility",
     "shortDescription": "A USB stick in a link.",
     "longDescription": "Put folders on a stick in the OurStick app and send its link or QR code. The other person opens it in OurStick, picks what they want, and downloads it. Straight from your computer to theirs, encrypted on your device. No accounts, no size limits.",
     "homepage": "https://ourstick.com",
-    "publisher": "Giorgos",
-    "copyright": "© 2026 Giorgos. Apache-2.0.",
+    "publisher": "Georgios Kakavelakis",
+    "copyright": "© 2026 Georgios Kakavelakis. Apache-2.0.",
     "linux": {
       "deb": {
         "files": {
-          "/usr/share/metainfo/com.ourstick.OurStick.metainfo.xml": "linux/com.ourstick.OurStick.metainfo.xml"
+          "/usr/share/metainfo/com.ourstick.OurStick.metainfo.xml": "linux/com.ourstick.OurStick.metainfo.xml",
+          "/usr/share/doc/ourstick/copyright": "linux/copyright"
         }
       }
     },

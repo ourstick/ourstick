@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
+  import { openAbout, startAtLogin, startAtLoginTold } from "./aboutApi";
   import {
     appProblem,
     dismissAppProblem,
@@ -37,6 +38,8 @@
   let failure = $state<string | null>(null);
   /** Shown at the bottom of the sidebar, so a report can say which one. */
   let version = $state("");
+  /** Said once: the app starts at login, and how to turn it off (ADR 0024). */
+  let loginNotice = $state(false);
   /** A problem of the whole app, not of one stick. */
   let problem = $state<ShareProblem | null>(null);
   /** Answers to an older look are dropped: they arrive in any order. */
@@ -89,6 +92,14 @@
   }
 
   getVersion().then((v) => (version = v)).catch(() => {});
+  startAtLogin()
+    .then((login) => (loginNotice = login.on && !login.told))
+    .catch(() => {});
+
+  function loginNoticeRead() {
+    loginNotice = false;
+    startAtLoginTold().catch(() => {});
+  }
   onMount(() => {
     refresh();
     const stops = [
@@ -110,6 +121,15 @@
 </script>
 
 <main class="card window">
+  {#if loginNotice}
+    <p class="login-notice" role="status">
+      <span>
+        OurStick opens when you log in, so that your sticks are shared after a restart. You can turn
+        this off in the tray menu or in About.
+      </span>
+      <button onclick={loginNoticeRead}>OK</button>
+    </p>
+  {/if}
   {#if problem?.kind === "failed"}
     <p class="app-problem error" role="alert">
       <span>{problem.message}</span>
@@ -126,7 +146,9 @@
         onSelect={selectReceived}
         onAdd={() => (shown = { kind: "add" })}
       />
-      {#if version}<p class="version muted">OurStick {version}</p>{/if}
+      {#if version}
+        <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+      {/if}
     </div>
     {#if shown?.kind === "own"}
       {#key shown.id}
@@ -167,9 +189,29 @@
     border-right: 1px solid var(--border);
     overflow-y: auto;
   }
+  .login-notice {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  }
   .version {
     margin: auto 0 0;
+    padding: 0;
+    border: none;
+    background: none;
+    min-height: 0;
+    text-align: left;
     font-size: 0.8em;
+    cursor: pointer;
+  }
+  .version:hover {
+    text-decoration: underline;
   }
   .app-problem {
     display: flex;

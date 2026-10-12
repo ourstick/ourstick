@@ -4,6 +4,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod about;
 mod busy;
 mod commands;
 mod dialog;
@@ -11,6 +12,7 @@ mod drive;
 mod inhibit;
 mod keys;
 mod local_network;
+mod login;
 mod making;
 #[cfg(target_os = "macos")]
 mod menu;
@@ -18,6 +20,8 @@ mod problems;
 mod qr;
 mod receiving;
 mod refresh;
+#[cfg(any(windows, test))]
+mod registry;
 mod serving;
 mod share;
 mod sharing;
@@ -80,12 +84,24 @@ fn main() {
         if event.id.as_ref() == menu::QUIT {
             dialog::open_later(app, dialog::Mode::Quit);
         }
+        if event.id.as_ref() == menu::ABOUT {
+            // Not in the menu handler itself, as the tray's windows.
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = about::open(&app) {
+                    tracing::warn!(error = %format!("{error:#}"), "About did not open");
+                }
+            });
+        }
     });
     builder
         // A second launch shows the running app instead: one app per user,
         // which shares its sticks (each locked, see ourstick_core::locks).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        // The login entry's start finds the app running: nothing to show.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !login::autostarted(&args) {
+                tray::show_main(app);
+            }
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
@@ -142,6 +158,23 @@ fn main() {
                     tracing::warn!(%error, "the empty keychain was not moved");
                 }
             }
+            // Started at login (ADR 0024): no window, unless it has
+            // something to ask first.
+            let notice = store
+                .settings()
+                .is_ok_and(|settings| settings.start_at_login && !settings.start_at_login_told);
+            let ask_first =
+                due.is_some_and(|keys| keys > 0) || !*state.network_open.borrow() || notice;
+            if !login::autostarted(&std::env::args().collect::<Vec<_>>()) || ask_first {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.show()?;
+                }
+            }
+            // The login entry made to match the choice, off the main thread.
+            let settings_store = state.store.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                login::sync_at_start(settings_store.as_ref())
+            });
             if due.is_some_and(|keys| keys > 0) {
                 state
                     .keys_wait
@@ -202,10 +235,21 @@ fn main() {
             commands::eject,
             commands::mount,
             commands::open_in_file_manager,
+            about::about_view,
+            about::open_about,
+            about::open_about_link,
+            login::commands::start_at_login,
+            login::commands::set_start_at_login,
+            login::commands::start_at_login_told,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start its window")
         .run(|app, event| {
+            // macOS: a click on the Dock icon brings the window back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                tray::show_main(app);
+            }
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 // Quit is always confirmed (docs/gui-spec.md): from the Dock,
                 // with ⌘Q or from the app menu too, not only from the tray.

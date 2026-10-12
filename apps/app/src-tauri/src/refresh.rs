@@ -58,7 +58,12 @@ pub async fn refresh_tray(app: &AppHandle) {
         .collect();
     let active = readers_now(&sharing) > 0;
     drop(sharing);
-    crate::tray::set_sticks(app, shown);
+    let store = state.store.clone();
+    let start_at_login =
+        tauri::async_runtime::spawn_blocking(move || crate::login::shown(store.as_ref()))
+            .await
+            .unwrap_or(false);
+    crate::tray::set_sticks(app, shown, start_at_login);
     crate::tray::set_active(app, active);
 }
 

@@ -1,21 +1,25 @@
 //! The macOS app menu. The default one quits at once on ⌘Q; ours asks first
-//! (docs/gui-spec.md: Quit is always confirmed). Edit and Window keep the
-//! usual items (copy and paste in the link field, closing windows).
+//! (docs/gui-spec.md: Quit is always confirmed), and its About opens the
+//! app's own window, as on the other systems (ADR 0024). Edit and Window
+//! keep the usual items (copy and paste in the link field, closing windows).
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 
 /// The id of our Quit item (not "quit": the tray has one of those).
 pub const QUIT: &str = "app-quit";
+/// The id of our About item (the tray has an "about" too).
+pub const ABOUT: &str = "app-about";
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let quit = MenuItem::with_id(app, QUIT, "Quit OurStick", true, Some("CmdOrCtrl+Q"))?;
+    let about = MenuItem::with_id(app, ABOUT, "About OurStick", true, None::<&str>)?;
     let app_menu = Submenu::with_items(
         app,
         "OurStick",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About OurStick"), None)?,
+            &about,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, Some("Hide OurStick"))?,
             &PredefinedMenuItem::hide_others(app, None)?,

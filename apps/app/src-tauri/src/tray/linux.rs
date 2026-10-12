@@ -29,6 +29,8 @@ struct Shown {
     /// Someone downloads: the green dot.
     active: bool,
     sticks: Vec<TrayStick>,
+    /// The "Start at login" check (ADR 0024).
+    start_at_login: bool,
 }
 
 /// The running tray, as app state.
@@ -68,33 +70,48 @@ fn pixmap(png: &[u8]) -> Vec<ksni::Icon> {
     }]
 }
 
+/// Tries at registering the tray, 3 seconds apart.
+const TRAY_ATTEMPTS: u32 = 10;
+
 pub fn create(app: &AppHandle) -> Result<()> {
     app.manage(LinuxTray {
         shown: Mutex::new(Shown {
             active: false,
             sticks: Vec::new(),
+            start_at_login: false,
         }),
         handle: OnceLock::new(),
     });
-    let tray = Tray {
+    let tray = |app: &AppHandle| Tray {
         app: app.clone(),
         icon: pixmap(include_bytes!("../../icons/tray-light.png")),
         active_icon: pixmap(include_bytes!("../../icons/tray-light-active.png")),
     };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match tray.spawn().await {
-            Ok(handle) => {
-                let state = app.state::<LinuxTray>();
-                let _ = state.handle.set(handle);
-                // Show what changed while the tray was starting.
-                refresh(&app);
+        // At login the panel may not be up yet: tried again for 30 seconds.
+        for attempt in 1..=TRAY_ATTEMPTS {
+            match tray(&app).spawn().await {
+                Ok(handle) => {
+                    let state = app.state::<LinuxTray>();
+                    let _ = state.handle.set(handle);
+                    // Show what changed while the tray was starting.
+                    refresh(&app);
+                    return;
+                }
+                Err(_) if attempt < TRAY_ATTEMPTS => {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
+                Err(error) => tracing::warn!(
+                    %error,
+                    "no tray icon: this desktop shows no StatusNotifierItem \
+                     (on GNOME it needs the AppIndicator extension)"
+                ),
             }
-            Err(error) => tracing::warn!(
-                %error,
-                "no tray icon: this desktop shows no StatusNotifierItem \
-                 (on GNOME it needs the AppIndicator extension)"
-            ),
+        }
+        // Started at login with no tray, it would run unseen (ADR 0024).
+        if crate::login::autostarted(&std::env::args().collect::<Vec<_>>()) {
+            super::show_main(&app);
         }
     });
     Ok(())
@@ -126,9 +143,12 @@ pub fn set_active(app: &AppHandle, active: bool) {
     change(app, |shown| shown.active = active);
 }
 
-/// The app's sticks, as the menu lists them.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>) {
-    change(app, |shown| shown.sticks = sticks);
+/// The app's sticks, as the menu lists them, and the login check.
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>, start_at_login: bool) {
+    change(app, |shown| {
+        shown.sticks = sticks;
+        shown.start_at_login = start_at_login;
+    });
 }
 
 impl Tray {
@@ -176,7 +196,12 @@ fn opens_window(app: &AppHandle, action: Action) -> bool {
             .is_none(),
         // The Stop sharing / Quit dialog is always made anew.
         Action::StopSharing(_) | Action::Quit => true,
-        Action::Open | Action::Mount(_) | Action::StartSharing(_) | Action::NewStick => false,
+        Action::About => app.get_webview_window("about").is_none(),
+        Action::Open
+        | Action::Mount(_)
+        | Action::StartSharing(_)
+        | Action::NewStick
+        | Action::StartAtLogin => false,
     }
 }
 
@@ -238,7 +263,8 @@ impl ksni::Tray for Tray {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        menu_lines(&self.shown().sticks)
+        let shown = self.shown();
+        menu_lines(&shown.sticks, shown.start_at_login)
             .into_iter()
             .map(|line| match line {
                 Line::Item(text, action) => item(&text, action),
@@ -254,6 +280,13 @@ impl ksni::Tray for Tray {
                 Line::Note(text) => ksni::menu::StandardItem {
                     label: label(&text),
                     enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+                Line::Check(text, checked, action) => ksni::menu::CheckmarkItem {
+                    label: label(&text),
+                    checked,
+                    activate: Box::new(move |tray: &mut Tray| tray.clicked(action)),
                     ..Default::default()
                 }
                 .into(),

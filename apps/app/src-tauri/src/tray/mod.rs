@@ -1,6 +1,7 @@
 //! The tray icon (docs/gui-spec.md, panel 3): always there while the app
 //! runs, with a green dot while someone downloads, and the app's menu: each
-//! stick with its own submenu (ADR 0009 §5), then "New stick…" and "Quit".
+//! stick with its own submenu (ADR 0009 §5), then "New stick…", "About
+//! OurStick", the "Start at login" check (ADR 0024) and "Quit".
 //!
 //! What the menu holds is decided here once ([`menu_lines`]); each platform
 //! only draws it. Linux has a StatusNotifierItem of its own (`linux`): it
@@ -48,6 +49,9 @@ enum Action {
     StopSharing(StickId),
     StartSharing(StickId),
     NewStick,
+    About,
+    /// The "Start at login" check, turned the other way.
+    StartAtLogin,
     Quit,
 }
 
@@ -62,6 +66,8 @@ impl Action {
             Self::StopSharing(stick) => format!("stop:{}", stick_hex(&stick)),
             Self::StartSharing(stick) => format!("start:{}", stick_hex(&stick)),
             Self::NewStick => "new-stick".to_owned(),
+            Self::About => "about".to_owned(),
+            Self::StartAtLogin => "start-at-login".to_owned(),
             Self::Quit => "quit".to_owned(),
         }
     }
@@ -73,6 +79,8 @@ impl Action {
             None => match id {
                 "open" => Some(Self::Open),
                 "new-stick" => Some(Self::NewStick),
+                "about" => Some(Self::About),
+                "start-at-login" => Some(Self::StartAtLogin),
                 "quit" => Some(Self::Quit),
                 _ => None,
             },
@@ -98,6 +106,8 @@ enum Line {
     Stick(String, Vec<(String, Action)>),
     /// Says something; nothing to choose.
     Note(String),
+    /// An item with a check mark, on or off.
+    Check(String, bool, Action),
     Separator,
 }
 
@@ -119,8 +129,9 @@ fn sharing_label(sharing: bool) -> &'static str {
     }
 }
 
-/// The whole tray menu, for the app's sticks (oldest first).
-fn menu_lines(sticks: &[TrayStick]) -> Vec<Line> {
+/// The whole tray menu, for the app's sticks (oldest first) and whether
+/// the app starts at login.
+fn menu_lines(sticks: &[TrayStick], start_at_login: bool) -> Vec<Line> {
     let mut lines = vec![Line::Item("Open OurStick".to_owned(), Action::Open)];
     if !sticks.is_empty() {
         lines.push(Line::Separator);
@@ -156,14 +167,25 @@ fn menu_lines(sticks: &[TrayStick]) -> Vec<Line> {
     }
     lines.push(Line::Separator);
     lines.push(Line::Item("New stick…".to_owned(), Action::NewStick));
+    lines.push(Line::Separator);
+    lines.push(Line::Item("About OurStick".to_owned(), Action::About));
+    lines.push(Line::Check(
+        "Start at login".to_owned(),
+        start_at_login,
+        Action::StartAtLogin,
+    ));
     lines.push(Line::Item("Quit".to_owned(), Action::Quit));
     lines
 }
 
 fn act(app: &AppHandle, action: Action) {
-    // The keys' step first (ADR 0021): the window shows it.
+    // The keys' step first (ADR 0021): the window shows it. About and the
+    // check touch no key.
     if crate::keys::waiting(&app.state::<AppState>())
-        && !matches!(action, Action::Open | Action::Quit)
+        && !matches!(
+            action,
+            Action::Open | Action::Quit | Action::About | Action::StartAtLogin
+        )
     {
         show_main(app);
         return;
@@ -189,11 +211,34 @@ fn act(app: &AppHandle, action: Action) {
             app.emit_to("main", "new-stick", ())
                 .map_err(anyhow::Error::from)
         }
+        Action::About => crate::about::open(app),
+        Action::StartAtLogin => {
+            toggle_start_at_login(app);
+            Ok(())
+        }
         Action::Quit => dialog::open(app, dialog::Mode::Quit),
     };
     if let Err(error) = result {
         tracing::warn!(error = %format!("{error:#}"), "tray menu action failed");
     }
+}
+
+/// "Start at login" turned the other way from what the check shows.
+fn toggle_start_at_login(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let store = app.state::<AppState>().store.clone();
+        let changed = tauri::async_runtime::spawn_blocking(move || {
+            let on = crate::login::shown(store.as_ref());
+            crate::login::set_by_user(store.as_ref(), !on)
+        })
+        .await;
+        if let Ok(Err(error)) = changed {
+            tracing::warn!(error = %format!("{error:#}"), "start at login was not changed");
+            crate::problems::failed(&app, None, crate::words::told(&error));
+        }
+        crate::login::commands::changed(&app).await;
+    });
 }
 
 /// Shows the main window again (from the tray, or a second launch).
@@ -266,94 +311,4 @@ fn start(app: &AppHandle, stick_id: StickId) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn stick(byte: u8, name: &str, mounted: bool, sharing: bool) -> TrayStick {
-        TrayStick {
-            id: ourstick_core::StickSigningKey::from_bytes(&[byte; 32]).stick_id(),
-            name: name.to_owned(),
-            mounted,
-            sharing,
-            doing: None,
-        }
-    }
-
-    #[test]
-    fn the_toggling_items_say_what_they_will_do() {
-        assert_eq!(mount_label(true), "Eject");
-        assert_eq!(mount_label(false), "Mount");
-        assert_eq!(sharing_label(true), "Stop sharing…");
-        assert_eq!(sharing_label(false), "Start sharing");
-    }
-
-    #[test]
-    fn each_stick_has_its_own_submenu() {
-        let photos = stick(1, "Photos", true, true);
-        let films = stick(2, "Films", false, false);
-        let lines = menu_lines(&[photos.clone(), films.clone()]);
-        assert_eq!(lines.len(), 7);
-        assert_eq!(
-            lines[2],
-            Line::Stick(
-                "Photos \u{2014} sharing".to_owned(),
-                vec![
-                    ("Share…".to_owned(), Action::Share(photos.id)),
-                    ("Eject".to_owned(), Action::Mount(photos.id)),
-                    ("Stop sharing…".to_owned(), Action::StopSharing(photos.id)),
-                ]
-            )
-        );
-        let Line::Stick(label, items) = &lines[3] else {
-            panic!("{:?}", lines[3]);
-        };
-        assert_eq!(label, "Films \u{2014} not sharing");
-        assert_eq!(items[1].0, "Mount");
-        assert_eq!(
-            items[2],
-            ("Start sharing".to_owned(), Action::StartSharing(films.id))
-        );
-        assert_eq!(
-            lines[5],
-            Line::Item("New stick…".to_owned(), Action::NewStick)
-        );
-    }
-
-    #[test]
-    fn a_busy_stick_says_what_it_is_doing_and_offers_nothing() {
-        let renaming = TrayStick {
-            doing: Some("Renaming…"),
-            ..stick(4, "Photos", true, true)
-        };
-        let lines = menu_lines(&[renaming]);
-        assert_eq!(lines[2], Line::Note("Photos \u{2014} Renaming…".to_owned()));
-    }
-
-    #[test]
-    fn with_no_stick_the_menu_still_opens_makes_and_quits() {
-        let lines = menu_lines(&[]);
-        assert_eq!(
-            lines[0],
-            Line::Item("Open OurStick".to_owned(), Action::Open)
-        );
-        assert_eq!(lines.len(), 4);
-    }
-
-    #[test]
-    fn a_native_item_id_names_its_action() {
-        let id = stick(3, "Photos", true, true).id;
-        for action in [
-            Action::Open,
-            Action::Share(id),
-            Action::Mount(id),
-            Action::StopSharing(id),
-            Action::StartSharing(id),
-            Action::NewStick,
-            Action::Quit,
-        ] {
-            assert_eq!(Action::from_id(&action.id()), Some(action));
-        }
-        assert_eq!(Action::from_id("share:zz"), None);
-        assert_eq!(Action::from_id("eject"), None);
-    }
-}
+mod tests;

@@ -361,7 +361,8 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 - **Add a sharing link:** a field to paste the link (never shown back,
   logged or put in a message: it holds the stick's key) → `Look at it` →
   "Looking for the sender… please wait." (at most half a minute) → the
-  stick's name, then "What to get:" with `All` / `None` and every
+  field and its buttons go (they have done their work), and the stick's
+  name comes, then "What to get:" with `All` / `None` and every
   top-level folder and file with a tick (all ticked) and its size, largest
   first; a top-level folder opens with an arrow (`▸`) to show its folders
   and files one level down, indented, each with its own tick; a stick of
@@ -374,7 +375,8 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
   one thing.", or "The sender is still counting its files: more is coming."
   (or, if what it has counted already does not fit, "Needs at least X so
   far, and only Y are left…", and Get it is off)
-  → `Get it` (ADR 0012).
+  → `Cancel` / `Get it` (ADR 0012). The list scrolls by itself when long;
+  what is below it, with `Get it`, stays in sight.
   If the sender cannot be reached: "The sender's computer is off, or
   OurStick is not open there. Try again when it is." A link to one of this
   device's own sticks, or one it already receives, is refused, saying so.

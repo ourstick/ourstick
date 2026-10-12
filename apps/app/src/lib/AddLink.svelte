@@ -59,25 +59,14 @@
     }
   }
 
-  let field: HTMLTextAreaElement;
-  let focused = $state(false);
-  /** Two lines once it was looked at, while not being edited: room for what
-   * to get. The whole link again when clicked. */
-  let compact = $derived(preview !== null && !focused);
+  let field = $state<HTMLTextAreaElement>();
 
   /** As tall as the link: all of it shows, however long. */
   function grow() {
+    if (!field) return;
     field.style.height = "auto";
     field.style.height = `${field.scrollHeight}px`;
   }
-
-  $effect(() => {
-    if (compact) {
-      field.style.height = "";
-    } else {
-      grow();
-    }
-  });
 
   /** The link changed: what was shown is not of it any more. */
   function edited() {
@@ -95,7 +84,7 @@
       text = copied;
       await tick();
       grow();
-      field.select();
+      field?.select();
     }
   });
 
@@ -103,7 +92,7 @@
   function keydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      field.form?.requestSubmit();
+      field?.form?.requestSubmit();
     }
   }
 
@@ -161,39 +150,40 @@
   let fits = $derived(preview !== null && needs <= preview.left);
 </script>
 
+<!-- The link and its buttons until it is looked at; then only what it
+     brings, with "Get it" always in sight below the list. -->
 <section class="add">
-  <h1>Add a sharing link</h1>
-  <form onsubmit={look}>
-    <label>
-      Paste the sharing link someone sent you
-      <!-- svelte-ignore a11y_autofocus -->
-      <textarea
-        bind:this={field}
-        bind:value={text}
-        oninput={edited}
-        onkeydown={keydown}
-        onfocus={() => (focused = true)}
-        onblur={() => (focused = false)}
-        class:compact
-        rows="1"
-        autofocus
-        disabled={looking || adding}
-        spellcheck="false"
-        autocomplete="off"
-      ></textarea>
-    </label>
-    <div class="row">
-      <button type="button" onclick={onCancel} disabled={adding}>Cancel</button>
-      <button class="primary" type="submit" disabled={looking || adding || !text.trim()}>Look at it</button>
-    </div>
-  </form>
+  {#if !preview}
+    <h1>Add a sharing link</h1>
+    <form onsubmit={look}>
+      <label>
+        Paste the sharing link someone sent you
+        <!-- svelte-ignore a11y_autofocus -->
+        <textarea
+          bind:this={field}
+          bind:value={text}
+          oninput={edited}
+          onkeydown={keydown}
+          rows="1"
+          autofocus
+          disabled={looking || adding}
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+      </label>
+      <div class="row">
+        <button type="button" onclick={onCancel} disabled={adding}>Cancel</button>
+        <button class="primary" type="submit" disabled={looking || adding || !text.trim()}>Look at it</button>
+      </div>
+    </form>
+  {/if}
   {#if looking}<p class="muted">Looking for the sender… please wait.</p>{/if}
-  {#if failure}<p class="error">{failure}</p>{/if}
+  {#if failure && !preview}<p class="error">{failure}</p>{/if}
 
   <!-- Kept while another folder is looked at, everything off: what was
-       opened stays open. A new link clears it first (edited). -->
+       opened stays open. -->
   {#if preview}
-    <h2><bdi>{preview.name}</bdi></h2>
+    <h1><bdi>{preview.name}</bdi></h1>
     <p class="row spread">
       <strong>What to get:</strong>
       <span class="row">
@@ -203,48 +193,54 @@
         >
       </span>
     </p>
-    <ChoiceTree
-      rows={entries}
-      bind:leftOut
-      bind:none
-      {loadInside}
-      disabled={adding || looking}
-      onFailure={(why) => (failure = why)}
-    />
-    <p class="muted">New things the sender adds will come too.</p>
-    <p class="row spread">
-      <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
-      <button onclick={choose} disabled={adding || looking}>Choose…</button>
-    </p>
-    {#if preview.earlier}
-      <p class="muted">You received this stick here before: it goes on in the same folder.</p>
-    {:else if preview.earlier_elsewhere}
-      <p class="muted">
-        You received this stick before, in <bdi>{preview.earlier_elsewhere}</bdi>. The files there stay there; it starts again in the
-        new folder.
+    <div class="tree">
+      <ChoiceTree
+        rows={entries}
+        bind:leftOut
+        bind:none
+        {loadInside}
+        disabled={adding || looking}
+        onFailure={(why) => (failure = why)}
+      />
+    </div>
+    <div class="foot">
+      <p class="muted">New things the sender adds will come too.</p>
+      <p class="row spread">
+        <span class="muted path"><PathText label="Save to" path={preview.folder} /></span>
+        <button onclick={choose} disabled={adding || looking}>Choose…</button>
       </p>
-    {/if}
-    <SavedAsNote list={preview.saved_as} coming />
-    {#if none}
-      <p class="error">Tick at least one thing.</p>
-    {:else if preview.partial && fits}
-      <p class="muted">The sender is still counting its files: more is coming.</p>
-    {:else if preview.partial}
-      <p class="error">
-        Needs at least {size(needs)} so far, and only {size(preview.left)} are left where it would be saved. Un-tick
-        something, choose another place, or free some room.
-      </p>
-    {:else if fits}
-      <p class="muted">Needs up to {size(needs)} · fits</p>
-    {:else}
-      <p class="error">
-        Needs up to {size(needs)}, and only {size(preview.left)} are left where it would be saved. Un-tick something,
-        choose another place, or free some room.
-      </p>
-    {/if}
-    {#if adding}<p class="muted">Adding… please wait.</p>{/if}
-    <div class="row end">
-      <button class="primary" onclick={getIt} disabled={adding || looking || !fits || none}>Get it</button>
+      {#if preview.earlier}
+        <p class="muted">You received this stick here before: it goes on in the same folder.</p>
+      {:else if preview.earlier_elsewhere}
+        <p class="muted">
+          You received this stick before, in <bdi>{preview.earlier_elsewhere}</bdi>. The files there stay there; it starts again in
+          the new folder.
+        </p>
+      {/if}
+      <SavedAsNote list={preview.saved_as} coming />
+      {#if none}
+        <p class="error">Tick at least one thing.</p>
+      {:else if preview.partial && fits}
+        <p class="muted">The sender is still counting its files: more is coming.</p>
+      {:else if preview.partial}
+        <p class="error">
+          Needs at least {size(needs)} so far, and only {size(preview.left)} are left where it would be saved. Un-tick
+          something, choose another place, or free some room.
+        </p>
+      {:else if fits}
+        <p class="muted">Needs up to {size(needs)} · fits</p>
+      {:else}
+        <p class="error">
+          Needs up to {size(needs)}, and only {size(preview.left)} are left where it would be saved. Un-tick something,
+          choose another place, or free some room.
+        </p>
+      {/if}
+      {#if failure}<p class="error">{failure}</p>{/if}
+      {#if adding}<p class="muted">Adding… please wait.</p>{/if}
+      <div class="row">
+        <button onclick={onCancel} disabled={adding}>Cancel</button>
+        <button class="primary" onclick={getIt} disabled={adding || looking || !fits || none}>Get it</button>
+      </div>
     </div>
   {/if}
 </section>
@@ -256,9 +252,6 @@
     overflow: hidden;
     word-break: break-all;
   }
-  textarea.compact {
-    height: 3.4em;
-  }
   .add {
     display: flex;
     flex-direction: column;
@@ -268,12 +261,27 @@
     flex: 1 1 auto;
     overflow-y: auto;
   }
-  h1,
-  h2 {
-    margin: 0;
+  /* The list is as tall as its rows, up to the room left, and then scrolls
+     by itself: what is below it stays in sight. */
+  .tree {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
+    min-height: 6em;
   }
-  h2 {
-    font-size: 1.1em;
+  .tree :global(.entries) {
+    flex: 0 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+  .foot {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  h1 {
+    margin: 0;
   }
   form,
   label {

@@ -1,9 +1,10 @@
 # OurStick — GUI spec (stage 1: desktop)
 
-Reference image: `gui-mockup.png` (5 panels), an early mockup: it still shows
-a stick size, which ADR 0008 removed. This spec plus the image are the
-input for the Tauri app. Anything not on the image or in this file is out of
-scope for stage 1.
+Reference image: `gui-mockup.png` (5 panels), the first mockup, kept as
+history: it shows one stick of a fixed size (ADR 0008 removed sizes) and a
+receiver by name (ADR 0015 never names a computer). Where they differ, this
+file and the decisions are right. Anything not in this file is out of scope
+for stage 1.
 
 ## Principle
 
@@ -410,19 +411,17 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
   receiving without the app (a web receiver is out of v1). `ourstick get`
   still works, but never touches a stick the window receives.
 
-## Before the first public release
+## Signing and relays
 
-- ~~Sign the macOS app with an Apple Developer ID, and notarize it~~:
-  done (2026-10-08), with the keys in the data protection keychain, which
-  never asks (ADR 0021).
-- Our own relays (ADR 0006).
-- **Sign the Windows installers** (MSI and NSIS). Unsigned, SmartScreen warns
-  of an unknown publisher on download and on first start.
+- The macOS app is signed with an Apple Developer ID and notarized
+  (2026-10-08), with the keys in the data protection keychain, which never
+  asks (ADR 0021).
+- **The Windows installers are not signed yet** (MSI and NSIS): SmartScreen
+  warns of an unknown publisher on download and on first start.
+- Relays: n0's public ones; our own (ADR 0006) only if they are not enough.
 
 ## Open questions
 
-- **Link a folder without copying** it onto the stick (share in place, as the
-  CLI does).
 - **"X GB remaining"** for the owner: needs a small addition to the protocol,
   where the reader tells the owner how much it still needs.
 - **macOS mount point:** the image is attached under `/Volumes` (where Finder
@@ -441,6 +440,9 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 
 ## Out of scope (stage 1)
 
-FUSE or any virtual filesystem, right-click "Send
-to" in file managers, multiple sticks, permissions, expiry, revoke, settings
-page, updates, the receiver window.
+FUSE or any virtual filesystem, right-click "Send to" in file managers,
+permissions, expiry, revoking a link other than by changing it, a settings
+page (the one setting, start at login, is in the tray and About), and the
+app updating itself (planned next). Many sticks, folders linked without
+copying (ADR 0008) and the receiver window, once out of scope here, are
+built.

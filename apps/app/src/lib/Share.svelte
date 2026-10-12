@@ -12,10 +12,18 @@
   let view = $state<ShareView | null>(null);
   let loaded = $state(false);
   let note = $state<string | null>(null);
+  let linkField = $state<HTMLInputElement>();
 
   async function load() {
     view = await shareView(stickId);
     loaded = true;
+  }
+
+  // Copying selects the link too, so that one can see what was copied.
+  async function copy() {
+    linkField?.focus();
+    linkField?.select();
+    await act(copyLink, "Link copied.");
   }
 
   async function act(action: (stickId: string) => Promise<void>, done: string) {
@@ -45,8 +53,8 @@
 
   {#if view}
     <div class="row">
-      <input class="link" readonly value={view.link} onfocus={(event) => event.currentTarget.select()} />
-      <button onclick={() => act(copyLink, "Link copied.")}>Copy</button>
+      <input class="link" readonly bind:this={linkField} value={view.link} onfocus={(event) => event.currentTarget.select()} />
+      <button onclick={copy}>Copy</button>
     </div>
     {#if SHOW_QR}
       <div class="qr">{@html view.qr_svg}</div>

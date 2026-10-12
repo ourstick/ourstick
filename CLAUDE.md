@@ -71,7 +71,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
   Πάρε την τελευταία έκδοση με `cargo add iroh iroh-blobs` και διάβασε τα docs.rs πριν γράψεις·
   το API άλλαξε αρκετά μεταξύ εκδόσεων. Μην γράφεις από μνήμη.
 - Reference implementation: το `sendme` του iroh (MIT/Apache). Διάβασέ το, μην το αντιγράψεις.
-  ΜΗΝ αντιγράψεις κώδικα από AGPL projects (DashBeam/AltSendme, Syncthing).
+  ΜΗΝ αντιγράψεις κώδικα από copyleft projects (DashBeam/AltSendme: AGPL· Syncthing: MPL-2.0).
 - Hashing: `blake3`. Crypto: `chacha20poly1305` (AEAD), κλειδιά μέσω `rand`.
 - DB: `rusqlite` (bundled). Serialization: `serde` + `postcard`.
 - Tauri 2 για apps. UI σε TypeScript (Svelte). Το UI καλεί μόνο Tauri commands που

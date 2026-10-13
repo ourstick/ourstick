@@ -91,9 +91,6 @@ licence; nothing in the package changes that (only the Snap Store does).
   hidden and system.
 - **Error words:** a database failure inside some errors (download, space,
   locks, places, linked) shows its own text rather than the plain words.
-- **Linux: Quit from the dock only closes the windows** (the Ubuntu Dock
-  never asks the app); GNOME's own Quit could, at the cost of renaming the
-  `.desktop` file.
 - **A USB drive icon for the Linux bookmark,** if file managers allow one.
 - **The receiver's code:** one lock for every received stick's changes
   (stopping one makes the others wait), and no unit tests yet for its

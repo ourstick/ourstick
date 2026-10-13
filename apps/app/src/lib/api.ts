@@ -192,6 +192,11 @@ export function openDialog(
   return invoke("open_dialog", { quit, stickId });
 }
 
+/** The Close dialog's Minimize: the main window to the taskbar or Dock. */
+export function minimizeMain(): Promise<void> {
+  return invoke("minimize_main");
+}
+
 export function stopSharing(stickId: string): Promise<void> {
   return invoke("stop_sharing", { stickId });
 }

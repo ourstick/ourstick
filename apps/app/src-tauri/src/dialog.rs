@@ -1,5 +1,6 @@
-//! The "Stop sharing" dialog, also shown on Quit (docs/gui-spec.md, panel 4):
-//! always a confirmation, saying whether someone is still downloading.
+//! The "Stop sharing" dialog, also shown on Quit and on the main window's ✕
+//! (docs/gui-spec.md, panel 4): always a confirmation, saying whether someone
+//! is still downloading.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -15,6 +16,8 @@ pub enum Mode {
     StopSharing(StickId),
     /// Quit: every stick stops.
     Quit,
+    /// The main window's ✕: Quit, or minimize the window instead.
+    Close,
 }
 
 /// [`open`] from an event handler of the event loop, where a new window
@@ -46,9 +49,10 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
     let page = match mode {
         Mode::StopSharing(stick_id) => format!("index.html#stop/{}", stick_hex(&stick_id)),
         Mode::Quit => "index.html#quit".to_owned(),
+        Mode::Close => "index.html#close".to_owned(),
     };
     // Quit also lists the sticks coming in: a paragraph more.
-    let receiving = matches!(mode, Mode::Quit)
+    let receiving = matches!(mode, Mode::Quit | Mode::Close)
         && !app
             .state::<crate::receiving::Receivers>()
             .downloading()
@@ -64,6 +68,51 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         .build()?;
     crate::windows::show_new(&window);
     Ok(())
+}
+
+/// The main window's ✕, on every system: the tray is a help, never the only
+/// way to quit (many never see it). With something going on, the Quit
+/// dialog says what stops, with Minimize first; with nothing, the app quits.
+pub fn close_requested(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if going_on(&app).await {
+            if let Err(error) = open(&app, Mode::Close) {
+                tracing::warn!(error = %format!("{error:#}"), "cannot show the dialog");
+            }
+        } else {
+            quit(app);
+        }
+    });
+}
+
+/// Whether quitting would stop something: a stick being shared, a stick
+/// coming in, or a drop being copied. In doubt, yes.
+async fn going_on(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    if state.sticks.lock().await.values().any(Sharing::is_on)
+        || !app
+            .state::<crate::receiving::Receivers>()
+            .downloading()
+            .is_empty()
+    {
+        return true;
+    }
+    match state.sticks_now().await {
+        Ok(all) => all
+            .iter()
+            .any(|stick| crate::stick_drop::is_copying(&state, &stick.stick_id)),
+        Err(_) => true,
+    }
+}
+
+/// Minimize, the Close dialog's other choice: the window stays in the
+/// taskbar or the Dock, where it is seen and found again.
+#[tauri::command]
+pub fn minimize_main(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.minimize();
+    }
 }
 
 #[derive(Debug, Serialize)]

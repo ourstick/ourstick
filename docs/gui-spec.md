@@ -199,8 +199,13 @@ so Spotlight leaves it alone.
   the `Start at login` check and `Quit`. The menu is made again whenever a
   stick is made, renamed, removed, mounted, ejected, or starts or stops
   sharing, and when the check changes.
-- Closing the main window hides it in the tray; it does not stop sharing. On
-  Linux it is minimized instead (see Known limitations).
+- The tray is a help, never the only way: many never see it (on Windows it
+  is often under `^`; on Ubuntu a friend took the Dock's icon for it). The
+  main window's ✕, on every system, shows the Quit dialog with `Minimize`
+  instead of `Don't quit`: Minimize leaves the window in the taskbar or the
+  Dock, where it is seen and found again; it is never hidden. With nothing
+  going on (no stick shared or coming in, no drop being copied), ✕ quits
+  without asking. Other windows (Share, About, dialogs) just close.
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
   Tauri's, because it has to receive the shell's XDG activation token (see
   Known limitations). GNOME shows it through the AppIndicator extension,
@@ -303,7 +308,7 @@ so Spotlight leaves it alone.
   released `ksni` do not take: `third_party/ksni` is `ksni` 0.3.6 with that
   method, pending upstream (https://github.com/iovxw/ksni/pull/43). The app
   hands the token to GTK and presents the window with it. Three consequences:
-  - Closing the main window minimizes it rather than hiding it. GTK 3 makes
+  - The main window is minimized, never hidden. GTK 3 makes
     a hidden window anew when it is shown, and a new window comes too late
     for the token.
   - The token raises only a window GNOME already has. So a tray item that

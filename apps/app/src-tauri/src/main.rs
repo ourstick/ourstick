@@ -109,18 +109,15 @@ fn main() {
         .manage(state)
         .manage(problems::Problems::default())
         .manage(receiving::Receivers::default())
-        // Closing the main window keeps the app in the tray: sharing goes
-        // on until "Stop sharing" or Quit. Linux minimizes it instead of
-        // hiding it, so that the tray can bring it back (see windows).
+        // The main window's ✕ asks first: Minimize, or Quit, which stops
+        // sharing (see dialog). The window is only ever minimized, never
+        // hidden, so that it stays in sight (and on Linux the tray can bring
+        // it back, see windows).
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     api.prevent_close();
-                    if cfg!(target_os = "linux") {
-                        let _ = window.minimize();
-                    } else {
-                        let _ = window.hide();
-                    }
+                    dialog::close_requested(window.app_handle());
                 }
             }
         })
@@ -231,6 +228,7 @@ fn main() {
             dialog::stop_sharing,
             dialog::start_sharing_again,
             dialog::quit,
+            dialog::minimize_main,
             commands::eject,
             commands::mount,
             commands::open_in_file_manager,

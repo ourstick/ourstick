@@ -1,9 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { appState, confirmView, quit, stopSharing, type ConfirmView } from "./api";
+  import { appState, confirmView, minimizeMain, quit, stopSharing, type ConfirmView } from "./api";
 
-  let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
+  /** `closing`: Quit from the main window's ✕, with Minimize as the other choice. */
+  let {
+    quitting,
+    closing = false,
+    stickId,
+  }: { quitting: boolean; closing?: boolean; stickId: string | null } = $props();
   let view = $state<ConfirmView | null>(null);
   let busy = $state(false);
   let failure = $state<string | null>(null);
@@ -16,6 +21,15 @@
   });
 
   const close = () => getCurrentWindow().close();
+
+  async function minimize() {
+    try {
+      await minimizeMain();
+      await close();
+    } catch (error) {
+      failure = String(error);
+    }
+  }
 
   /** "Photos", "Photos and Films", "Photos, Films and Music". */
   function names(list: string[]): string {
@@ -58,8 +72,8 @@
     <div class="said">
     {#if view.shared.length > 0}
       <p>
-        Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its sharing link" : "their sharing links"} will no
-        longer be able to download.
+        Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its sharing link" : "their sharing links"}
+        <strong>will no longer be able to download.</strong>
       </p>
       {#if view.downloading.length > 0}
         <p><strong>Someone is still downloading from {names(view.downloading)}.</strong></p>
@@ -78,11 +92,15 @@
     {/if}
     </div>
     <div class="actions">
-      <button onclick={close} disabled={busy}>
-        {view.sharing || view.receiving.length > 0 || view.copying.length > 0
-          ? "Don't quit"
-          : "Cancel"}
-      </button>
+      {#if closing}
+        <button onclick={minimize} disabled={busy}>Minimize</button>
+      {:else}
+        <button onclick={close} disabled={busy}>
+          {view.sharing || view.receiving.length > 0 || view.copying.length > 0
+            ? "Don't quit"
+            : "Cancel"}
+        </button>
+      {/if}
       <button
         class={view.sharing || view.copying.length > 0 ? "danger" : "primary"}
         onclick={stop}
@@ -90,7 +108,7 @@
     </div>
   {:else if view}
     <h1>Stop sharing {view.name ? `“${view.name}”` : "this stick"}?</h1>
-    <p>Anyone with the sharing link will no longer be able to download.</p>
+    <p>Anyone with the sharing link <strong>will no longer be able to download.</strong></p>
     {#if view.readers > 0}
       <p><strong>Someone is still downloading.</strong></p>
     {/if}

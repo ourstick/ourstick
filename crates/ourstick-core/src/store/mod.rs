@@ -161,7 +161,8 @@ pub trait Store: Send + Sync {
     /// Drops a claim; nothing if there is none.
     fn remove_space_claim(&self, stick_id: &StickId, kind: ClaimKind) -> Result<(), StoreError>;
 
-    /// Records a new joined stick. Fails if it exists.
+    /// Records a new joined stick, ending any wait for it (ADR 0025) in the
+    /// same step. Fails if it exists.
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError>;
 
     fn joined_stick(&self, stick_id: &StickId) -> Result<Option<JoinedStick>, StoreError>;
@@ -319,6 +320,16 @@ pub trait Store: Send + Sync {
     fn settings(&self) -> Result<Settings, StoreError>;
 
     fn set_settings(&self, settings: &Settings) -> Result<(), StoreError>;
+
+    /// Records a link the app waits for (ADR 0025).
+    /// [`StoreError::StickExists`] if it waits already or is received.
+    fn add_waiting_link(&self, link: &WaitingLink) -> Result<(), StoreError>;
+
+    /// The links the app waits for, oldest first.
+    fn waiting_links(&self) -> Result<Vec<WaitingLink>, StoreError>;
+
+    /// Ends the wait for `stick_id`; nothing if there is none.
+    fn remove_waiting_link(&self, stick_id: &StickId) -> Result<(), StoreError>;
 }
 
 /// Why the store refused an operation. The messages are meant for users.

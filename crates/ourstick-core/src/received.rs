@@ -23,6 +23,8 @@ pub enum ReceivedError {
     AlreadyReceived(String),
     #[error("OurStick (the app) receives this stick, into {}; use the app, or forget the stick there first", .0.display())]
     ReceivedByApp(PathBuf),
+    #[error("OurStick is already waiting for this stick's sender")]
+    Waiting,
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -71,7 +73,8 @@ pub fn reader_key(
 }
 
 /// Whether the program `kind` may receive the stick `stick_id`: never one of
-/// this device's own sticks (or one it gave a new sharing link); for the
+/// this device's own sticks (or one it gave a new sharing link), nor one
+/// the app waits for (ADR 0025); for the
 /// receiver window, not one it already receives (it takes over one `get`
 /// received); for `get`, not one the window receives.
 pub fn check_link(
@@ -92,6 +95,14 @@ pub fn check_link(
         .any(|retired| retired.old == *stick_id)
     {
         return Err(ReceivedError::RetiredStick);
+    }
+    // Waited for by the app (ADR 0025): one state per stick.
+    if store
+        .waiting_links()?
+        .iter()
+        .any(|waiting| waiting.stick_id == *stick_id)
+    {
+        return Err(ReceivedError::Waiting);
     }
     match store.joined_stick(stick_id)? {
         Some(joined) if joined.kind == StickKind::App && kind == StickKind::App => Err(

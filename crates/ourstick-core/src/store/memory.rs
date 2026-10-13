@@ -10,14 +10,15 @@ mod joined;
 mod life;
 mod reports;
 mod state;
+mod waiting;
 
 pub use state::MemoryStore;
 use state::{claim_key, sorted, State};
 
 use super::{
-    check_device, check_drive_letter, check_owned_file, check_owned_stick, path_str, ClaimKind,
-    Device, DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile,
-    OwnedStick, RetiredStick, Settings, SpaceClaim, Store, StoreError,
+    check_device, check_drive_letter, check_owned_file, path_str, ClaimKind, Device,
+    DownloadedFile, JoinedChange, JoinedStick, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick,
+    RetiredStick, Settings, SpaceClaim, Store, StoreError, WaitingLink,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -38,19 +39,7 @@ impl Store for MemoryStore {
     }
 
     fn add_owned_stick(&self, stick: &OwnedStick) -> Result<(), StoreError> {
-        check_owned_stick(stick)?;
-        let mut state = self.state();
-        let key = stick.stick_id.to_bytes();
-        let same_node = stick.node_id.is_some()
-            && state
-                .owned
-                .values()
-                .any(|owned| owned.node_id == stick.node_id);
-        if state.owned.contains_key(&key) || same_node {
-            return Err(StoreError::StickExists);
-        }
-        state.owned.insert(key, stick.clone());
-        Ok(())
+        life::add(self, stick)
     }
 
     fn owned_stick(&self, stick_id: &StickId) -> Result<Option<OwnedStick>, StoreError> {
@@ -387,6 +376,19 @@ impl Store for MemoryStore {
 
     fn set_settings(&self, settings: &Settings) -> Result<(), StoreError> {
         self.state().settings = settings.clone();
+        Ok(())
+    }
+
+    fn add_waiting_link(&self, link: &WaitingLink) -> Result<(), StoreError> {
+        waiting::add(self, link)
+    }
+
+    fn waiting_links(&self) -> Result<Vec<WaitingLink>, StoreError> {
+        Ok(waiting::list(self))
+    }
+
+    fn remove_waiting_link(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        waiting::remove(self, stick_id);
         Ok(())
     }
 }

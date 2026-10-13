@@ -12,6 +12,7 @@ mod received;
 mod reports;
 mod rows;
 mod space;
+mod waiting;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -26,7 +27,7 @@ use rows::{blob32, is_constraint_violation, seq_i64, to_u64, OwnedRow, OWNED_COL
 use super::{
     check_owned_stick, ClaimKind, Device, DownloadedFile, JoinedChange, JoinedStick, KeepOutcome,
     KeptReport, LinkedEntry, ManifestVersion, OwnedFile, OwnedStick, RetiredStick, Settings,
-    SpaceClaim, Store, StoreError,
+    SpaceClaim, Store, StoreError, WaitingLink,
 };
 use crate::record::{ManifestRecord, SignedManifestRecord};
 use crate::stick_id::StickId;
@@ -206,7 +207,7 @@ impl Store for SqliteStore {
     }
 
     fn add_joined_stick(&self, stick: &JoinedStick) -> Result<(), StoreError> {
-        joined::add_joined_stick(&self.connection(), stick)
+        joined::add_joined_stick(&mut self.connection(), stick)
     }
 
     fn joined_stick(&self, stick_id: &StickId) -> Result<Option<JoinedStick>, StoreError> {
@@ -378,6 +379,18 @@ impl Store for SqliteStore {
 
     fn set_settings(&self, settings: &Settings) -> Result<(), StoreError> {
         device::set_settings(&self.connection(), settings)
+    }
+
+    fn add_waiting_link(&self, link: &WaitingLink) -> Result<(), StoreError> {
+        waiting::add_waiting_link(&mut self.connection(), link)
+    }
+
+    fn waiting_links(&self) -> Result<Vec<WaitingLink>, StoreError> {
+        waiting::waiting_links(&self.connection())
+    }
+
+    fn remove_waiting_link(&self, stick_id: &StickId) -> Result<(), StoreError> {
+        waiting::remove_waiting_link(&self.connection(), stick_id)
     }
 }
 

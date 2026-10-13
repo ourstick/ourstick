@@ -9,8 +9,9 @@ use super::is_constraint_violation;
 use super::rows::{kind_str, seq_i64, time_i64, JoinedRow, JOINED_COLUMNS};
 use crate::stick_id::StickId;
 
+/// Its wait, if the app waited for it (ADR 0025), ends in the same step.
 pub(super) fn add_joined_stick(
-    connection: &Connection,
+    connection: &mut Connection,
     stick: &JoinedStick,
 ) -> Result<(), StoreError> {
     check_joined_stick(stick)?;
@@ -18,7 +19,8 @@ pub(super) fn add_joined_stick(
         Some(completed) => (Some(seq_i64(completed.seq)?), Some(completed.hash.to_vec())),
         None => (None, None),
     };
-    let inserted = connection.execute(
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let inserted = transaction.execute(
         &format!(
             "INSERT INTO joined_sticks ({JOINED_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
         ),
@@ -34,10 +36,16 @@ pub(super) fn add_joined_stick(
         ],
     );
     match inserted {
-        Ok(_) => Ok(()),
-        Err(error) if is_constraint_violation(&error) => Err(StoreError::StickExists),
-        Err(error) => Err(error.into()),
+        Ok(_) => {}
+        Err(error) if is_constraint_violation(&error) => return Err(StoreError::StickExists),
+        Err(error) => return Err(error.into()),
     }
+    transaction.execute(
+        "DELETE FROM waiting_links WHERE stick_id = ?1",
+        [stick.stick_id.to_bytes()],
+    )?;
+    transaction.commit()?;
+    Ok(())
 }
 
 pub(super) fn joined_stick(

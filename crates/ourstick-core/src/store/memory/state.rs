@@ -35,6 +35,8 @@ pub(super) struct State {
     pub(super) old_keys_left: bool,
     pub(super) settings: crate::store::Settings,
     pub(super) report_counters: BTreeMap<[u8; 32], u64>,
+    /// Links the app waits to receive (ADR 0025).
+    pub(super) waiting: BTreeMap<[u8; 32], crate::store::WaitingLink>,
 }
 
 pub(super) fn claim_key(stick_id: &StickId, kind: ClaimKind) -> ([u8; 32], u8) {

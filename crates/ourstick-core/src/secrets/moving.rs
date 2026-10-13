@@ -94,6 +94,11 @@ pub fn secrets_to_move(store: &dyn Store) -> Result<ToMove, StoreError> {
             .optional
             .push(SecretName::ReaderKey(joined.stick_id));
     }
+    // A link the app waits for (ADR 0025) keeps its ticket as a received
+    // stick of the app does.
+    for waiting in store.waiting_links()? {
+        to_move.required.push(SecretName::Ticket(waiting.stick_id));
+    }
     for stick in forgetting {
         if !to_move.optional.contains(&SecretName::Ticket(stick)) {
             to_move.optional.push(SecretName::Ticket(stick));

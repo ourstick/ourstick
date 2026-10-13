@@ -63,6 +63,23 @@ fn an_unknown_stick_is_not_forgotten() {
 }
 
 #[test]
+fn a_link_the_app_waits_for_is_refused_to_both_programs() {
+    let store = MemoryStore::new();
+    store
+        .add_waiting_link(&crate::store::WaitingLink {
+            stick_id: stick_id(9),
+            added_at_ms: 0,
+        })
+        .unwrap();
+    for kind in [StickKind::App, StickKind::Cli] {
+        assert!(matches!(
+            check_link(&store, &stick_id(9), kind),
+            Err(ReceivedError::Waiting)
+        ));
+    }
+}
+
+#[test]
 fn the_window_takes_over_a_stick_get_received_but_not_its_own_twice() {
     let store = MemoryStore::new();
     received(&store, 4, StickKind::Cli, Path::new("/d/one"));

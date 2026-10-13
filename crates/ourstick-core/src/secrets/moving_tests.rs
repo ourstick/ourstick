@@ -249,3 +249,16 @@ fn a_stick_the_cli_got_has_no_link_to_move_and_one_being_removed_goes_along() {
     assert!(!to_move.required.contains(&SecretName::StickKey(stick(4))));
     assert!(to_move.optional.contains(&SecretName::StickKey(stick(4))));
 }
+
+#[test]
+fn a_link_the_app_waits_for_keeps_its_ticket_too() {
+    let store = device_store();
+    store
+        .add_waiting_link(&crate::store::WaitingLink {
+            stick_id: stick(3),
+            added_at_ms: 0,
+        })
+        .unwrap();
+    let to_move = secrets_to_move(&store).unwrap();
+    assert!(to_move.required.contains(&SecretName::Ticket(stick(3))));
+}

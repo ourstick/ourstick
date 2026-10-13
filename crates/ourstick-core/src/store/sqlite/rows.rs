@@ -40,7 +40,7 @@ pub(super) fn blob32(bytes: Vec<u8>, column: &str) -> Result<[u8; 32], StoreErro
         .map_err(|_| StoreError::Corrupt(format!("{column} is not 32 bytes")))
 }
 
-fn stick_id_from(bytes: Vec<u8>) -> Result<StickId, StoreError> {
+pub(super) fn stick_id_from(bytes: Vec<u8>) -> Result<StickId, StoreError> {
     StickId::from_bytes(&blob32(bytes, "stick_id")?)
         .map_err(|_| StoreError::Corrupt("invalid stick_id".to_owned()))
 }

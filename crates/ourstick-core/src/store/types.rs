@@ -229,6 +229,14 @@ pub struct RetiredStick {
     pub replaced_by: StickId,
 }
 
+/// A sharing link the app waits to receive (ADR 0025): its sender was away
+/// when it was pasted. Its ticket is in the secret store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitingLink {
+    pub stick_id: StickId,
+    pub added_at_ms: u64,
+}
+
 /// The app's choices on this device, kept before the device is set up
 /// (ADR 0024). No row means these defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]

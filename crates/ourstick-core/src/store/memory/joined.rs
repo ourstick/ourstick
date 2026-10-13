@@ -19,6 +19,8 @@ pub(super) fn add(store: &MemoryStore, stick: &JoinedStick) -> Result<(), StoreE
         return Err(StoreError::StickExists);
     }
     state.joined.insert(key, stick.clone());
+    // Its wait, if the app waited for it, ends with it (ADR 0025).
+    state.waiting.remove(&key);
     Ok(())
 }
 

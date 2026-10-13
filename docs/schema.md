@@ -25,9 +25,12 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 24
+## Version 25
 
-Version 24 (`0024_settings.sql`, ADR 0024) adds the table `settings`, empty
+Version 25 (`0025_waiting_links.sql`, ADR 0025) adds the table
+`waiting_links`, empty for every database before.
+
+Version 24 (`0024_settings.sql`, ADR 0024) added the table `settings`, empty
 for every database before: an upgraded device starts at login, and is told
 so once.
 
@@ -178,6 +181,21 @@ and the receiver window takes over a `cli` one. Forgetting deletes the row, its
 is left as it is. `completed_*` is set only after every file is in place, and
 only for a record at or below the floor in `record_floors`. A `get` reports
 "no changes" only when `completed_*` names the record it just verified.
+
+### `waiting_links`
+
+Sharing links the app waits to receive (ADR 0025): pasted while their
+sender was away, received by themselves once the sender is back. Their
+tickets are in the secret store, never here.
+
+| Column        | Type    | Meaning                                  |
+|---------------|---------|------------------------------------------|
+| `stick_id`    | BLOB 32 | StickId from the ticket. Primary key.    |
+| `added_at_ms` | INTEGER | When the user chose to wait; a wait ends 30 days after |
+
+A stick is here or in `joined_sticks`, never both: a link is refused here
+if its stick is received, and adding a received stick deletes its row
+here in the same transaction.
 
 ### `record_floors`
 

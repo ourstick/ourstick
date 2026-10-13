@@ -49,12 +49,14 @@ pub fn backend(store: &dyn Store) -> Result<SecretBackend> {
     }
 }
 
+/// Received (or waited for, ADR 0025) by the app before the device row.
 fn received_without_a_row(store: &dyn Store) -> Result<bool> {
     Ok(store.device()?.is_none()
-        && store
+        && (store
             .joined_sticks()?
             .iter()
-            .any(|joined| joined.kind == StickKind::App))
+            .any(|joined| joined.kind == StickKind::App)
+            || !store.waiting_links()?.is_empty()))
 }
 
 /// On macOS the data protection keychain, which never asks, if this build

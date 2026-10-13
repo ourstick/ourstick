@@ -385,8 +385,18 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
   far, and only Y are left…", and Get it is off)
   → `Cancel` / `Get it` (ADR 0012). The list scrolls by itself when long;
   what is below it, with `Get it`, stays in sight.
-  If the sender cannot be reached: "The sender's computer is off, or
-  OurStick is not open there. Try again when it is." A link to one of this
+  If the sender cannot be reached (ADR 0025): "The sender's computer is
+  off, or OurStick is not open there." and "Wait for it: it comes by
+  itself, all of it, once the sender's computer is on and OurStick is open
+  there.", with `Cancel`, `Look again` and `Wait for it`. Waited for, the
+  link is in Received at once as "Stick 1a2b3c4d · Waiting for the
+  sender"; its view says it comes by itself, "Keep OurStick open: minimize
+  it rather than quit.", "Waiting since 13 October", and has only `Forget
+  this stick…`. The app looks for the sender as a receive waits (15 s,
+  doubling to 5 minutes, again at each start); once it answers, the link
+  becomes a received stick in `Downloads/<name>`, everything ticked. After
+  30 days: "The sender did not answer for 30 days." (`No answer` in the
+  list). A link to one of this
   device's own sticks, or one it already receives, is refused, saying so.
 - **A received stick:** its name, `Saved in <folder>` with `Open folder`,
   and what it is doing in a sentence: "Downloading: 1.2 GB of 2.6 GB" with

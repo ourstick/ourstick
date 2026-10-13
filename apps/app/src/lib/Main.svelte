@@ -17,6 +17,7 @@
   import AddLink from "./AddLink.svelte";
   import ReceivedList from "./ReceivedList.svelte";
   import ReceivedView from "./ReceivedView.svelte";
+  import WaitingView from "./WaitingView.svelte";
   import StickList from "./StickList.svelte";
   import StickView from "./StickView.svelte";
   import type { Outcome } from "./StickAsk.svelte";
@@ -156,7 +157,11 @@
       {/key}
     {:else if shown?.kind === "received" && receivedShown}
       {#key shown.id}
-        <ReceivedView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
+        {#if receivedShown.waiting}
+          <WaitingView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
+        {:else}
+          <ReceivedView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
+        {/if}
       {/key}
     {:else if shown?.kind === "add"}
       <AddLink onAdded={selectReceived} onCancel={() => ((shown = null), refresh())} />

@@ -8,14 +8,13 @@ use ourstick_core::clock::{Clock, SystemClock};
 use ourstick_core::download::{mark_received_folder, take_stick};
 use ourstick_core::locks::{download_lock, take_retrying, LockError};
 use ourstick_core::places::check_received_folder;
-use ourstick_core::received::{check_link, display_name, forget_received};
+use ourstick_core::received::{check_link, forget_received};
 use ourstick_core::report::ReportState;
 use ourstick_core::store::JoinedChange;
 use ourstick_core::{StickKind, Ticket};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use super::{keep_ticket, read_ticket, start, Receivers, Shown};
+use super::{keep_ticket, read_ticket, start, Receivers};
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState};
 
 /// The pasted text as a sharing link. The error never repeats it.
@@ -23,65 +22,6 @@ pub(super) fn ticket_of(text: &str) -> Result<Ticket, String> {
     text.trim().parse().map_err(|_| {
         "That is not an OurStick sharing link. Copy the whole link the sender sent.".to_owned()
     })
-}
-
-/// One received stick, as the list shows it.
-#[derive(Debug, Serialize)]
-pub struct ReceivedEntry {
-    id: String,
-    name: String,
-    folder: String,
-    paused: bool,
-    /// What is saved under another name than at the sender (ADR 0010).
-    saved_as: super::words::SavedAsList,
-    /// What the user chose not to get, escaped, and whether files of it
-    /// are already here (ADR 0012).
-    left_out: Vec<super::choice::LeftOutView>,
-    #[serde(flatten)]
-    shown: Shown,
-}
-
-/// The sticks the window receives, oldest first.
-#[tauri::command]
-pub async fn received(
-    state: State<'_, AppState>,
-    receivers: State<'_, Receivers>,
-) -> Result<Vec<ReceivedEntry>, String> {
-    let store = state.store.clone();
-    // From the latest round where there was one; else (before a round has
-    // planned, e.g. the sender is away since the start) from what is
-    // recorded, read once per call and only then.
-    let rounds = receivers.saved_as_lists();
-    let joined = super::work(move || {
-        let mut sticks = Vec::new();
-        for joined in store.joined_sticks()? {
-            if joined.kind != StickKind::App {
-                continue;
-            }
-            let saved_as = match rounds.get(&joined.stick_id).cloned() {
-                Some(list) => list,
-                None => super::words::saved_as_views(&ourstick_core::download::saved_elsewhere(
-                    &store.saved_elsewhere(&joined.stick_id)?,
-                )),
-            };
-            let left_out = super::choice::left_out_views(store.as_ref(), &joined.stick_id)?;
-            sticks.push((joined, saved_as, left_out));
-        }
-        Ok(sticks)
-    })
-    .await?;
-    Ok(joined
-        .into_iter()
-        .map(|(joined, saved_as, left_out)| ReceivedEntry {
-            id: stick_hex(&joined.stick_id),
-            name: display_name(joined.name.as_deref(), &joined.stick_id),
-            folder: joined.output_dir.display().to_string(),
-            paused: joined.paused,
-            saved_as,
-            left_out,
-            shown: receivers.shown(&joined.stick_id),
-        })
-        .collect())
 }
 
 /// "Choose…": the system's folder picker; the folder the stick goes in.
@@ -295,7 +235,24 @@ pub async fn forget_received_stick(
     receivers: State<'_, Receivers>,
 ) -> Result<(), String> {
     let stick_id = stick_id_of(&stick_id)?;
+    // Released first: a wait that was changing it into a received stick
+    // has finished by then, or never will (ADR 0025).
     let held = receivers.release(&stick_id).await;
+    if super::waiting::is_waiting(&state, stick_id).await? {
+        let forgotten = super::waiting::forget_waiting(&state, stick_id).await;
+        if forgotten.is_err() {
+            receivers
+                .hold_again(
+                    &app,
+                    stick_id,
+                    held,
+                    "Forgetting it did not finish. Use Forget this stick… again.".to_owned(),
+                )
+                .await;
+        }
+        let _ = app.emit("received-changed", ());
+        return forgotten;
+    }
     // Before its key and link go: at most a few seconds, then forgotten
     // whether the owner heard or not.
     super::reports::report_once(&app, stick_id, ReportState::Forgotten).await;

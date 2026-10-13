@@ -117,7 +117,7 @@
   {/if}
 
   <p class="folder row spread">
-    <span class="muted path"><PathText label="Saved in" path={entry.folder} /></span>
+    <span class="muted path"><PathText label="Saved in" path={entry.folder ?? ""} /></span>
     <button onclick={() => act(() => openReceivedFolder(entry.id))}>Open folder</button>
   </p>
 

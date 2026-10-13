@@ -18,8 +18,9 @@ use tauri::State;
 use super::commands::ticket_of;
 use crate::state::AppState;
 
-/// How long a preview waits for the sender.
-const PREVIEW_WAIT: Duration = Duration::from_secs(30);
+/// How long a preview (or one try of a wait, ADR 0025) waits for the
+/// sender.
+pub(super) const PREVIEW_WAIT: Duration = Duration::from_secs(30);
 
 /// A top-level entry of a previewed stick.
 #[derive(Debug, Serialize)]
@@ -35,6 +36,15 @@ pub struct EntryView {
     /// What it would write into the folder (ADR 0012): the window sums the
     /// ticked ones.
     to_write: u64,
+}
+
+/// A preview, or the sender away: then the window offers to wait for it
+/// (ADR 0025).
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewOutcome {
+    Seen { preview: PreviewView },
+    SenderAway,
 }
 
 /// What adding a pasted sharing link would bring.
@@ -79,6 +89,32 @@ fn folder_for(name: &str, parent: &Path) -> PathBuf {
     }))
 }
 
+/// Whether `error` says the sender cannot be reached (off, OurStick closed
+/// there, no network), as a receive would wait for it.
+fn sender_away(error: &ourstick_core::download::DownloadError) -> bool {
+    use ourstick_core::download::{after_error, Next, Waiting};
+    matches!(
+        after_error(error, None, Duration::ZERO),
+        Next::Wait(Waiting::Sender(_), _)
+    )
+}
+
+/// Where a received stick goes once its name is known: the folder a
+/// command-line receive of it is in (`earlier`, it goes on there) unless
+/// the user chose a `parent`; else one named after it in `parent`, or in
+/// Downloads. One choice for a preview and a wait (ADR 0025).
+pub(super) fn folder_choice(
+    earlier: Option<PathBuf>,
+    parent: Option<&str>,
+) -> Result<impl Fn(&str) -> PathBuf + Clone + Send + 'static, String> {
+    let chosen = parent.is_some();
+    let parent = parent_folder(parent)?;
+    Ok(move |name: &str| match &earlier {
+        Some(folder) if !chosen => folder.clone(),
+        _ => folder_for(name, &parent),
+    })
+}
+
 /// The nearest folder of `path` that exists, to measure its disk.
 fn existing(path: &Path) -> PathBuf {
     path.ancestors()
@@ -96,7 +132,7 @@ pub async fn preview_link(
     parent: Option<String>,
     state: State<'_, AppState>,
     receivers: State<'_, super::Receivers>,
-) -> Result<PreviewView, String> {
+) -> Result<PreviewOutcome, String> {
     let ticket = ticket_of(&text)?;
     let store = state.store.clone();
     let stick_id = ticket.stick_id;
@@ -119,13 +155,7 @@ pub async fn preview_link(
         tracing::warn!(%error, "a preview's networking");
         "This computer's network could not be started. Check it, then try again.".to_owned()
     })?;
-    let chosen_earlier = earlier.clone();
-    let chosen = parent.is_some();
-    let parent = parent_folder(parent.as_deref())?;
-    let choose = move |name: &str| match chosen_earlier {
-        Some(folder) if !chosen => folder,
-        _ => folder_for(name, &parent),
-    };
+    let choose = folder_choice(earlier.clone(), parent.as_deref())?;
     let looked = tokio::time::timeout(
         PREVIEW_WAIT,
         preview(&fetcher, state.store.clone(), &ticket, choose),
@@ -133,16 +163,14 @@ pub async fn preview_link(
     .await;
     let _ = fetcher.shutdown(false).await;
     let _ = tauri::async_runtime::spawn_blocking(move || std::fs::remove_dir_all(&blobs)).await;
-    let previewed =
-        match looked {
-            Err(_) => return Err(
-                "The sender's computer is off, or OurStick is not open there. Try again when it \
-                 is."
-                .to_owned(),
-            ),
-            Ok(Err(error)) => return Err(crate::receiving::stopped_words(&error)),
-            Ok(Ok(previewed)) => previewed,
-        };
+    let previewed = match looked {
+        Err(_) => return Ok(PreviewOutcome::SenderAway),
+        // Away as a receive sees it (the one place that decides): it can be
+        // waited for too.
+        Ok(Err(error)) if sender_away(&error) => return Ok(PreviewOutcome::SenderAway),
+        Ok(Err(error)) => return Err(crate::receiving::stopped_words(&error)),
+        Ok(Ok(previewed)) => previewed,
+    };
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let folder = previewed.folder.clone();
@@ -162,21 +190,23 @@ pub async fn preview_link(
         manifest: std::sync::Arc::new(previewed.manifest),
         to_write: std::sync::Arc::new(previewed.to_write_by_path),
     });
-    Ok(PreviewView {
-        name: previewed.name,
-        partial: previewed.partial,
-        entries: previewed.entries.into_iter().map(EntryView::from).collect(),
-        total: previewed.total,
-        to_write: previewed.to_write,
-        earlier: earlier.as_ref() == Some(&previewed.folder),
-        // Received earlier elsewhere: its files there stay, and it starts
-        // again in the new folder.
-        earlier_elsewhere: earlier
-            .filter(|earlier| *earlier != previewed.folder)
-            .map(|earlier| earlier.display().to_string()),
-        folder: previewed.folder.display().to_string(),
-        left,
-        saved_as: super::words::saved_as_views(&previewed.saved_as),
+    Ok(PreviewOutcome::Seen {
+        preview: PreviewView {
+            name: previewed.name,
+            partial: previewed.partial,
+            entries: previewed.entries.into_iter().map(EntryView::from).collect(),
+            total: previewed.total,
+            to_write: previewed.to_write,
+            earlier: earlier.as_ref() == Some(&previewed.folder),
+            // Received earlier elsewhere: its files there stay, and it starts
+            // again in the new folder.
+            earlier_elsewhere: earlier
+                .filter(|earlier| *earlier != previewed.folder)
+                .map(|earlier| earlier.display().to_string()),
+            folder: previewed.folder.display().to_string(),
+            left,
+            saved_as: super::words::saved_as_views(&previewed.saved_as),
+        },
     })
 }
 
@@ -274,6 +304,32 @@ mod tests {
         // A name with characters no folder may have still gets a folder.
         let odd = folder_for("a/b:c", parent.path());
         assert_eq!(odd.parent().unwrap(), parent.path());
+    }
+
+    #[test]
+    fn a_preview_and_a_wait_choose_the_same_folder() {
+        let parent = crate::testing::TempFolder::new();
+        let chosen = parent.path().display().to_string();
+        let earlier = parent.path().join("got with the command line");
+        // A command-line receive goes on where it is, unless the user chose
+        // another place.
+        let choose = folder_choice(Some(earlier.clone()), None).unwrap();
+        assert_eq!(choose("Holiday"), earlier);
+        let choose = folder_choice(Some(earlier), Some(&chosen)).unwrap();
+        assert_eq!(choose("Holiday"), parent.path().join("Holiday"));
+        let choose = folder_choice(None, Some(&chosen)).unwrap();
+        assert_eq!(choose("Holiday"), parent.path().join("Holiday"));
+    }
+
+    #[test]
+    fn an_unreachable_sender_is_away_but_not_a_stick_it_no_longer_shares() {
+        use ourstick_core::download::DownloadError;
+        use ourstick_core::transport::TransportError;
+        let unreachable = TransportError::Unreachable("gone".to_owned());
+        assert!(sender_away(&DownloadError::Transport(unreachable)));
+        assert!(!sender_away(&DownloadError::Transport(
+            TransportError::UnknownStick
+        )));
     }
 
     #[test]

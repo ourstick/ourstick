@@ -7,6 +7,7 @@
     previewInside,
     previewLink,
     previewNeeds,
+    waitForLink,
     type PreviewEntry,
     type PreviewView,
   } from "./api";
@@ -34,6 +35,8 @@
   let none = $state(false);
   /** What would be written with this choice, as the core counts it. */
   let needs = $state(0);
+  /** The link whose sender was away (ADR 0025): it can be waited for. */
+  let away = $state<string | null>(null);
   let looking = $state(false);
   let adding = $state(false);
   let failure = $state<string | null>(null);
@@ -45,9 +48,20 @@
     const asked = text;
     try {
       const seen = await previewLink(asked, parent);
+      if (seen.kind === "sender_away") {
+        // Another folder of a link looked at: said, the preview kept.
+        if (preview && asked === looked) {
+          failure = "The sender's computer is off, or OurStick is not open there. Try again when it is.";
+        } else {
+          preview = null;
+          away = asked;
+        }
+        return;
+      }
+      away = null;
       // Another link starts with everything ticked; another folder keeps the ticks.
       if (asked !== looked) leftOut = [];
-      preview = seen;
+      preview = seen.preview;
       looked = asked;
     } catch (error) {
       // A new link that fails shows nothing of the old one; a new folder
@@ -104,6 +118,20 @@
     if (picked) {
       parent = picked;
       await look();
+    }
+  }
+
+  /** "Wait for it": kept, and received by itself once the sender is back. */
+  async function waitForIt() {
+    if (away === null || adding || looking) return;
+    adding = true;
+    failure = null;
+    try {
+      onAdded(await waitForLink(away));
+    } catch (error) {
+      failure = String(error);
+    } finally {
+      adding = false;
     }
   }
 
@@ -173,9 +201,20 @@
       </label>
       <div class="row">
         <button type="button" onclick={onCancel} disabled={adding}>Cancel</button>
-        <button class="primary" type="submit" disabled={looking || adding || !text.trim()}>Look at it</button>
+        {#if away !== null && away === text}
+          <button type="submit" disabled={looking || adding}>Look again</button>
+          <button class="primary" type="button" onclick={waitForIt} disabled={looking || adding}>Wait for it</button>
+        {:else}
+          <button class="primary" type="submit" disabled={looking || adding || !text.trim()}>Look at it</button>
+        {/if}
       </div>
     </form>
+    {#if away !== null && away === text && !looking}
+      <p class="error">The sender's computer is off, or OurStick is not open there.</p>
+      <p class="muted">
+        Wait for it: it comes by itself, all of it, once the sender's computer is on and OurStick is open there.
+      </p>
+    {/if}
   {/if}
   {#if looking}<p class="muted">Looking for the sender… please wait.</p>{/if}
   {#if failure && !preview}<p class="error">{failure}</p>{/if}

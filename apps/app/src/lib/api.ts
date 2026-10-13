@@ -279,11 +279,15 @@ export interface ReceivedEntry {
   id: string;
   /** Its name from the sender (show it isolated: it is the sender's text). */
   name: string;
-  folder: string;
+  /** Null while its sender is waited for: no folder yet. */
+  folder: string | null;
   paused: boolean;
+  /** A link waited for (its sender was away): Forget only. */
+  waiting: boolean;
   /** What is saved under another name than at the sender. */
   saved_as: SavedAsList;
-  /** "starting", "downloading", "getting_more", "up_to_date", "waiting", "paused", "stopped". */
+  /** "starting", "downloading", "getting_more", "up_to_date", "waiting",
+   * "paused", "stopped"; a link waited for: "waiting_sender", "wait_ended". */
   state: string;
   /** Why it waits or stopped, in words for everyone. */
   message: string | null;
@@ -302,72 +306,7 @@ export function received(): Promise<ReceivedEntry[]> {
   return invoke("received");
 }
 
-export interface PreviewEntry {
-  /** Exactly as the stick names it, its whole path: send this back. */
-  name: string;
-  /** Its last part, escaped: show this (isolated). */
-  shown: string;
-  is_dir: boolean;
-  files: number;
-  bytes: number;
-  /** What it would write into the folder (files already there left out). */
-  to_write: number;
-}
-
-/** What adding a pasted sharing link would bring. */
-export interface PreviewView {
-  name: string;
-  /** The sender is still counting its files. */
-  partial: boolean;
-  entries: PreviewEntry[];
-  total: number;
-  to_write: number;
-  folder: string;
-  /** Received there earlier with the command line: it goes on there. */
-  earlier: boolean;
-  /** Received earlier in another folder: it moves; the files there stay. */
-  earlier_elsewhere: string | null;
-  /** What is left on this computer where it would go. */
-  left: number;
-  /** What would be saved under another name there. */
-  saved_as: SavedAsList;
-}
-
-/** Looks at a pasted sharing link: `parent` is where it would be saved (else Downloads). */
-export function previewLink(
-  text: string,
-  parent: string | null,
-): Promise<PreviewView> {
-  return invoke("preview_link", { text, parent });
-}
-
-/** The system's folder picker; null if cancelled. */
-export function chooseFolder(): Promise<string | null> {
-  return invoke("choose_folder");
-}
-
-/** What is inside a top-level folder of the latest preview, each named by
- * its whole path. */
-export function previewInside(folder: string): Promise<PreviewEntry[]> {
-  return invoke("preview_inside", { folder });
-}
-
-/** What the latest preview would write with `leftOut` not got. */
-export function previewNeeds(leftOut: string[]): Promise<number> {
-  return invoke("preview_needs", { leftOut });
-}
-
-/** "Get it": received into `folder` and kept up to date, but for the
- * paths `leftOut` (exactly as the stick names them). Returns its id. */
-export function addReceived(
-  text: string,
-  folder: string,
-  name: string,
-  leftOut: string[] = [],
-): Promise<string> {
-  return invoke("add_received", { text, folder, name, leftOut });
-}
-
+export * from "./previewApi";
 export * from "./choiceApi";
 export * from "./readersApi";
 

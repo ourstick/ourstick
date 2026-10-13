@@ -26,10 +26,12 @@ pub mod choice;
 pub mod clipboard;
 pub mod commands;
 mod holder;
+pub mod list;
 pub mod preview;
 pub mod reports;
 pub mod ticks;
 mod told;
+pub mod waiting;
 mod words;
 
 pub use holder::Receivers;
@@ -292,15 +294,28 @@ pub async fn start_all(app: &AppHandle) {
     let state = app.state::<AppState>();
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
-    let found = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
+    type Found = (
+        Vec<(
+            ourstick_core::JoinedStick,
+            Result<Lock, LockError>,
+            anyhow::Result<Ticket>,
+        )>,
+        Vec<(
+            ourstick_core::store::WaitingLink,
+            Result<Lock, LockError>,
+            anyhow::Result<Ticket>,
+        )>,
+    );
+    let found = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Found> {
         let received: Vec<_> = store
             .joined_sticks()?
             .into_iter()
             .filter(|joined| joined.kind == ourstick_core::StickKind::App)
             .collect();
-        // The keyring only for sticks it receives.
-        if received.is_empty() {
-            return Ok(Vec::new());
+        let waiting = store.waiting_links()?;
+        // The keyring only for sticks it receives or waits for.
+        if received.is_empty() && waiting.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
         }
         let secrets = crate::keys::secrets(store.as_ref())?;
         let mut found = Vec::new();
@@ -309,10 +324,16 @@ pub async fn start_all(app: &AppHandle) {
             let ticket = read_ticket(secrets.as_ref(), &joined.stick_id);
             found.push((joined, lock, ticket));
         }
-        Ok(found)
+        let mut waits = Vec::new();
+        for link in waiting {
+            let lock = take_retrying(|| download_lock(&data_dir, &link.stick_id));
+            let ticket = read_ticket(secrets.as_ref(), &link.stick_id);
+            waits.push((link, lock, ticket));
+        }
+        Ok((found, waits))
     })
     .await;
-    let found = match found {
+    let (found, waits) = match found {
         Ok(Ok(found)) => found,
         Ok(Err(error)) => {
             return crate::problems::failed(
@@ -351,6 +372,8 @@ pub async fn start_all(app: &AppHandle) {
             Err(error) => stopped(app, stick_id, said(&error)),
         }
     }
+    // Links waited for (ADR 0025): looked at again from the first pause.
+    waiting::hold_all(app, waits).await;
     changed(app);
 }
 

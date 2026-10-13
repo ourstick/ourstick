@@ -27,7 +27,10 @@ touches nothing of it.
 ## Decision
 
 1. **"Wait for it" where "Try again" was.** `preview_link` returns a typed
-   outcome, not only words: `SenderAway` when the preview timed out. Then
+   outcome, not only words: `SenderAway` when the preview timed out, or
+   failed as a receive would wait for the sender (`after_error` says
+   `Waiting::Sender`: a sender just gone is told at once, without the
+   half minute). Then
    the add-link view says "The sender's computer is off, or OurStick is
    not open there." with `Cancel` and `Wait for it` (primary). Any other
    failure is shown as today. A bad link, one of this device's own sticks,

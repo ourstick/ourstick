@@ -48,6 +48,10 @@ export function receivedShort(entry: { state: string; done: number; total: numbe
       return "Paused";
     case "stopped":
       return "Stopped";
+    case "waiting_sender":
+      return "Waiting for the sender";
+    case "wait_ended":
+      return "No answer";
     default:
       // Not started yet (the app is still starting).
       return "Getting ready…";

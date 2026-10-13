@@ -206,6 +206,9 @@ so Spotlight leaves it alone.
   Dock, where it is seen and found again; it is never hidden. With nothing
   going on (no stick shared or coming in, no drop being copied), ✕ quits
   without asking. Other windows (Share, About, dialogs) just close.
+- The Quit dialog (from ✕, the tray, the Dock or ⌘Q) also has the start at
+  login check, as in About: the moment one thinks of it. It changes the
+  choice at once, whichever button follows.
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
   Tauri's, because it has to receive the shell's XDG activation token (see
   Known limitations). GNOME shows it through the AppIndicator extension,

@@ -198,3 +198,11 @@ write itself, as it writes registry entries (ADR 0023) and bookmarks.
   no window at login on any system, but every place that sends to the
   main window would have to allow for its absence; a hidden window does
   the same with no change there.
+
+## Amendment 1: the check on Quit too (accepted, 2026-10-13)
+
+A friend wanted OurStick not to start with his computer, and found no way:
+the tray and About are where few look. The Quit dialog (from the window's
+✕, the tray, the Dock or ⌘Q) now has the same check, as About has it: it
+changes the choice at once, whichever button follows. One choice, shown
+in three places.

@@ -57,7 +57,13 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
             .state::<crate::receiving::Receivers>()
             .downloading()
             .is_empty();
-    let height = if receiving { 320.0 } else { 230.0 };
+    // Quit also has the start at login check: two lines more.
+    let quitting = matches!(mode, Mode::Quit | Mode::Close);
+    let height = match (quitting, receiving) {
+        (true, true) => 370.0,
+        (true, false) => 280.0,
+        (false, _) => 230.0,
+    };
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title("OurStick")
         .focused(crate::windows::FOCUS_NEW)

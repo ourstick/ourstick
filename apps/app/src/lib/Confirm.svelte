@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { listen } from "@tauri-apps/api/event";
   import { appState, confirmView, minimizeMain, quit, stopSharing, type ConfirmView } from "./api";
+  import { setStartAtLogin, startAtLogin } from "./aboutApi";
 
   /** `closing`: Quit from the main window's ✕, with Minimize as the other choice. */
   let {
@@ -13,11 +15,33 @@
   let busy = $state(false);
   let failure = $state<string | null>(null);
 
+  /** Start at login (ADR 0024) on Quit: the moment one thinks of it. The
+   * same choice as the tray's and About's, changed at once. */
+  let login = $state<boolean | null>(null);
+
+  async function readLogin() {
+    login = (await startAtLogin()).on;
+  }
+
+  async function changeLogin(on: boolean) {
+    failure = null;
+    try {
+      await setStartAtLogin(on);
+    } catch (error) {
+      failure = String(error);
+    }
+    await readLogin();
+  }
+
   onMount(() => {
     appState().then((app) => (document.documentElement.dataset.platform = app.platform));
     confirmView(stickId)
       .then((loaded) => (view = loaded))
       .catch((error) => (failure = String(error)));
+    if (!quitting) return;
+    readLogin().catch((error) => (failure = String(error)));
+    const stop = listen("start-at-login-changed", readLogin);
+    return () => stop.then((unlisten) => unlisten());
   });
 
   const close = () => getCurrentWindow().close();
@@ -91,6 +115,12 @@
       </p>
     {/if}
     </div>
+    {#if login !== null}
+      <label class="row login">
+        <input type="checkbox" checked={login} disabled={busy} onchange={(event) => changeLogin(event.currentTarget.checked)} />
+        Start OurStick when I log in, so that my sticks are shared after a restart
+      </label>
+    {/if}
     <div class="actions">
       {#if closing}
         <button onclick={minimize} disabled={busy}>Minimize</button>
@@ -130,5 +160,13 @@
   }
   .dialog .actions {
     flex-shrink: 0;
+  }
+  .login {
+    flex-shrink: 0;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .login input {
+    margin-top: 3px;
   }
 </style>

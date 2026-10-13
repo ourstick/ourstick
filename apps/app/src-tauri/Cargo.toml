@@ -41,6 +41,10 @@ tauri = { workspace = true, features = ["tray-icon"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true
 ksni.workspace = true

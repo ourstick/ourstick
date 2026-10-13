@@ -37,3 +37,13 @@ pub fn remove() -> Result<()> {
         _ => Ok(()),
     }
 }
+
+/// Keeps macOS from starting the app again at login when it was running at
+/// a restart ("Reopen windows when logging back in"): that start has no
+/// `--autostarted`, so it would open the window. Only the LaunchAgent
+/// starts it at login, as the user chose. Called on the main thread.
+pub fn no_relaunch_at_login() {
+    if let Some(main_thread) = objc2::MainThreadMarker::new() {
+        objc2_app_kit::NSApplication::sharedApplication(main_thread).disableRelaunchOnLogin();
+    }
+}

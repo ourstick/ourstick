@@ -206,3 +206,14 @@ the tray and About are where few look. The Quit dialog (from the window's
 ✕, the tray, the Dock or ⌘Q) now has the same check, as About has it: it
 changes the choice at once, whichever button follows. One choice, shown
 in three places.
+
+## Amendment 2: macOS never reopens it by itself (accepted, 2026-10-13)
+
+Tried on a Mac: restarted while the app ran, with "Reopen windows when
+logging back in" checked, macOS started the app again without
+`--autostarted`, so with its window; our LaunchAgent then found it running
+and did nothing. Restarted after Quit, the LaunchAgent started it with no
+window, as meant. The app now calls `NSApplication`'s
+`disableRelaunchOnLogin` at every start (objc2-app-kit, whose binding is
+safe: no `unsafe` of ours, and the version Tauri already builds): macOS
+never reopens it, and only the user's choice starts it at login.

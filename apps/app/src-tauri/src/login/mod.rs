@@ -18,6 +18,9 @@ mod macos;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "macos")]
+pub use macos::no_relaunch_at_login;
+
 pub mod entries;
 
 /// The argument the login entry starts the app with.

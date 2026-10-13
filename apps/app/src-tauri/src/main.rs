@@ -123,6 +123,8 @@ fn main() {
         })
         .setup(|app| {
             tray::create(app.handle())?;
+            #[cfg(target_os = "macos")]
+            login::no_relaunch_at_login();
             // Sticks from an earlier run are plugged in and shared again at
             // once, like USB sticks plugged back in; a removal or a new link
             // stopped halfway is finished even when no stick is left to see.

@@ -78,6 +78,11 @@ gtk = "0.18"
 # Windows: keeping the system awake while someone downloads
 # (SetThreadExecutionState). The same version windows-native-keyring-store uses.
 windows-sys = { version = "0.61", features = ["Win32_System_Power"] }
+# macOS: the app never reopened by "Reopen windows when logging back in";
+# only our own login entry starts it there (ADR 0024). The versions Tauri
+# already uses.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSResponder"] }
 # The ticket as a QR code in the terminal; no image/svg rendering.
 qrcode = { version = "0.14", default-features = false }
 # Key-file passphrases read from the terminal without echo.

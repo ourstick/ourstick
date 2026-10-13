@@ -19,7 +19,9 @@ use ourstick_core::{StickId, StickKind, Ticket};
 use tauri::{AppHandle, Manager, State};
 
 use super::commands::ticket_of;
-use super::{changed, keep_ticket, stopped_words, waiting_words, work, Receivers, Shown};
+use super::{
+    changed, keep_ticket, stopped_words_then, waiting_words, work, AfterStop, Receivers, Shown,
+};
 use crate::state::{stick_hex, AppState};
 
 mod change;
@@ -153,7 +155,10 @@ async fn wait(
             });
         }
         Err(DownloadError::Cancelled) => {}
-        Err(error) => show_waiting(app, stick_id, added_at_ms, Some(stopped_words(&error))),
+        Err(error) => {
+            let words = stopped_words_then(&error, AfterStop::AddAgain);
+            show_waiting(app, stick_id, added_at_ms, Some(words))
+        }
     }
 }
 

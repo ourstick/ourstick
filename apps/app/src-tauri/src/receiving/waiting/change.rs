@@ -68,8 +68,12 @@ pub(super) async fn change_into_received(
         Ok(()) => start(app, stick_id, ticket, folder, false).await,
         Err(why) => {
             tracing::warn!(%why, "a waiting link did not become a received stick");
-            let message =
-                format!("It could not start: {why} OurStick tries again in a few minutes.");
+            // It tries again by itself; said once.
+            let message = if why.contains("tries again by itself") {
+                format!("It could not start: {why}")
+            } else {
+                format!("It could not start: {why} OurStick tries again by itself.")
+            };
             start_waiting(
                 app,
                 stick_id,
@@ -95,7 +99,9 @@ async fn record(
     let now = SystemClock.now_ms();
     take_stick(&state.store, stick_id, folder, StickKind::App, now)
         .await
-        .map_err(|error| super::super::stopped_words(&error))?;
+        .map_err(|error| {
+            super::super::stopped_words_then(&error, super::super::AfterStop::ByItself)
+        })?;
     let store = state.store.clone();
     work(move || {
         // Taken over from the command line: the row was there, so the

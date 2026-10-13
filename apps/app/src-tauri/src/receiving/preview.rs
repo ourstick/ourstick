@@ -168,7 +168,12 @@ pub async fn preview_link(
         // Away as a receive sees it (the one place that decides): it can be
         // waited for too.
         Ok(Err(error)) if sender_away(&error) => return Ok(PreviewOutcome::SenderAway),
-        Ok(Err(error)) => return Err(crate::receiving::stopped_words(&error)),
+        Ok(Err(error)) => {
+            return Err(crate::receiving::stopped_words_then(
+                &error,
+                crate::receiving::AfterStop::LookAgain,
+            ))
+        }
         Ok(Ok(previewed)) => previewed,
     };
     let store = state.store.clone();

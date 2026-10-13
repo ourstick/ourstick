@@ -169,8 +169,47 @@ fn sentence(text: &str) -> String {
     said
 }
 
-/// Why a received stick stopped, and what to do.
+/// What the user does after a stop, as the window where it is said has
+/// it: a received stick's `Try again`, the add-link view's `Look at it`, a
+/// waited-for link's Forget (ADR 0025), or nothing (it tries by itself).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterStop {
+    TryAgain,
+    LookAgain,
+    AddAgain,
+    ByItself,
+}
+
+impl AfterStop {
+    /// As the end of a sentence: "…, then use Try again".
+    fn then(self) -> &'static str {
+        match self {
+            AfterStop::TryAgain => "use Try again",
+            AfterStop::LookAgain => "look at it again",
+            AfterStop::AddAgain => "forget it and add the link again",
+            AfterStop::ByItself => "OurStick tries again by itself",
+        }
+    }
+
+    /// As a sentence of its own: "Use Try again".
+    fn alone(self) -> &'static str {
+        match self {
+            AfterStop::TryAgain => "Use Try again",
+            AfterStop::LookAgain => "Look at it again",
+            AfterStop::AddAgain => "Forget it and add the link again",
+            AfterStop::ByItself => "OurStick tries again by itself",
+        }
+    }
+}
+
+/// Why a received stick stopped, and what to do (`Try again`).
 pub fn stopped_words(error: &DownloadError) -> String {
+    stopped_words_then(error, AfterStop::TryAgain)
+}
+
+/// Why it stopped, and what to do where it is said.
+pub fn stopped_words_then(error: &DownloadError, again: AfterStop) -> String {
+    let (then, alone) = (again.then(), again.alone());
     match error {
         DownloadError::Record(
             RecordError::OlderThanTicket { .. }
@@ -185,26 +224,24 @@ pub fn stopped_words(error: &DownloadError) -> String {
                 .to_owned()
         }
         DownloadError::ReceivedByApp(_) | DownloadError::BeingForgotten => {
-            "Another OurStick program on this computer has this stick. Close it, then use Try again."
-                .to_owned()
+            format!(
+                "Another OurStick program on this computer has this stick. Close it, then {then}."
+            )
         }
-        DownloadError::Io { .. } => {
-            "Saving it on this computer failed. Use Try again.".to_owned()
-        }
+        DownloadError::Io { .. } => format!("Saving it on this computer failed. {alone}."),
         // A shortcut (symbolic link) in the way of the folder's own files.
         DownloadError::UnsafePath { path, .. } => format!(
             "\u{201c}{}\u{201d} cannot be saved in this folder: a shortcut to another place is in \
-             its way. Move the shortcut out of the folder, then use Try again.",
+             its way. Move the shortcut out of the folder, then {then}.",
             ourstick_core::untrusted::escape(path)
         ),
-        DownloadError::Manifest(_) | DownloadError::Cipher(_) => {
-            "What came from the sender could not be read. Use Try again; if it goes on, ask the \
+        DownloadError::Manifest(_) | DownloadError::Cipher(_) => format!(
+            "What came from the sender could not be read. {alone}; if it goes on, ask the \
              sender for a new sharing link."
-                .to_owned()
-        }
+        ),
         other => {
             tracing::warn!(error = %other, "a received stick stopped");
-            "It stopped. Use Try again.".to_owned()
+            format!("It stopped. {alone}.")
         }
     }
 }
@@ -248,6 +285,11 @@ mod tests {
         );
         let stopped = stopped_words(&DownloadError::Cancelled);
         assert_eq!(stopped, "It stopped. Use Try again.");
+        // Said where there is no Try again: what to do there.
+        let looking = stopped_words_then(&DownloadError::Cancelled, AfterStop::LookAgain);
+        assert_eq!(looking, "It stopped. Look at it again.");
+        let waiting = stopped_words_then(&DownloadError::Cancelled, AfterStop::AddAgain);
+        assert_eq!(waiting, "It stopped. Forget it and add the link again.");
     }
 
     #[test]

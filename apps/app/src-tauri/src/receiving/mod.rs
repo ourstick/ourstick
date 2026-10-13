@@ -37,7 +37,7 @@ mod words;
 pub use holder::Receivers;
 use told::Told;
 
-pub use words::{said, stopped_words, waiting_words};
+pub use words::{said, stopped_words, stopped_words_then, waiting_words, AfterStop};
 
 /// `work` off the async runtime; its error in words for everyone.
 pub(crate) async fn work<T: Send + 'static>(

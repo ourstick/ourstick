@@ -217,6 +217,7 @@ fn main() {
             problems::dismiss_app_problem,
             stick_life_commands::remove,
             stick_drop::add_paths,
+            stick_drop::stop_copy,
             stick_drop::choose_for_stick,
             stick_commands::link_paths,
             stick_commands::remove_entry,

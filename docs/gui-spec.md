@@ -93,8 +93,14 @@ so Spotlight leaves it alone.
   and questions. Dropping **copies** into the stick folder,
   like onto a real stick. A drop that does not fit in what is left is
   refused, as by a real stick: nothing is copied, and the window says how
-  big it is and how much is left. While it copies, the zone says `Copying…
-  1.2 GB of 3.1 GB` with a bar. A drop meanwhile waits its turn: one copy
+  big it is and how much is left. First what was dropped is counted (to
+  know whether it fits: minutes for a big folder on a slow disk), and the
+  zone says "Looking at what you dropped…" with "48 210 files, 312 GB so
+  far" as it counts; then, while it copies, `Copying… 1.2 GB of 3.1 GB`
+  with a bar. Under the zone, all the while, "A big folder? Share it as it
+  is: from where it is, not copied." with `Cancel` and `Share it as it
+  is`: either stops it at its next file, nothing of it stays on the stick,
+  and the second then shares it as it is. A drop meanwhile waits its turn: one copy
   at a time, the next once the one before is done, in the order dropped;
   under the bar, in grey, "Next: Wallpaper, 2021-08" with `Don't add
   these` (the ones not started). A drop that asks something ("already on
@@ -141,7 +147,8 @@ so Spotlight leaves it alone.
   disk." (ADR 0013), until OurStick reads at full speed again. It is a note,
   not a problem: the event `giving-way`, told at each change.
 - Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
-  used out of used + left. "Left" is what the computer has room for once its
+  used out of used + left; with `Share`, always in sight at the bottom of
+  the view, also while what is above them scrolls. "Left" is what the computer has room for once its
   reserve and every download's claim are counted (the space
   ledger, ADR 0008); several sticks on one disk share it.
 - Activity line (only while someone downloads):

@@ -107,7 +107,9 @@ export type AddOutcome =
   /** Names already on the stick: nothing copied; ask, then drop again. */
   | { kind: "already_there"; names: string[] }
   /** Refused, as by a real stick; nothing was copied. */
-  | { kind: "does_not_fit"; needed: number; left: number };
+  | { kind: "does_not_fit"; needed: number; left: number }
+  /** Stopped by the user (Cancel, or Share it as it is); nothing is on the stick. */
+  | { kind: "stopped" };
 
 /** Copies dropped files and folders onto the stick, if they fit. With
  * `onConflict` (the answer to "already there"), names already on the stick
@@ -127,9 +129,18 @@ export function chooseForStick(pick: "files" | "folders"): Promise<string[]> {
 }
 
 /** How far a drop's copy is (event `copy-progress`). */
+/** How far a drop is: first looked at (`measuring`: `files` and `total`
+ * bytes counted so far), then copied (`done` of `total`). */
 export interface CopyProgress {
+  measuring: boolean;
+  files: number;
   done: number;
   total: number;
+}
+
+/** Stops the drop being looked at or copied; nothing of it stays. */
+export function stopCopy(stickId: string): Promise<void> {
+  return invoke("stop_copy", { stickId });
 }
 
 /** "Share it as it is": links them, shared from where they are. */

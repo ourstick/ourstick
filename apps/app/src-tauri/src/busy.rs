@@ -60,7 +60,7 @@ pub async fn make_busy(
             .copying
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .contains(stick_id)
+            .contains_key(stick_id)
         {
             return Err(
                 "a copy onto the stick is still going on; try again once it is done".to_owned(),
@@ -138,7 +138,7 @@ mod tests {
     fn a_stick_being_copied_onto_is_not_made_busy() {
         let state = state();
         let id = stick(3);
-        state.copying.lock().unwrap().insert(id);
+        state.copying.lock().unwrap().insert(id, Arc::default());
         let refused =
             tauri::async_runtime::block_on(make_busy(&state, &id, "Removing…")).unwrap_err();
         assert!(refused.contains("copy"), "{refused}");

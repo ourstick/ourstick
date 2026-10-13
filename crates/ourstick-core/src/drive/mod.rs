@@ -9,7 +9,10 @@ use crate::share::{folder_size, ShareError};
 
 mod copy;
 
-pub use copy::{check_sources, copy_onto, names_taken, remove_leftovers, Copied, OnConflict};
+pub use copy::{
+    check_sources, copy_onto, copy_onto_stoppable, names_taken, remove_leftovers, Copied, CopyStep,
+    OnConflict,
+};
 
 /// Why a copy onto the stick or a removal failed. Messages are for users.
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +23,8 @@ pub enum DriveError {
     NotCopyable { path: PathBuf, reason: &'static str },
     #[error("{name} is not on the stick")]
     NotOnStick { name: String },
+    #[error("the copy was stopped")]
+    Stopped,
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,

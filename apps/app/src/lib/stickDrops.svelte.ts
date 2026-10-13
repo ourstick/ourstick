@@ -5,10 +5,16 @@
 // Kept per stick for as long as the app runs, so another stick's view and
 // back finds it as it was; a Quit drops what has not started.
 import { listen } from "@tauri-apps/api/event";
-import { addPaths, type CopyProgress } from "./api";
+import { addPaths, linkPaths, stopCopy, type CopyProgress } from "./api";
 
 export interface Drops {
   copying: boolean;
+  /** What is being looked at or copied now. */
+  current: string[] | null;
+  /** Stopped by the user, to be shared as it is once it has stopped. */
+  shareInstead: boolean;
+  /** Cancel or Share it as it is was pressed: it stops at its next file. */
+  stopping: boolean;
   /** How far the copy is, while it runs. */
   copied: CopyProgress | null;
   /** Drops waiting for the copy before them, in order. */
@@ -27,6 +33,9 @@ const all = $state<Record<string, Drops>>({});
 /** Nothing dropped yet: what a stick never dropped onto shows. */
 const NONE: Drops = Object.freeze({
   copying: false,
+  current: null,
+  shareInstead: false,
+  stopping: false,
   copied: null,
   queue: [],
   alreadyThere: null,
@@ -71,9 +80,15 @@ export async function dropOn(
   if (!fromQueue && drops.queue.length === 0) drops.failures = [];
   drops.copying = true;
   drops.copied = null;
+  drops.current = paths;
+  drops.shareInstead = false;
+  drops.stopping = false;
   try {
     const outcome = await addPaths(stickId, paths, onConflict);
-    if (outcome.kind === "does_not_fit") {
+    if (outcome.kind === "stopped" && drops.shareInstead) {
+      // Looked at for long, then shared from where it is instead.
+      await linkPaths(stickId, paths);
+    } else if (outcome.kind === "does_not_fit") {
       drops.tooBig = { paths, needed: outcome.needed, left: outcome.left };
     } else if (outcome.kind === "already_there") {
       drops.alreadyThere = { paths, names: outcome.names };
@@ -83,8 +98,26 @@ export async function dropOn(
   } finally {
     drops.copying = false;
     drops.copied = null;
+    drops.current = null;
+    drops.shareInstead = false;
+    drops.stopping = false;
   }
   next(stickId);
+}
+
+/** Cancel (or, with `share`, Share it as it is) while a drop is looked at
+ * or copied: it stops at its next file, nothing of it stays on the stick,
+ * and with `share` it is then shared from where it is. */
+export async function stopDrop(stickId: string, share: boolean): Promise<void> {
+  const drops = of(stickId);
+  if (!drops.copying || drops.stopping) return;
+  drops.stopping = true;
+  drops.shareInstead = share;
+  try {
+    await stopCopy(stickId);
+  } catch (error) {
+    drops.failures.push(String(error));
+  }
 }
 
 /** The next drop in the queue, if nothing holds it. */

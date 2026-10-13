@@ -3,10 +3,13 @@
 //! bytes told as it goes (`docs/gui-spec.md`, the drop zone).
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::bail;
 use ourstick_core::drive::{
-    check_sources, copy_onto, names_taken, remove_leftovers, Copied, DriveError, OnConflict,
+    check_sources, copy_onto_stoppable, names_taken, remove_leftovers, CopyStep, DriveError,
+    OnConflict,
 };
 use ourstick_core::StickId;
 use serde::Serialize;
@@ -34,6 +37,9 @@ pub enum AddOutcome {
         needed: u64,
         left: u64,
     },
+    /// Stopped by the user (Cancel, or Share it as it is): nothing of it
+    /// is on the stick.
+    Stopped,
 }
 
 /// Dropped files and folders: copied onto the stick, like onto a real one,
@@ -53,7 +59,8 @@ pub async fn add_paths(
     let on_conflict = answer(on_conflict.as_deref())?;
     // Marked first, the stick read after: a change that ended in between
     // (a removal) is seen, never copied into the folder it left.
-    let _copying = Copying::may_start(&state, id).await?;
+    let copying = Copying::may_start(&state, id).await?;
+    let stop = copying.stop.clone();
     let stick = state.stick_now(&id).await.map_err(shown)?;
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let store = state.store.clone();
@@ -85,30 +92,31 @@ pub async fn add_paths(
             }
         };
         let mut told = std::time::Instant::now();
-        let mut progress = |copied: Copied| {
+        let mut progress = |step: CopyStep| {
+            let finished = matches!(step, CopyStep::Copying(copied) if copied.done == copied.total);
             // A few times a second is enough for a bar.
-            if told.elapsed() >= std::time::Duration::from_millis(250)
-                || copied.done == copied.total
-            {
+            if told.elapsed() >= std::time::Duration::from_millis(250) || finished {
                 told = std::time::Instant::now();
                 let _ = progress_app.emit(
                     "copy-progress",
-                    crate::serving::StickEvent::new(&id, CopyView::from(copied)),
+                    crate::serving::StickEvent::new(&id, CopyView::from(step)),
                 );
             }
         };
-        match copy_onto(
+        match copy_onto_stoppable(
             &stick.root_path,
             left,
             &linked,
             &sources,
             on_conflict,
+            &stop,
             &mut progress,
         ) {
             Ok(_) => Ok(AddOutcome::Copied),
             Err(DriveError::DoesNotFit { needed, left }) => {
                 Ok(AddOutcome::DoesNotFit { needed, left })
             }
+            Err(DriveError::Stopped) => Ok(AddOutcome::Stopped),
             Err(error) => Err(error.into()),
         }
     })
@@ -160,20 +168,55 @@ fn answer(answered: Option<&str>) -> Result<Option<OnConflict>, String> {
     }
 }
 
-/// How far a drop's copy is, for the window's bar.
+/// How far a drop is, for the window: while what was dropped is looked at
+/// (`measuring`: the files and bytes counted so far, in `files` and
+/// `total`), then while it is copied (`done` of `total`).
 #[derive(Debug, Clone, Copy, Serialize)]
 struct CopyView {
+    measuring: bool,
+    files: u64,
     done: u64,
     total: u64,
 }
 
-impl From<Copied> for CopyView {
-    fn from(copied: Copied) -> Self {
-        Self {
-            done: copied.done,
-            total: copied.total,
+impl From<CopyStep> for CopyView {
+    fn from(step: CopyStep) -> Self {
+        match step {
+            CopyStep::Measuring { files, bytes } => Self {
+                measuring: true,
+                files,
+                done: 0,
+                total: bytes,
+            },
+            CopyStep::Copying(copied) => Self {
+                measuring: false,
+                files: 0,
+                done: copied.done,
+                total: copied.total,
+            },
         }
     }
+}
+
+/// Cancel, or Share it as it is, while a drop is looked at or copied: it
+/// stops at its next file or piece, and nothing of it stays on the stick.
+#[tauri::command]
+pub fn stop_copy(stick_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    stop_by(&state, &stick_id)
+}
+
+/// Stops the copy onto the stick `stick_id` (hex), if one runs.
+fn stop_by(state: &AppState, stick_id: &str) -> Result<(), String> {
+    let id = stick_id_of(stick_id)?;
+    if let Some(stop) = state
+        .copying
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&id)
+    {
+        stop.store(true, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 /// What a copy cut short by a Quit left on `stick` is removed, unless a drop
@@ -193,13 +236,15 @@ pub fn is_copying(state: &AppState, stick_id: &StickId) -> bool {
         .copying
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .contains(stick_id)
+        .contains_key(stick_id)
 }
 
 /// A stick being copied onto, until dropped: one copy at a time per stick.
 struct Copying<'a> {
     state: &'a AppState,
     stick_id: StickId,
+    /// Set to stop this copy (`stop_copy`).
+    stop: Arc<AtomicBool>,
 }
 
 impl<'a> Copying<'a> {
@@ -225,10 +270,16 @@ impl<'a> Copying<'a> {
             .copying
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !copying.insert(stick_id) {
+        if copying.contains_key(&stick_id) {
             return Err("Wait until the copy is done.".to_owned());
         }
-        Ok(Self { state, stick_id })
+        let stop = Arc::new(AtomicBool::new(false));
+        copying.insert(stick_id, stop.clone());
+        Ok(Self {
+            state,
+            stick_id,
+            stop,
+        })
     }
 }
 
@@ -243,94 +294,5 @@ impl Drop for Copying<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    fn state() -> AppState {
-        AppState {
-            data_dir: std::env::temp_dir(),
-            store: Arc::new(ourstick_core::MemoryStore::new()),
-            sticks: tokio::sync::Mutex::default(),
-            disks: Arc::new(ourstick_core::disk::turns::DiskTurns::new(Arc::new(
-                ourstick_core::disk::turns::SystemTimer::default(),
-            ))),
-            copying: std::sync::Mutex::default(),
-            local_network_explained: Default::default(),
-            keys_wait: Default::default(),
-            started_moved: false,
-            network_open: tokio::sync::watch::Sender::new(true),
-        }
-    }
-
-    #[test]
-    fn the_answers_are_the_choices_offered() {
-        assert_eq!(answer(None), Ok(None));
-        assert_eq!(answer(Some("replace")), Ok(Some(OnConflict::Replace)));
-        assert_eq!(answer(Some("keep_both")), Ok(Some(OnConflict::KeepBoth)));
-        assert!(answer(Some("delete everything")).is_err());
-        let view = CopyView::from(Copied { done: 3, total: 9 });
-        assert_eq!((view.done, view.total), (3, 9));
-    }
-
-    #[test]
-    fn no_copy_onto_a_stick_being_changed() {
-        let state = state();
-        let id = ourstick_core::StickSigningKey::from_bytes(&[3; 32]).stick_id();
-        tauri::async_runtime::block_on(async {
-            crate::busy::make_busy(&state, &id, "Removing…")
-                .await
-                .unwrap();
-            let refused = Copying::may_start(&state, id).await.err().unwrap();
-            assert!(refused.contains("being changed"), "{refused}");
-        });
-        // Refused, it holds nothing: once the change is done, a copy may go.
-        state.sticks.blocking_lock().remove(&id);
-        assert!(tauri::async_runtime::block_on(Copying::may_start(&state, id)).is_ok());
-    }
-
-    #[test]
-    fn a_cut_copy_is_cleared_unless_a_drop_copies_now() {
-        let state = state();
-        let folder = std::env::temp_dir().join(format!("ourstick-cut-copy-{}", std::process::id()));
-        let leftover = folder.join(".ourstick-copying-0");
-        std::fs::create_dir_all(&leftover).unwrap();
-        std::fs::write(folder.join(ourstick_core::manifest::DRIVE_MARKER), b"").unwrap();
-        let id = ourstick_core::StickSigningKey::from_bytes(&[4; 32]).stick_id();
-        let stick = ourstick_core::OwnedStick::new(
-            id,
-            "Photos",
-            folder.to_str().unwrap(),
-            ourstick_core::CipherId::None,
-            0,
-        );
-        // A drop copies now: its hidden folder stays.
-        let copying = Copying::start(&state, stick.stick_id).unwrap();
-        clear_cut_copy(&state, &stick);
-        assert!(leftover.exists());
-        drop(copying);
-        clear_cut_copy(&state, &stick);
-        assert!(!leftover.exists());
-        // The clearing holds no mark after.
-        assert!(!is_copying(&state, &stick.stick_id));
-        std::fs::remove_dir_all(&folder).unwrap();
-    }
-
-    #[test]
-    fn one_copy_at_a_time_per_stick() {
-        let state = state();
-        let one = ourstick_core::StickSigningKey::from_bytes(&[1; 32]).stick_id();
-        let two = ourstick_core::StickSigningKey::from_bytes(&[2; 32]).stick_id();
-        let copying = Copying::start(&state, one).unwrap();
-        assert!(is_copying(&state, &one) && !is_copying(&state, &two));
-        assert_eq!(
-            Copying::start(&state, one).err().as_deref(),
-            Some("Wait until the copy is done.")
-        );
-        // Another stick copies meanwhile.
-        let other = Copying::start(&state, two).unwrap();
-        drop(copying);
-        drop(other);
-        assert!(Copying::start(&state, one).is_ok());
-    }
-}
+#[path = "stick_drop_tests.rs"]
+mod tests;

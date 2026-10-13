@@ -17,14 +17,13 @@
     type Stick,
   } from "./api";
   import { files, rate, size } from "./format";
-  import DoesNotFit from "./DoesNotFit.svelte";
-  import AlreadyThere from "./AlreadyThere.svelte";
+  import DropAsks from "./DropAsks.svelte";
   import EntryList from "./EntryList.svelte";
   import ReaderList from "./ReaderList.svelte";
   import LocalNetworkNote from "./LocalNetworkNote.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
-  import { answerAlreadyThere, cancelQueued, closeTooBig, dropOn, dropsOf, queuedNames } from "./stickDrops.svelte";
+  import { closeTooBig, dropOn, dropsOf } from "./stickDrops.svelte";
 
   let {
     stickId,
@@ -210,9 +209,17 @@
       aria-expanded={openMenu === "add"}
       onclick={() => (openMenu = openMenu === "add" ? null : "add")}
     >
-      {#if drops.copying}
-        <strong>Copying…{drops.copied ? ` ${size(drops.copied.done)} of ${size(drops.copied.total)}` : ""}</strong>
-        <progress max={drops.copied?.total || 1} value={drops.copied?.done ?? 0}></progress>
+      {#if drops.copying && (!drops.copied || drops.copied.measuring)}
+        <!-- Counted before anything is copied (does it fit?): on a big
+             folder, minutes; the counts show it is not stuck. -->
+        <strong>Looking at what you dropped…</strong>
+        <span class="muted"
+          >{drops.copied ? `${drops.copied.files.toLocaleString()} files, ${size(drops.copied.total)} so far` : ""}</span
+        >
+        <progress></progress>
+      {:else if drops.copying && drops.copied}
+        <strong>Copying… {size(drops.copied.done)} of {size(drops.copied.total)}</strong>
+        <progress max={drops.copied.total || 1} value={drops.copied.done}></progress>
       {:else}
         <strong>Drop files or folders here, or click to choose</strong>
         <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
@@ -226,27 +233,9 @@
     {/if}
   </div>
 
-  {#if drops.queue.length > 0}
-    <p class="row spread queued">
-      <span class="muted">Next: {#each queuedNames(drops) as name, index (index)}{index > 0 ? ", " : ""}<bdi>{name}</bdi>{/each}</span>
-      <button onclick={() => cancelQueued(stickId)}>Don't add these</button>
-    </p>
-  {/if}
-
-  {#if drops.alreadyThere}
-    <AlreadyThere names={drops.alreadyThere.names} onAnswer={(choice) => answerAlreadyThere(stickId, choice)} />
-  {/if}
-
-  {#if drops.tooBig}
-    <DoesNotFit {stickId} {...drops.tooBig} onClose={tooBigClosed} />
-  {/if}
+  <DropAsks {stickId} onTooBigClosed={tooBigClosed} />
 
   <EntryList {stickId} entries={current?.entries ?? []} onChanged={refresh} onFailure={(why) => (failure = why)} />
-
-  <section class="capacity">
-    <span>{size(current?.used ?? 0)} used · {size(current?.left ?? 0)} left</span>
-    <div class="bar"><div class="fill" class:full={current?.left === 0} style="width: {fraction * 100}%"></div></div>
-  </section>
 
   {#if activity.readers > 0}
     <p class="activity">
@@ -286,14 +275,18 @@
   {#if failure}<p class="error">{failure}</p>{/if}
   {#each drops.failures as why, index (index)}<p class="error">{why}</p>{/each}
 
-  <button class="share" onclick={() => openShare(stickId).catch((error) => (failure = String(error)))}>⤴ Share</button>
+  <!-- Always in sight at the bottom, also while the view scrolls: how full
+       the stick is, and Share. -->
+  <footer class="foot">
+    <section class="capacity">
+      <span>{size(current?.used ?? 0)} used · {size(current?.left ?? 0)} left</span>
+      <div class="bar"><div class="fill" class:full={current?.left === 0} style="width: {fraction * 100}%"></div></div>
+    </section>
+    <button class="share" onclick={() => openShare(stickId).catch((error) => (failure = String(error)))}>⤴ Share</button>
+  </footer>
 </section>
 
 <style>
-  .queued {
-    margin: 0;
-    gap: 8px;
-  }
   /* When a question, the list of who has it and notes do not all fit,
      the view scrolls; Share stays in sight at its bottom. */
   .view {
@@ -368,14 +361,21 @@
     color: #2a9d4b;
   }
   /* Always at the bottom of the window, also while the view scrolls. */
-  .share {
-    width: 100%;
-    min-height: calc(var(--button-height) + 8px);
+  .foot {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     margin-top: auto;
     flex-shrink: 0;
     position: sticky;
     bottom: 0;
+    padding-top: 8px;
+    background: var(--card);
     box-shadow: 0 -8px 8px var(--card);
+  }
+  .share {
+    width: 100%;
+    min-height: calc(var(--button-height) + 8px);
   }
   p {
     margin: 0;

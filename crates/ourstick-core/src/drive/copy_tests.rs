@@ -161,3 +161,76 @@ fn keep_both_numbers_the_new_one_and_times_are_kept() {
     assert_eq!(copy.modified().unwrap(), when);
     assert!(!stick.path().join(".ourstick-copying-9").exists());
 }
+
+#[test]
+fn a_drop_is_looked_at_first_and_said_so_then_copied() {
+    let stick = tempfile::tempdir().unwrap();
+    let from = tempfile::tempdir().unwrap();
+    write(&from.path().join("folder/a.bin"), 10);
+    write(&from.path().join("folder/b.bin"), 20);
+    write(&from.path().join("folder/.DS_Store"), 99);
+    let mut steps = Vec::new();
+    copy_onto_stoppable(
+        stick.path(),
+        u64::MAX,
+        &[],
+        &[from.path().join("folder")],
+        OnConflict::KeepBoth,
+        &AtomicBool::new(false),
+        &mut |step| steps.push(step),
+    )
+    .unwrap();
+    // Counted file by file (system files left out, as they are not copied)…
+    let measured: Vec<_> = steps
+        .iter()
+        .filter_map(|step| match step {
+            CopyStep::Measuring { files, bytes } => Some((*files, *bytes)),
+            CopyStep::Copying(_) => None,
+        })
+        .collect();
+    assert_eq!(measured.len(), 2);
+    assert_eq!(measured.last(), Some(&(2, 30)));
+    // …and only then copied.
+    let first_copy = steps
+        .iter()
+        .position(|step| matches!(step, CopyStep::Copying(_)))
+        .unwrap();
+    assert_eq!(first_copy, 2);
+    assert_eq!(
+        steps.last(),
+        Some(&CopyStep::Copying(Copied {
+            done: 30,
+            total: 30
+        }))
+    );
+}
+
+#[test]
+fn a_stopped_drop_leaves_nothing_on_the_stick() {
+    let from = tempfile::tempdir().unwrap();
+    write(&from.path().join("folder/big.bin"), 3 * PIECE);
+    let sources = [from.path().join("folder")];
+    // Stopped while it is looked at, and while it is copied.
+    for stop_when_copying in [false, true] {
+        let stick = tempfile::tempdir().unwrap();
+        let stop = AtomicBool::new(false);
+        let stopped = copy_onto_stoppable(
+            stick.path(),
+            u64::MAX,
+            &[],
+            &sources,
+            OnConflict::KeepBoth,
+            &stop,
+            &mut |step| {
+                if matches!(step, CopyStep::Copying(_)) == stop_when_copying {
+                    stop.store(true, Ordering::Relaxed);
+                }
+            },
+        );
+        assert!(matches!(stopped, Err(DriveError::Stopped)), "{stopped:?}");
+        let left: Vec<_> = std::fs::read_dir(stick.path()).unwrap().collect();
+        assert!(left.is_empty(), "{left:?}");
+        // The original is where it was.
+        assert!(from.path().join("folder/big.bin").exists());
+    }
+}

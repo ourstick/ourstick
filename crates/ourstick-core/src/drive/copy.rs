@@ -4,10 +4,10 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{free_name_where, io, remove_from, DriveError};
 use crate::manifest::ignore::is_ignored;
-use crate::share::folder_size;
 
 /// Bytes are told after each piece this long.
 const PIECE: usize = 1 << 20;
@@ -28,6 +28,24 @@ pub enum OnConflict {
 pub struct Copied {
     pub done: u64,
     pub total: u64,
+}
+
+/// A step of a copy as it goes: first what was dropped is looked at
+/// (counted, to know whether it fits: on a big folder, minutes), then
+/// copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyStep {
+    Measuring { files: u64, bytes: u64 },
+    Copying(Copied),
+}
+
+/// Stopped from outside (the user's Cancel, or Share it as it is)?
+fn stopped(stop: &AtomicBool) -> Result<(), DriveError> {
+    if stop.load(Ordering::Relaxed) {
+        Err(DriveError::Stopped)
+    } else {
+        Ok(())
+    }
 }
 
 /// The names of `sources` already on the stick as copies at its top level:
@@ -96,18 +114,53 @@ fn remove_any(path: &Path) {
 }
 
 /// The bytes of a file or folder to copy (system files left out).
-fn source_size(path: &Path) -> Result<u64, DriveError> {
+/// Counts what a dropped `path` would copy (as `copy_tree` copies it:
+/// links inside a folder and system files left out) into `counted`, telling
+/// each file. Only files and folders can be dropped.
+fn measure_source(
+    path: &Path,
+    counted: &mut (u64, u64),
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(CopyStep),
+) -> Result<(), DriveError> {
     let metadata = std::fs::symlink_metadata(path).map_err(io(path))?;
-    if metadata.is_dir() {
-        Ok(folder_size(path)?)
-    } else if metadata.is_file() {
-        Ok(metadata.len())
-    } else {
-        Err(DriveError::NotCopyable {
+    if !metadata.is_dir() && !metadata.is_file() {
+        return Err(DriveError::NotCopyable {
             path: path.to_path_buf(),
             reason: "only files and folders can go on a stick",
-        })
+        });
     }
+    measure(path, counted, stop, progress)
+}
+
+fn measure(
+    path: &Path,
+    counted: &mut (u64, u64),
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(CopyStep),
+) -> Result<(), DriveError> {
+    stopped(stop)?;
+    let metadata = std::fs::symlink_metadata(path).map_err(io(path))?;
+    if metadata.is_file() {
+        counted.0 += 1;
+        counted.1 += metadata.len();
+        progress(CopyStep::Measuring {
+            files: counted.0,
+            bytes: counted.1,
+        });
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(path).map_err(io(path))? {
+        let entry = entry.map_err(io(path))?;
+        if entry.file_name().to_str().is_some_and(is_ignored) {
+            continue;
+        }
+        measure(&entry.path(), counted, stop, progress)?;
+    }
+    Ok(())
 }
 
 /// Copies one file in pieces, telling the bytes as they go.
@@ -115,12 +168,14 @@ fn copy_file(
     from: &Path,
     to: &Path,
     copied: &mut Copied,
+    stop: &AtomicBool,
     progress: &mut dyn FnMut(Copied),
 ) -> Result<(), DriveError> {
     let mut source = std::fs::File::open(from).map_err(io(from))?;
     let mut target = std::fs::File::create_new(to).map_err(io(to))?;
     let mut piece = vec![0; PIECE];
     loop {
+        stopped(stop)?;
         let read = source.read(&mut piece).map_err(io(from))?;
         if read == 0 {
             break;
@@ -142,11 +197,13 @@ fn copy_tree(
     from: &Path,
     to: &Path,
     copied: &mut Copied,
+    stop: &AtomicBool,
     progress: &mut dyn FnMut(Copied),
 ) -> Result<(), DriveError> {
+    stopped(stop)?;
     let metadata = std::fs::symlink_metadata(from).map_err(io(from))?;
     if metadata.is_file() {
-        return copy_file(from, to, copied, progress);
+        return copy_file(from, to, copied, stop, progress);
     }
     if !metadata.is_dir() {
         // Links inside a folder are skipped, as sharing skips them.
@@ -159,7 +216,7 @@ fn copy_tree(
         if name.to_str().is_some_and(is_ignored) {
             continue;
         }
-        copy_tree(&entry.path(), &to.join(&name), copied, progress)?;
+        copy_tree(&entry.path(), &to.join(&name), copied, stop, progress)?;
     }
     Ok(())
 }
@@ -182,11 +239,40 @@ pub fn copy_onto(
     on_conflict: OnConflict,
     progress: &mut dyn FnMut(Copied),
 ) -> Result<Vec<String>, DriveError> {
+    let never = AtomicBool::new(false);
+    copy_onto_stoppable(
+        root,
+        left,
+        linked_names,
+        sources,
+        on_conflict,
+        &never,
+        &mut |step| {
+            if let CopyStep::Copying(copied) = step {
+                progress(copied)
+            }
+        },
+    )
+}
+
+/// [`copy_onto`], telling each step (what is looked at first, then the
+/// bytes copied) and stopping with [`DriveError::Stopped`] once `stop` is
+/// set: then nothing of it is left on the stick.
+pub fn copy_onto_stoppable(
+    root: &Path,
+    left: u64,
+    linked_names: &[String],
+    sources: &[PathBuf],
+    on_conflict: OnConflict,
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(CopyStep),
+) -> Result<Vec<String>, DriveError> {
     check_sources(root, sources)?;
-    let mut needed = 0;
+    let mut counted = (0, 0);
     for source in sources {
-        needed += source_size(source)?;
+        measure_source(source, &mut counted, stop, progress)?;
     }
+    let needed = counted.1;
     if needed > left {
         return Err(DriveError::DoesNotFit { needed, left });
     }
@@ -209,7 +295,8 @@ pub fn copy_onto(
                 reason: "its name is not valid text",
             })?;
         let copying = root.join(format!("{COPYING}{number}"));
-        if let Err(error) = copy_tree(source, &copying, &mut copied, progress) {
+        let mut told = |copied: Copied| progress(CopyStep::Copying(copied));
+        if let Err(error) = copy_tree(source, &copying, &mut copied, stop, &mut told) {
             remove_any(&copying);
             return Err(error);
         }

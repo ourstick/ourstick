@@ -107,6 +107,8 @@
     {/if}
     {#if view.receiving.length > 0}
       <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
+    {:else if view.following}
+      <p>The sticks you receive get nothing new until OurStick opens again.</p>
     {/if}
     {#if view.copying.length > 0}
       <p>
@@ -129,7 +131,7 @@
         <button onclick={minimize} disabled={busy}>Minimize</button>
       {:else}
         <button onclick={close} disabled={busy}>
-          {view.sharing || view.receiving.length > 0 || view.copying.length > 0
+          {view.sharing || view.following || view.copying.length > 0
             ? "Don't quit"
             : "Cancel"}
         </button>

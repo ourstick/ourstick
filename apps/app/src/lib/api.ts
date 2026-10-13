@@ -177,6 +177,8 @@ export interface ConfirmView {
   receiving: string[];
   /** Quit: sticks a drop is being copied onto now (cut short). */
   copying: string[];
+  /** Quit: received sticks are kept up to date, or waited for. */
+  following: boolean;
 }
 
 /** About one stick, or (null, for Quit) about every stick. */

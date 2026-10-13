@@ -93,14 +93,12 @@ pub fn close_requested(app: &AppHandle) {
 }
 
 /// Whether quitting would stop something: a stick being shared, a stick
-/// coming in, or a drop being copied. In doubt, yes.
+/// received and kept up to date (or waiting for its sender, ADR 0025), or
+/// a drop being copied. In doubt, yes.
 async fn going_on(app: &AppHandle) -> bool {
     let state = app.state::<AppState>();
     if state.sticks.lock().await.values().any(Sharing::is_on)
-        || !app
-            .state::<crate::receiving::Receivers>()
-            .downloading()
-            .is_empty()
+        || app.state::<crate::receiving::Receivers>().following()
     {
         return true;
     }
@@ -137,6 +135,8 @@ pub struct ConfirmView {
     receiving: Vec<String>,
     /// For Quit: the sticks a drop is being copied onto now (cut short).
     copying: Vec<String>,
+    /// For Quit: received sticks are kept up to date, or waited for.
+    following: bool,
 }
 
 /// What the dialog says: about `stick_id`, or (none) about every stick.
@@ -158,6 +158,7 @@ pub async fn confirm_view(
             .filter(|stick| crate::stick_drop::is_copying(&state, &stick.stick_id))
             .map(|stick| stick.name.clone())
             .collect();
+        view.following = receivers.following();
         let coming = receivers.downloading();
         let store = state.store.clone();
         view.receiving = crate::commands::blocking(move || {
@@ -204,6 +205,7 @@ fn confirm_of(
             downloading: Vec::new(),
             receiving: Vec::new(),
             copying: Vec::new(),
+            following: false,
         },
         None => ConfirmView {
             sharing: sharing.values().any(Sharing::is_on),
@@ -213,6 +215,7 @@ fn confirm_of(
             downloading: names(&|id| readers_of(id) > 0),
             receiving: Vec::new(),
             copying: Vec::new(),
+            following: false,
         },
     }
 }
@@ -274,6 +277,11 @@ pub static QUIT_CONFIRMED: std::sync::atomic::AtomicBool =
 
 /// Set once quitting has begun: the app is stopping and about to go.
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quitting has begun: the app is stopping and about to go.
+pub fn quitting() -> bool {
+    QUITTING.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// While quitting, brings the Quit dialog ("Quitting… please wait.")
 /// forward instead of the main window, which would show and vanish; true

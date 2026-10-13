@@ -28,6 +28,20 @@ async fn a_stick_is_held_with_its_lock_until_it_is_let_go() {
 }
 
 #[test]
+fn closing_asks_while_a_stick_is_followed_or_waited_for() {
+    let receivers = Receivers::default();
+    assert!(!receivers.following());
+    for quiet in ["paused", "stopped", "wait_ended"] {
+        receivers.show(stick(1), |shown| shown.state = quiet);
+        assert!(!receivers.following(), "{quiet}");
+    }
+    for going_on in ["waiting", "up_to_date", "waiting_sender", "starting"] {
+        receivers.show(stick(1), |shown| shown.state = going_on);
+        assert!(receivers.following(), "{going_on}");
+    }
+}
+
+#[test]
 fn the_quit_dialog_hears_which_sticks_are_downloading() {
     let receivers = Receivers::default();
     receivers.show(stick(1), |shown| shown.state = "downloading");

@@ -253,7 +253,11 @@ fn main() {
                 // with ⌘Q or from the app menu too, not only from the tray.
                 if !dialog::QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_exit();
-                    dialog::open_later(app, dialog::Mode::Quit);
+                    // Already stopping ("Quitting… please wait."): it goes
+                    // by itself; no second dialog.
+                    if !dialog::quitting() {
+                        dialog::open_later(app, dialog::Mode::Quit);
+                    }
                 }
             }
             if let tauri::RunEvent::Exit = event {

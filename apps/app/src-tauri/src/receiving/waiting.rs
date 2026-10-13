@@ -30,6 +30,9 @@ use change::change_into_received;
 /// How long a link is waited for.
 const WAIT_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// After its lock was found taken by another program: the next look.
+const LOCK_AGAIN: Duration = Duration::from_secs(60);
+
 /// "Wait for it": the link is kept (its ticket in the secret store), held,
 /// and looked at again by itself. Returns its id.
 #[tauri::command]
@@ -51,6 +54,14 @@ pub async fn wait_for_link(
         let ticket = ticket.clone();
         work(move || {
             check_link(store.as_ref(), &stick_id, StickKind::App)?;
+            // A stick a command-line receive keeps is taken over when the
+            // sender is on, from its preview: never waited for.
+            if store.joined_stick(&stick_id)?.is_some() {
+                anyhow::bail!(
+                    "This stick was received here with the command line before. Look at it again \
+                     when the sender's computer is on."
+                );
+            }
             let lock = match take_retrying(|| download_lock(&data_dir, &stick_id)) {
                 Err(LockError::DownloadInUse) => anyhow::bail!(
                     "Another OurStick program on this computer is getting this stick right now. \
@@ -104,6 +115,25 @@ pub fn start_waiting(
             return;
         };
         entry.stop().await;
+        // Its lock, if another program had it at the start: once it is
+        // free, then the wait.
+        if entry.lock.is_none() {
+            let data_dir = app.state::<AppState>().data_dir.clone();
+            match super::take_lock(data_dir, stick_id).await {
+                Ok(lock) => entry.lock = Some(lock),
+                Err(_) => {
+                    let busy = "Another OurStick program on this computer has this stick. \
+                                OurStick tries again by itself.";
+                    show_waiting(app, stick_id, added_at_ms, Some(busy.to_owned()));
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(LOCK_AGAIN).await;
+                        start_waiting(&app, stick_id, ticket, added_at_ms, first, None).await;
+                    });
+                    return;
+                }
+            }
+        }
         show_waiting(app, stick_id, added_at_ms, message);
         let cancel = Cancel::new();
         let task = {
@@ -141,12 +171,24 @@ async fn wait(
     first: Duration,
     cancel: &Cancel,
 ) {
+    // On the clock at each try (days asleep count): past it, the wait is
+    // cancelled and ends cleanly.
     let ends_at_ms = added_at_ms.saturating_add(WAIT_FOR.as_millis() as u64);
-    let left = Duration::from_millis(ends_at_ms.saturating_sub(SystemClock.now_ms()));
-    let waited = tokio::select! {
-        waited = waiting(app, stick_id, &ticket, added_at_ms, first, cancel) => waited,
-        () = tokio::time::sleep(left) => return ended(app, stick_id, added_at_ms),
-    };
+    let over = std::sync::atomic::AtomicBool::new(false);
+    let waited = waiting(
+        app,
+        stick_id,
+        &ticket,
+        added_at_ms,
+        ends_at_ms,
+        &over,
+        first,
+        cancel,
+    )
+    .await;
+    if over.load(std::sync::atomic::Ordering::SeqCst) {
+        return ended(app, stick_id, added_at_ms);
+    }
     match waited {
         Ok((name, folder)) => {
             let app = app.clone();
@@ -164,10 +206,16 @@ async fn wait(
 
 /// The 30 days passed: no more tries; only Forget is left.
 fn ended(app: &AppHandle, stick_id: StickId, added_at_ms: u64) {
+    let words = "The sender did not answer for 30 days.";
+    ended_saying(app, stick_id, added_at_ms, words.to_owned());
+}
+
+/// The wait ends, saying why: no more tries; only Forget is left.
+pub(super) fn ended_saying(app: &AppHandle, stick_id: StickId, added_at_ms: u64, message: String) {
     app.state::<Receivers>().show(stick_id, |shown| {
         *shown = Shown {
             state: "wait_ended",
-            message: Some("The sender did not answer for 30 days.".to_owned()),
+            message: Some(message),
             since_ms: Some(added_at_ms),
             ..Shown::default()
         }
@@ -176,32 +224,37 @@ fn ended(app: &AppHandle, stick_id: StickId, added_at_ms: u64) {
 }
 
 /// Looks for the sender after `first`, then as a receive waits, with one
-/// throwaway fetcher: its name and the folder it goes in once it answers.
+/// throwaway fetcher, until `ends_at_ms` (then `over`, and cancelled): its
+/// name and the folder it goes in once it answers.
+#[allow(clippy::too_many_arguments)]
 async fn waiting(
     app: &AppHandle,
     stick_id: StickId,
     ticket: &Ticket,
     added_at_ms: u64,
+    ends_at_ms: u64,
+    over: &std::sync::atomic::AtomicBool,
     first: Duration,
     cancel: &Cancel,
 ) -> Result<(String, PathBuf), DownloadError> {
+    let past = || {
+        let past = SystemClock.now_ms() >= ends_at_ms;
+        if past {
+            over.store(true, std::sync::atomic::Ordering::SeqCst);
+            cancel.cancel();
+        }
+        past
+    };
+    if past() {
+        return Err(DownloadError::Cancelled);
+    }
     tokio::select! {
         () = tokio::time::sleep(first) => {}
         () = cancel.cancelled() => return Err(DownloadError::Cancelled),
     }
     let state = app.state::<AppState>();
-    // A command-line receive of it goes on in its folder.
-    let earlier = {
-        let store = state.store.clone();
-        work(move || {
-            Ok(store
-                .joined_stick(&stick_id)?
-                .map(|joined| joined.output_dir))
-        })
-        .await
-        .unwrap_or(None)
-    };
-    let choose = match super::preview::folder_choice(earlier, None) {
+    // Never received here before (wait_for_link): a folder of its own.
+    let choose = match super::preview::folder_choice(None, None) {
         Ok(choose) => choose,
         Err(why) => {
             show_waiting(app, stick_id, added_at_ms, Some(why));
@@ -231,6 +284,9 @@ async fn waiting(
         }
     };
     let mut on_wait = |why: &Waiting| {
+        if past() {
+            return;
+        }
         let message = match why {
             Waiting::Sender(_) => None,
             other => Some(waiting_words(other)),
@@ -253,13 +309,17 @@ async fn waiting(
 }
 
 /// "Forget this stick…" on a waiting link, already released (its wait
-/// stopped): its row, then its ticket (one left behind is harmless).
+/// stopped): its row, then its ticket. A ticket left behind (the secret
+/// store locked) is harmless: nothing refers to it any more.
 pub(super) async fn forget_waiting(state: &AppState, stick_id: StickId) -> Result<(), String> {
     let store = state.store.clone();
     work(move || {
         store.remove_waiting_link(&stick_id)?;
-        let secrets = crate::keys::secrets(store.as_ref())?;
-        secrets.delete(&SecretName::Ticket(stick_id))?;
+        let deleted = crate::keys::secrets(store.as_ref())
+            .and_then(|secrets| Ok(secrets.delete(&SecretName::Ticket(stick_id))?));
+        if let Err(error) = deleted {
+            tracing::warn!(%error, "a forgotten waiting link's ticket was left");
+        }
         Ok(())
     })
     .await
@@ -290,18 +350,9 @@ pub(super) async fn hold_all(
     let receivers = app.state::<Receivers>();
     for (link, lock, ticket) in waits {
         let stick_id = link.stick_id;
-        let lock = match lock {
-            Ok(lock) => Some(lock),
-            Err(error) => {
-                super::stopped(app, stick_id, super::lock_words(&error));
-                None
-            }
-        };
-        let without_lock = lock.is_none();
-        receivers.hold(stick_id, lock).await;
-        if without_lock {
-            continue;
-        }
+        // Without its lock (another program has it): the wait takes it
+        // once it is free.
+        receivers.hold(stick_id, lock.ok()).await;
         match ticket {
             Ok(ticket) => {
                 start_waiting(app, stick_id, ticket, link.added_at_ms, FOLLOW_EVERY, None).await

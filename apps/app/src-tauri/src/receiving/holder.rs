@@ -133,6 +133,14 @@ impl Receivers {
             .collect()
     }
 
+    /// Whether a received stick is kept up to date or waited for now (not
+    /// paused, stopped or ended): quitting stops it until the next start.
+    pub fn following(&self) -> bool {
+        lock(&self.shown)
+            .values()
+            .any(|shown| !matches!(shown.state, "" | "paused" | "stopped" | "wait_ended"))
+    }
+
     /// Holds `stick_id`, with its lock if it was taken (not running yet).
     pub async fn hold(&self, stick_id: StickId, lock: Option<Lock>) {
         self.held.lock().await.insert(

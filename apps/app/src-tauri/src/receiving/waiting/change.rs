@@ -15,6 +15,13 @@ use super::super::{changed, start, work, Receivers};
 use super::start_waiting;
 use crate::state::AppState;
 
+/// What making its folder came to.
+enum Made {
+    NotWaiting,
+    Refused(String),
+    Ready,
+}
+
 /// After a change into a received stick failed: the next try.
 const AFTER_A_FAILED_CHANGE: Duration = Duration::from_secs(5 * 60);
 
@@ -49,18 +56,45 @@ pub(super) async fn change_into_received(
                     .iter()
                     .any(|link| link.stick_id == stick_id);
                 if !waits {
-                    return Ok(false);
+                    return Ok(Made::NotWaiting);
                 }
-                check_received_folder(store.as_ref(), &data_dir, &folder, &stick_id)?;
+                // A place this device may not receive into (inside a shared
+                // folder, say): no try would ever do, and here is no Choose….
+                if let Err(refused) =
+                    check_received_folder(store.as_ref(), &data_dir, &folder, &stick_id)
+                {
+                    return Ok(Made::Refused(super::super::said(&refused.into())));
+                }
                 std::fs::create_dir_all(&folder)?;
                 mark_received_folder(&folder, &stick_id)?;
-                Ok(true)
+                Ok(Made::Ready)
             })
             .await
         };
         match made {
-            Ok(false) => return,
-            Ok(true) => record(&state, stick_id, &folder, name).await,
+            Ok(Made::NotWaiting) => return,
+            Ok(Made::Refused(why)) => {
+                let words = format!(
+                    "It cannot be saved in Downloads: {why} Forget it, then add the link again \
+                     and choose another place."
+                );
+                return super::ended_saying(app, stick_id, added_at_ms, words);
+            }
+            Ok(Made::Ready) => {
+                let recorded = record(&state, stick_id, &folder, name).await;
+                if recorded.is_err() {
+                    // Nothing of it left: the next try makes the same folder
+                    // again, not "<name> (2)" beside an empty one.
+                    let made_folder = folder.clone();
+                    let _ = work(move || {
+                        ourstick_core::download::unmark_received_folder(&made_folder, &stick_id);
+                        let _ = std::fs::remove_dir(&made_folder);
+                        Ok(())
+                    })
+                    .await;
+                }
+                recorded
+            }
             Err(why) => Err(why),
         }
     };

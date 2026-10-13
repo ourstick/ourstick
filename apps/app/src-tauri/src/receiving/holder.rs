@@ -223,9 +223,13 @@ impl Receivers {
         for (cancel, _) in &running {
             cancel.cancel();
         }
-        for (_, task) in running {
-            // A round may take its grace (10 s) to finish the file it places.
-            let _ = tokio::time::timeout(Duration::from_secs(12), task).await;
-        }
+        // A round may take its grace (10 s) to finish the file it places;
+        // they all have it at once, not one after another.
+        let _ = tokio::time::timeout(Duration::from_secs(12), async {
+            for (_, task) in running {
+                let _ = task.await;
+            }
+        })
+        .await;
     }
 }

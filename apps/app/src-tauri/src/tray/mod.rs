@@ -243,6 +243,9 @@ fn toggle_start_at_login(app: &AppHandle) {
 
 /// Shows the main window again (from the tray, or a second launch).
 pub fn show_main(app: &AppHandle) {
+    if crate::dialog::quitting_shown(app) {
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         crate::windows::bring_forward(&window);
     }

@@ -87,7 +87,7 @@ pub fn close_requested(app: &AppHandle) {
                 tracing::warn!(error = %format!("{error:#}"), "cannot show the dialog");
             }
         } else {
-            quit(app);
+            quit(app).await;
         }
     });
 }
@@ -272,9 +272,39 @@ pub async fn start_sharing_again(
 pub static QUIT_CONFIRMED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// Quits the app; sharing stops on the way out (see main).
+/// Set once quitting has begun: the app is stopping and about to go.
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// While quitting, brings the Quit dialog ("Quitting… please wait.")
+/// forward instead of the main window, which would show and vanish; true
+/// then. For a launch, the tray or the Dock during the few seconds it takes.
+pub fn quitting_shown(app: &AppHandle) -> bool {
+    if !QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("confirm") {
+            crate::windows::bring_forward(&window);
+        }
+    }
+    true
+}
+
+/// Quits the app. Stopping takes a few seconds (the sticks' connections
+/// close, a download finishes the file it places): it runs here, off the
+/// main thread, so that no window looks stuck ("not responding" on GNOME).
+/// Meanwhile only the Quit dialog stays, saying so. Main's own stop on Exit
+/// then finds nothing left.
 #[tauri::command]
-pub fn quit(app: AppHandle) {
+pub async fn quit(app: AppHandle) {
+    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+    for (label, window) in app.webview_windows() {
+        if !label.starts_with("confirm") {
+            let _ = window.hide();
+        }
+    }
+    crate::sharing::stop_all(&app.state::<AppState>()).await;
+    app.state::<crate::receiving::Receivers>().stop_all().await;
     QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
 }

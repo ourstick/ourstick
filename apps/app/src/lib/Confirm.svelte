@@ -115,6 +115,9 @@
       </p>
     {/if}
     </div>
+    {#if busy}
+      <p class="muted">Quitting… please wait.</p>
+    {/if}
     {#if login !== null}
       <label class="row login">
         <input type="checkbox" checked={login} disabled={busy} onchange={(event) => changeLogin(event.currentTarget.checked)} />

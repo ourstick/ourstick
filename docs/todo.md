@@ -4,14 +4,14 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
-## 0.1.1
+## 0.1.2
 
-- [ ] **Start at login (ADR 0024), by hand on macOS and Linux:** restart, no
-      window; on macOS the Dock click and Login Items. Done on Windows.
-- [ ] **Share stays in sight** when a stick's view is full: to be seen in the
-      0.1.1 builds.
-- [ ] **The release:** the three installers with their SHA256 sums on GitHub
-      Releases and on the site, whose Windows picture and FAQ wait for it.
+- [ ] **Start at login on Linux, by hand:** restart, no window, the sticks
+      shared again (and a download going on carries on). Done on Windows
+      and macOS (macOS: also a restart with "Reopen windows when logging
+      back in", ADR 0024 amendment 2).
+- [ ] **The release:** the three installers with their SHA256 sums on the
+      site (and GitHub Releases once the repository is public).
 
 The Linux package is `ourstick` from 0.1.1 (it was `our-stick`): it
 replaces 0.1.0 when installed. Opened as a downloaded file, Ubuntu's App

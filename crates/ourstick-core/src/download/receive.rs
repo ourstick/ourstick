@@ -379,7 +379,9 @@ mod policy;
 #[cfg(test)]
 use policy::LONGEST_WAIT;
 pub use policy::{after_error, Next, Waiting};
+mod wait_for_owner;
 use policy::{FIRST_WAIT, GRACE};
+pub use wait_for_owner::wait_for_owner;
 
 #[cfg(test)]
 mod tests;

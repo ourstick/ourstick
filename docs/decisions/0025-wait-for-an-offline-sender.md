@@ -131,6 +131,12 @@ waiting entry), `docs/todo.md`.
   second paste of the link is refused; Forget during a wait; Quit during
   an attempt does not hang; a stick that does not fit waits for room.
 
+Tried by hand on 2026-10-13. Linux: sender off, Wait for it, sender on;
+the stick came by itself about 40 s later, every file the same; a sender
+just gone was refused at once (not after the half minute), which led to
+the second case of 1. Windows (VM): the same, across a restart of the app
+while it waited; the stick came by itself, every file the same.
+
 ## Alternatives considered
 
 - **A received stick at once, with no folder until the first manifest:**

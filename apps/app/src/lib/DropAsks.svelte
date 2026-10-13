@@ -55,4 +55,8 @@
   .spread {
     justify-content: space-between;
   }
+  /* The words beside them wrap; a button's own words never do. */
+  button {
+    white-space: nowrap;
+  }
 </style>

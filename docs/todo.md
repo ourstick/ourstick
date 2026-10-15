@@ -4,14 +4,12 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
-## 0.1.2
+## 0.1.3
 
-- [ ] **Start at login on Linux, by hand:** restart, no window, the sticks
-      shared again (and a download going on carries on). Done on Windows
-      and macOS (macOS: also a restart with "Reopen windows when logging
-      back in", ADR 0024 amendment 2).
-- [ ] **The release:** the three installers with their SHA256 sums on the
-      site (and GitHub Releases once the repository is public).
+- [ ] **The window opened after a start at login, on Linux:** it was blank
+      (white) in 0.1.1 and 0.1.2; fixed on main. The start at login itself
+      works on all three systems (Linux tried on 2026-10-15: started hidden,
+      the sticks shared again).
 
 The Linux package is `ourstick` from 0.1.1 (it was `our-stick`): it
 replaces 0.1.0 when installed. Opened as a downloaded file, Ubuntu's App

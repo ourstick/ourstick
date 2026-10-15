@@ -106,15 +106,23 @@ pub fn show_new<R: Runtime>(_window: &WebviewWindow<R>) {}
 ///
 /// The main window is only ever minimized, never hidden (see main): GTK 3
 /// makes a hidden window anew when it is shown, and GNOME then sees a new
-/// window without the token.
+/// window without the token. It is hidden only until its first show, when
+/// started at login.
 #[cfg(target_os = "linux")]
 pub fn bring_forward<R: Runtime>(window: &WebviewWindow<R>) {
-    use gtk::prelude::GtkWindowExt;
+    use gtk::prelude::{GtkWindowExt, WidgetExt};
 
     let token = token(window);
     with_gtk(window, move |gtk| {
         if let Some(token) = &token {
             gtk.set_startup_id(token);
+        }
+        // Never shown yet (started at login): tao shows the box that holds
+        // the page only in its own show, so present() alone would map an
+        // empty, white window. In the GTK call itself, before present():
+        // Tauri's show() goes through the event loop and could come after.
+        if !gtk.is_visible() {
+            gtk.show_all();
         }
         gtk.present();
     });

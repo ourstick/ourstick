@@ -10,8 +10,8 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       (white) in 0.1.1 and 0.1.2. The start at login itself works on all
       three systems (Linux tried on 2026-10-15: started hidden, the sticks
       shared again).
-- [ ] **The release:** the three installers with their SHA256 sums on the
-      site (and GitHub Releases once the repository is public).
+- [x] **The release:** the three installers with their SHA256 sums on the
+      site (2026-10-17); GitHub Releases once the repository is public.
 
 The Linux package is `ourstick` from 0.1.1 (it was `our-stick`): it
 replaces 0.1.0 when installed. Opened as a downloaded file, Ubuntu's App

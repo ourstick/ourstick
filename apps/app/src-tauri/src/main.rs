@@ -22,6 +22,7 @@ mod receiving;
 mod refresh;
 #[cfg(any(windows, test))]
 mod registry;
+mod send;
 mod serving;
 mod share;
 mod sharing;
@@ -222,6 +223,9 @@ fn main() {
             stick_drop::stop_copy,
             stick_drop::choose_for_stick,
             stick_commands::link_paths,
+            send::check_send,
+            send::measure,
+            send::send,
             stick_commands::remove_entry,
             share::open_share,
             share::share_view,

@@ -219,7 +219,9 @@ pub async fn link_paths(
     let stick = state.stick_now(&id).await.map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
+    let handle = app.clone();
     blocking(move || {
+        crate::send::check_adding(&handle, store.as_ref(), &data_dir, &stick.stick_id, &paths)?;
         let mut planned = Vec::new();
         for path in paths {
             let entry = plan_link(

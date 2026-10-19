@@ -116,10 +116,10 @@ pub fn start_app(app: &AppHandle) {
             // recorded, goes to the oldest stick only, if it is there and no
             // other stick has it; first, as it needs no keys (a keychain
             // that fails must not leave the stick without its image).
-            if let (Some(oldest), Some(image)) = (sticks.first(), crate::drive::first_image()) {
-                let unclaimed = !sticks
-                    .iter()
-                    .any(|stick| stick.image_path.as_deref() == Some(image.as_path()));
+            let drives = || sticks.iter().filter(|stick| stick.is_drive());
+            if let (Some(oldest), Some(image)) = (drives().next(), crate::drive::first_image()) {
+                let unclaimed =
+                    !drives().any(|stick| stick.image_path.as_deref() == Some(image.as_path()));
                 if oldest.image_path.is_none() && unclaimed && image.exists() {
                     state.store.set_image_path(&oldest.stick_id, &image)?;
                 }
@@ -138,7 +138,7 @@ pub fn start_app(app: &AppHandle) {
             }
             crate::local_network::remember(&state);
             crate::keys::finish_move(&state);
-            for stick in sticks {
+            for stick in sticks.into_iter().filter(|stick| stick.is_drive()) {
                 // A move of the first stick stopped halfway is finished.
                 let home = crate::drive::sticks_home()?;
                 let folder = ourstick_core::stick_names::folder_name(&stick.name, |candidate| {
@@ -172,6 +172,10 @@ pub fn start_app(app: &AppHandle) {
 /// gone; elsewhere only if the folder moved). Blocking.
 fn plug_in(state: &AppState, stick_id: &StickId) -> Result<bool> {
     let stick = state.app_stick(stick_id)?;
+    // A stick of ADR 0028 has no drive: nothing to plug in.
+    if !stick.is_drive() {
+        return Ok(false);
+    }
     let root = crate::drive::mount(&stick)?;
     let moved = root != stick.root_path;
     if moved {

@@ -206,3 +206,14 @@ fn another_app_sticks_folder_is_refused_but_a_command_line_ones_is_not() {
         "Shared from the command line"
     );
 }
+
+#[test]
+fn a_name_clash_is_found_among_any_others_ignoring_case() {
+    let photos = Path::new("/a/Pictures/Photos");
+    let also = Path::new("/b/Expansion/PHOTOS");
+    assert!(matches!(
+        name_clash(also, [("Photos", photos)]),
+        Some(LinkError::NameTaken { other: Some(other), .. }) if other == photos
+    ));
+    assert!(name_clash(also, [("Films", photos)]).is_none());
+}

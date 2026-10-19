@@ -138,23 +138,24 @@ pub fn plan_link(
         .filter(|name| !name.contains('\\'))
         .ok_or_else(|| LinkError::BadName(path.to_path_buf()))?;
     let on_stick = top_names(own)?;
-    let lower = name.to_lowercase();
-    let refused = |other: Option<PathBuf>| LinkError::NameTaken {
-        path: path.to_path_buf(),
-        name: name.to_owned(),
-        other,
-    };
-    if let Some(entry) = existing
-        .iter()
-        .find(|entry| entry.name.to_lowercase() == lower)
-    {
-        return Err(refused(Some(entry.path.clone())));
+    if let Some(refused) = name_clash(
+        path,
+        existing
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.path.as_path())),
+    ) {
+        return Err(refused);
     }
+    let lower = name.to_lowercase();
     if on_stick.iter().any(|name| name.to_lowercase() == lower)
         // What the file system itself calls the same (e.g. Unicode forms).
         || own.join(name).exists()
     {
-        return Err(refused(None));
+        return Err(LinkError::NameTaken {
+            path: path.to_path_buf(),
+            name: name.to_owned(),
+            other: None,
+        });
     }
     Ok(LinkedEntry {
         name: name.to_owned(),
@@ -163,6 +164,24 @@ pub fn plan_link(
         disk: disk_of(&metadata),
         added_at_ms: now_ms,
     })
+}
+
+/// The refusal of `path` if one of `others` (name, path) has its name,
+/// ignoring case: the receiver would not know which is which (ADR 0028 §2).
+pub fn name_clash<'a>(
+    path: &Path,
+    others: impl IntoIterator<Item = (&'a str, &'a Path)>,
+) -> Option<LinkError> {
+    let name = path.file_name()?.to_string_lossy();
+    let lower = name.to_lowercase();
+    others
+        .into_iter()
+        .find(|(other, _)| other.to_lowercase() == lower)
+        .map(|(_, other)| LinkError::NameTaken {
+            path: path.to_path_buf(),
+            name: name.into_owned(),
+            other: Some(other.to_path_buf()),
+        })
 }
 
 /// The names in the stick's own folder (none if it is not there, e.g. an

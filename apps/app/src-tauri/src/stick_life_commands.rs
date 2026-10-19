@@ -297,6 +297,11 @@ pub async fn rename(
             .filter(|other| other.stick_id != stick.stick_id)
             .collect();
         let name = new_stick_name(&name, &others)?;
+        // A stick of ADR 0028 has no folder or drive to follow its name.
+        if !stick.is_drive() {
+            store.rename_owned_stick(&stick.stick_id, &name)?;
+            return Ok(None);
+        }
         // Next to where it is (on macOS a volume name, free in /Volumes).
         let around = match stick.root_path.parent() {
             Some(parent) if !cfg!(target_os = "macos") => parent.to_path_buf(),

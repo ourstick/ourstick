@@ -1,30 +1,15 @@
-//! The app's stick as a folder (docs/gui-spec.md): what is on its top level,
-//! copying files and folders onto it as onto a real USB stick, and removing
-//! them again. Blocking I/O throughout; call from `spawn_blocking`.
+//! An older app stick's own folder (ADR 0028 §7): what is on its top level,
+//! and what a copy of an older version left there. Nothing is copied onto a
+//! stick any more. Blocking I/O throughout; call from `spawn_blocking`.
 
 use std::path::{Path, PathBuf};
 
 use crate::manifest::ignore::is_ignored;
 use crate::share::{folder_size, ShareError};
 
-mod copy;
-
-pub use copy::{
-    check_sources, copy_onto, copy_onto_stoppable, names_taken, remove_leftovers, Copied, CopyStep,
-    OnConflict,
-};
-
-/// Why a copy onto the stick or a removal failed. Messages are for users.
+/// Why the stick's top level could not be read. Messages are for users.
 #[derive(Debug, thiserror::Error)]
 pub enum DriveError {
-    #[error("does not fit: {needed} bytes, and {left} are left on the stick")]
-    DoesNotFit { needed: u64, left: u64 },
-    #[error("{} cannot be copied: {reason}", .path.display())]
-    NotCopyable { path: PathBuf, reason: &'static str },
-    #[error("{name} is not on the stick")]
-    NotOnStick { name: String },
-    #[error("the copy was stopped")]
-    Stopped,
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -77,13 +62,6 @@ pub fn top_entries(root: &Path) -> Result<Vec<TopEntry>, DriveError> {
     Ok(entries)
 }
 
-/// A name for `name` on the stick that is not taken: `name`, else
-/// `stem (2).ext`, `stem (3).ext`, … as file managers do.
-#[cfg(test)]
-fn free_name(root: &Path, name: &str) -> String {
-    free_name_where(name, |candidate| root.join(candidate).exists())
-}
-
 /// `name`, else `stem (2).ext`, `stem (3).ext`, …: the first that `taken`
 /// does not refuse.
 pub(crate) fn free_name_where(name: &str, taken: impl Fn(&str) -> bool) -> String {
@@ -100,21 +78,33 @@ pub(crate) fn free_name_where(name: &str, taken: impl Fn(&str) -> bool) -> Strin
         .expect("some number is free")
 }
 
-/// Removes a file or folder from the stick's top level (the stick's copy).
-pub fn remove_from(root: &Path, name: &str) -> Result<(), DriveError> {
-    let not_on_stick = || DriveError::NotOnStick {
-        name: name.to_owned(),
+/// The hidden name an older version copied under first, then renamed.
+const COPYING: &str = ".ourstick-copying-";
+
+/// Removes what a copy of an older version, cut short, left behind (only a
+/// copy's own names), never following a link. Blocking.
+pub fn remove_leftovers(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
     };
-    // Only a plain name on the top level: never a path that leads elsewhere.
-    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
-        return Err(not_on_stick());
-    }
-    let path = root.join(name);
-    let metadata = std::fs::symlink_metadata(&path).map_err(|_| not_on_stick())?;
-    if metadata.is_dir() {
-        std::fs::remove_dir_all(&path).map_err(io(&path))
-    } else {
-        std::fs::remove_file(&path).map_err(io(&path))
+    for entry in entries.flatten() {
+        let ours = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(COPYING));
+        if !ours {
+            continue;
+        }
+        let path = entry.path();
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+            Ok(_) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => {}
+        }
     }
 }
 
@@ -153,114 +143,27 @@ mod tests {
     }
 
     #[test]
-    fn copies_keep_the_originals_and_never_overwrite() {
-        let stick = tempfile::tempdir().unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
-        write(&stick.path().join("notes.txt"), 3);
-        write(&elsewhere.path().join("notes.txt"), 4);
-        write(&elsewhere.path().join("photos/a.jpg"), 5);
-        write(&elsewhere.path().join("photos/.DS_Store"), 50);
-        let sources = [
-            elsewhere.path().join("notes.txt"),
-            elsewhere.path().join("photos"),
-        ];
-
-        let names = copy_onto(
-            stick.path(),
-            100,
-            &["PHOTOS".to_owned()],
-            &sources,
-            OnConflict::KeepBoth,
-            &mut |_| {},
-        )
-        .unwrap();
-
-        // A linked entry's name is taken too, whatever the case.
-        assert_eq!(names, vec!["notes (2).txt", "photos (2)"]);
-        assert_eq!(
-            std::fs::read(stick.path().join("notes.txt")).unwrap().len(),
-            3
-        );
-        assert_eq!(
-            std::fs::read(stick.path().join("notes (2).txt"))
-                .unwrap()
-                .len(),
-            4
-        );
-        assert!(stick.path().join("photos (2)/a.jpg").exists());
-        assert!(!stick.path().join("photos (2)/.DS_Store").exists());
-        assert!(elsewhere.path().join("notes.txt").exists(), "original kept");
-        assert_eq!(free_name(stick.path(), "notes.txt"), "notes (3).txt");
+    fn a_free_name_is_numbered_as_file_managers_do() {
+        let taken = ["notes.txt", "notes (2).txt", "v1.2"];
+        let free = |name| free_name_where(name, |candidate| taken.contains(&candidate));
+        assert_eq!(free("other.txt"), "other.txt");
+        assert_eq!(free("notes.txt"), "notes (3).txt");
+        assert_eq!(free("v1.2"), "v1 (2).2");
     }
 
     #[test]
-    fn a_copy_that_does_not_fit_copies_nothing() {
+    fn only_what_a_cut_copy_left_is_removed() {
         let stick = tempfile::tempdir().unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
-        write(&stick.path().join("old.bin"), 60);
-        write(&elsewhere.path().join("small.bin"), 10);
-        write(&elsewhere.path().join("big.bin"), 40);
-        let sources = [
-            elsewhere.path().join("small.bin"),
-            elsewhere.path().join("big.bin"),
-        ];
-        // What its disk has room for, whatever is on the stick already.
-        let result = copy_onto(
-            stick.path(),
-            40,
-            &[],
-            &sources,
-            OnConflict::KeepBoth,
-            &mut |_| {},
-        );
-        assert!(
-            matches!(
-                result,
-                Err(DriveError::DoesNotFit {
-                    needed: 50,
-                    left: 40
-                })
-            ),
-            "{result:?}"
-        );
-        assert!(!stick.path().join("small.bin").exists());
-    }
-
-    #[test]
-    fn the_stick_cannot_be_copied_onto_itself() {
-        let stick = tempfile::tempdir().unwrap();
-        write(&stick.path().join("a.txt"), 1);
-        let result = copy_onto(
-            stick.path(),
-            100,
-            &[],
-            &[stick.path().join("a.txt")],
-            OnConflict::KeepBoth,
-            &mut |_| {},
-        );
-        assert!(matches!(result, Err(DriveError::NotCopyable { .. })));
-    }
-
-    #[test]
-    fn removing_takes_only_a_top_level_name() {
-        let stick = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        write(&stick.path().join("a.txt"), 1);
-        write(&stick.path().join("folder/b.txt"), 1);
-        write(&outside.path().join("keep.txt"), 1);
-
-        remove_from(stick.path(), "a.txt").unwrap();
-        remove_from(stick.path(), "folder").unwrap();
-        assert!(top_entries(stick.path()).unwrap().is_empty());
-        for bad in ["", ".", "..", "../keep.txt", "folder/b.txt", "missing"] {
-            assert!(
-                matches!(
-                    remove_from(stick.path(), bad),
-                    Err(DriveError::NotOnStick { .. })
-                ),
-                "{bad}"
-            );
-        }
-        assert!(outside.path().join("keep.txt").exists());
+        write(&stick.path().join(".ourstick-copying-1/a.jpg"), 3);
+        write(&stick.path().join(".ourstick-copying-2"), 3);
+        write(&stick.path().join("photos/a.jpg"), 3);
+        write(&stick.path().join(".ourstick-drive"), 64);
+        remove_leftovers(stick.path());
+        let mut left: Vec<String> = std::fs::read_dir(stick.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, [".ourstick-drive", "photos"]);
     }
 }

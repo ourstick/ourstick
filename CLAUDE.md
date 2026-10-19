@@ -15,7 +15,7 @@ Tagline: "A USB stick in a link."
 ```
 crates/ourstick-core   ΟΛΗ η λογική. Καμία εξάρτηση από UI, Tauri, ή CLI.
 crates/ourstick-cli    Λεπτό περίβλημα: share / get / list / seed.
-apps/app               Tauri 2 (Rust commands + TypeScript UI). Desktop (mobile αργότερα).
+apps/app               Tauri 2 (Rust commands + TypeScript UI). Desktop, Android και iOS.
 apps/website           Static site για ourstick.com.
 docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 ```
@@ -98,6 +98,10 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
   (λίστα sticks που έλαβε, επιλογή φακέλων, πρόοδος). Linux, macOS και Windows.
   Τα Windows αναπτύσσονται σε VM, όπως στο `docs/windows-dev.md`. Το app είναι λεπτό περίβλημα όπως το CLI: καλεί μόνο `ourstick-core`,
   και το core δεν ξέρει τίποτα για UI (κανόνας 1).
+- Apps για Android και iOS (ADR 0027), από το ίδιο Tauri app και το ίδιο `ourstick-core`.
+  Πρώτα η λήψη: ο παραλήπτης ανοίγει το link στο κινητό και παίρνει τα αρχεία. Η αποστολή
+  από κινητό γίνεται μόνο όσο η εφαρμογή είναι ανοιχτή, γιατί τα συστήματα σταματούν
+  τις εφαρμογές στο παρασκήνιο, και το UI το λέει καθαρά.
 
 ## Τι ΔΕΝ κάνει η v1
 
@@ -110,7 +114,6 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 - Δικά μας relays.
 - Web receiver (λήψη από browser χωρίς app).
 - Ανάκληση πρόσβασης εκτός από «άλλαξε κλειδί».
-- Mobile apps.
 
 ## Σειρά υλοποίησης
 
@@ -127,6 +130,7 @@ docs/                  architecture.md, protocol.md, decisions/ (ADRs).
 8. Desktop GUI (Tauri), με τη σειρά commits του σχεδίου για το βήμα 8.
 9. Μεγάλοι φάκελοι, stick χωρίς μέγεθος, πολλά sticks και πρόγραμμα παραλήπτη, με τη
    σειρά του ADR 0007 («Order of work»).
+10. Apps για κινητά (Android, iOS), με τη σειρά του ADR 0027.
 
 Ένα βήμα τη φορά. Κάθε βήμα τελειώνει με `cargo test` πράσινο και `cargo clippy` καθαρό.
 

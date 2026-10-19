@@ -1,6 +1,5 @@
-//! The "Stop sharing" dialog, also shown on Quit and on the main window's ✕
-//! (docs/gui-spec.md, panel 4): always a confirmation, saying whether someone
-//! is still downloading.
+//! The small dialogs over the window: "Stop sending", "Quit OurStick?" and,
+//! at the first ✕, "OurStick is still open" (ADR 0028 §6).
 
 use anyhow::Result;
 use serde::Serialize;
@@ -16,8 +15,8 @@ pub enum Mode {
     StopSharing(StickId),
     /// Quit: every stick stops.
     Quit,
-    /// The main window's ✕: Quit, or minimize the window instead.
-    Close,
+    /// The first ✕: OurStick is still open, and how to open it again.
+    StillOpen,
 }
 
 /// [`open`] from an event handler of the event loop, where a new window
@@ -49,25 +48,26 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
     let page = match mode {
         Mode::StopSharing(stick_id) => format!("index.html#stop/{}", stick_hex(&stick_id)),
         Mode::Quit => "index.html#quit".to_owned(),
-        Mode::Close => "index.html#close".to_owned(),
+        Mode::StillOpen => "index.html#still-open".to_owned(),
     };
     // Quit also lists the sticks coming in: a paragraph more.
-    let receiving = matches!(mode, Mode::Quit | Mode::Close)
+    let receiving = matches!(mode, Mode::Quit)
         && !app
             .state::<crate::receiving::Receivers>()
             .downloading()
             .is_empty();
     // Quit also has the start at login check: two lines more.
-    let quitting = matches!(mode, Mode::Quit | Mode::Close);
-    let height = match (quitting, receiving) {
-        (true, true) => 370.0,
-        (true, false) => 280.0,
-        (false, _) => 230.0,
+    let quitting = matches!(mode, Mode::Quit);
+    let (width, height) = match (mode, quitting, receiving) {
+        (Mode::StillOpen, _, _) => (520.0, 600.0),
+        (_, true, true) => (420.0, 370.0),
+        (_, true, false) => (420.0, 300.0),
+        (_, false, _) => (420.0, 230.0),
     };
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
         .title("OurStick")
         .focused(crate::windows::FOCUS_NEW)
-        .inner_size(420.0, height)
+        .inner_size(width, height)
         .resizable(false)
         .always_on_top(true)
         .center()
@@ -76,38 +76,38 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-/// The main window's ✕, on every system: the tray is a help, never the only
-/// way to quit (many never see it). With something going on, the Quit
-/// dialog says what stops, with Minimize first; with nothing, the app quits.
+/// The main window's ✕ never quits (ADR 0028 §6): the window is put away
+/// where it is found again, and the first time "OurStick is still open"
+/// says where. Quit is in the tray, the app menu and the Dock.
 pub fn close_requested(app: &AppHandle) {
+    put_away(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if going_on(&app).await {
-            if let Err(error) = open(&app, Mode::Close) {
+        if !crate::still_open::told(&app).await {
+            if let Err(error) = open(&app, Mode::StillOpen) {
                 tracing::warn!(error = %format!("{error:#}"), "cannot show the dialog");
             }
-        } else {
-            quit(app).await;
         }
     });
 }
 
-/// Whether quitting would stop something: a stick being shared, or a
-/// stick received and kept up to date (or waiting for its sender, ADR
-/// 0025).
-async fn going_on(app: &AppHandle) -> bool {
-    let state = app.state::<AppState>();
-    state.sticks.lock().await.values().any(Sharing::is_on)
-        || app.state::<crate::receiving::Receivers>().following()
+/// The main window put away: minimized to the taskbar or the dock (never
+/// hidden: GNOME's activation token, gui-spec), or on macOS closed as every
+/// Mac app's is, the app staying in the Dock.
+fn put_away(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = if cfg!(target_os = "macos") {
+            window.hide()
+        } else {
+            window.minimize()
+        };
+    }
 }
 
-/// Minimize, the Close dialog's other choice: the window stays in the
-/// taskbar or the Dock, where it is seen and found again.
+/// `Minimize instead`, the Quit dialog's safe choice.
 #[tauri::command]
 pub fn minimize_main(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.minimize();
-    }
+    put_away(&app);
 }
 
 #[derive(Debug, Serialize)]

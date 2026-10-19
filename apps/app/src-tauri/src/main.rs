@@ -28,6 +28,7 @@ mod sharing;
 mod state;
 mod stick_commands;
 mod stick_life_commands;
+mod still_open;
 #[cfg(test)]
 mod testing;
 mod tray;
@@ -232,6 +233,8 @@ fn main() {
             dialog::start_sharing_again,
             dialog::quit,
             dialog::minimize_main,
+            still_open::still_open_view,
+            still_open::still_open_ok,
             commands::open_in_file_manager,
             about::about_view,
             about::open_about,

@@ -5,12 +5,7 @@
   import { appState, confirmView, minimizeMain, quit, stopSharing, type ConfirmView } from "./api";
   import { setStartAtLogin, startAtLogin } from "./aboutApi";
 
-  /** `closing`: Quit from the main window's ✕, with Minimize as the other choice. */
-  let {
-    quitting,
-    closing = false,
-    stickId,
-  }: { quitting: boolean; closing?: boolean; stickId: string | null } = $props();
+  let { quitting, stickId }: { quitting: boolean; stickId: string | null } = $props();
   let view = $state<ConfirmView | null>(null);
   let busy = $state(false);
   let failure = $state<string | null>(null);
@@ -94,22 +89,13 @@
     <h1>Quit OurStick?</h1>
     <!-- What it says scrolls if it is long; the buttons always show. -->
     <div class="said">
-    {#if view.shared.length > 0}
-      <p>
-        Sharing {names(view.shared)} stops: anyone with {view.shared.length === 1 ? "its sharing link" : "their sharing links"}
-        <strong>will no longer be able to download.</strong>
-      </p>
+      <p>While it is closed, nothing is sent or received. It all goes on when OurStick opens again.</p>
       {#if view.downloading.length > 0}
-        <p><strong>Someone is still downloading from {names(view.downloading)}.</strong></p>
+        <p><strong>Someone is getting {names(view.downloading)} right now.</strong></p>
       {/if}
-    {:else}
-      <p>No stick is being shared.</p>
-    {/if}
-    {#if view.receiving.length > 0}
-      <p>Getting {names(view.receiving)} stops; it goes on where it was next time.</p>
-    {:else if view.following}
-      <p>The sticks you receive get nothing new until OurStick opens again.</p>
-    {/if}
+      {#if view.receiving.length > 0}
+        <p><strong>{names(view.receiving)} {view.receiving.length === 1 ? "is" : "are"} still downloading.</strong></p>
+      {/if}
     </div>
     {#if busy}
       <p class="muted">Quitting… please wait.</p>
@@ -117,21 +103,13 @@
     {#if login !== null}
       <label class="row login">
         <input type="checkbox" checked={login} disabled={busy} onchange={(event) => changeLogin(event.currentTarget.checked)} />
-        Start OurStick when I log in, so that my sticks are shared after a restart
+        Open OurStick when the computer starts
       </label>
     {/if}
     <div class="actions">
-      {#if closing}
-        <button onclick={minimize} disabled={busy}>Minimize</button>
-      {:else}
-        <button onclick={close} disabled={busy}>
-          {view.sharing || view.following ? "Don't quit" : "Cancel"}
-        </button>
-      {/if}
-      <button
-        class={view.sharing ? "danger" : "primary"}
-        onclick={stop}
-        disabled={busy}>Quit</button>
+      <button class="danger-outline" onclick={stop} disabled={busy}>Quit</button>
+      <!-- svelte-ignore a11y_autofocus -->
+      <button class="primary" autofocus onclick={minimize} disabled={busy}>Minimize instead</button>
     </div>
   {:else if view}
     <h1>Stop sending {view.name ? `“${view.name}”` : "it"}?</h1>
@@ -152,6 +130,9 @@
     font-size: 1.2em;
   }
   .said {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;

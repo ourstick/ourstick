@@ -1,9 +1,14 @@
 <script lang="ts">
   // About OurStick (ADR 0024): what it is, its version and licences, the
-  // links, and the start at login check (the same choice as the tray's).
+  // links, the start at login check (the same choice as the tray's), how
+  // senders see this computer, and where to click to open it again (ADR
+  // 0028 §6, the picture of the first ✕, chosen the same way).
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { invoke } from "@tauri-apps/api/core";
+  import ScreenPicture from "./ScreenPicture.svelte";
+  import SendersSeeYou from "./SendersSeeYou.svelte";
   import { appState } from "./api";
   import {
     aboutView,
@@ -18,6 +23,7 @@
   let view = $state<AboutView | null>(null);
   let login = $state<boolean | null>(null);
   let macos = $state(false);
+  let screen = $state<{ platform: string; tray: boolean } | null>(null);
   let failure = $state<string | null>(null);
 
   async function readLogin() {
@@ -49,6 +55,9 @@
       macos = app.platform === "macos";
     });
     aboutView().then((about) => (view = about));
+    invoke<{ platform: string; tray: boolean }>("still_open_view")
+      .then((seen) => (screen = seen))
+      .catch(() => {});
     readLogin();
     // The tray's check changes it too.
     const stop = listen("start-at-login-changed", readLogin);
@@ -71,11 +80,18 @@
   {#if login !== null}
     <label class="row login">
       <input type="checkbox" checked={login} onchange={(event) => changeLogin(event.currentTarget.checked)} />
-      Start OurStick when I log in, so that my sticks are shared after a restart
+      Open OurStick when the computer starts
     </label>
     {#if macos}
       <p class="muted small">macOS also lists it in System Settings → General → Login Items.</p>
     {/if}
+  {/if}
+  <SendersSeeYou />
+  {#if screen}
+    <div class="again">
+      <span>To open OurStick again, click its picture:</span>
+      <ScreenPicture platform={screen.platform} tray={screen.tray} height={150} />
+    </div>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 
@@ -93,6 +109,14 @@
 </main>
 
 <style>
+  .again {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+    font-weight: 600;
+  }
   .about {
     align-items: center;
     text-align: center;

@@ -156,7 +156,7 @@ export function openDialog(
   return invoke("open_dialog", { quit, stickId });
 }
 
-/** The Close dialog's Minimize: the main window to the taskbar or Dock. */
+/** `Minimize instead`, the Quit dialog's safe choice: the window put away. */
 export function minimizeMain(): Promise<void> {
   return invoke("minimize_main");
 }

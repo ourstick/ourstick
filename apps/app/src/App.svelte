@@ -6,10 +6,11 @@
   import Share from "./lib/Share.svelte";
   import Confirm from "./lib/Confirm.svelte";
   import About from "./lib/About.svelte";
+  import StillOpen from "./lib/StillOpen.svelte";
 
   // The Share popup, the Stop sharing / Quit dialog and About are the same
-  // UI, opened at #share/<stick id>, #stop/<stick id>, #quit, #close (the
-  // main window's ✕) and #about.
+  // UI, opened at #share/<stick id>, #stop/<stick id>, #quit, #still-open
+  // (the first ✕, ADR 0028 §6) and #about.
   const [page, pageStick] = location.hash.split("/");
 
   let app = $state<AppState | null>(null);
@@ -33,8 +34,8 @@
   <Confirm quitting={false} stickId={pageStick} />
 {:else if page === "#quit"}
   <Confirm quitting={true} stickId={null} />
-{:else if page === "#close"}
-  <Confirm quitting={true} closing={true} stickId={null} />
+{:else if page === "#still-open"}
+  <StillOpen />
 {:else if page === "#about"}
   <About />
 {:else if failure}

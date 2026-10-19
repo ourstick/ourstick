@@ -16,7 +16,7 @@ pub fn open(app: &AppHandle) -> Result<()> {
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#about".into()))
         .title("About OurStick")
         .focused(crate::windows::FOCUS_NEW)
-        .inner_size(380.0, 470.0)
+        .inner_size(500.0, 720.0)
         .resizable(false)
         .build()?;
     crate::windows::show_new(&window);

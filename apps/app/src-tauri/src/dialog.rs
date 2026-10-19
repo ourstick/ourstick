@@ -92,22 +92,13 @@ pub fn close_requested(app: &AppHandle) {
     });
 }
 
-/// Whether quitting would stop something: a stick being shared, a stick
-/// received and kept up to date (or waiting for its sender, ADR 0025), or
-/// a drop being copied. In doubt, yes.
+/// Whether quitting would stop something: a stick being shared, or a
+/// stick received and kept up to date (or waiting for its sender, ADR
+/// 0025).
 async fn going_on(app: &AppHandle) -> bool {
     let state = app.state::<AppState>();
-    if state.sticks.lock().await.values().any(Sharing::is_on)
+    state.sticks.lock().await.values().any(Sharing::is_on)
         || app.state::<crate::receiving::Receivers>().following()
-    {
-        return true;
-    }
-    match state.sticks_now().await {
-        Ok(all) => all
-            .iter()
-            .any(|stick| crate::stick_drop::is_copying(&state, &stick.stick_id)),
-        Err(_) => true,
-    }
 }
 
 /// Minimize, the Close dialog's other choice: the window stays in the
@@ -133,8 +124,6 @@ pub struct ConfirmView {
     downloading: Vec<String>,
     /// For Quit: the received sticks coming in now (they go on next time).
     receiving: Vec<String>,
-    /// For Quit: the sticks a drop is being copied onto now (cut short).
-    copying: Vec<String>,
     /// For Quit: received sticks are kept up to date, or waited for.
     following: bool,
 }
@@ -153,11 +142,6 @@ pub async fn confirm_view(
     let stick_id = stick_id.as_deref().map(stick_id_of).transpose()?;
     let mut view = confirm_of(&all, &*state.sticks.lock().await, stick_id);
     if stick_id.is_none() {
-        view.copying = all
-            .iter()
-            .filter(|stick| crate::stick_drop::is_copying(&state, &stick.stick_id))
-            .map(|stick| stick.name.clone())
-            .collect();
         view.following = receivers.following();
         let coming = receivers.downloading();
         let store = state.store.clone();
@@ -204,7 +188,6 @@ fn confirm_of(
             shared: Vec::new(),
             downloading: Vec::new(),
             receiving: Vec::new(),
-            copying: Vec::new(),
             following: false,
         },
         None => ConfirmView {
@@ -214,7 +197,6 @@ fn confirm_of(
             shared: names(&shared_now),
             downloading: names(&|id| readers_of(id) > 0),
             receiving: Vec::new(),
-            copying: Vec::new(),
             following: false,
         },
     }

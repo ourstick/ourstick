@@ -4,10 +4,9 @@
 use anyhow::Result;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 use crate::drive;
-use crate::sharing::mount_and_share;
 use crate::state::{stick_id as stick_id_of, AppState};
 
 /// An error as the UI shows it.
@@ -49,36 +48,6 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
         explain_local_network,
         move_keys,
     })
-}
-
-/// Ejects a stick (detaches the image, or takes it out of the sidebar).
-/// Sharing goes on with the last version.
-#[tauri::command]
-pub async fn eject(
-    stick_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let id = stick_id_of(&stick_id)?;
-    if crate::sharing::is_busy(&state, &id).await {
-        return Err("the stick is busy; try again in a moment".to_owned());
-    }
-    // Ejected under a copy, the copy would fail half way.
-    if crate::stick_drop::is_copying(&state, &id) {
-        return Err("a copy onto the stick is still going on; eject it once it is done".to_owned());
-    }
-    let stick = state.stick_now(&id).await.map_err(shown)?;
-    blocking(move || drive::eject(&stick)).await?;
-    let _ = app.emit("mount-changed", ());
-    crate::sharing::refresh_tray(&app).await;
-    Ok(())
-}
-
-/// Mounts a stick again, and shares it from where it is now.
-#[tauri::command]
-pub fn mount(stick_id: String, app: AppHandle) -> Result<(), String> {
-    mount_and_share(&app, stick_id_of(&stick_id)?);
-    Ok(())
 }
 
 #[tauri::command]

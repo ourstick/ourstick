@@ -110,12 +110,6 @@
     {:else if view.following}
       <p>The sticks you receive get nothing new until OurStick opens again.</p>
     {/if}
-    {#if view.copying.length > 0}
-      <p>
-        <strong>Copying onto {names(view.copying)} is not done.</strong> It stops, and
-        nothing of it is kept: drop it again next time.
-      </p>
-    {/if}
     </div>
     {#if busy}
       <p class="muted">Quitting… please wait.</p>
@@ -131,24 +125,23 @@
         <button onclick={minimize} disabled={busy}>Minimize</button>
       {:else}
         <button onclick={close} disabled={busy}>
-          {view.sharing || view.following || view.copying.length > 0
-            ? "Don't quit"
-            : "Cancel"}
+          {view.sharing || view.following ? "Don't quit" : "Cancel"}
         </button>
       {/if}
       <button
-        class={view.sharing || view.copying.length > 0 ? "danger" : "primary"}
+        class={view.sharing ? "danger" : "primary"}
         onclick={stop}
         disabled={busy}>Quit</button>
     </div>
   {:else if view}
-    <h1>Stop sharing {view.name ? `“${view.name}”` : "this stick"}?</h1>
-    <p>Anyone with the sharing link <strong>will no longer be able to download.</strong></p>
+    <h1>Stop sending {view.name ? `“${view.name}”` : "it"}?</h1>
+    <p>The link stops working until you start again. Your files stay where they are.</p>
     {#if view.readers > 0}
-      <p><strong>Someone is still downloading.</strong></p>
+      <p><strong>Someone is getting it right now.</strong></p>
     {/if}
+    {#if busy}<p class="muted">Stopping… please wait.</p>{/if}
     <div class="actions">
-      <button onclick={close} disabled={busy}>Keep sharing</button>
+      <button class="primary" onclick={close} disabled={busy}>Keep sending</button>
       <button class="danger" onclick={stop} disabled={busy}>Stop</button>
     </div>
   {/if}

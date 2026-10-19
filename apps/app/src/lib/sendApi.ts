@@ -36,3 +36,14 @@ export function measure(path: string, soFar: (measured: Measured) => void): Prom
 export function send(name: string, paths: string[]): Promise<string> {
   return invoke("send", { name, paths });
 }
+
+/** `Choose folders…` / `Choose files…`: the system's picker, several at
+ * once; empty if cancelled. */
+export function choosePaths(pick: "files" | "folders"): Promise<string[]> {
+  return invoke("choose_paths", { pick });
+}
+
+/** "2.8 GB · Pictures", clicked: shown in the file manager. */
+export function showEntry(stickId: string, name: string): Promise<void> {
+  return invoke("show_entry", { stickId, name });
+}

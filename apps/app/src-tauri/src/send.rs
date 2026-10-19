@@ -261,6 +261,38 @@ pub async fn send(
     Ok(stick_hex(&made))
 }
 
+/// What to choose with the system's picker: files, or folders
+/// (Linux's and Windows' pickers do not take both at once).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Pick {
+    Files,
+    Folders,
+}
+
+/// `Choose folders…` / `Choose files…`: the system's picker, several at
+/// once; what is chosen is then checked as a drop is. Empty if the user
+/// cancelled.
+#[tauri::command]
+pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let dialog = app.dialog().file().set_title("Choose what to send");
+        match pick {
+            Pick::Files => dialog.blocking_pick_files(),
+            Pick::Folders => dialog.blocking_pick_folders(),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|picked| picked.into_path().ok())
+        .map(|path| path.display().to_string())
+        .collect())
+}
+
 #[cfg(test)]
 #[path = "send_tests.rs"]
 mod tests;

@@ -5,7 +5,8 @@
   import { listen } from "@tauri-apps/api/event";
   import { KINDS, readers, removeReaders, type ReaderLine } from "./api";
 
-  let { stickId }: { stickId: string } = $props();
+  /** `nobodyNow`: no computer is getting it right now either. */
+  let { stickId, nobodyNow = false }: { stickId: string; nobodyNow?: boolean } = $props();
 
   /** At most this many lines, then "and N more". */
   const SHOWN = 5;
@@ -110,9 +111,9 @@
   );
 </script>
 
-<!-- Nothing while no computer has said it has it: an empty list explains
-     nothing. -->
-<section class="readers" aria-label="Who has it" hidden={lines.length === 0 && !failure}>
+<!-- While no computer has said it has it, and none is getting it, one
+     sentence says so. -->
+<section class="readers" aria-label="Who has it" hidden={lines.length === 0 && !failure && !nobodyNow}>
   {#if lines.length > 0}
     {#if everyone}<p><strong>Everyone who received it is up to date.</strong></p>{/if}
     <ul>
@@ -129,7 +130,9 @@
       {#if lines.length > SHOWN}<span class="muted">and {lines.length - SHOWN} more</span>{/if}
       <button onclick={() => remove(null)}>Clear this list</button>
     </p>
-    <p class="muted">What each computer says of itself.</p>
+    <p class="muted">Each computer says this about itself.</p>
+  {:else if nobodyNow}
+    <p class="muted">Nobody has opened the link yet.</p>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 </section>

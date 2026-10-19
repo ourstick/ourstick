@@ -113,15 +113,6 @@ pub mod platform {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// The folder that holds the stick's disk image: what is left for the
-    /// stick is measured there.
-    pub fn measure_at(stick: &OwnedStick) -> Result<PathBuf> {
-        Ok(image_of(stick)?
-            .parent()
-            .expect("the image is in a folder")
-            .to_path_buf())
-    }
-
     /// The size of the disk that holds the image: a sparse image takes room
     /// only as it fills, so it never limits first (ADR 0008).
     fn disk_size(image: &Path) -> Result<u64> {

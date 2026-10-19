@@ -27,7 +27,6 @@ mod share;
 mod sharing;
 mod state;
 mod stick_commands;
-mod stick_drop;
 mod stick_life_commands;
 #[cfg(test)]
 mod testing;
@@ -216,10 +215,9 @@ fn main() {
             receiving::choice::choose_what_to_get,
             problems::dismiss_app_problem,
             stick_life_commands::remove,
-            stick_drop::add_paths,
-            stick_drop::stop_copy,
-            stick_drop::choose_for_stick,
+            send::choose_paths,
             stick_commands::link_paths,
+            stick_commands::show_entry,
             send::check_send,
             send::measure,
             send::send,
@@ -234,8 +232,6 @@ fn main() {
             dialog::start_sharing_again,
             dialog::quit,
             dialog::minimize_main,
-            commands::eject,
-            commands::mount,
             commands::open_in_file_manager,
             about::about_view,
             about::open_about,

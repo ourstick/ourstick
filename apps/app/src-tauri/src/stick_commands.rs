@@ -1,15 +1,13 @@
-//! The stick's own commands: what is on it, copying onto it, linking to it
-//! what does not fit (ADR 0008), removing. Each calls only `ourstick-core`.
+//! The stick's own commands: what is in it, adding to it from where things
+//! are (ADR 0028 §3), taking out. Each calls only `ourstick-core`.
 
 use std::path::Path;
 
 use anyhow::Result;
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::drive::{remove_from, top_entries};
+use ourstick_core::drive::top_entries;
 use ourstick_core::layout::StickLayout;
 use ourstick_core::linked::plan_link;
-use ourstick_core::share::folder_size;
-use ourstick_core::space::{available, SystemDisks};
 use ourstick_core::{OwnedStick, StickId, Store};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -52,28 +50,24 @@ pub struct EntryView {
     missing: bool,
     /// On the stick's folder, but not shared: a linked entry has its name.
     left_out: bool,
+    /// Where a linked entry is: the name of the folder it is in.
+    place: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct StickView {
     name: String,
-    /// Bytes on it now (copied onto it; linked entries take no room).
-    used: u64,
-    /// What can still be copied onto it: what its disk has room for, every
-    /// share's and download's claim counted (the space ledger).
-    left: u64,
     entries: Vec<EntryView>,
     sharing: SharingView,
-    /// Mounted (macOS) or in the sidebar (Linux); not after Eject.
-    mounted: bool,
+    /// A stick made before ADR 0028: a folder of its own, sent too.
+    own_folder: bool,
+    /// Its own folder is there (not an ejected image, an unplugged disk).
+    folder_there: bool,
+    /// Where its own files stay if it is removed: its folder, or its disk
+    /// image on macOS. None for a stick of ADR 0028.
+    folder: Option<String>,
     /// Its last problem (see `problems`), or none.
     problem: Option<crate::serving::ShareProblem>,
-}
-
-/// What can still be copied onto `stick`. Blocking.
-pub(crate) fn left_on(stick: &OwnedStick, store: &dyn Store, data_dir: &Path) -> Result<u64> {
-    let measure_at = drive::measure_at(stick)?;
-    Ok(available(&SystemDisks, store, data_dir, &measure_at, None)?)
 }
 
 /// The entries the window lists: the own folder's and the linked ones, by
@@ -92,6 +86,7 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
                 is_dir: entry.is_dir,
                 linked: false,
                 missing: false,
+                place: None,
             });
         }
     }
@@ -114,6 +109,11 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
             linked: true,
             missing: root.is_gone(),
             left_out: false,
+            place: root
+                .path
+                .parent()
+                .and_then(Path::file_name)
+                .map(|place| place.to_string_lossy().into_owned()),
         });
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name).then(a.linked.cmp(&b.linked)));
@@ -132,19 +132,20 @@ pub async fn stick(
         .await
         .map_err(shown)?;
     let store = state.store.clone();
-    let data_dir = state.data_dir.clone();
     let name = stick.name.clone();
     let id = stick.stick_id;
-    let (entries, used, left, mounted) = blocking(move || {
-        let root = &stick.root_path;
-        let mounted = drive::is_mounted(&stick);
-        let left = left_on(&stick, store.as_ref(), &data_dir)?;
-        let used = if drive::folder_is_there(root) {
-            folder_size(root)?
-        } else {
-            0
-        };
-        Ok((entries_of(&stick, store.as_ref())?, used, left, mounted))
+    let own_folder = stick.is_drive();
+    let folder = own_folder.then(|| {
+        stick
+            .image_path
+            .as_ref()
+            .unwrap_or(&stick.root_path)
+            .display()
+            .to_string()
+    });
+    let (entries, folder_there) = blocking(move || {
+        let there = drive::folder_is_there(&stick.root_path);
+        Ok((entries_of(&stick, store.as_ref())?, there))
     })
     .await?;
     let sharing = match state.sticks.lock().await.get(&id) {
@@ -163,11 +164,11 @@ pub async fn stick(
     };
     Ok(StickView {
         name,
-        used,
-        left,
         entries,
         sharing,
-        mounted,
+        own_folder,
+        folder_there,
+        folder,
         problem: tauri::Manager::state::<crate::problems::Problems>(&app).of(Some(&id)),
     })
 }
@@ -245,8 +246,9 @@ pub async fn link_paths(
     Ok(())
 }
 
-/// Removes a top-level entry: the stick's copy of a file or folder, or, for
-/// a linked one, only the link (its files stay where they are).
+/// "Stop sending “Summer”?": takes a linked entry out of the stick; its
+/// files stay where they are. Nothing of the user's is ever deleted (ADR
+/// 0028 §3): an older stick's own files are changed in the file manager.
 #[tauri::command]
 pub async fn remove_entry(
     stick_id: String,
@@ -259,22 +261,52 @@ pub async fn remove_entry(
         .await
         .map_err(shown)?;
     let store = state.store.clone();
-    let unlinked = blocking(move || {
+    blocking(move || {
         let linked = store
             .linked_entries(&stick.stick_id)?
             .iter()
             .any(|entry| entry.name == name);
-        if linked {
-            store.remove_linked_entry(&stick.stick_id, &name)?;
-        } else {
-            remove_from(&stick.root_path, &name)?;
+        if !linked {
+            anyhow::bail!("Only what is sent from where it is can be taken out here.");
         }
-        Ok(linked)
+        store.remove_linked_entry(&stick.stick_id, &name)?;
+        Ok(())
     })
     .await?;
-    if unlinked {
-        nudge(&state, &stick.stick_id).await;
-    }
+    nudge(&state, &stick.stick_id).await;
     let _ = app.emit("stick-changed", ());
     Ok(())
+}
+
+/// "2.8 GB · Pictures", clicked: a linked entry shown in the file manager.
+#[tauri::command]
+pub async fn show_entry(
+    stick_id: String,
+    name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let stick = state
+        .stick_now(&stick_id_of(&stick_id)?)
+        .await
+        .map_err(shown)?;
+    let store = state.store.clone();
+    let path = blocking(move || {
+        let entry = store
+            .linked_entries(&stick.stick_id)?
+            .into_iter()
+            .find(|entry| entry.name == name);
+        match entry {
+            Some(entry) if entry.path.exists() => Ok(entry.path),
+            _ => anyhow::bail!(
+                "It is not there any more (moved or deleted, or its disk is unplugged)."
+            ),
+        }
+    })
+    .await?;
+    app.opener().reveal_item_in_dir(path).map_err(|error| {
+        tracing::warn!(%error, "the file manager did not show an entry");
+        "It could not be shown in the file manager.".to_owned()
+    })
 }

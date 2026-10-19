@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  /** What is asked about a stick before it is changed. */
+  /** What is asked before something you send is changed. */
   export type Ask = "rename" | "new-link" | "remove";
 
   /** What became of it: renamed, a new id, removed; null if cancelled. */
@@ -7,14 +7,24 @@
 </script>
 
 <script lang="ts">
+  // The dialogs of something you send (gui-spec, "Its dialogs"); each says
+  // "… please wait." while it works.
   import { newLink, removeStick, renameStick } from "./api";
 
   let {
     stickId,
     name,
     ask,
+    folder,
     onDone,
-  }: { stickId: string; name: string; ask: Ask; onDone: (outcome: Outcome) => void } = $props();
+  }: {
+    stickId: string;
+    name: string;
+    ask: Ask;
+    /** An older stick's own folder (or disk image), where its files stay. */
+    folder: string | null;
+    onDone: (outcome: Outcome) => void;
+  } = $props();
 
   // The field starts with the name as it was when asked.
   // svelte-ignore state_referenced_locally
@@ -43,81 +53,78 @@
   }
 </script>
 
-<section class="ask" aria-live="polite">
-  {#if ask === "rename"}
-    <form onsubmit={rename}>
-      <label>
-        New name for “{name}”
-        <!-- svelte-ignore a11y_autofocus -->
-        <input bind:value={newName} maxlength="60" required disabled={busy} autofocus />
-      </label>
-      {#if busy}<p class="muted">Renaming… please wait.</p>{/if}
+<div class="dialog-back">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="stick-ask-title">
+    {#if ask === "rename"}
+      <form onsubmit={rename}>
+        <h2 id="stick-ask-title">Rename “<bdi>{name}</bdi>”</h2>
+        <label>
+          New name
+          <!-- svelte-ignore a11y_autofocus -->
+          <input bind:value={newName} maxlength="60" required disabled={busy} autofocus />
+        </label>
+        <p class="muted">Others see the new name when their copy next updates. The link stays the same.</p>
+        {#if busy}<p class="muted">Renaming… please wait.</p>{/if}
+        {#if failure}<p class="error">{failure}</p>{/if}
+        <div class="actions">
+          <button type="button" onclick={() => onDone(null)} disabled={busy}>Cancel</button>
+          <button class="primary" type="submit" disabled={busy || !newName.trim()}>Rename</button>
+        </div>
+      </form>
+    {:else if ask === "new-link"}
+      <h2 id="stick-ask-title">Make a new link for “<bdi>{name}</bdi>”?</h2>
+      <p>
+        The old link stops working, for everyone. Send the new one only to the people who should still get it.
+      </p>
+      <p class="muted">Use this if the link reached someone it shouldn't have.</p>
+      {#if busy}<p class="muted">Making a new link… please wait.</p>{/if}
       {#if failure}<p class="error">{failure}</p>{/if}
       <div class="actions">
-        <button type="button" onclick={() => onDone(null)} disabled={busy}>Cancel</button>
-        <button class="primary" type="submit" disabled={busy || !newName.trim()}>Rename</button>
+        <!-- svelte-ignore a11y_autofocus -->
+        <button class="primary" autofocus onclick={() => onDone(null)} disabled={busy}>Cancel</button>
+        <button
+          class="danger-outline"
+          disabled={busy}
+          onclick={() => run(async () => ({ kind: "new-link", id: await newLink(stickId) }))}
+        >
+          Make a new link
+        </button>
       </div>
-    </form>
-  {:else if ask === "new-link"}
-    <strong>Change the sharing link of “{name}”?</strong>
-    <p>The old sharing link stops working. Send the new one to the people who should still have it. The files stay.</p>
-    {#if busy}<p class="muted">Changing the sharing link… please wait.</p>{/if}
-    {#if failure}<p class="error">{failure}</p>{/if}
-    <div class="actions">
-      <button onclick={() => onDone(null)} disabled={busy}>Cancel</button>
-      <button
-        class="danger"
-        disabled={busy}
-        onclick={() => run(async () => ({ kind: "new-link", id: await newLink(stickId) }))}
-      >
-        Change it
-      </button>
-    </div>
-  {:else}
-    <strong>Remove “{name}”?</strong>
-    <p>
-      Its sharing link stops working. Your files stay on this computer: its own folder with what is in it, and the folders
-      shared as they are. Delete them yourself when you no longer need them.
-    </p>
-    {#if busy}<p class="muted">Removing… please wait.</p>{/if}
-    {#if failure}<p class="error">{failure}</p>{/if}
-    <div class="actions">
-      <button onclick={() => onDone(null)} disabled={busy}>Cancel</button>
-      <button
-        class="danger"
-        disabled={busy}
-        onclick={() =>
-          run(async () => {
-            await removeStick(stickId);
-            return { kind: "removed" };
-          })}
-      >
-        Remove
-      </button>
-    </div>
-  {/if}
-</section>
+    {:else}
+      <h2 id="stick-ask-title">Remove “<bdi>{name}</bdi>” from OurStick?</h2>
+      <p>
+        Its link stops working for good. Your files stay where they are on this computer, and those who got them keep
+        their copy.
+      </p>
+      {#if folder}
+        <p>Its files stay in <b>{folder}</b>. Delete them yourself when you no longer need them.</p>
+      {/if}
+      {#if busy}<p class="muted">Removing… please wait.</p>{/if}
+      {#if failure}<p class="error">{failure}</p>{/if}
+      <div class="actions">
+        <!-- svelte-ignore a11y_autofocus -->
+        <button class="primary" autofocus onclick={() => onDone(null)} disabled={busy}>Cancel</button>
+        <button
+          class="danger"
+          disabled={busy}
+          onclick={() =>
+            run(async () => {
+              await removeStick(stickId);
+              return { kind: "removed" };
+            })}
+        >
+          Remove
+        </button>
+      </div>
+    {/if}
+  </div>
+</div>
 
 <style>
-  .ask {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-  .ask p {
-    margin: 0;
-  }
-  .ask .actions {
-    margin-top: 6px;
-  }
   form,
   label {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
 </style>

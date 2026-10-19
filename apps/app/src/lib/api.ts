@@ -16,11 +16,6 @@ export function appState(): Promise<AppState> {
   return invoke("app_state");
 }
 
-/** Creates the keys and the first stick, called `name` (no size to choose, ADR 0008). */
-export function plugIn(name: string): Promise<void> {
-  return invoke("plug_in", { name });
-}
-
 export interface Entry {
   name: string;
   /** null for a linked entry not read yet. */
@@ -32,6 +27,8 @@ export interface Entry {
   missing: boolean;
   /** In the stick's folder but not shared: a linked entry has its name. */
   left_out: boolean;
+  /** Where a linked entry is: the name of the folder it is in. */
+  place: string | null;
 }
 
 export interface Sharing {
@@ -51,14 +48,14 @@ export interface Sharing {
 
 export interface Stick {
   name: string;
-  /** Bytes copied onto it. */
-  used: number;
-  /** What can still be copied onto it: what the computer has room for. */
-  left: number;
   entries: Entry[];
   sharing: Sharing;
-  /** Mounted (macOS) or in the sidebar (Linux); false after Eject. */
-  mounted: boolean;
+  /** Made before ADR 0028: a folder of its own, sent too. */
+  own_folder: boolean;
+  /** Its own folder is there (not an ejected image, an unplugged disk). */
+  folder_there: boolean;
+  /** Where an older stick's own files stay if it is removed. */
+  folder: string | null;
   /** Its last problem, kept by the app (event `problems-changed`). */
   problem: ShareProblem | null;
 }
@@ -99,54 +96,12 @@ export function stick(stickId: string): Promise<Stick> {
   return invoke("stick", { stickId });
 }
 
-/** What became of a drop. */
-export type AddOutcome =
-  | { kind: "copied" }
-  /** Names already on the stick: nothing copied; ask, then drop again. */
-  | { kind: "already_there"; names: string[] }
-  /** Refused, as by a real stick; nothing was copied. */
-  | { kind: "does_not_fit"; needed: number; left: number }
-  /** Stopped by the user (Cancel, or Share it as it is); nothing is on the stick. */
-  | { kind: "stopped" };
-
-/** Copies dropped files and folders onto the stick, if they fit. With
- * `onConflict` (the answer to "already there"), names already on the stick
- * are replaced or kept beside. */
-export function addPaths(
-  stickId: string,
-  paths: string[],
-  onConflict: "replace" | "keep_both" | null = null,
-): Promise<AddOutcome> {
-  return invoke("add_paths", { stickId, paths, onConflict });
-}
-
-/** "Click to choose": the system's picker for files or for folders,
- * several at once; empty if cancelled. */
-export function chooseForStick(pick: "files" | "folders"): Promise<string[]> {
-  return invoke("choose_for_stick", { pick });
-}
-
-/** How far a drop's copy is (event `copy-progress`). */
-/** How far a drop is: first looked at (`measuring`: `files` and `total`
- * bytes counted so far), then copied (`done` of `total`). */
-export interface CopyProgress {
-  measuring: boolean;
-  files: number;
-  done: number;
-  total: number;
-}
-
-/** Stops the drop being looked at or copied; nothing of it stays. */
-export function stopCopy(stickId: string): Promise<void> {
-  return invoke("stop_copy", { stickId });
-}
-
-/** "Share it as it is": links them, shared from where they are. */
+/** `+ Add more`: links them, sent from where they are. */
 export function linkPaths(stickId: string, paths: string[]): Promise<void> {
   return invoke("link_paths", { stickId, paths });
 }
 
-/** Removes a top-level entry: the stick's copy, or only the link. */
+/** "Stop sending “Summer”?": takes a linked entry out; its files stay. */
 export function removeEntry(stickId: string, name: string): Promise<void> {
   return invoke("remove_entry", { stickId, name });
 }
@@ -184,8 +139,6 @@ export interface ConfirmView {
   downloading: string[];
   /** Quit: received sticks coming in now (they go on next time). */
   receiving: string[];
-  /** Quit: sticks a drop is being copied onto now (cut short). */
-  copying: string[];
   /** Quit: received sticks are kept up to date, or waited for. */
   following: boolean;
 }
@@ -220,16 +173,6 @@ export function quit(): Promise<void> {
   return invoke("quit");
 }
 
-/** Ejects the stick; sharing goes on. */
-export function eject(stickId: string): Promise<void> {
-  return invoke("eject", { stickId });
-}
-
-/** Mounts the stick again. */
-export function mount(stickId: string): Promise<void> {
-  return invoke("mount", { stickId });
-}
-
 export function openInFileManager(stickId: string): Promise<void> {
   return invoke("open_in_file_manager", { stickId });
 }
@@ -255,17 +198,12 @@ export function newLink(stickId: string): Promise<string> {
   return invoke("new_link", { stickId });
 }
 
-/** "Remove this stick": its copied files go, with its link. */
+/** "Remove from OurStick": its link and keys go; no file of the user's. */
 export function removeStick(stickId: string): Promise<void> {
   return invoke("remove", { stickId });
 }
 
-/** "New stick…": a stick of its own, with its own link. Returns its id. */
-export function newStick(name: string): Promise<string> {
-  return invoke("new_stick", { name });
-}
-
-/** "Rename…": its folder and drive follow; people see the new name. */
+/** "Rename…": people see the new name (an older stick's folder follows). */
 export function renameStick(stickId: string, name: string): Promise<void> {
   return invoke("rename", { stickId, name });
 }

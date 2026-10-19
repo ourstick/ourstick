@@ -4,8 +4,7 @@
   // where it is; nothing is copied.
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import { chooseForStick } from "./api";
-  import { checkSend, measure, send, type Measured, type Verdict } from "./sendApi";
+  import { checkSend, choosePaths, measure, send, type Measured, type Verdict } from "./sendApi";
   import { size } from "./format";
   import AskFirst from "./AskFirst.svelte";
 
@@ -75,7 +74,7 @@
 
   async function pick(what: "files" | "folders") {
     try {
-      await add(await chooseForStick(what));
+      await add(await choosePaths(what));
     } catch (error) {
       failure = String(error);
     }

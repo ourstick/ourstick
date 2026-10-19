@@ -1,14 +1,15 @@
 <script lang="ts">
+  // Something you send (gui-spec): its name, Copy link with the amber line,
+  // ⋯; who has it; its notes; what is in it, with `+ Add more`. Dropped onto
+  // the window, things are added as with `+ Add more`.
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import {
-    chooseForStick,
-    eject,
-    mount,
+    copyLink,
+    linkPaths,
     openDialog,
     openInFileManager,
-    openShare,
     startSharingAgain,
     stick as loadStick,
     type About,
@@ -16,21 +17,21 @@
     type ShareProblem,
     type Stick,
   } from "./api";
-  import { files, rate, size } from "./format";
-  import DropAsks from "./DropAsks.svelte";
+  import { checkSend, choosePaths, type Verdict } from "./sendApi";
+  import { rate } from "./format";
+  import AskFirst from "./AskFirst.svelte";
   import EntryList from "./EntryList.svelte";
   import ReaderList from "./ReaderList.svelte";
   import LocalNetworkNote from "./LocalNetworkNote.svelte";
   import StickMenu, { type Pick } from "./StickMenu.svelte";
   import StickAsk, { type Ask, type Outcome } from "./StickAsk.svelte";
-  import { closeTooBig, dropOn, dropsOf } from "./stickDrops.svelte";
 
   let {
     stickId,
     onOutcome,
   }: {
     stickId: string;
-    /** A rename, new link or removal done here: the list follows. */
+    /** A rename, new link or removal done here: the window follows. */
     onOutcome: (outcome: Outcome) => void;
   } = $props();
 
@@ -43,23 +44,18 @@
     giving_way: false,
     local_network_declined: false,
   });
-  let dropping = $state(false);
-  /** The stick's drops: kept per stick, so they survive this view. */
-  let drops = $derived(dropsOf(stickId));
   let failure = $state<string | null>(null);
-  /** The one menu open, if any: the drive pill's or the stick's "⋯". */
-  let openMenu = $state<"pill" | "more" | "add" | null>(null);
+  /** What `+ Add more` refused, each in its words. */
+  let refused = $state<string[]>([]);
+  let menuOpen = $state(false);
+  let addOpen = $state(false);
   let asking = $state<Ask | null>(null);
-
-  async function act(action: (stickId: string) => Promise<void>) {
-    openMenu = null;
-    try {
-      await action(stickId);
-    } catch (error) {
-      failure = String(error);
-    }
-    await refresh();
-  }
+  /** Asked about before being added, one at a time. */
+  let guarding = $state<Verdict[]>([]);
+  let dropping = $state(false);
+  let copied = $state(false);
+  /** OurStick gives way to another program reading the same disk. */
+  let givingWay = $state(false);
 
   /** Answers to an older look are dropped: they arrive in any order. */
   let looks = 0;
@@ -76,19 +72,30 @@
     }
   }
 
-  /** A click outside a menu, or Escape, closes it. */
-  function closeMenus(event: MouseEvent | KeyboardEvent) {
-    if (event instanceof KeyboardEvent) {
-      if (event.key === "Escape") openMenu = null;
-    } else if (!(event.target instanceof Element && event.target.closest(".menu-box"))) {
-      openMenu = null;
+  async function act(action: (stickId: string) => Promise<void>) {
+    failure = null;
+    try {
+      await action(stickId);
+    } catch (error) {
+      failure = String(error);
+    }
+    await refresh();
+  }
+
+  async function copy() {
+    failure = null;
+    try {
+      await copyLink(stickId);
+      copied = true;
+    } catch (error) {
+      failure = String(error);
     }
   }
 
   function picked(pick: Pick) {
-    openMenu = null;
     if (pick === "stop") act((id) => openDialog(false, id));
     else if (pick === "start") act(startSharingAgain);
+    else if (pick === "show-files") act(openInFileManager);
     else asking = pick;
   }
 
@@ -98,42 +105,61 @@
     if (outcome?.kind === "renamed") refresh();
   }
 
-  /** "Click to choose": what the system's picker gives is added as a drop. */
-  async function choose(pick: "files" | "folders") {
-    openMenu = null;
+  /** `+ Add more`: checked by the same rules as Send; refused ones said,
+   * a main folder or a whole disk asked about first, the rest added. */
+  async function add(paths: string[]) {
+    if (paths.length === 0) return;
+    failure = null;
+    refused = [];
     try {
-      await dropOn(stickId, await chooseForStick(pick));
+      const verdicts = await checkSend(paths, [], stickId);
+      refused = verdicts.filter((verdict) => verdict.kind === "refuse").map((verdict) => verdict.why ?? "");
+      guarding.push(...verdicts.filter((verdict) => verdict.kind === "ask"));
+      const fine = verdicts.filter((verdict) => verdict.kind === "fine").map((verdict) => verdict.path);
+      if (fine.length > 0) await linkPaths(stickId, fine);
+    } catch (error) {
+      failure = String(error);
+    }
+    await refresh();
+  }
+
+  async function guarded(all: boolean) {
+    const verdict = guarding.shift();
+    if (!verdict) return;
+    if (all) {
+      await linkPaths(stickId, [verdict.path]).catch((error) => (failure = String(error)));
+      await refresh();
+    } else if (guarding.length === 0) {
+      await choose("folders");
+    }
+  }
+
+  async function choose(pick: "files" | "folders") {
+    addOpen = false;
+    try {
+      await add(await choosePaths(pick));
     } catch (error) {
       failure = String(error);
     }
   }
 
-  /** "3 folders · 1 file": what is on the stick's top level. */
-  function contents(entries: { is_dir: boolean }[]): string {
-    const folders = entries.filter((entry) => entry.is_dir).length;
-    const plain = entries.length - folders;
-    const parts = [];
-    if (folders > 0) parts.push(folders === 1 ? "1 folder" : `${folders} folders`);
-    if (plain > 0 || folders === 0) parts.push(files(plain));
-    return parts.join(" · ");
+  /** A click outside a menu, or Escape, closes it. */
+  function closeMenus(event: MouseEvent | KeyboardEvent) {
+    if (event instanceof KeyboardEvent) {
+      if (event.key === "Escape") menuOpen = addOpen = false;
+    } else if (!(event.target instanceof Element && event.target.closest(".menu-box"))) {
+      menuOpen = addOpen = false;
+    }
   }
 
-  async function tooBigClosed(why: string | null) {
-    closeTooBig(stickId, why);
-    await refresh();
-  }
-
-  /** OurStick gives way to another program reading the same disk. */
-  let givingWay = $state(false);
-
-  // A view per stick (the list makes it anew for another one).
   onMount(() => {
     refresh();
     const stops = [
       listen("stick-changed", refresh),
       listen("sharing-changed", refresh),
       listen("mount-changed", refresh),
-      // Only this stick's.
+      listen("problems-changed", refresh),
+      // Only this one's.
       listen<About<Activity>>("activity", (event) => {
         if (event.payload.stick_id === stickId) activity = event.payload;
       }),
@@ -141,154 +167,113 @@
       listen<About<{ giving_way: boolean }>>("giving-way", (event) => {
         if (event.payload.stick_id === stickId) givingWay = event.payload.giving_way;
       }),
-      listen("problems-changed", refresh),
       getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type === "over" || event.payload.type === "enter") {
           dropping = true;
-        } else if (event.payload.type === "drop") {
-          dropping = false;
-          void dropOn(stickId, event.payload.paths);
         } else {
           dropping = false;
+          if (event.payload.type === "drop") void add(event.payload.paths);
         }
       }),
     ];
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });
 
-  // Like a real stick: what is on it out of what it could hold.
-  let fraction = $derived(
-    current && current.used + current.left > 0 ? current.used / (current.used + current.left) : 0,
-  );
-  let sharing = $derived(current?.sharing.state === "on" || current?.sharing.state === "starting");
+  let shareState = $derived(current?.sharing.state ?? "off");
+  let sending = $derived(shareState === "on" || shareState === "starting");
   let problem = $derived<ShareProblem | null>(current?.problem ?? null);
 </script>
 
 <svelte:window onclick={closeMenus} onkeydown={closeMenus} />
 
-<section class="view">
-  <header class="row spread">
-    <h1 title={current?.name}>{current?.name ?? ""}</h1>
-    {#if current}
-      <div class="row">
+<section class="view" class:dropping>
+  {#if current}
+    <header class="row">
+      <h1 title={current.name}><bdi>{current.name}</bdi></h1>
+      <button class="primary" onclick={copy} disabled={!current.sharing.has_link}>{copied ? "Copied ✓" : "Copy link"}</button>
+      <StickMenu {sending} ownFolder={current.own_folder} bind:open={menuOpen} onPick={picked} />
+    </header>
+    <p class="warning">Anyone who gets the link can take everything in it, also what you add later.</p>
+
+    <!-- Who has it (ADR 0015), and how it goes now. -->
+    <div class="status">
+      {#if activity.readers > 0}
+        <p>
+          ↑ {activity.readers === 1 ? "Someone is getting it" : `${activity.readers} people are getting it`}
+          <span class="muted">· {activity.preparing ? "preparing their files first…" : rate(activity.bytes_per_second)}</span>
+        </p>
+      {/if}
+      <ReaderList {stickId} nobodyNow={activity.readers === 0} />
+    </div>
+
+    <!-- Notes, each while it holds. -->
+    {#if shareState === "off"}
+      <div class="note row spread">
+        <span><b>⏸ Stopped by you.</b> The link does not work until you start again. Nothing was deleted.</span>
+        <button onclick={() => act(startSharingAgain)}>Resume</button>
+      </div>
+    {:else if shareState === "starting"}
+      <p class="muted">Getting it ready…</p>
+    {:else if shareState === "failed"}
+      <div class="note row spread error">
+        <span><b>✕ Stopped:</b> {current.sharing.message}</span>
+        <button onclick={() => act(startSharingAgain)}>Try again</button>
+      </div>
+    {/if}
+    {#if activity.giving_way && activity.readers > 0}
+      <p class="muted">Sending slowly, so another program can use the disk.</p>
+    {/if}
+    {#if givingWay && sending}
+      <p class="muted">Reading your folders slowly, so another program can use the disk.</p>
+    {/if}
+    {#if activity.local_network_declined}
+      <LocalNetworkNote other="someone getting it" />
+    {:else if activity.relay_only}
+      <p class="warning">{activity.relay_only}</p>
+    {/if}
+    {#if problem?.kind === "failed"}
+      <p class="error">{problem.message}</p>
+    {:else if problem?.kind === "seen_slowly"}
+      <p class="muted">Changes in some folders reach the others within a minute.</p>
+    {/if}
+    {#if current.own_folder && !current.folder_there}
+      <p class="warning">Some of its files are on a disk that is not attached.</p>
+    {/if}
+
+    <div class="in-it">
+      <div class="row spread">
+        <h2>What is in it</h2>
         <div class="menu-box">
-          <button class="pill" aria-expanded={openMenu === "pill"} onclick={() => (openMenu = openMenu === "pill" ? null : "pill")}>
-            <span class:on={current.mounted}>{current.mounted ? "●" : "○"}</span>
-            {current.mounted ? "Mounted" : "Ejected"} ▾
-          </button>
-          {#if openMenu === "pill"}
+          <button aria-haspopup="menu" aria-expanded={addOpen} onclick={() => (addOpen = !addOpen)}>+ Add more</button>
+          {#if addOpen}
             <div class="menu" role="menu">
-              <button role="menuitem" onclick={() => act(openInFileManager)} disabled={!current.mounted}>
-                Open in file manager
-              </button>
-              {#if current.mounted}
-                <button role="menuitem" onclick={() => act(eject)}>Eject (keeps sharing)</button>
-              {:else}
-                <button role="menuitem" onclick={() => act(mount)}>Mount</button>
-              {/if}
+              <button role="menuitem" onclick={() => choose("folders")}>Choose folders…</button>
+              <button role="menuitem" onclick={() => choose("files")}>Choose files…</button>
             </div>
           {/if}
         </div>
-        <StickMenu {sharing} bind:open={() => openMenu === "more", (open) => (openMenu = open ? "more" : null)} onPick={picked} />
       </div>
-    {/if}
-  </header>
-
-  {#if asking && current}
-    <StickAsk {stickId} name={current.name} ask={asking} onDone={asked} />
-  {/if}
-
-  <!-- Dropped onto, or clicked: the system's picker, for files or for
-       folders; either way it is added as a drop is. -->
-  <div class="menu-box drop-box">
-    <button
-      class="drop"
-      class:dropping
-      class:busy={drops.copying}
-      aria-haspopup="menu"
-      aria-expanded={openMenu === "add"}
-      onclick={() => (openMenu = openMenu === "add" ? null : "add")}
-    >
-      {#if drops.copying && (!drops.copied || drops.copied.measuring)}
-        <!-- Counted before anything is copied (does it fit?): on a big
-             folder, minutes; the counts show it is not stuck. -->
-        <strong>Looking at what you dropped…</strong>
-        <span class="muted"
-          >{drops.copied ? `${drops.copied.files.toLocaleString()} files, ${size(drops.copied.total)} so far` : ""}</span
-        >
-        <progress></progress>
-      {:else if drops.copying && drops.copied}
-        <strong>Copying… {size(drops.copied.done)} of {size(drops.copied.total)}</strong>
-        <progress max={drops.copied.total || 1} value={drops.copied.done}></progress>
-      {:else}
-        <strong>Drop files or folders here, or click to choose</strong>
-        <span class="muted">{contents(current?.entries ?? [])} · {size(current?.used ?? 0)}</span>
-      {/if}
-    </button>
-    {#if openMenu === "add"}
-      <div class="menu add-menu" role="menu">
-        <button role="menuitem" onclick={() => choose("files")}>Add files…</button>
-        <button role="menuitem" onclick={() => choose("folders")}>Add folders…</button>
-      </div>
-    {/if}
-  </div>
-
-  <DropAsks {stickId} onTooBigClosed={tooBigClosed} />
-
-  <EntryList {stickId} entries={current?.entries ?? []} onChanged={refresh} onFailure={(why) => (failure = why)} />
-
-  {#if activity.readers > 0}
-    <p class="activity">
-      ● {activity.readers === 1 ? "Someone downloading" : `${activity.readers} downloading`} · {activity.preparing ? "getting their files ready" : rate(activity.bytes_per_second)}
-    </p>
-    {#if activity.giving_way}
-      <p class="muted">Sending slowly, so another program can use the disk.</p>
-    {/if}
-  {/if}
-  <ReaderList {stickId} />
-  {#if activity.local_network_declined}
-    <LocalNetworkNote other="someone downloading" />
-  {:else if activity.relay_only}
-    <p class="error">{activity.relay_only}</p>
-  {/if}
-
-  {#if current?.sharing.state === "off"}
-    <p class="row spread">
-      <span class="muted">Not sharing: nobody can download.</span>
-      <button onclick={() => act(startSharingAgain)}>Start sharing</button>
-    </p>
-  {:else if current?.sharing.state === "starting"}
-    <p class="muted">Getting ready to share…</p>
-  {:else if current?.sharing.state === "failed"}
-    <p class="error">Not sharing: {current.sharing.message}</p>
-  {/if}
-  {#if givingWay && sharing}
-    <p class="muted">Reading your folder slowly, so another program can use the disk.</p>
-  {/if}
-  {#if problem?.kind === "ejected"}
-    <p class="muted">The stick is ejected; people still get its last version.</p>
-  {:else if problem?.kind === "failed"}
-    <p class="error">{problem.message}</p>
-  {:else if problem?.kind === "seen_slowly"}
-    <p class="muted">This stick has so many folders that changes in some of them show up within a minute, not at once.</p>
+      {#each refused as why, index (index)}<p class="error">{why}</p>{/each}
+      <EntryList {stickId} entries={current.entries} onChanged={refresh} onFailure={(why) => (failure = why)} />
+      <p class="muted">
+        Leave them where they are. If you change a file, they get the change too. If you move or delete one, it stops
+        coming; what they have stays with them.
+      </p>
+    </div>
   {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
-  {#each drops.failures as why, index (index)}<p class="error">{why}</p>{/each}
-
-  <!-- Always in sight at the bottom, also while the view scrolls: how full
-       the stick is, and Share. -->
-  <footer class="foot">
-    <section class="capacity">
-      <span>{size(current?.used ?? 0)} used · {size(current?.left ?? 0)} left</span>
-      <div class="bar"><div class="fill" class:full={current?.left === 0} style="width: {fraction * 100}%"></div></div>
-    </section>
-    <button class="share" onclick={() => openShare(stickId).catch((error) => (failure = String(error)))}>⤴ Share</button>
-  </footer>
 </section>
 
+{#if asking && current}
+  <StickAsk {stickId} name={current.name} ask={asking} folder={current.folder} onDone={asked} />
+{/if}
+{#if guarding.length > 0}
+  {#key guarding[0].path}
+    <AskFirst verdict={guarding[0]} onAnswer={guarded} />
+  {/key}
+{/if}
+
 <style>
-  /* When a question, the list of who has it and notes do not all fit,
-     the view scrolls; Share stays in sight at its bottom. */
   .view {
     display: flex;
     flex-direction: column;
@@ -297,85 +282,48 @@
     min-height: 0;
     flex: 1 1 auto;
     overflow-y: auto;
+    border-radius: var(--radius);
+  }
+  .view.dropping {
+    outline: 2px dashed var(--accent);
+    outline-offset: 4px;
+  }
+  header {
+    gap: 10px;
   }
   header h1 {
+    flex: 1 1 auto;
     margin: 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .drop-box {
-    flex-shrink: 0;
-  }
-  .drop {
-    width: 100%;
-    font: inherit;
-    color: inherit;
-    background: none;
-    cursor: pointer;
+  .status {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    min-height: 110px;
-    border: 2px dashed var(--border);
+    gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  .add-menu {
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-  }
-  .drop.dropping {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  .note {
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
   .spread {
     justify-content: space-between;
   }
-  .pill {
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .pill .on {
-    color: #2a9d4b;
-  }
-  .bar {
-    height: 8px;
-    margin-top: 6px;
-    border-radius: 4px;
-    background: var(--border);
-    overflow: hidden;
-  }
-  .fill {
-    height: 100%;
-    background: var(--text);
-  }
-  .fill.full {
-    background: var(--danger);
-  }
-  .activity {
-    margin: 0;
-    color: #2a9d4b;
-  }
-  /* Always at the bottom of the window, also while the view scrolls. */
-  .foot {
+  .in-it {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: auto;
-    flex-shrink: 0;
-    position: sticky;
-    bottom: 0;
-    padding-top: 8px;
-    background: var(--card);
-    box-shadow: 0 -8px 8px var(--card);
+    gap: 8px;
   }
-  .share {
-    width: 100%;
-    min-height: calc(var(--button-height) + 8px);
+  h2 {
+    margin: 0;
+    font-size: 1.05em;
   }
   p {
     margin: 0;

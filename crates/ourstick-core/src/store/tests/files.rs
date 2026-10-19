@@ -148,6 +148,26 @@ fn moving_the_folder_forgets_the_downloaded_files(store: &dyn Store) {
     assert_eq!(store.downloaded_files(&stick_id).unwrap(), vec![]);
 }
 
+fn moving_the_files_with_the_folder_keeps_what_came(store: &dyn Store) {
+    let stick_id = owner(1).stick_id();
+    store.add_joined_stick(&joined(1, 10)).unwrap();
+    store
+        .record_downloaded_file(&stick_id, &downloaded("a", 1))
+        .unwrap();
+    let to = std::path::PathBuf::from("/tmp/elsewhere/Holiday");
+    store
+        .change_joined_stick(&stick_id, &JoinedChange::Folder(to.clone()))
+        .unwrap();
+    assert_eq!(
+        store.joined_stick(&stick_id).unwrap().unwrap().output_dir,
+        to
+    );
+    assert_eq!(
+        store.downloaded_files(&stick_id).unwrap(),
+        vec![downloaded("a", 1)]
+    );
+}
+
 fn a_file_saved_under_another_name_is_recorded_so(store: &dyn Store) {
     let stick_id = owner(1).stick_id();
     store.add_joined_stick(&joined(1, 10)).unwrap();
@@ -326,6 +346,7 @@ for_every_store!(
     two_files_are_never_recorded_at_one_place,
     downloaded_files_are_recorded_one_by_one,
     moving_the_folder_forgets_the_downloaded_files,
+    moving_the_files_with_the_folder_keeps_what_came,
     owned_files_are_recorded_in_parts_and_pruned_at_the_end,
     owned_files_are_walked_in_byte_order_and_stop_when_told,
     owned_files_need_an_owned_stick,

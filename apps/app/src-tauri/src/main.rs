@@ -202,6 +202,7 @@ fn main() {
             receiving::commands::pause_received,
             receiving::commands::resume_received,
             receiving::commands::forget_received_stick,
+            receiving::moving::move_received,
             receiving::waiting::wait_for_link,
             receiving::commands::open_received_folder,
             receiving::choice::received_contents,

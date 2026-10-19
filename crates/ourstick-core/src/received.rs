@@ -221,5 +221,9 @@ fn finish(
     Ok(())
 }
 
+mod relocate;
+
+pub use relocate::{move_received_folder, MoveError};
+
 #[cfg(test)]
 mod tests;

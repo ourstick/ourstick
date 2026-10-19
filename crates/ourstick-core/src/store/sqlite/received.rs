@@ -3,7 +3,7 @@
 
 use rusqlite::{params, Connection, TransactionBehavior};
 
-use super::super::{JoinedChange, JoinedStick, StoreError};
+use super::super::{path_str, JoinedChange, JoinedStick, StoreError};
 use super::rows::{kind_str, JoinedRow, JOINED_COLUMNS};
 use crate::stick_id::StickId;
 
@@ -30,6 +30,10 @@ pub(super) fn change(
         JoinedChange::Forgetting => connection.execute(
             &format!("UPDATE joined_sticks SET forgetting = ?1 {live}"),
             params![true, id],
+        )?,
+        JoinedChange::Folder(folder) => connection.execute(
+            &format!("UPDATE joined_sticks SET output_dir = ?1 {live}"),
+            params![path_str(folder)?, id],
         )?,
     };
     if updated == 1 {

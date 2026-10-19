@@ -31,7 +31,7 @@ pub async fn choose_folder(app: AppHandle) -> Result<Option<String>, String> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_title("Where to save the stick")
+            .set_title("Choose a folder")
             .blocking_pick_folder()
     })
     .await

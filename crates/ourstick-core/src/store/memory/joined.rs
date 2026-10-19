@@ -112,6 +112,7 @@ pub(super) fn change(
         JoinedChange::Forgetting => {
             state.forgetting.insert(stick_id.to_bytes());
         }
+        JoinedChange::Folder(folder) => stick.output_dir = folder.clone(),
     }
     Ok(())
 }

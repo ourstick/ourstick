@@ -2,7 +2,9 @@
   // Something you received (gui-spec): its name, Open folder, ⋯; its
   // status; what it leaves out.
   import {
+    chooseFolder,
     forgetReceived,
+    moveReceived,
     openReceivedFolder,
     pauseReceived,
     resumeReceived,
@@ -27,6 +29,7 @@
   let removing = $state(false);
   let choosing = $state(false);
   let seenAs = $state(false);
+  let moving = $state(false);
   let busy = $state(false);
   let failure = $state<string | null>(null);
 
@@ -41,6 +44,19 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** "Move to another folder…": the system's picker, then it moves. */
+  async function move() {
+    menu = false;
+    const into = await chooseFolder().catch((error) => {
+      failure = String(error);
+      return null;
+    });
+    if (!into) return;
+    moving = true;
+    await act(() => moveReceived(entry.id, into));
+    moving = false;
   }
 
   async function remove() {
@@ -73,6 +89,7 @@
           <button role="menuitem" onclick={() => ((menu = false), (choosing = true))}>
             <span>Choose what to get…</span><span class="hint">Take some folders out, or add them back.</span>
           </button>
+          <button role="menuitem" onclick={move}>Move to another folder…</button>
           <button role="menuitem" onclick={() => ((menu = false), (seenAs = true))}>How the sender sees you…</button>
           <button role="menuitem" class="danger-text" onclick={() => ((menu = false), (removing = true))}>
             <span>Remove…</span><span class="hint">What you have stays in its folder.</span>
@@ -118,6 +135,7 @@
   {#if entry.local_network_declined}
     <LocalNetworkNote other="the sender" />
   {/if}
+  {#if moving}<p class="muted">Moving… please wait. Big folders onto another disk take a while.</p>{/if}
   {#if failure}<p class="error">{failure}</p>{/if}
 
   {#if entry.left_out.length > 0}

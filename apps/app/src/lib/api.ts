@@ -269,6 +269,11 @@ export function forgetReceived(stickId: string): Promise<void> {
   return invoke("forget_received_stick", { stickId });
 }
 
+/** "Move to another folder…": what came moves with it into `into`. */
+export function moveReceived(stickId: string, into: string): Promise<void> {
+  return invoke("move_received", { stickId, into });
+}
+
 export function openReceivedFolder(stickId: string): Promise<void> {
   return invoke("open_received_folder", { stickId });
 }

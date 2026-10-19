@@ -165,6 +165,9 @@ pub enum JoinedChange {
     /// Being forgotten: hidden from then on, finished by
     /// `received::forget_received` or at the next start.
     Forgetting,
+    /// Its folder moved, with its files ("Move to another folder…"): what
+    /// came stays recorded, unlike [`Store::move_joined_stick`].
+    Folder(std::path::PathBuf),
 }
 
 /// What the owner last encrypted for one file of a stick: the file's stamp

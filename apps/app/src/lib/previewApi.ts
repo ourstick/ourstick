@@ -34,8 +34,12 @@ export interface PreviewView {
   saved_as: SavedAsList;
 }
 
-/** A preview, or the sender away (then it can be waited for). */
-export type PreviewOutcome = { kind: "seen"; preview: PreviewView } | { kind: "sender_away" };
+/** A preview, the sender away (then it can be waited for), or a link known here. */
+export type PreviewOutcome =
+  | { kind: "seen"; preview: PreviewView }
+  | { kind: "sender_away" }
+  /** A link this computer knows already: sent from here, received, or waited for. */
+  | { kind: "known"; known: "own" | "received" | "waiting"; id: string; name: string };
 
 /** Looks at a pasted sharing link: `parent` is where it would be saved (else Downloads). */
 export function previewLink(

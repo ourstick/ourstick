@@ -20,7 +20,7 @@ use crate::state::{stick_hex, stick_id as stick_id_of, AppState};
 /// The pasted text as a sharing link. The error never repeats it.
 pub(super) fn ticket_of(text: &str) -> Result<Ticket, String> {
     text.trim().parse().map_err(|_| {
-        "That is not an OurStick sharing link. Copy the whole link the sender sent.".to_owned()
+        "This link is not whole. Copy all of it from the message: it is long.".to_owned()
     })
 }
 
@@ -329,6 +329,6 @@ mod tests {
         let secret = "https://ourstick.com/s/#abc.very-secret-key";
         let refused = ticket_of(secret).unwrap_err();
         assert!(!refused.contains("very-secret-key"), "{refused}");
-        assert!(refused.contains("sharing link"));
+        assert!(refused.contains("link is not whole"));
     }
 }

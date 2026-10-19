@@ -34,26 +34,43 @@ export function since(ms: number): string {
 /** What a received stick is doing, in a few words for the list. */
 export function receivedShort(entry: { state: string; done: number; total: number }): string {
   switch (entry.state) {
-    case "starting":
-      return "Getting ready…";
     case "downloading":
-      return entry.total > 0 ? `Downloading ${Math.floor((entry.done / entry.total) * 100)}%` : "Downloading…";
+      return entry.total > 0 ? `↓ Downloading ${Math.floor((entry.done / entry.total) * 100)}%` : "↓ Downloading…";
     case "getting_more":
-      return "Up to date so far";
+      return "✓ All here so far";
     case "up_to_date":
-      return "Up to date";
+      return "✓ All here. New files come by themselves.";
     case "waiting":
-      return "Waiting";
+      return "! Waiting";
     case "paused":
-      return "Paused";
+      return "⏸ Paused";
     case "stopped":
-      return "Stopped";
+      return "✕ Stopped: needs you";
     case "waiting_sender":
-      return "Waiting for the sender";
+      return "… Waiting for the sender";
     case "wait_ended":
-      return "No answer";
+      return "! The sender did not answer";
     default:
       // Not started yet (the app is still starting).
       return "Getting ready…";
   }
+}
+
+/** "Downloads › Holiday photos": the last two parts of a folder's path. */
+export function lastParts(path: string): string {
+  return path
+    .split(/[\\/]/)
+    .filter((part) => part)
+    .slice(-2)
+    .join(" › ");
+}
+
+/** "2 folders and 1 file": what a top level holds. */
+export function holdsWords(entries: { is_dir: boolean }[]): string {
+  const folders = entries.filter((entry) => entry.is_dir).length;
+  const plain = entries.length - folders;
+  const parts = [];
+  if (folders > 0) parts.push(folders === 1 ? "1 folder" : `${folders} folders`);
+  if (plain > 0 || folders === 0) parts.push(files(plain));
+  return parts.join(" and ");
 }

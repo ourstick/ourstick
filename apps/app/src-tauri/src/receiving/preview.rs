@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use ourstick_core::device::random_key;
 use ourstick_core::download::preview;
-use ourstick_core::received::check_link;
+use ourstick_core::received::{check_link, ReceivedError};
 use ourstick_core::space::{available, SystemDisks};
 use ourstick_core::stick_names::folder_name;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
@@ -43,8 +43,41 @@ pub struct EntryView {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PreviewOutcome {
-    Seen { preview: PreviewView },
+    Seen {
+        preview: PreviewView,
+    },
     SenderAway,
+    /// A link this computer knows already (ADR 0028 §4): the window says
+    /// so, with `Show it`.
+    Known {
+        /// "own" (it sends it), "received" or "waiting" (ADR 0025).
+        known: &'static str,
+        /// Its id, for `Show it`.
+        id: String,
+        name: String,
+    },
+}
+
+/// What [`check_link`] refused, if it is a link known here: one's own, one
+/// received, one waited for. Other refusals stay errors.
+fn known_of(
+    checked: Result<(), ReceivedError>,
+    stick_id: &ourstick_core::StickId,
+) -> Result<Option<PreviewOutcome>, ReceivedError> {
+    let known = |known, name| {
+        Some(PreviewOutcome::Known {
+            known,
+            id: crate::state::stick_hex(stick_id),
+            name,
+        })
+    };
+    match checked {
+        Ok(()) => Ok(None),
+        Err(ReceivedError::OwnStick(name)) => Ok(known("own", name)),
+        Err(ReceivedError::AlreadyReceived(name)) => Ok(known("received", name)),
+        Err(ReceivedError::Waiting) => Ok(known("waiting", String::new())),
+        Err(other) => Err(other),
+    }
 }
 
 /// What adding a pasted sharing link would bring.
@@ -136,13 +169,22 @@ pub async fn preview_link(
     let ticket = ticket_of(&text)?;
     let store = state.store.clone();
     let stick_id = ticket.stick_id;
-    let earlier = super::work(move || {
-        check_link(store.as_ref(), &stick_id, StickKind::App)?;
-        Ok(store
-            .joined_stick(&stick_id)?
-            .map(|joined| joined.output_dir))
+    let (known, earlier) = super::work(move || {
+        let known = known_of(
+            check_link(store.as_ref(), &stick_id, StickKind::App),
+            &stick_id,
+        )?;
+        Ok((
+            known,
+            store
+                .joined_stick(&stick_id)?
+                .map(|joined| joined.output_dir),
+        ))
     })
     .await?;
+    if let Some(known) = known {
+        return Ok(known);
+    }
     // A throwaway blob store: a preview keeps nothing.
     let hex: String = random_key()[..8]
         .iter()
@@ -278,69 +320,5 @@ fn needs(to_write: &std::collections::BTreeMap<String, u64>, left_out: &[String]
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn what_a_choice_needs_leaves_out_each_path_once() {
-        let to_write: std::collections::BTreeMap<String, u64> = [
-            ("Disk".to_owned(), 10),
-            ("Disk/MUSIC".to_owned(), 6),
-            ("Disk/Pictures".to_owned(), 3),
-            ("note".to_owned(), 1),
-        ]
-        .into();
-        assert_eq!(needs(&to_write, &[]), 11);
-        assert_eq!(needs(&to_write, &["Disk/MUSIC".to_owned()]), 5);
-        assert_eq!(needs(&to_write, &["Disk".to_owned(), "note".to_owned()]), 0);
-        // A path the plan writes nothing of (already there, or gone).
-        assert_eq!(needs(&to_write, &["Disk/old".to_owned()]), 11);
-    }
-
-    #[test]
-    fn a_stick_goes_into_a_folder_named_after_it_never_one_taken() {
-        let parent = crate::testing::TempFolder::new();
-        let folder = folder_for("Holiday", parent.path());
-        assert_eq!(folder, parent.path().join("Holiday"));
-        std::fs::create_dir(&folder).unwrap();
-        let next = folder_for("Holiday", parent.path());
-        assert_ne!(next, folder);
-        assert!(next.starts_with(parent.path()));
-        // A name with characters no folder may have still gets a folder.
-        let odd = folder_for("a/b:c", parent.path());
-        assert_eq!(odd.parent().unwrap(), parent.path());
-    }
-
-    #[test]
-    fn a_preview_and_a_wait_choose_the_same_folder() {
-        let parent = crate::testing::TempFolder::new();
-        let chosen = parent.path().display().to_string();
-        let earlier = parent.path().join("got with the command line");
-        // A command-line receive goes on where it is, unless the user chose
-        // another place.
-        let choose = folder_choice(Some(earlier.clone()), None).unwrap();
-        assert_eq!(choose("Holiday"), earlier);
-        let choose = folder_choice(Some(earlier), Some(&chosen)).unwrap();
-        assert_eq!(choose("Holiday"), parent.path().join("Holiday"));
-        let choose = folder_choice(None, Some(&chosen)).unwrap();
-        assert_eq!(choose("Holiday"), parent.path().join("Holiday"));
-    }
-
-    #[test]
-    fn an_unreachable_sender_is_away_but_not_a_stick_it_no_longer_shares() {
-        use ourstick_core::download::DownloadError;
-        use ourstick_core::transport::TransportError;
-        let unreachable = TransportError::Unreachable("gone".to_owned());
-        assert!(sender_away(&DownloadError::Transport(unreachable)));
-        assert!(!sender_away(&DownloadError::Transport(
-            TransportError::UnknownStick
-        )));
-    }
-
-    #[test]
-    fn a_folder_not_made_yet_is_measured_where_it_will_be() {
-        let parent = crate::testing::TempFolder::new();
-        let deep = parent.path().join("a/b/c");
-        assert_eq!(existing(&deep), parent.path());
-    }
-}
+#[path = "preview_tests.rs"]
+mod tests;

@@ -11,11 +11,11 @@
     onForgotten: () => void;
   } = $props();
 
-  let forgetting = $state(false);
+  let removing = $state(false);
   let busy = $state(false);
   let failure = $state<string | null>(null);
 
-  async function forget() {
+  async function remove() {
     busy = true;
     failure = null;
     try {
@@ -35,36 +35,36 @@
 
 <section class="view">
   <h1 title={entry.name}><bdi>{entry.name}</bdi></h1>
-  {#if entry.state === "wait_ended"}
-    <p class="error">{entry.message}</p>
-    <p class="muted">Ask the sender for the link again, or forget this one.</p>
-  {:else if entry.state === "stopped"}
-    <p class="error">{entry.message}</p>
-  {:else}
-    <p>
-      Waiting for the sender. It comes by itself, all of it, when the sender's computer is on and OurStick is open
-      there.
-    </p>
-    {#if entry.message}<p class="muted">{entry.message}</p>{/if}
-    <p class="muted">Keep OurStick open: minimize it rather than quit.</p>
-  {/if}
-  {#if day}<p class="muted">Waiting since {day}.</p>{/if}
-
-  {#if forgetting}
-    <section class="ask">
-      <strong>Forget this link?</strong>
-      <p>Nothing of it has come yet; OurStick stops waiting for it.</p>
-      {#if busy}<p class="muted">Forgetting… please wait.</p>{/if}
-      <div class="actions">
-        <button onclick={() => (forgetting = false)} disabled={busy}>Cancel</button>
-        <button class="danger" onclick={forget} disabled={busy}>Forget</button>
-      </div>
-    </section>
-  {:else}
-    <p><button onclick={() => (forgetting = true)}>Forget this stick…</button></p>
-  {/if}
+  <div class="status">
+    {#if entry.state === "wait_ended"}
+      <strong class="error">The sender did not answer for 30 days</strong>
+      <span>Ask them to open OurStick, or for a new link.</span>
+    {:else if entry.state === "stopped"}
+      <strong class="error">✕ Stopped</strong>
+      <span>{entry.message}</span>
+    {:else}
+      <strong>… Waiting for the sender{day ? ` since ${day}` : ""}</strong>
+      <span>Its name and files appear once their computer is on. Leave OurStick open: minimize it, don't quit.</span>
+    {/if}
+    <button class:danger-outline={entry.state === "wait_ended"} onclick={() => (removing = true)}>Remove…</button>
+  </div>
   {#if failure}<p class="error">{failure}</p>{/if}
 </section>
+
+{#if removing}
+  <div class="dialog-back">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-waiting-title">
+      <h2 id="remove-waiting-title">Stop waiting for this link?</h2>
+      <p>Nothing of it has come yet. To get it later, open the link again.</p>
+      {#if busy}<p class="muted">Removing… please wait.</p>{/if}
+      <div class="actions">
+        <!-- svelte-ignore a11y_autofocus -->
+        <button class="primary" autofocus onclick={() => (removing = false)} disabled={busy}>Cancel</button>
+        <button class="danger" onclick={remove} disabled={busy}>Remove</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .view {
@@ -81,16 +81,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .ask {
+  .status {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-  }
-  .ask .actions {
-    margin-top: 6px;
   }
   p {
     margin: 0;

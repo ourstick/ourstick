@@ -16,9 +16,9 @@
     type ShareProblem,
     type StickEntry,
   } from "./api";
-  import AddLink from "./AddLink.svelte";
   import Home from "./Home.svelte";
   import LinkReady from "./LinkReady.svelte";
+  import ReceiveView from "./ReceiveView.svelte";
   import ReceivedView from "./ReceivedView.svelte";
   import SendView from "./SendView.svelte";
   import StickView from "./StickView.svelte";
@@ -179,7 +179,10 @@
           {/if}
         {/key}
       {:else if shown.kind === "receive"}
-        <AddLink onAdded={(id) => ((shown = { kind: "received", id }), refresh())} onCancel={home} />
+        <ReceiveView
+          onAdded={(id) => ((shown = { kind: "received", id }), refresh())}
+          onShow={(kind, id) => ((shown = { kind, id }), refresh())}
+        />
       {/if}
     {/if}
     {#if failure}<p class="error">{failure}</p>{/if}

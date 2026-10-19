@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Something you received (gui-spec): its name, Open folder, ⋯; its
+  // status; what it leaves out.
   import {
     forgetReceived,
     openReceivedFolder,
@@ -6,12 +8,12 @@
     resumeReceived,
     type ReceivedEntry,
   } from "./api";
-  import { since, size } from "./format";
-  import PathText from "./PathText.svelte";
+  import { lastParts, since, size } from "./format";
   import LeftOutWords from "./LeftOutWords.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
   import ChooseWhat from "./ChooseWhat.svelte";
   import LocalNetworkNote from "./LocalNetworkNote.svelte";
+  import SendersSeeYou from "./SendersSeeYou.svelte";
 
   let {
     entry,
@@ -22,8 +24,9 @@
   } = $props();
 
   let menu = $state(false);
-  let forgetting = $state(false);
+  let removing = $state(false);
   let choosing = $state(false);
+  let seenAs = $state(false);
   let busy = $state(false);
   let failure = $state<string | null>(null);
 
@@ -40,61 +43,40 @@
     }
   }
 
-  async function forget() {
+  async function remove() {
     await act(() => forgetReceived(entry.id));
     if (!failure) onForgotten();
   }
 
-  /** What it is doing, in a sentence. */
-  let doing = $derived.by(() => {
-    switch (entry.state) {
-      case "starting":
-        return "Getting ready…";
-      case "downloading":
-        return entry.total > 0 ? `Downloading: ${size(entry.done)} of ${size(entry.total)}` : "Downloading…";
-      case "getting_more":
-        // The sender is still reading its folder: all it has said so far is
-        // here, and nothing is being fetched now.
-        return "Up to date so far. Anything more the sender adds will come by itself.";
-      case "up_to_date":
-        return "Up to date. New files from the sender come by themselves while OurStick is open.";
-      case "waiting":
-        return `Waiting${entry.since_ms ? " " + since(entry.since_ms) : ""}. ${entry.message ?? ""}`;
-      case "paused":
-        return "Paused: nothing new comes until you resume it.";
-      case "stopped":
-        return entry.message ?? "Stopped.";
-      default:
-        return "";
-    }
-  });
-  let fraction = $derived(entry.total > 0 ? entry.done / entry.total : 0);
+  let folder = $derived(lastParts(entry.folder ?? ""));
+  let here = $derived(entry.total > 0 ? `${size(entry.done)} of ${size(entry.total)} here` : "");
+  let percent = $derived(entry.total > 0 ? Math.floor((entry.done / entry.total) * 100) : 0);
 </script>
 
 <svelte:window onkeydown={(event) => event.key === "Escape" && (menu = false)} />
 
 <section class="view">
-  <header class="row spread">
+  <header class="row">
     <h1 title={entry.name}><bdi>{entry.name}</bdi></h1>
+    <button onclick={() => act(() => openReceivedFolder(entry.id))}>Open folder</button>
     <div class="menu-box">
-      <button class="more" aria-label="More for this stick" aria-expanded={menu} onclick={() => (menu = !menu)}>⋯</button>
+      <button class="more" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}>⋯</button>
       {#if menu}
         <div class="menu" role="menu">
-          <button
-            role="menuitem"
-            onclick={() => {
-              menu = false;
-              choosing = true;
-            }}>Choose what to get…</button
-          >
-          <button
-            role="menuitem"
-            class="danger-text"
-            onclick={() => {
-              menu = false;
-              forgetting = true;
-            }}>Forget this stick…</button
-          >
+          {#if entry.paused}
+            <button role="menuitem" onclick={() => act(() => resumeReceived(entry.id))}>Resume</button>
+          {:else}
+            <button role="menuitem" onclick={() => act(() => pauseReceived(entry.id))}>
+              <span>Pause</span><span class="hint">Then “Resume” here, when you want.</span>
+            </button>
+          {/if}
+          <button role="menuitem" onclick={() => ((menu = false), (choosing = true))}>
+            <span>Choose what to get…</span><span class="hint">Take some folders out, or add them back.</span>
+          </button>
+          <button role="menuitem" onclick={() => ((menu = false), (seenAs = true))}>How the sender sees you…</button>
+          <button role="menuitem" class="danger-text" onclick={() => ((menu = false), (removing = true))}>
+            <span>Remove…</span><span class="hint">What you have stays in its folder.</span>
+          </button>
         </div>
       {/if}
     </div>
@@ -104,53 +86,81 @@
     <ChooseWhat stickId={entry.id} onDone={() => (choosing = false)} />
   {/if}
 
-  {#if forgetting}
-    <section class="ask">
-      <strong>Forget “<bdi>{entry.name}</bdi>”?</strong>
-      <p>It is no longer kept up to date. Its files stay in <bdi>{entry.folder}</bdi>.</p>
-      {#if busy}<p class="muted">Forgetting… please wait.</p>{/if}
-      <div class="actions">
-        <button onclick={() => (forgetting = false)} disabled={busy}>Cancel</button>
-        <button class="danger" onclick={forget} disabled={busy}>Forget</button>
-      </div>
-    </section>
-  {/if}
-
-  <p class="folder row spread">
-    <span class="muted path"><PathText label="Saved in" path={entry.folder ?? ""} /></span>
-    <button onclick={() => act(() => openReceivedFolder(entry.id))}>Open folder</button>
-  </p>
-
-  <p class:error={entry.state === "stopped"} class="doing">{doing}</p>
-  {#if entry.state === "downloading"}
-    <div class="bar"><div class="fill" style="width: {fraction * 100}%"></div></div>
-  {/if}
+  <div class="status" class:stopped={entry.state === "stopped"}>
+    {#if entry.state === "downloading"}
+      <strong>↓ Downloading… {percent}%</strong>
+      <div class="bar"><div class="fill" style="width: {percent}%"></div></div>
+      <span class="muted">{size(entry.done)} of {size(entry.total)}</span>
+      <span>You can close this window. It goes on by itself, also after a restart.</span>
+      <span class="muted">When the sender adds or changes files, you get them too.</span>
+    {:else if entry.state === "up_to_date"}
+      <strong>✓ All here</strong>
+      <span class="muted">New files from the sender come by themselves.</span>
+    {:else if entry.state === "getting_more"}
+      <strong>✓ All here so far</strong>
+      <span class="muted">The sender is still counting a big folder. The rest comes by itself.</span>
+    {:else if entry.state === "waiting"}
+      <strong>! Waiting{here ? ` · ${here}` : ""}</strong>
+      <span>
+        {entry.since_ms ? `${since(entry.since_ms).replace(/^s/, "S")}: ` : ""}{entry.message ?? ""} It goes on by itself.
+      </span>
+    {:else if entry.state === "paused"}
+      <strong>⏸ Paused{here ? ` · ${here}` : ""}</strong>
+      <button class="primary" onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Resume</button>
+    {:else if entry.state === "stopped"}
+      <strong class="error">✕ Stopped</strong>
+      <span>{entry.message ?? "Something on this computer failed. What came so far is safe."}</span>
+      <button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Try again</button>
+    {:else}
+      <strong>Getting ready…</strong>
+    {/if}
+  </div>
   {#if entry.local_network_declined}
     <LocalNetworkNote other="the sender" />
   {/if}
-  {#if entry.state === "stopped"}
-    <p><button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Try again</button></p>
-  {:else if entry.paused}
-    <p><button class="primary" onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Resume</button></p>
-  {:else if entry.state}
-    <p><button onclick={() => act(() => pauseReceived(entry.id))} disabled={busy}>Pause</button></p>
-  {/if}
   {#if failure}<p class="error">{failure}</p>{/if}
+
   {#if entry.left_out.length > 0}
     {@const getting = entry.left_out.filter((name) => !name.here)}
     {@const updating = entry.left_out.filter((name) => name.here)}
-    {#if getting.length > 0}
-      <p class="muted">Not getting: <LeftOutWords list={getting} />.</p>
-    {/if}
-    {#if updating.length > 0}
-      <p class="muted">
-        Not updating: <LeftOutWords list={updating} /> ({updating.length === 1 ? "it stays" : "they stay"} in the
-        folder).
-      </p>
-    {/if}
+    <p class="muted">
+      {#if getting.length > 0}Not getting: <LeftOutWords list={getting} />.{/if}
+      {#if updating.length > 0}No longer updated: <LeftOutWords list={updating} /> ({updating.length === 1
+          ? "it stays"
+          : "they stay"} in your folder).{/if}
+      <button class="link" onclick={() => (choosing = true)}>Change…</button>
+    </p>
   {/if}
   <SavedAsNote list={entry.saved_as} />
 </section>
+
+{#if removing}
+  <div class="dialog-back">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-received-title">
+      <h2 id="remove-received-title">Remove “<bdi>{entry.name}</bdi>”?</h2>
+      <p>New files from the sender stop coming. What you have stays in <b><bdi>{folder}</bdi></b>.</p>
+      <p class="muted">To get it again, open the link again.</p>
+      {#if busy}<p class="muted">Removing… please wait.</p>{/if}
+      <div class="actions">
+        <!-- svelte-ignore a11y_autofocus -->
+        <button class="primary" autofocus onclick={() => (removing = false)} disabled={busy}>Cancel</button>
+        <button class="danger" onclick={remove} disabled={busy}>Remove</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if seenAs}
+  <div class="dialog-back">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="How senders see you">
+      <h2>How senders see you</h2>
+      <SendersSeeYou />
+      <div class="actions">
+        <button onclick={() => (seenAs = false)}>Close</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .view {
@@ -160,38 +170,47 @@
     min-width: 0;
     flex: 1 1 auto;
   }
+  header {
+    gap: 10px;
+  }
   header h1 {
+    flex: 1 1 auto;
     margin: 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .spread {
-    justify-content: space-between;
-  }
   .more {
-    padding: 0 10px;
+    padding: 0 12px;
     font-weight: 700;
   }
-  .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-  .ask {
+  .menu button {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    height: auto;
+    padding: 8px 12px;
+  }
+  .hint {
+    font-size: 0.85em;
+    color: var(--muted);
+  }
+  .status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  .ask .actions {
-    margin-top: 6px;
+  .status.stopped {
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
   }
   .bar {
+    align-self: stretch;
     height: 8px;
     border-radius: 4px;
     background: var(--border);
@@ -200,6 +219,15 @@
   .fill {
     height: 100%;
     background: var(--accent);
+  }
+  .link {
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
   }
   p {
     margin: 0;

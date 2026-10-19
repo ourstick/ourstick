@@ -1,91 +1,74 @@
 use super::*;
 
-fn stick(byte: u8, name: &str, mounted: bool, sharing: bool) -> TrayStick {
-    TrayStick {
-        id: ourstick_core::StickSigningKey::from_bytes(&[byte; 32]).stick_id(),
+fn id(byte: u8) -> StickId {
+    ourstick_core::StickSigningKey::from_bytes(&[byte; 32]).stick_id()
+}
+
+fn thing(shows: Shows, name: &str, words: &str) -> TrayThing {
+    TrayThing {
+        shows,
         name: name.to_owned(),
-        mounted,
-        sharing,
-        doing: None,
+        words: words.to_owned(),
     }
 }
 
 #[test]
-fn the_toggling_items_say_what_they_will_do() {
-    assert_eq!(mount_label(true), "Eject");
-    assert_eq!(mount_label(false), "Mount");
-    assert_eq!(sharing_label(true), "Stop sharing…");
-    assert_eq!(sharing_label(false), "Start sharing");
-}
-
-#[test]
-fn each_stick_has_its_own_submenu() {
-    let photos = stick(1, "Photos", true, true);
-    let films = stick(2, "Films", false, false);
-    let lines = menu_lines(&[photos.clone(), films.clone()], true);
-    assert_eq!(lines.len(), 10);
+fn each_thing_is_one_line_with_its_sentence_opening_its_view() {
+    let photos = thing(
+        Shows::Sending(id(1)),
+        "Holiday photos",
+        "\u{2191} Someone is getting it",
+    );
+    let videos = thing(
+        Shows::Received(id(2)),
+        "Family videos",
+        "\u{2193} Downloading 45%",
+    );
+    let lines = menu_lines(&[photos, videos], true);
     assert_eq!(
         lines[2],
-        Line::Stick(
-            "Photos \u{2014} sharing".to_owned(),
-            vec![
-                ("Share…".to_owned(), Action::Share(photos.id)),
-                ("Eject".to_owned(), Action::Mount(photos.id)),
-                ("Stop sharing…".to_owned(), Action::StopSharing(photos.id)),
-            ]
+        Line::Item(
+            "Holiday photos \u{2014} \u{2191} Someone is getting it".to_owned(),
+            Action::Show(Shows::Sending(id(1)))
         )
     );
-    let Line::Stick(label, items) = &lines[3] else {
-        panic!("{:?}", lines[3]);
-    };
-    assert_eq!(label, "Films \u{2014} not sharing");
-    assert_eq!(items[1].0, "Mount");
     assert_eq!(
-        items[2],
-        ("Start sharing".to_owned(), Action::StartSharing(films.id))
+        lines[3],
+        Line::Item(
+            "Family videos \u{2014} \u{2193} Downloading 45%".to_owned(),
+            Action::Show(Shows::Received(id(2)))
+        )
     );
-    assert_eq!(
-        lines[5],
-        Line::Item("New stick…".to_owned(), Action::NewStick)
-    );
+    assert_eq!(lines[5], Line::Item("Send…".to_owned(), Action::Send));
+    assert_eq!(lines[6], Line::Item("Receive…".to_owned(), Action::Receive));
 }
 
 #[test]
-fn a_busy_stick_says_what_it_is_doing_and_offers_nothing() {
-    let renaming = TrayStick {
-        doing: Some("Renaming…"),
-        ..stick(4, "Photos", true, true)
-    };
-    let lines = menu_lines(&[renaming], true);
-    assert_eq!(lines[2], Line::Note("Photos \u{2014} Renaming…".to_owned()));
-}
-
-#[test]
-fn with_no_stick_the_menu_still_opens_makes_and_quits() {
+fn with_nothing_the_menu_still_opens_sends_receives_and_quits() {
     let lines = menu_lines(&[], false);
     assert_eq!(
         lines[0],
         Line::Item("Open OurStick".to_owned(), Action::Open)
     );
-    // Open, a line, New stick…, a line, About, the check, Quit.
-    assert_eq!(lines.len(), 7);
+    // Open, a line, Send…, Receive…, a line, About, the check, Quit….
+    assert_eq!(lines.len(), 8);
 }
 
 #[test]
 fn a_native_item_id_names_its_action() {
-    let id = stick(3, "Photos", true, true).id;
     for action in [
         Action::Open,
-        Action::Share(id),
-        Action::Mount(id),
-        Action::StopSharing(id),
-        Action::StartSharing(id),
-        Action::NewStick,
+        Action::Show(Shows::Sending(id(3))),
+        Action::Show(Shows::Received(id(4))),
+        Action::Send,
+        Action::Receive,
+        Action::About,
+        Action::StartAtLogin,
         Action::Quit,
     ] {
         assert_eq!(Action::from_id(&action.id()), Some(action));
     }
-    assert_eq!(Action::from_id("share:zz"), None);
+    assert_eq!(Action::from_id("sending:zz"), None);
     assert_eq!(Action::from_id("eject"), None);
 }
 
@@ -98,8 +81,12 @@ fn about_and_the_login_check_come_before_quit() {
             end,
             [
                 Line::Item("About OurStick".to_owned(), Action::About),
-                Line::Check("Start at login".to_owned(), on, Action::StartAtLogin),
-                Line::Item("Quit".to_owned(), Action::Quit),
+                Line::Check(
+                    "Open when the computer starts".to_owned(),
+                    on,
+                    Action::StartAtLogin
+                ),
+                Line::Item("Quit…".to_owned(), Action::Quit),
             ]
         );
     }

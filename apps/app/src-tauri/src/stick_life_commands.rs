@@ -139,7 +139,6 @@ pub async fn new_link(
             tracing::warn!("{error}");
         }
     }
-    crate::share::close(&app, &old);
     crate::problems::tell(&app, Some(old), crate::serving::ShareProblem::Cleared);
     share_again_if_wanted(&app, &state, new).await;
     refresh_tray(&app).await;
@@ -179,7 +178,6 @@ pub async fn remove(
     match &removed {
         Ok(()) => {
             state.sticks.lock().await.remove(&id);
-            crate::share::close(&app, &id);
             crate::problems::tell(&app, Some(id), crate::serving::ShareProblem::Cleared);
         }
         // Not marked as being removed (refused early): still a stick.

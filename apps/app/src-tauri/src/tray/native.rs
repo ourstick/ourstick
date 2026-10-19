@@ -2,11 +2,11 @@
 
 use anyhow::Result;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Wry};
 
-use super::{act, menu_lines, Action, Line, TrayStick};
+use super::{act, menu_lines, Action, Line, TrayThing};
 
 const TRAY: &str = "main";
 
@@ -104,25 +104,11 @@ fn item(app: &AppHandle, text: &str, action: Action) -> Result<MenuItem<Wry>> {
 }
 
 /// The menu for the app's sticks and the login check.
-fn menu(app: &AppHandle, sticks: &[TrayStick], start_at_login: bool) -> Result<Menu<Wry>> {
+fn menu(app: &AppHandle, sticks: &[TrayThing], start_at_login: bool) -> Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
     for line in menu_lines(sticks, start_at_login) {
         match line {
             Line::Item(text, action) => menu.append(&item(app, &text, action)?)?,
-            Line::Stick(text, items) => {
-                let items = items
-                    .iter()
-                    .map(|(text, action)| item(app, text, *action))
-                    .collect::<Result<Vec<_>>>()?;
-                let items: Vec<&dyn IsMenuItem<Wry>> = items
-                    .iter()
-                    .map(|item| item as &dyn IsMenuItem<Wry>)
-                    .collect();
-                menu.append(&Submenu::with_items(app, label(&text), true, &items)?)?;
-            }
-            Line::Note(text) => {
-                menu.append(&MenuItem::new(app, label(&text), false, None::<&str>)?)?
-            }
             Line::Check(text, checked, action) => menu.append(&CheckMenuItem::with_id(
                 app,
                 action.id(),
@@ -171,7 +157,7 @@ pub fn set_active(app: &AppHandle, active: bool) {
 
 /// The app's sticks, as the menu lists them, and the login check: the
 /// menu is made anew.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>, start_at_login: bool) {
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayThing>, start_at_login: bool) {
     let Some(tray) = app.tray_by_id(TRAY) else {
         return;
     };

@@ -77,6 +77,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Tells the window the received sticks changed.
 fn changed(app: &AppHandle) {
     let _ = app.emit("received-changed", ());
+    crate::sharing::refresh_tray_soon(app);
 }
 
 /// Why this program could not take a received stick's lock, in words.

@@ -223,7 +223,6 @@ fn main() {
             send::measure,
             send::send,
             stick_commands::remove_entry,
-            share::open_share,
             share::share_view,
             share::copy_link,
             share::copy_qr_image,

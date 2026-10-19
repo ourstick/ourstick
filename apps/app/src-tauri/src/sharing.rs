@@ -10,7 +10,7 @@ use ourstick_core::stick_life::{finish_new_links, finish_removals};
 use ourstick_core::{device, locks, StickId};
 use tauri::{AppHandle, Emitter, Manager};
 
-pub use crate::busy::{is_busy, make_busy, readers_now, stop_serving};
+pub use crate::busy::{make_busy, readers_now, stop_serving};
 use crate::serving;
 use crate::state::{AppState, Sharing};
 
@@ -246,45 +246,6 @@ async fn plug_in_all(app: &AppHandle) {
     }
 }
 
-/// Mount (from the window or the tray): plugs the stick in, finishes what
-/// waited for its drive, and shares it again from where it is now if the
-/// user wants it shared.
-pub fn mount_and_share(app: &AppHandle, stick_id: StickId) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        if is_busy(&app.state::<AppState>(), &stick_id).await {
-            crate::problems::failed(
-                &app,
-                Some(stick_id),
-                "The stick is busy; mount it again in a moment.".to_owned(),
-            );
-            return;
-        }
-        let restart = plug_in_off_thread(&app, stick_id).await;
-        finish_pending_off_thread(&app).await;
-        let _ = app.emit("mount-changed", ());
-        refresh_tray(&app).await;
-        let state = app.state::<AppState>();
-        let wanted = state
-            .stick_now(&stick_id)
-            .await
-            .is_ok_and(|stick| stick.sharing_wanted);
-        if !wanted {
-            return;
-        }
-        {
-            let sticks = state.sticks.lock().await;
-            let running = sticks.get(&stick_id).is_some_and(Sharing::is_on);
-            if running && !restart {
-                return;
-            }
-        }
-        // The watcher follows the folder where it is now.
-        stop_serving(&state, &stick_id).await;
-        start_sharing(&app, stick_id).await;
-    });
-}
-
 /// Starts sharing `stick_id` and waits until it runs or has failed. The UI
 /// hears `sharing-changed` when it starts and when it is done. Nothing
 /// happens while the stick is busy or already shared.
@@ -349,4 +310,4 @@ pub async fn stop_all(state: &AppState) {
     }
 }
 
-pub use crate::refresh::{refresh_active, refresh_tray, watch_mount};
+pub use crate::refresh::{refresh_active, refresh_tray, refresh_tray_soon, watch_mount};

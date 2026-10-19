@@ -120,8 +120,13 @@
         const entry = sending.find((entry) => entry.id === event.payload.stick_id);
         if (entry && entry.readers !== event.payload.readers) refresh();
       }),
-      // "Send…" from the tray.
-      listen("new-stick", () => (shown = { kind: "send" })),
+      // The tray: a thing's view, Send… or Receive….
+      listen<{ kind: "sending" | "received" | "send" | "receive"; id: string | null }>("show", (event) => {
+        const { kind, id } = event.payload;
+        if ((kind === "sending" || kind === "received") && id) shown = { kind, id };
+        else if (kind === "send" || kind === "receive") shown = { kind };
+        refresh();
+      }),
     ];
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });

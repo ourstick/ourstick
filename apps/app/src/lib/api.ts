@@ -112,9 +112,6 @@ export interface ShareView {
   qr_svg: string;
 }
 
-export function openShare(stickId: string): Promise<void> {
-  return invoke("open_share", { stickId });
-}
 
 /** The link and its QR code; null while the stick is not published yet. */
 export function shareView(stickId: string): Promise<ShareView | null> {

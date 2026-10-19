@@ -3,14 +3,13 @@
   import LocalNetworkStep from "./lib/LocalNetworkStep.svelte";
   import KeysMoveStep from "./lib/KeysMoveStep.svelte";
   import Main from "./lib/Main.svelte";
-  import Share from "./lib/Share.svelte";
   import Confirm from "./lib/Confirm.svelte";
   import About from "./lib/About.svelte";
   import StillOpen from "./lib/StillOpen.svelte";
 
-  // The Share popup, the Stop sharing / Quit dialog and About are the same
-  // UI, opened at #share/<stick id>, #stop/<stick id>, #quit, #still-open
-  // (the first ✕, ADR 0028 §6) and #about.
+  // The Stop sending / Quit dialog, "still open" and About are the same UI,
+  // opened at #stop/<stick id>, #quit, #still-open (the first ✕, ADR 0028
+  // §6) and #about.
   const [page, pageStick] = location.hash.split("/");
 
   let app = $state<AppState | null>(null);
@@ -28,9 +27,7 @@
   load();
 </script>
 
-{#if page === "#share" && pageStick}
-  <Share stickId={pageStick} />
-{:else if page === "#stop" && pageStick}
+{#if page === "#stop" && pageStick}
   <Confirm quitting={false} stickId={pageStick} />
 {:else if page === "#quit"}
   <Confirm quitting={true} stickId={null} />

@@ -202,7 +202,7 @@ fn confirm_of(
     }
 }
 
-/// Async, as `share::open_share`: a window made from a synchronous command
+/// Async: a window made from a synchronous command
 /// never loads on Windows.
 #[tauri::command]
 pub async fn open_dialog(

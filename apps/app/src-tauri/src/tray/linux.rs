@@ -10,7 +10,7 @@ use anyhow::Result;
 use ksni::TrayMethods;
 use tauri::{AppHandle, Manager};
 
-use super::{act, menu_lines, Action, Line, TrayStick};
+use super::{act, menu_lines, Action, Line, TrayThing};
 use crate::windows::Activation;
 
 /// How long a click waits for its token. The extension does not wait for
@@ -28,7 +28,7 @@ const FOCUS_WAIT: Duration = Duration::from_millis(500);
 struct Shown {
     /// Someone downloads: the green dot.
     active: bool,
-    sticks: Vec<TrayStick>,
+    sticks: Vec<TrayThing>,
     /// The "Start at login" check (ADR 0024).
     start_at_login: bool,
 }
@@ -144,7 +144,7 @@ pub fn set_active(app: &AppHandle, active: bool) {
 }
 
 /// The app's sticks, as the menu lists them, and the login check.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayStick>, start_at_login: bool) {
+pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayThing>, start_at_login: bool) {
     change(app, |shown| {
         shown.sticks = sticks;
         shown.start_at_login = start_at_login;
@@ -191,17 +191,12 @@ impl Tray {
 /// Whether `action` makes a new window.
 fn opens_window(app: &AppHandle, action: Action) -> bool {
     match action {
-        Action::Share(stick) => app
-            .get_webview_window(&format!("share-{}", crate::state::stick_hex(&stick)))
-            .is_none(),
-        // The Stop sharing / Quit dialog is always made anew.
-        Action::StopSharing(_) | Action::Quit => true,
+        // The Quit dialog is always made anew.
+        Action::Quit => true,
         Action::About => app.get_webview_window("about").is_none(),
-        Action::Open
-        | Action::Mount(_)
-        | Action::StartSharing(_)
-        | Action::NewStick
-        | Action::StartAtLogin => false,
+        Action::Open | Action::Show(_) | Action::Send | Action::Receive | Action::StartAtLogin => {
+            false
+        }
     }
 }
 
@@ -268,21 +263,6 @@ impl ksni::Tray for Tray {
             .into_iter()
             .map(|line| match line {
                 Line::Item(text, action) => item(&text, action),
-                Line::Stick(text, items) => ksni::menu::SubMenu {
-                    label: label(&text),
-                    submenu: items
-                        .iter()
-                        .map(|(text, action)| item(text, *action))
-                        .collect(),
-                    ..Default::default()
-                }
-                .into(),
-                Line::Note(text) => ksni::menu::StandardItem {
-                    label: label(&text),
-                    enabled: false,
-                    ..Default::default()
-                }
-                .into(),
                 Line::Check(text, checked, action) => ksni::menu::CheckmarkItem {
                     label: label(&text),
                     checked,

@@ -1,7 +1,8 @@
-//! The tray icon (docs/gui-spec.md, panel 3): always there while the app
-//! runs, with a green dot while someone downloads, and the app's menu: each
-//! stick with its own submenu (ADR 0009 §5), then "New stick…", "About
-//! OurStick", the "Start at login" check (ADR 0024) and "Quit".
+//! The tray icon (ADR 0028 §6): always there while the app runs, a green
+//! dot while someone gets something, and the app's menu: Open OurStick;
+//! each thing sent or received with its one sentence, a click opening the
+//! window on it; Send…, Receive…; About OurStick, the "Open when the
+//! computer starts" check (ADR 0024) and Quit…. A help, never the only way.
 //!
 //! What the menu holds is decided here once ([`menu_lines`]); each platform
 //! only draws it. Linux has a StatusNotifierItem of its own (`linux`): it
@@ -13,6 +14,7 @@
 mod linux;
 #[cfg(not(target_os = "linux"))]
 mod native;
+pub mod words;
 
 #[cfg(target_os = "linux")]
 use linux as platform;
@@ -24,33 +26,35 @@ pub use platform::{create, set_active, set_sticks};
 use ourstick_core::StickId;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::dialog;
 use crate::state::{stick_hex, stick_id, AppState};
-use crate::{dialog, share};
 
-/// One of the app's sticks, as the tray shows it.
+/// Something sent or received, as the tray shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrayStick {
-    pub id: StickId,
+pub struct TrayThing {
+    pub shows: Shows,
     pub name: String,
-    pub mounted: bool,
-    pub sharing: bool,
-    /// While busy, what is being done ("Renaming…"): nothing to choose.
-    pub doing: Option<&'static str>,
+    /// Its one sentence, with its symbol ("↑ Someone is getting it").
+    pub words: String,
+}
+
+/// Which view of the window a thing opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shows {
+    Sending(StickId),
+    Received(StickId),
 }
 
 /// What the tray menu's items do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
     Open,
-    Share(StickId),
-    /// Eject, or Mount after an eject.
-    Mount(StickId),
-    /// Stop sharing (asks first).
-    StopSharing(StickId),
-    StartSharing(StickId),
-    NewStick,
+    /// The window, on one thing.
+    Show(Shows),
+    Send,
+    Receive,
     About,
-    /// The "Start at login" check, turned the other way.
+    /// The "Open when the computer starts" check, turned the other way.
     StartAtLogin,
     Quit,
 }
@@ -61,11 +65,10 @@ impl Action {
     fn id(self) -> String {
         match self {
             Self::Open => "open".to_owned(),
-            Self::Share(stick) => format!("share:{}", stick_hex(&stick)),
-            Self::Mount(stick) => format!("mount:{}", stick_hex(&stick)),
-            Self::StopSharing(stick) => format!("stop:{}", stick_hex(&stick)),
-            Self::StartSharing(stick) => format!("start:{}", stick_hex(&stick)),
-            Self::NewStick => "new-stick".to_owned(),
+            Self::Show(Shows::Sending(stick)) => format!("sending:{}", stick_hex(&stick)),
+            Self::Show(Shows::Received(stick)) => format!("received:{}", stick_hex(&stick)),
+            Self::Send => "send".to_owned(),
+            Self::Receive => "receive".to_owned(),
             Self::About => "about".to_owned(),
             Self::StartAtLogin => "start-at-login".to_owned(),
             Self::Quit => "quit".to_owned(),
@@ -78,7 +81,8 @@ impl Action {
         match id.split_once(':') {
             None => match id {
                 "open" => Some(Self::Open),
-                "new-stick" => Some(Self::NewStick),
+                "send" => Some(Self::Send),
+                "receive" => Some(Self::Receive),
                 "about" => Some(Self::About),
                 "start-at-login" => Some(Self::StartAtLogin),
                 "quit" => Some(Self::Quit),
@@ -87,10 +91,8 @@ impl Action {
             Some((what, hex)) => {
                 let stick = stick_id(hex).ok()?;
                 match what {
-                    "share" => Some(Self::Share(stick)),
-                    "mount" => Some(Self::Mount(stick)),
-                    "stop" => Some(Self::StopSharing(stick)),
-                    "start" => Some(Self::StartSharing(stick)),
+                    "sending" => Some(Self::Show(Shows::Sending(stick))),
+                    "received" => Some(Self::Show(Shows::Received(stick))),
                     _ => None,
                 }
             }
@@ -102,80 +104,43 @@ impl Action {
 #[derive(Debug, PartialEq, Eq)]
 enum Line {
     Item(String, Action),
-    /// A stick: its label and its submenu.
-    Stick(String, Vec<(String, Action)>),
-    /// Says something; nothing to choose.
-    Note(String),
     /// An item with a check mark, on or off.
     Check(String, bool, Action),
     Separator,
 }
 
-/// The Eject / Mount item's text.
-fn mount_label(mounted: bool) -> &'static str {
-    if mounted {
-        "Eject"
-    } else {
-        "Mount"
-    }
-}
-
-/// The Stop sharing / Start sharing item's text.
-fn sharing_label(sharing: bool) -> &'static str {
-    if sharing {
-        "Stop sharing…"
-    } else {
-        "Start sharing"
-    }
-}
-
-/// The whole tray menu, for the app's sticks (oldest first) and whether
-/// the app starts at login.
-fn menu_lines(sticks: &[TrayStick], start_at_login: bool) -> Vec<Line> {
+/// The whole tray menu, for what is sent and received (in the home's
+/// order) and whether the app starts at login.
+fn menu_lines(things: &[TrayThing], start_at_login: bool) -> Vec<Line> {
     let mut lines = vec![Line::Item("Open OurStick".to_owned(), Action::Open)];
-    if !sticks.is_empty() {
+    if !things.is_empty() {
         lines.push(Line::Separator);
     }
-    for stick in sticks {
-        if let Some(doing) = stick.doing {
-            lines.push(Line::Note(format!("{} \u{2014} {doing}", stick.name)));
-            continue;
-        }
-        let state = if stick.sharing {
-            "sharing"
-        } else {
-            "not sharing"
-        };
-        lines.push(Line::Stick(
-            format!("{} \u{2014} {state}", stick.name),
-            vec![
-                ("Share…".to_owned(), Action::Share(stick.id)),
-                (
-                    mount_label(stick.mounted).to_owned(),
-                    Action::Mount(stick.id),
-                ),
-                (
-                    sharing_label(stick.sharing).to_owned(),
-                    if stick.sharing {
-                        Action::StopSharing(stick.id)
-                    } else {
-                        Action::StartSharing(stick.id)
-                    },
-                ),
-            ],
+    for thing in things {
+        lines.push(Line::Item(
+            format!("{} \u{2014} {}", thing.name, thing.words),
+            Action::Show(thing.shows),
         ));
     }
     lines.push(Line::Separator);
-    lines.push(Line::Item("New stick…".to_owned(), Action::NewStick));
+    lines.push(Line::Item("Send…".to_owned(), Action::Send));
+    lines.push(Line::Item("Receive…".to_owned(), Action::Receive));
     lines.push(Line::Separator);
     lines.push(Line::Item("About OurStick".to_owned(), Action::About));
     lines.push(Line::Check(
-        "Start at login".to_owned(),
+        "Open when the computer starts".to_owned(),
         start_at_login,
         Action::StartAtLogin,
     ));
-    lines.push(Line::Item("Quit".to_owned(), Action::Quit));
+    lines.push(Line::Item("Quit…".to_owned(), Action::Quit));
     lines
+}
+
+/// What the window is asked to show: a thing's view, Send or Receive.
+#[derive(Debug, Clone, serde::Serialize)]
+struct WindowShows {
+    kind: &'static str,
+    id: Option<String>,
 }
 
 fn act(app: &AppHandle, action: Action) {
@@ -190,27 +155,27 @@ fn act(app: &AppHandle, action: Action) {
         show_main(app);
         return;
     }
+    let shows = |kind, id: Option<&StickId>| {
+        show_main(app);
+        app.emit_to(
+            "main",
+            "show",
+            WindowShows {
+                kind,
+                id: id.map(stick_hex),
+            },
+        )
+        .map_err(anyhow::Error::from)
+    };
     let result = match action {
         Action::Open => {
             show_main(app);
             Ok(())
         }
-        Action::Share(stick) => share::open(app, &stick),
-        Action::Mount(stick) => {
-            toggle_mount(app, stick);
-            Ok(())
-        }
-        Action::StopSharing(stick) => dialog::open(app, dialog::Mode::StopSharing(stick)),
-        Action::StartSharing(stick) => {
-            start(app, stick);
-            Ok(())
-        }
-        Action::NewStick => {
-            show_main(app);
-            // The window asks for the new stick's name.
-            app.emit_to("main", "new-stick", ())
-                .map_err(anyhow::Error::from)
-        }
+        Action::Show(Shows::Sending(stick)) => shows("sending", Some(&stick)),
+        Action::Show(Shows::Received(stick)) => shows("received", Some(&stick)),
+        Action::Send => shows("send", None),
+        Action::Receive => shows("receive", None),
         Action::About => crate::about::open(app),
         Action::StartAtLogin => {
             toggle_start_at_login(app);
@@ -249,68 +214,6 @@ pub fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         crate::windows::bring_forward(&window);
     }
-}
-
-/// Tells the window about a problem of `stick_id` it cannot otherwise see.
-fn problem(app: &AppHandle, stick_id: StickId, message: String) {
-    crate::problems::failed(app, Some(stick_id), message);
-}
-
-fn toggle_mount(app: &AppHandle, stick_id: StickId) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        if crate::sharing::is_busy(&state, &stick_id).await {
-            return problem(
-                &app,
-                stick_id,
-                "The stick is busy; try again in a moment.".to_owned(),
-            );
-        }
-        let stick = match state.stick_now(&stick_id).await {
-            Ok(stick) => stick,
-            Err(error) => return problem(&app, stick_id, crate::words::told(&error)),
-        };
-        // The disk is read and `hdiutil`/`subst` run off the async runtime.
-        let Ok(ejected) = tauri::async_runtime::spawn_blocking(move || {
-            crate::drive::is_mounted(&stick).then(|| crate::drive::eject(&stick))
-        })
-        .await
-        else {
-            return;
-        };
-        match ejected {
-            Some(ejected) => {
-                if let Err(error) = ejected {
-                    tracing::warn!(error = %format!("{error:#}"), "eject failed");
-                    problem(&app, stick_id, crate::words::told(&error));
-                }
-                let _ = app.emit("mount-changed", ());
-                crate::sharing::refresh_tray(&app).await;
-            }
-            None => crate::sharing::mount_and_share(&app, stick_id),
-        }
-    });
-}
-
-/// "Start sharing": wanted shared from now on, then shared; a busy stick
-/// says so.
-fn start(app: &AppHandle, stick_id: StickId) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        if crate::sharing::is_busy(&state, &stick_id).await {
-            return problem(
-                &app,
-                stick_id,
-                "The stick is busy; try again in a moment.".to_owned(),
-            );
-        }
-        match state.set_sharing_wanted(&stick_id, true).await {
-            Ok(()) => crate::sharing::start_sharing(&app, stick_id).await,
-            Err(error) => problem(&app, stick_id, crate::words::told(&error)),
-        }
-    });
 }
 
 #[cfg(test)]

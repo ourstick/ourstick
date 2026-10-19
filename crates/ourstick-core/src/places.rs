@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 use crate::stick_id::StickId;
 use crate::store::{StickKind, Store, StoreError};
 
+mod sending;
+
+pub use sending::{may_send, Ask, MaySend, SendRules};
+
 /// How two places relate, for a message: `a` is, contains or lies inside `b`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Relation {

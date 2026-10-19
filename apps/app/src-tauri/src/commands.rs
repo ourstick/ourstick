@@ -2,14 +2,12 @@
 //! errors reach the UI as text meant for users.
 
 use anyhow::Result;
-use ourstick_core::device;
-use ourstick_core::secrets::check_secret_store;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::drive;
-use crate::sharing::{mount_and_share, start_sharing_later};
+use crate::sharing::mount_and_share;
 use crate::state::{stick_id as stick_id_of, AppState};
 
 /// An error as the UI shows it.
@@ -30,7 +28,6 @@ pub(crate) async fn blocking<T: Send + 'static>(
 #[derive(Debug, Serialize)]
 pub struct AppStateView {
     platform: &'static str,
-    first_launch: bool,
     /// The Local Network step comes first (ADR 0020, macOS).
     explain_local_network: bool,
     /// The keys' move to the data protection keychain comes first, with how
@@ -40,16 +37,6 @@ pub struct AppStateView {
 
 #[tauri::command]
 pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, String> {
-    // Neither a stick of one's own nor one received in the window.
-    let store = state.store.clone();
-    let receives = blocking(move || {
-        Ok(store
-            .joined_sticks()?
-            .iter()
-            .any(|stick| stick.kind == ourstick_core::StickKind::App))
-    })
-    .await?;
-    let first_launch = state.sticks_now().await.map_err(shown)?.is_empty() && !receives;
     let explain_local_network = !*state.network_open.borrow();
     let move_keys = if state.keys_wait.load(std::sync::atomic::Ordering::Relaxed) {
         let store = state.store.clone();
@@ -59,53 +46,9 @@ pub async fn app_state(state: State<'_, AppState>) -> Result<AppStateView, Strin
     };
     Ok(AppStateView {
         platform: std::env::consts::OS,
-        first_launch,
         explain_local_network,
         move_keys,
     })
-}
-
-/// First launch: this device's keys (made once), and the first stick,
-/// called `name`. It has no size: what it holds is what the computer has
-/// room for (ADR 0008).
-#[tauri::command]
-pub async fn plug_in(
-    name: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    if !state.sticks_now().await.map_err(shown)?.is_empty() {
-        return Ok(());
-    }
-    let data_dir = state.data_dir.clone();
-    let store = state.store.clone();
-    let explained = state
-        .local_network_explained
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let made = blocking(move || {
-        let secrets = crate::keys::secrets(store.as_ref())?;
-        check_secret_store(secrets.as_ref())?;
-        let backend = crate::keys::backend(store.as_ref())?;
-        // One program makes the device and the stick at a time.
-        let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
-        device::open_device(store.as_ref(), &data_dir, secrets.as_ref(), backend)?;
-        if explained {
-            store.set_local_network_explained()?;
-        }
-        if !crate::state::app_sticks(store.as_ref())?.is_empty() {
-            return Ok(None);
-        }
-        let name = ourstick_core::stick_names::new_stick_name(&name, &[])?;
-        let made = crate::making::make_stick(store.as_ref(), secrets.as_ref(), &data_dir, &name)?;
-        Ok(Some(made))
-    })
-    .await?;
-    let _ = app.emit("mount-changed", ());
-    if let Some(made) = made {
-        crate::stick_life_commands::tell_unplugged(&app, made.stick_id, made.unplugged);
-        start_sharing_later(&app, made.stick_id);
-    }
-    Ok(())
 }
 
 /// Ejects a stick (detaches the image, or takes it out of the sidebar).

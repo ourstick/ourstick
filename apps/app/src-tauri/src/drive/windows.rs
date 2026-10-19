@@ -39,7 +39,7 @@ fn subst_letters_in(output: &[u8]) -> Vec<char> {
 pub mod platform {
     use super::*;
     use crate::drive::pane::platform as pane;
-    use crate::drive::{folder_is_there, home, no_window, Renamed, NAME};
+    use crate::drive::{home, no_window, Renamed, NAME};
     use anyhow::{bail, Context, Result};
     use ourstick_core::manifest::DRIVE_MARKER;
     use ourstick_core::OwnedStick;
@@ -112,25 +112,6 @@ pub mod platform {
     /// Where the app's sticks are: `%USERPROFILE%\OurStick`, a folder each.
     pub fn sticks_home() -> Result<PathBuf> {
         Ok(home()?.join(NAME))
-    }
-
-    /// Makes the folder of a new stick, `%USERPROFILE%\OurStick\<folder>`,
-    /// ([`mount`] gives it a letter once it is marked). The folder must be new (the
-    /// caller picks a free name); the first stick of an older version,
-    /// `%USERPROFILE%\OurStick` itself, must have moved into it first.
-    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
-        let home = sticks_home()?;
-        if folder_is_there(&home) {
-            bail!(
-                "the first stick is still {}; it moves first",
-                home.display()
-            );
-        }
-        std::fs::create_dir_all(&home)
-            .with_context(|| format!("cannot create {}", home.display()))?;
-        let root = home.join(folder);
-        std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
-        Ok((root, None))
     }
 
     /// Gives the stick its letter again (the one it had, if free), and

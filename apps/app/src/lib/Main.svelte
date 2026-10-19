@@ -1,8 +1,10 @@
 <script lang="ts">
+  // The window (ADR 0028): one column. Home, then a screen at a time, each
+  // with `‹ Back` to Home.
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
-  import { openAbout, startAtLogin, startAtLoginTold } from "./aboutApi";
+  import { openAbout, setStartAtLogin, startAtLogin, startAtLoginTold } from "./aboutApi";
   import {
     appProblem,
     dismissAppProblem,
@@ -15,33 +17,39 @@
     type StickEntry,
   } from "./api";
   import AddLink from "./AddLink.svelte";
-  import ReceivedList from "./ReceivedList.svelte";
+  import Home from "./Home.svelte";
+  import LinkReady from "./LinkReady.svelte";
   import ReceivedView from "./ReceivedView.svelte";
-  import WaitingView from "./WaitingView.svelte";
-  import StickList from "./StickList.svelte";
+  import SendView from "./SendView.svelte";
   import StickView from "./StickView.svelte";
+  import WaitingView from "./WaitingView.svelte";
   import type { Outcome } from "./StickAsk.svelte";
 
   let { startAdding = false }: { startAdding?: boolean } = $props();
 
-  /** The app's sticks (ADR 0009), oldest first, and those it receives. */
-  let entries = $state<StickEntry[]>([]);
+  let sending = $state<StickEntry[]>([]);
   let receivedEntries = $state<ReceivedEntry[]>([]);
-  /** What the right pane shows. */
-  type Shown = { kind: "own"; id: string } | { kind: "received"; id: string } | { kind: "add" } | null;
-  // The window opened to receive (first launch, "I got a sharing link").
+  /** The screen shown. */
+  type Shown =
+    | { kind: "home" }
+    | { kind: "send" }
+    | { kind: "link"; id: string }
+    | { kind: "sending"; id: string }
+    | { kind: "received"; id: string }
+    | { kind: "receive" };
   // svelte-ignore state_referenced_locally
-  let shown = $state<Shown>(startAdding ? { kind: "add" } : null);
-  let selected = $derived(shown?.kind === "own" ? shown.id : null);
-  let selectedReceived = $derived(shown?.kind === "received" ? shown.id : null);
-  let receivedShown = $derived(receivedEntries.find((entry) => entry.id === selectedReceived) ?? null);
-  let creating = $state(false);
+  let shown = $state<Shown>(startAdding ? { kind: "receive" } : { kind: "home" });
+  let receivedShown = $derived.by(() => {
+    const now = shown;
+    return now.kind === "received" ? (receivedEntries.find((entry) => entry.id === now.id) ?? null) : null;
+  });
   let failure = $state<string | null>(null);
-  /** Shown at the bottom of the sidebar, so a report can say which one. */
+  /** Shown at the bottom, so a report can say which one. */
   let version = $state("");
-  /** Said once: the app starts at login, and how to turn it off (ADR 0024). */
+  /** Said once: the app starts at login, with its check (ADR 0024). */
   let loginNotice = $state(false);
-  /** A problem of the whole app, not of one stick. */
+  let loginOn = $state(true);
+  /** A problem of the whole app, not of one thing. */
   let problem = $state<ShareProblem | null>(null);
   /** Answers to an older look are dropped: they arrive in any order. */
   let looks = 0;
@@ -51,24 +59,24 @@
     try {
       const [loaded, coming, appWide] = await Promise.all([sticks(), received(), appProblem()]);
       if (look !== looks) return;
-      entries = loaded;
+      sending = loaded;
       receivedEntries = coming;
       problem = appWide;
       failure = null;
-      // What is shown stays, if it is still there; else the first stick.
+      // A screen of something no longer here goes back home.
       const now = shown;
-      const there =
-        now?.kind === "add" ||
-        (now?.kind === "own" && entries.some((entry) => entry.id === now.id)) ||
-        (now?.kind === "received" && receivedEntries.some((entry) => entry.id === now.id));
-      if (!there) {
-        const first = entries[0]?.id ?? null;
-        const firstReceived = receivedEntries[0]?.id ?? null;
-        shown = first ? { kind: "own", id: first } : firstReceived ? { kind: "received", id: firstReceived } : null;
-      }
+      const gone =
+        ((now.kind === "sending" || now.kind === "link") && !sending.some((entry) => entry.id === now.id)) ||
+        (now.kind === "received" && !receivedEntries.some((entry) => entry.id === now.id));
+      if (gone) shown = { kind: "home" };
     } catch (error) {
       if (look === looks) failure = String(error);
     }
+  }
+
+  function home() {
+    shown = { kind: "home" };
+    refresh();
   }
 
   async function dismiss() {
@@ -76,31 +84,29 @@
     await dismissAppProblem().catch((error) => (failure = String(error)));
   }
 
-  async function select(stickId: string) {
-    shown = { kind: "own", id: stickId };
-    await refresh();
-  }
-
-  async function selectReceived(stickId: string) {
-    shown = { kind: "received", id: stickId };
-    await refresh();
-  }
-
   function followed(outcome: Outcome) {
-    // A new link is a new stick id: the view follows it.
-    if (outcome?.kind === "new-link") shown = { kind: "own", id: outcome.id };
+    // A new link is a new id: the view follows it.
+    if (outcome?.kind === "new-link") shown = { kind: "sending", id: outcome.id };
     refresh();
   }
 
   getVersion().then((v) => (version = v)).catch(() => {});
   startAtLogin()
-    .then((login) => (loginNotice = login.on && !login.told))
+    .then((login) => {
+      loginOn = login.on;
+      loginNotice = login.on && !login.told;
+    })
     .catch(() => {});
+
+  async function loginChecked() {
+    await setStartAtLogin(loginOn).catch((error) => (failure = String(error)));
+  }
 
   function loginNoticeRead() {
     loginNotice = false;
     startAtLoginTold().catch(() => {});
   }
+
   onMount(() => {
     refresh();
     const stops = [
@@ -109,27 +115,30 @@
       listen("mount-changed", refresh),
       listen("problems-changed", refresh),
       listen("received-changed", refresh),
-      // The list shows who downloads, not how fast: only a new count matters.
+      // The list shows who gets it, not how fast: only a new count matters.
       listen<About<Activity>>("activity", (event) => {
-        const shown = entries.find((entry) => entry.id === event.payload.stick_id);
-        if (shown && shown.readers !== event.payload.readers) refresh();
+        const entry = sending.find((entry) => entry.id === event.payload.stick_id);
+        if (entry && entry.readers !== event.payload.readers) refresh();
       }),
-      // "New stick…" from the tray.
-      listen("new-stick", () => (creating = true)),
+      // "Send…" from the tray.
+      listen("new-stick", () => (shown = { kind: "send" })),
     ];
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });
 </script>
 
 <main class="card window">
-  {#if loginNotice}
-    <p class="login-notice" role="status">
-      <span>
-        OurStick opens when you log in, so that your sticks are shared after a restart. You can turn
-        this off in the tray menu or in About.
+  {#if loginNotice && shown.kind === "home"}
+    <div class="login-notice" role="status">
+      <span class="text">
+        OurStick opens by itself when you turn on the computer, so what you send keeps going.
+        <label>
+          <input type="checkbox" bind:checked={loginOn} onchange={loginChecked} />
+          Open OurStick when the computer starts
+        </label>
       </span>
       <button onclick={loginNoticeRead}>OK</button>
-    </p>
+    </div>
   {/if}
   {#if problem?.kind === "failed"}
     <p class="app-problem error" role="alert">
@@ -137,81 +146,97 @@
       <button class="close" aria-label="Close" onclick={dismiss}>×</button>
     </p>
   {/if}
-  <div class="panes">
-    <div class="side">
-      <StickList {entries} {selected} bind:creating onSelect={select} />
-      <ReceivedList
-        entries={receivedEntries}
-        selected={selectedReceived}
-        adding={shown?.kind === "add"}
-        onSelect={selectReceived}
-        onAdd={() => (shown = { kind: "add" })}
+
+  <div class="screen">
+    {#if shown.kind === "home"}
+      <Home
+        {sending}
+        received={receivedEntries}
+        onSend={() => (shown = { kind: "send" })}
+        onReceive={() => (shown = { kind: "receive" })}
+        onOpenSending={(id) => (shown = { kind: "sending", id })}
+        onOpenReceived={(id) => (shown = { kind: "received", id })}
       />
-      {#if version}
-        <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
-      {/if}
-    </div>
-    {#if shown?.kind === "own"}
-      {#key shown.id}
-        <StickView stickId={shown.id} onOutcome={followed} />
+    {:else if shown.kind === "send"}
+      <SendView onBack={home} onSent={(id) => ((shown = { kind: "link", id }), refresh())} />
+    {:else if shown.kind === "link"}
+      {@const id = shown.id}
+      {#key id}
+        <LinkReady stickId={id} onBack={home} onSeeWho={() => (shown = { kind: "sending", id })} />
       {/key}
-    {:else if shown?.kind === "received" && receivedShown}
-      {#key shown.id}
-        {#if receivedShown.waiting}
-          <WaitingView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
-        {:else}
-          <ReceivedView entry={receivedShown} onForgotten={() => ((shown = null), refresh())} />
-        {/if}
-      {/key}
-    {:else if shown?.kind === "add"}
-      <AddLink onAdded={selectReceived} onCancel={() => ((shown = null), refresh())} />
-    {:else if failure}
-      <p class="error">{failure}</p>
     {:else}
-      <p class="muted empty">No stick yet: make one with “New stick…”, or add a sharing link someone sent you.</p>
+      <button class="back" onclick={home}>‹ Back</button>
+      {#if shown.kind === "sending"}
+        {#key shown.id}
+          <StickView stickId={shown.id} onOutcome={followed} />
+        {/key}
+      {:else if shown.kind === "received" && receivedShown}
+        {#key shown.id}
+          {#if receivedShown.waiting}
+            <WaitingView entry={receivedShown} onForgotten={home} />
+          {:else}
+            <ReceivedView entry={receivedShown} onForgotten={home} />
+          {/if}
+        {/key}
+      {:else if shown.kind === "receive"}
+        <AddLink onAdded={(id) => ((shown = { kind: "received", id }), refresh())} onCancel={home} />
+      {/if}
     {/if}
+    {#if failure}<p class="error">{failure}</p>{/if}
   </div>
+
+  {#if version && shown.kind === "home"}
+    <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+  {/if}
 </main>
 
 <style>
   .window {
     gap: 12px;
   }
-  .panes {
-    display: flex;
-    gap: 16px;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .side {
-    width: 190px;
-    flex-shrink: 0;
+  .screen {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
+    flex: 1 1 auto;
     min-height: 0;
-    padding-right: 12px;
-    border-right: 1px solid var(--border);
     overflow-y: auto;
+  }
+  .back {
+    align-self: flex-start;
+    border: none;
+    background: none;
+    padding: 0;
+    min-height: 0;
+    color: var(--accent);
+    cursor: pointer;
   }
   .login-notice {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    margin: 0;
-    padding: 8px 10px;
+    padding: 10px 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--accent) 8%, var(--card));
   }
+  .login-notice .text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .login-notice label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .version {
-    margin: auto 0 0;
+    align-self: flex-start;
     padding: 0;
     border: none;
     background: none;
     min-height: 0;
-    text-align: left;
     font-size: 0.8em;
     cursor: pointer;
   }
@@ -228,8 +253,5 @@
   }
   .close {
     padding: 0 8px;
-  }
-  .empty {
-    margin: auto;
   }
 </style>

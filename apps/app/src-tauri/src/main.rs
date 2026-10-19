@@ -13,7 +13,6 @@ mod inhibit;
 mod keys;
 mod local_network;
 mod login;
-mod making;
 #[cfg(target_os = "macos")]
 mod menu;
 mod problems;
@@ -190,11 +189,9 @@ fn main() {
             local_network::local_network_explained,
             local_network::open_local_network_settings,
             commands::move_keys,
-            commands::plug_in,
             stick_commands::stick,
             stick_life_commands::sticks,
             stick_life_commands::new_link,
-            stick_life_commands::new_stick,
             stick_life_commands::rename,
             problems::app_problem,
             receiving::list::received,

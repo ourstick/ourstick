@@ -236,39 +236,6 @@ async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), S
     moved
 }
 
-/// "New stick…": a stick called `name`, its own folder (or image) shown as
-/// a drive, its own keys and link, shared at once. Returns its id.
-#[tauri::command]
-pub async fn new_stick(
-    name: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    move_first_if_needed(&app, &state).await?;
-    let store = state.store.clone();
-    let data_dir = state.data_dir.clone();
-    let made = blocking(move || {
-        crate::keys::ensure_device(store.as_ref(), &data_dir)?;
-        let secrets = crate::keys::secrets(store.as_ref())?;
-        // One program makes a stick at a time: names and folders stay
-        // unique.
-        let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
-        let others = crate::state::app_sticks(store.as_ref())?;
-        let name = new_stick_name(&name, &others)?;
-        crate::making::make_stick(store.as_ref(), secrets.as_ref(), &data_dir, &name)
-    })
-    .await;
-    let _ = app.emit("sticks-changed", ());
-    let _ = app.emit("mount-changed", ());
-    refresh_tray(&app).await;
-    let made = made?;
-    // The device may be new: the Local Network step is kept with it.
-    crate::local_network::remember(&state);
-    tell_unplugged(&app, made.stick_id, made.unplugged);
-    start_sharing_later(&app, made.stick_id);
-    Ok(stick_hex(&made.stick_id))
-}
-
 /// "Rename…": the stick gets the name `name` (stored in one form, unique
 /// among the app's sticks), its folder or volume and its bookmark or letter
 /// follow, and readers see the new name with its next version. Its share

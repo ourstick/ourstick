@@ -102,8 +102,8 @@ fn without_xbel_bookmark(content: &str, uri: &str) -> String {
 #[cfg(target_os = "linux")]
 pub mod platform {
     use super::*;
-    use crate::drive::{folder_is_there, home, Renamed, NAME};
-    use anyhow::{bail, Context, Result};
+    use crate::drive::{home, Renamed, NAME};
+    use anyhow::{Context, Result};
     use ourstick_core::OwnedStick;
     use std::path::PathBuf;
 
@@ -198,25 +198,6 @@ pub mod platform {
     /// Where the app's sticks are: `~/OurStick`, a folder each.
     pub fn sticks_home() -> Result<PathBuf> {
         Ok(home()?.join(NAME))
-    }
-
-    /// Makes the folder of a new stick, `~/OurStick/<folder>`; [`mount`]
-    /// puts it in the sidebar once it is marked. The folder must be new (the
-    /// caller picks a free name); the first stick of an older version,
-    /// `~/OurStick` itself, must have moved into it first.
-    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
-        let home = sticks_home()?;
-        if folder_is_there(&home) {
-            bail!(
-                "the first stick is still {}; it moves first",
-                home.display()
-            );
-        }
-        std::fs::create_dir_all(&home)
-            .with_context(|| format!("cannot create {}", home.display()))?;
-        let root = home.join(folder);
-        std::fs::create_dir(&root).with_context(|| format!("cannot create {}", root.display()))?;
-        Ok((root, None))
     }
 
     /// Puts the stick in the sidebar; the folder itself is always there.

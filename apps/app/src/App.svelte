@@ -1,6 +1,5 @@
 <script lang="ts">
   import { appState, type AppState } from "./lib/api";
-  import FirstLaunch from "./lib/FirstLaunch.svelte";
   import LocalNetworkStep from "./lib/LocalNetworkStep.svelte";
   import KeysMoveStep from "./lib/KeysMoveStep.svelte";
   import Main from "./lib/Main.svelte";
@@ -14,8 +13,6 @@
   const [page, pageStick] = location.hash.split("/");
 
   let app = $state<AppState | null>(null);
-  /** First launch, "I got a sharing link": straight to adding it. */
-  let receiving = $state(false);
   let failure = $state<string | null>(null);
 
   async function load() {
@@ -46,8 +43,7 @@
   <KeysMoveStep keys={app.move_keys} onDone={load} />
 {:else if app?.explain_local_network}
   <LocalNetworkStep onDone={load} />
-{:else if app?.first_launch && !receiving}
-  <FirstLaunch onDone={load} onReceive={() => (receiving = true)} />
 {:else if app}
-  <Main startAdding={receiving} />
+  <!-- The first start shows Home with its welcome: it makes nothing. -->
+  <Main />
 {/if}

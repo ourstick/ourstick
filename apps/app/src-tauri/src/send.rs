@@ -11,7 +11,7 @@ use ourstick_core::places::{
     app_places, may_send, measure as measure_path, Ask, MaySend, Measured, SendRules,
 };
 use ourstick_core::stick_life::remove_stick;
-use ourstick_core::stick_names::new_stick_name;
+use ourstick_core::stick_names::{new_stick_name, NameError};
 use ourstick_core::LinkedEntry;
 use ourstick_core::Store;
 use serde::Serialize;
@@ -28,6 +28,7 @@ pub struct Verdict {
     path: String,
     /// What it is called in the list (its last name).
     name: String,
+    is_dir: bool,
     /// "fine", "ask" or "refuse".
     kind: &'static str,
     /// Refused: why, for the user.
@@ -55,6 +56,7 @@ fn verdicts(
         let verdict = |kind, why, ask, question| Verdict {
             path: text.clone(),
             name: name.clone(),
+            is_dir: path.is_dir(),
             kind,
             why,
             ask,
@@ -194,6 +196,16 @@ pub(crate) fn check_adding(
     check_all(paths, rules, taken)
 }
 
+/// Why a name cannot be used, in the window's words (it never says stick).
+fn name_words(error: &NameError) -> &'static str {
+    match error {
+        NameError::Empty => "Give it a name first.",
+        NameError::TooLong => "The name can have at most 60 characters.",
+        NameError::BadCharacter => "The name cannot hold invisible characters.",
+        NameError::Taken(_) => "You already send something with this name. Choose another.",
+    }
+}
+
 /// "Get the link": a new stick called `name`, with no folder of its own,
 /// sending `paths` from where they are; all or none. Shared at once.
 /// Returns its id.
@@ -217,7 +229,7 @@ pub async fn send(
         // One program makes a stick at a time: names stay unique.
         let _setup = ourstick_core::locks::setup_lock(&data_dir)?;
         let others = crate::state::app_sticks(store.as_ref())?;
-        let name = new_stick_name(&name, &others)?;
+        let name = new_stick_name(&name, &others).map_err(|error| anyhow::anyhow!(name_words(&error)))?;
         let keys = ourstick_core::device::create_sending_stick(store.as_ref(), secrets.as_ref(), &data_dir, &name)?;
         let id = keys.stick.stick_id;
         let linked = (|| -> Result<()> {

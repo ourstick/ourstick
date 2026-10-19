@@ -12,6 +12,8 @@
   --accent: #3584e4;
   --accent-text: #ffffff;
   --danger: #e01b24;
+  /* Amber: it works, but something could be better (gui-spec, Messages). */
+  --warning: #8a5300;
   --radius: 8px;
   --button-radius: 6px;
   --button-height: 34px;
@@ -24,6 +26,7 @@
     --border: #3a3a3a;
     --text: #f0f0f0;
     --muted: #b0b0b0;
+    --warning: #e3b341;
   }
 }
 
@@ -223,6 +226,49 @@ select:disabled {
 
 .error {
   color: var(--danger);
+}
+
+.warning {
+  color: var(--warning);
+}
+
+/* A dialog over the window: the safe choice is the blue button. */
+.dialog-back {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 35%);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+  padding: 20px 22px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 25%);
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 1.2em;
+}
+
+.dialog p {
+  margin: 0;
+}
+
+button.danger-outline {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--card);
 }
 
 /* A menu that drops down from a button (the drive pill, a stick's "⋯"). */

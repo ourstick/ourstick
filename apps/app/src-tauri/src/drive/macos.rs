@@ -131,38 +131,6 @@ pub mod platform {
             .with_context(|| format!("cannot measure the disk of {}", image.display()))
     }
 
-    /// Makes the disk image of a new stick, as large as its disk (sparse),
-    /// its volume called `folder`, under a name of its own (recorded with
-    /// the stick, never derived again), and attaches it.
-    pub fn create(folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
-        let suffix: String = ourstick_core::device::random_key()[..8]
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        let image = images()?.join(format!("stick-{suffix}.sparseimage"));
-        if image.exists() {
-            bail!("{} already exists; try again", image.display());
-        }
-        std::fs::create_dir_all(images()?)?;
-        let size = format!("{}b", sectors(disk_size(&image)?));
-        hdiutil(&[
-            "create".as_ref(),
-            "-type".as_ref(),
-            "SPARSE".as_ref(),
-            "-fs".as_ref(),
-            "APFS".as_ref(),
-            "-volname".as_ref(),
-            folder.as_ref(),
-            "-size".as_ref(),
-            size.as_ref(),
-            image.as_os_str(),
-        ])?;
-        let root = attach(&image)?;
-        // Spotlight leaves the stick alone (its files never go into a stick).
-        std::fs::write(root.join(".metadata_never_index"), b"")?;
-        Ok((root, Some(image)))
-    }
-
     fn attach(image: &Path) -> Result<PathBuf> {
         let plist = hdiutil(&["attach".as_ref(), "-plist".as_ref(), image.as_os_str()])?;
         mount_point_in(&plist).context("hdiutil attached the stick but named no mount point")
@@ -220,12 +188,6 @@ pub mod platform {
         hdiutil(&["detach".as_ref(), device.as_ref()])
             .context("cannot eject the stick; if a file on it is open, close it and try again")?;
         Ok(())
-    }
-
-    /// Detaches the image mounted at `root` (a stick that could not be
-    /// made). Best effort.
-    pub fn detach_at(root: &Path) {
-        let _ = hdiutil(&["detach".as_ref(), root.as_os_str()]);
     }
 
     /// Renames the stick's volume to `folder` (`diskutil rename`); macOS

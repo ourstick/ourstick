@@ -78,3 +78,11 @@ fn what_the_stick_sends_already_takes_its_name() {
     assert!(check_all(&[text(home.join("Pictures/Photos"))], rules.clone(), taken).is_err());
     assert!(check_all(&[text(home.join("Pictures/Photos"))], rules, Vec::new()).is_ok());
 }
+
+#[test]
+fn a_name_taken_is_said_without_stick() {
+    assert_eq!(
+        name_words(&NameError::Taken("Holiday".to_owned())),
+        "You already send something with this name. Choose another."
+    );
+}

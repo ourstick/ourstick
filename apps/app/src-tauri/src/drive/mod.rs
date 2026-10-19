@@ -32,21 +32,6 @@ pub struct Renamed {
     pub unplugged: Option<String>,
 }
 
-/// Undoes [`create`] for a stick that could not be made: the folder (only
-/// if empty), or the disk image, detached and deleted. Best effort.
-pub fn discard(root: &Path, image: Option<&Path>) {
-    match image {
-        Some(image) => {
-            #[cfg(target_os = "macos")]
-            platform::detach_at(root);
-            let _ = std::fs::remove_file(image);
-        }
-        None => {
-            let _ = std::fs::remove_dir(root);
-        }
-    }
-}
-
 /// Where `root` is renamed to `folder`, next to itself. Refused if
 /// something else is there already (Linux would silently replace an empty
 /// folder), or if `root` is the first stick of an older version, which
@@ -96,9 +81,6 @@ mod platform {
     pub fn sticks_home() -> Result<PathBuf> {
         bail!("OurStick has no drive for this system yet")
     }
-    pub fn create(_folder: &str) -> Result<(PathBuf, Option<PathBuf>)> {
-        bail!("OurStick has no drive for this system yet")
-    }
     pub fn mount(stick: &OwnedStick) -> Result<PathBuf> {
         Ok(stick.root_path.clone())
     }
@@ -116,7 +98,7 @@ mod platform {
     }
 }
 
-pub use platform::{create, eject, is_mounted, mount, rename, sticks_home};
+pub use platform::{eject, is_mounted, mount, rename, sticks_home};
 
 /// A program to run on Windows without a console window flashing up: the
 /// app has none of its own, so each console program would open one.
@@ -281,14 +263,6 @@ pub fn measure_at(stick: &OwnedStick) -> Result<PathBuf> {
     }
     Ok(stick.root_path.clone())
 }
-
-/// Windows: the drive marker hidden (a dot does not hide a file there, and
-/// a user deleting it would make the stick look ejected). Elsewhere a dot
-/// hides it already.
-#[cfg(windows)]
-pub use platform::hide_marker;
-#[cfg(not(windows))]
-pub fn hide_marker(_root: &Path) {}
 
 /// The drive letter that shows the stick now (Windows); `None` elsewhere.
 #[cfg(windows)]

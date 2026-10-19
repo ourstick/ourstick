@@ -77,7 +77,7 @@ impl Owner {
     /// Like [`Owner::new`], with no files' keeper: nothing is served but the
     /// manifest, unless the test serves it itself.
     pub async fn bare(files: &[(&str, &[u8])]) -> Self {
-        Self::build(Network::LocalOnly, files, StickKind::Cli).await
+        Self::build(Network::LocalOnly, files, StickKind::Cli, true).await
     }
 
     /// Serves the files of `publisher` (a restarted owner's) for this
@@ -101,13 +101,26 @@ impl Owner {
         owner
     }
 
-    async fn with(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
-        let owner = Self::build(network, files, kind).await;
+    /// An app stick of ADR 0028: no folder of its own (an empty one), no
+    /// drive, no marker; only what is linked to it is sent.
+    pub async fn sending() -> Self {
+        let owner = Self::build(Network::LocalOnly, &[], StickKind::App, false).await;
         owner.keep(&owner.publisher);
         owner
     }
 
-    async fn build(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
+    async fn with(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
+        let owner = Self::build(network, files, kind, true).await;
+        owner.keep(&owner.publisher);
+        owner
+    }
+
+    async fn build(
+        network: Network,
+        files: &[(&str, &[u8])],
+        kind: StickKind,
+        has_own_folder: bool,
+    ) -> Self {
         let folder = tempfile::tempdir().unwrap();
         for (path, contents) in files {
             write_file(folder.path(), path, contents);
@@ -117,6 +130,7 @@ impl Owner {
         store
             .add_owned_stick(&OwnedStick {
                 kind,
+                has_own_folder,
                 ..OwnedStick::new(
                     signing_key.stick_id(),
                     "test stick",

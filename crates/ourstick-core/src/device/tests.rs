@@ -248,3 +248,55 @@ fn a_store_this_system_does_not_have_is_refused_not_replaced() {
     #[cfg(not(windows))]
     assert!(open_keyring(&SecretBackend::CredentialManager).is_err());
 }
+
+#[test]
+fn a_new_stick_to_send_has_an_empty_folder_named_by_its_id_and_no_drive() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let made = create_sending_stick(&store, &secrets, dir.path(), "Holiday 2025").unwrap();
+    let hex = data_encoding::HEXLOWER.encode(&made.stick.stick_id.to_bytes());
+    // By its id, so a rename never moves it.
+    assert_eq!(made.stick.root_path, dir.path().join("sent").join(hex));
+    assert_eq!(
+        std::fs::read_dir(&made.stick.root_path).unwrap().count(),
+        0,
+        "nothing writes to it"
+    );
+    assert_eq!(made.stick.name, "Holiday 2025");
+    assert_eq!(made.stick.kind, StickKind::App);
+    assert!(!made.stick.has_own_folder);
+    assert!(!made.stick.is_drive());
+    assert_eq!(
+        store.owned_stick(&made.stick.stick_id).unwrap(),
+        Some(made.stick.clone())
+    );
+    let loaded = load_stick(&store, &secrets, made.stick.clone()).unwrap();
+    assert_eq!(loaded.node_key, made.node_key);
+}
+
+#[test]
+fn only_an_app_stick_with_a_folder_of_its_own_is_a_drive() {
+    let store = MemoryStore::new();
+    let secrets = MemorySecretStore::new();
+    let app = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/s"),
+        "s",
+        StickKind::App,
+        None,
+    )
+    .unwrap();
+    let cli = create_stick(
+        &store,
+        &secrets,
+        Path::new("/tmp/t"),
+        "t",
+        StickKind::Cli,
+        None,
+    )
+    .unwrap();
+    assert!(app.stick.is_drive());
+    assert!(!cli.stick.is_drive());
+}

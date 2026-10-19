@@ -260,20 +260,14 @@ pub fn first_image() -> Option<PathBuf> {
 }
 
 /// What the app undoes for a stick being removed (ADR 0009 §5): its
-/// bookmark or drive letter, or its disk image, detached then deleted.
+/// bookmark or drive letter, or its disk image detached. Nothing is
+/// deleted: the folder, or the image, stays with the user's files (ADR
+/// 0028 §7).
 pub struct AppDrive;
 
 impl ourstick_core::stick_life::DriveOps for AppDrive {
     fn take_away(&self, stick: &ourstick_core::OwnedStick) -> Result<(), String> {
-        eject(stick).map_err(|error| crate::words::told(&error))?;
-        if let Some(image) = &stick.image_path {
-            match std::fs::remove_file(image) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(format!("cannot delete {}: {error}", image.display())),
-            }
-        }
-        Ok(())
+        eject(stick).map_err(|error| crate::words::told(&error))
     }
 }
 

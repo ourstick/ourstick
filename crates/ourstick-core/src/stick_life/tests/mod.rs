@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::device::{create_stick, load_stick};
+use crate::manifest::DRIVE_MARKER;
 use crate::secrets::MemorySecretStore;
 use crate::store::{Device, LinkedEntry, MemoryStore, SecretBackend};
 use crate::ticket::NodeId;
@@ -31,7 +32,8 @@ fn world() -> World {
     }
 }
 
-/// An app stick with copied files, a linked folder and a cache folder.
+/// An app stick made before ADR 0028: a folder of its own with files in
+/// it, a linked folder and a cache folder.
 fn app_stick(world: &World, name: &str) -> OwnedStick {
     let root = world.data.parent().unwrap().join("OurStick").join(name);
     std::fs::create_dir_all(root.join("photos")).unwrap();
@@ -68,7 +70,7 @@ fn has_secret(world: &World, name: SecretName) -> bool {
 }
 
 #[test]
-fn removing_an_app_stick_deletes_its_copies_only() {
+fn removing_an_old_app_stick_keeps_its_files_and_drops_its_marker() {
     let world = world();
     let going = app_stick(&world, "For Maria");
     let kept = app_stick(&world, "Family");
@@ -80,16 +82,99 @@ fn removing_an_app_stick_deletes_its_copies_only() {
         &NoDrive,
     )
     .unwrap();
-    assert!(!going.root_path.exists());
+    // ADR 0028 §7: a plain folder of the user's from now on.
+    assert!(going.root_path.join("photos/a.jpg").exists());
+    assert!(!going.root_path.join(DRIVE_MARKER).exists());
     assert!(
         world.linked.join("film.mkv").exists(),
         "a linked folder is never touched"
     );
     assert!(kept.root_path.join("photos/a.jpg").exists());
+    assert!(crate::share::drive_marked_by(
+        &kept.root_path,
+        &kept.stick_id
+    ));
     assert!(!has_secret(&world, SecretName::StickKey(going.stick_id)));
     assert!(has_secret(&world, SecretName::StickKey(kept.stick_id)));
     assert!(!cache_dir(&world.data, &going.stick_id).exists());
     assert_eq!(world.store.owned_sticks().unwrap(), [kept]);
+}
+
+#[test]
+fn a_marker_naming_another_stick_is_left_when_one_is_removed() {
+    let world = world();
+    let going = app_stick(&world, "For Maria");
+    let other = StickSigningKey::from_bytes(&[9; 32]).stick_id();
+    mark_drive(&going.root_path, &other).unwrap();
+    remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &going.stick_id,
+        &NoDrive,
+    )
+    .unwrap();
+    assert!(crate::share::drive_marked_by(&going.root_path, &other));
+}
+
+/// A drive that must never be asked for: a stick of ADR 0028 has none.
+struct NoDriveAtAll;
+
+impl DriveOps for NoDriveAtAll {
+    fn take_away(&self, stick: &OwnedStick) -> Result<(), String> {
+        panic!("{} has no drive to take away", stick.name)
+    }
+}
+
+/// A stick of ADR 0028: an empty folder of its id, and a linked folder.
+fn sending_stick(world: &World, name: &str) -> OwnedStick {
+    let keys = crate::device::create_sending_stick(&world.store, &world.secrets, &world.data, name)
+        .unwrap();
+    world
+        .store
+        .add_linked_entry(
+            &keys.stick.stick_id,
+            &LinkedEntry {
+                name: "Films".to_owned(),
+                path: world.linked.clone(),
+                is_dir: true,
+                disk: None,
+                added_at_ms: 1,
+            },
+        )
+        .unwrap();
+    keys.stick
+}
+
+#[test]
+fn removing_a_stick_with_no_folder_of_its_own_deletes_only_its_empty_folder() {
+    let world = world();
+    let going = sending_stick(&world, "Holiday 2025");
+    remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &going.stick_id,
+        &NoDriveAtAll,
+    )
+    .unwrap();
+    assert!(!going.root_path.exists());
+    assert!(world.linked.join("film.mkv").exists());
+    assert!(!has_secret(&world, SecretName::StickKey(going.stick_id)));
+    assert!(world.store.owned_sticks().unwrap().is_empty());
+}
+
+#[test]
+fn a_new_link_for_a_stick_with_no_folder_of_its_own_waits_for_no_marker() {
+    let world = world();
+    let old = sending_stick(&world, "Holiday 2025");
+    let new = give_new_link(&world.store, &world.secrets, &world.data, &old.stick_id).unwrap();
+    assert!(!new.stick.has_own_folder);
+    assert_eq!(new.stick.root_path, old.root_path);
+    assert!(!old.root_path.join(DRIVE_MARKER).exists());
+    // The old id is gone at once: no drive to wait for.
+    assert!(world.store.retired_sticks().unwrap().is_empty());
+    assert!(!has_secret(&world, SecretName::StickKey(old.stick_id)));
 }
 
 #[test]

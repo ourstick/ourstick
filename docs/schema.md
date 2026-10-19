@@ -152,7 +152,7 @@ Sticks this device owns. One row per stick.
 | `image_path`      | TEXT or NULL | macOS: the app stick's disk image, recorded once and never derived from its name or id |
 | `sharing_wanted`  | INTEGER  | 1 unless the user chose "Stop sharing" (kept across restarts) |
 | `has_own_folder`  | INTEGER  | 1 (every stick made before ADR 0028): `root_path` is the stick's own folder, which the app makes a drive (letter, bookmark, disk image) and marks. 0 (an app stick made since): `root_path` is an empty folder, `<data>/sent/<stick id hex>`, and the stick is only its linked entries; no drive, no marker |
-| `removing`        | INTEGER  | 1 while the stick is being removed: every read but `removing_sticks` leaves it out, so it is never shared again; the one place that finishes removals deletes its files (behind its drive marker), secrets and rows |
+| `removing`        | INTEGER  | 1 while the stick is being removed: every read but `removing_sticks` leaves it out, so it is never shared again; the one place that finishes removals takes its drive and marker away (its files stay, ADR 0028 §7; a stick without a folder of its own loses its empty folder), and deletes its secrets and rows |
 | `latest_partial`  | INTEGER  | 1 if `latest_record` is of a partial manifest (the owner was still reading its folder, ADR 0007), so a restarted owner goes on publishing partial versions until a complete one; else 0 |
 
 `last_signed_seq`, `latest_record` and `latest_partial` change together, in one statement that

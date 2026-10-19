@@ -17,7 +17,7 @@ use crate::disk::turns::{Readers, StopOnDrop};
 use crate::layout::StickLayout;
 use crate::manifest::hashing::{keep_only_outboards, outboards_dir};
 use crate::manifest::{name_for_manifest, Catalogue, Catalogued, Entry, Manifest};
-use crate::store::{OwnedFile, StickKind};
+use crate::store::OwnedFile;
 use crate::transport::Publisher;
 
 /// A part of the catalogue closes at this many files…
@@ -116,7 +116,7 @@ async fn pass(
     let root = owned.root_path.clone();
     // The app's stick is a drive: never publish an ejected one (an empty
     // mount point) as an empty stick.
-    let is_drive = owned.kind == StickKind::App;
+    let is_drive = owned.is_drive();
     if is_drive {
         let root = root.clone();
         run_blocking(move || check_drive(&root, &stick_id)).await?;

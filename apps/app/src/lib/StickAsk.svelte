@@ -76,8 +76,8 @@
   {:else}
     <strong>Remove “{name}”?</strong>
     <p>
-      Its sharing link stops working, and the files copied onto it are deleted from this computer. Folders shared as they are
-      (linked) stay where they are.
+      Its sharing link stops working. Your files stay on this computer: its own folder with what is in it, and the folders
+      shared as they are. Delete them yourself when you no longer need them.
     </p>
     {#if busy}<p class="muted">Removing… please wait.</p>{/if}
     {#if failure}<p class="error">{failure}</p>{/if}

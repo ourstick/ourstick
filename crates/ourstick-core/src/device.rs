@@ -11,7 +11,7 @@ use rand::RngCore;
 use crate::cipher::{CipherId, StickKey};
 use crate::clock::{Clock, SystemClock};
 use crate::secrets::{SecretError, SecretName, SecretStore};
-use crate::stick_id::StickSigningKey;
+use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Device, OwnedStick, SecretBackend, SqliteStore, StickKind, Store, StoreError};
 use crate::transport::iroh::IrohConfig;
 
@@ -290,6 +290,61 @@ pub fn create_stick(
     image_path: Option<&Path>,
 ) -> Result<StickKeys, DeviceError> {
     let signing_key = StickSigningKey::generate();
+    let made = OwnedStick {
+        kind,
+        image_path: image_path.map(Path::to_path_buf),
+        ..OwnedStick::new(
+            signing_key.stick_id(),
+            name,
+            root,
+            CIPHER,
+            SystemClock.now_ms(),
+        )
+    };
+    create(store, secrets, signing_key, made)
+}
+
+/// The folder of a stick with no folder of its own (ADR 0028 §7):
+/// `<data>/sent/<stick id hex>`, by id so that a rename never moves it.
+pub fn sent_folder(data_dir: &Path, stick_id: &StickId) -> PathBuf {
+    let hex = data_encoding::HEXLOWER.encode(&stick_id.to_bytes());
+    data_dir.join("sent").join(hex)
+}
+
+/// Makes a new app stick of ADR 0028: no folder of its own and no drive,
+/// only what is sent from where it is (linked entries). Its root is an
+/// empty folder, [`sent_folder`], made before its row. Take
+/// [`crate::locks::setup_lock`] first.
+pub fn create_sending_stick(
+    store: &dyn Store,
+    secrets: &dyn SecretStore,
+    data_dir: &Path,
+    name: &str,
+) -> Result<StickKeys, DeviceError> {
+    let signing_key = StickSigningKey::generate();
+    let root = sent_folder(data_dir, &signing_key.stick_id());
+    std::fs::create_dir_all(&root).map_err(io(&root))?;
+    let made = OwnedStick {
+        kind: StickKind::App,
+        has_own_folder: false,
+        ..OwnedStick::new(
+            signing_key.stick_id(),
+            name,
+            &root,
+            CIPHER,
+            SystemClock.now_ms(),
+        )
+    };
+    create(store, secrets, signing_key, made)
+}
+
+/// Stores `made`'s keys, then its row with its own node key.
+fn create(
+    store: &dyn Store,
+    secrets: &dyn SecretStore,
+    signing_key: StickSigningKey,
+    made: OwnedStick,
+) -> Result<StickKeys, DeviceError> {
     let stick_key = StickKey::generate();
     let node_key = random_key();
     let stick_id = signing_key.stick_id();
@@ -300,10 +355,8 @@ pub fn create_stick(
     secrets.put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
     secrets.put(&SecretName::StickNodeKey(stick_id), &node_key)?;
     let stick = OwnedStick {
-        kind,
         node_id: Some(IrohConfig::node_id_of(&node_key)),
-        image_path: image_path.map(Path::to_path_buf),
-        ..OwnedStick::new(stick_id, name, root, CIPHER, SystemClock.now_ms())
+        ..made
     };
     store.add_owned_stick(&stick)?;
     Ok(StickKeys {

@@ -77,6 +77,13 @@ pub struct OwnedStick {
 }
 
 impl OwnedStick {
+    /// Whether the app makes the stick's folder a drive (a letter, a
+    /// bookmark, a disk image) and marks it: an app stick made before ADR
+    /// 0028. The one place that decides.
+    pub fn is_drive(&self) -> bool {
+        self.kind == StickKind::App && self.has_own_folder
+    }
+
     /// A stick that has not signed anything yet.
     pub fn new(
         stick_id: StickId,

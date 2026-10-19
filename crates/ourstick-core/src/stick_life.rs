@@ -3,15 +3,17 @@
 //! caller has stopped sharing the stick and holds its lock (`crate::locks`).
 //!
 //! A new link never touches the user's files: the old id is retired, and
-//! what is left of it is its secrets and cache. A removal deletes a stick's
-//! copied files only behind its drive marker, never across a mount point,
-//! never a linked folder, never the device's node key (`CLAUDE.md`, rule 9).
+//! what is left of it is its secrets and cache. Neither does a removal (ADR
+//! 0028 §7): an older app stick's folder stays with its files, only its
+//! drive and marker go; a newer one's empty folder goes. Never a linked
+//! folder, never the device's node key (`CLAUDE.md`, rule 9).
 
 use std::path::Path;
 
 use crate::cipher::StickKey;
 use crate::clock::{Clock, SystemClock};
 use crate::device::{random_key, StickKeys};
+use crate::manifest::DRIVE_MARKER;
 use crate::secrets::{SecretError, SecretName, SecretStore};
 use crate::share::{drive_present, mark_drive, ShareError};
 use crate::stick_id::{StickId, StickSigningKey};
@@ -165,7 +167,7 @@ fn settle_marker(
     retired: &[RetiredStick],
     sticks: &[OwnedStick],
 ) -> Result<bool, LifeError> {
-    if stick.kind != StickKind::App || drive_present(&stick.root_path, &stick.stick_id) {
+    if !stick.is_drive() || drive_present(&stick.root_path, &stick.stick_id) {
         return Ok(true);
     }
     // Only this stick's own earlier ids: a marker naming another stick's
@@ -258,7 +260,7 @@ fn clean_up(
 /// before anything of it is deleted (an older stick's is recorded at the
 /// app's start); its mount point alone could be another volume's.
 fn image_known(stick: &OwnedStick) -> Result<(), LifeError> {
-    if cfg!(target_os = "macos") && stick.kind == StickKind::App && stick.image_path.is_none() {
+    if cfg!(target_os = "macos") && stick.is_drive() && stick.image_path.is_none() {
         return Err(LifeError::Drive(
             "the stick's disk image is not recorded yet (open OurStick, then try again)".to_owned(),
         ));
@@ -315,6 +317,23 @@ pub fn finish_removals(
     Ok(failed)
 }
 
+/// The empty folder of a stick with no folder of its own: deleted if it is
+/// still empty (nothing writes to it); anything put there is left.
+fn remove_sent_folder(root: &Path) -> Result<(), LifeError> {
+    match std::fs::remove_dir(root) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+            tracing::warn!("a removed stick's folder was not empty; it is left");
+            Ok(())
+        }
+        Err(source) => Err(LifeError::Io {
+            path: root.to_path_buf(),
+            source,
+        }),
+    }
+}
+
 fn finish_removal(
     store: &dyn Store,
     secrets: &dyn SecretStore,
@@ -323,16 +342,28 @@ fn finish_removal(
     drive: &dyn DriveOps,
 ) -> Result<(), LifeError> {
     image_known(stick)?;
-    // The drive first, while its marker still tells which letter is the
-    // stick's (Windows); taking it away again later does nothing.
-    drive.take_away(stick).map_err(LifeError::Drive)?;
-    // Copied files: only an app stick's, only behind its marker; a disk
-    // image's went with the image.
-    if stick.kind == StickKind::App
-        && stick.image_path.is_none()
-        && drive_present(&stick.root_path, &stick.stick_id)
-    {
-        empty::empty_drive(&stick.root_path, data_dir)?;
+    if stick.is_drive() {
+        // The drive first, while its marker still tells which letter is the
+        // stick's (Windows); taking it away again later does nothing.
+        drive.take_away(stick).map_err(LifeError::Drive)?;
+        // Its files stay (ADR 0028 §7): without its marker the folder is a
+        // plain folder of the user's. A disk image's marker stays in the
+        // image, which the user keeps.
+        if drive_present(&stick.root_path, &stick.stick_id) {
+            let marker = stick.root_path.join(DRIVE_MARKER);
+            match std::fs::remove_file(&marker) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(LifeError::Io {
+                        path: marker,
+                        source,
+                    })
+                }
+            }
+        }
+    } else if stick.kind == StickKind::App {
+        remove_sent_folder(&stick.root_path)?;
     }
     if stick.node_id.is_some() {
         delete_secrets(secrets, &stick.stick_id)?;
@@ -345,8 +376,6 @@ fn finish_removal(
     store.remove_owned_stick(&stick.stick_id)?;
     Ok(())
 }
-
-mod empty;
 
 #[cfg(test)]
 mod tests;

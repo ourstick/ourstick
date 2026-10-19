@@ -89,6 +89,36 @@ async fn another_sticks_drive_is_not_this_stick() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_stick_with_no_folder_of_its_own_is_no_drive_and_sends_its_links() {
+    let elsewhere = tempfile::tempdir().unwrap();
+    let photos = elsewhere.path().join("Holiday 2025");
+    common::write_file(&photos, "sea.jpg", b"sea");
+    let owner = Owner::sending().await;
+    let stick_id = owner.signing_key.stick_id();
+    let entry = ourstick_core::linked::plan_link(
+        owner.store.as_ref(),
+        &stick_id,
+        owner.cache.path(),
+        &[],
+        &photos,
+        1,
+    )
+    .unwrap();
+    ourstick_core::Store::add_linked_entry(owner.store.as_ref(), &stick_id, &entry).unwrap();
+    // No marker anywhere, and none needed.
+    let publication = try_publish(&owner).await.unwrap();
+    let paths: Vec<&str> = publication
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(paths, ["Holiday 2025/sea.jpg"]);
+    assert!(!owner.folder.path().join(DRIVE_MARKER).exists());
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_drive_has_no_size_to_outgrow() {
     // ADR 0008: whatever is on it is published.
     let owner = Owner::drive(&[("a.txt", b"hello")]).await;

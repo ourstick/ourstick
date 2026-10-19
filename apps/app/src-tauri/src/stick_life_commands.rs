@@ -148,8 +148,8 @@ pub async fn new_link(
     Ok(stick_hex(&new))
 }
 
-/// "Remove this stick": its copied files are deleted (never a linked
-/// folder), with its link and keys. Asked for in the window first. If it
+/// "Remove this stick": its link and keys go; no file of the user's is
+/// deleted (ADR 0028 §7). Asked for in the window first. If it
 /// cannot be removed, it is shared again as before.
 #[tauri::command]
 pub async fn remove(

@@ -191,6 +191,13 @@ changes files, you get them too." The `⋯` menu: `Pause`, `Choose what to
 get…`, `Move to another folder…`, `How the sender sees you…`, `Remove…`
 ("What you have stays in its folder"). Every state is in ReceiveStates.
 
+**Amendment (2026-10-19, Giorgos):** the clipboard is also read each time
+the window comes back while "Paste the link you got" waits with its field
+empty: the user went to copy the link, and OurStick finds it by itself, as
+the screen says ("Come back here: OurStick finds it by itself. Or paste it
+below."). Never on another screen, never in the background; only an
+OurStick link is taken, as above.
+
 "Senders see you as" leaves the home: it is in About ("Others see this
 computer as a Linux PC · Change…") and in a received thing's `⋯`.
 

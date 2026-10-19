@@ -203,9 +203,11 @@ rest follows by itself.").
 
 ### Receive
 
-- **Receive** reads the clipboard once, on that press only
-  (`link_on_clipboard`: an OurStick link or nothing; never logged, shown or
-  put into an error; the clipboard is not cleared). A failed read (a system
+- **Receive** reads the clipboard on that press, and again each time the
+  window comes back while "Paste the link you got" waits with its field
+  empty (ADR 0028 §4, amended), never otherwise (`link_on_clipboard`: an
+  OurStick link or nothing; never logged, shown or put into an error; the
+  clipboard is not cleared). A failed read (a system
   that asks, Wayland without focus) falls back to the field, silently.
 - **A link found:** "✓ We found a link you copied", then "Finding the
   sender's computer…" ("This takes up to half a minute.", `Cancel`), then

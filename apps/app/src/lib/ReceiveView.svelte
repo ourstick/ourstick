@@ -96,16 +96,27 @@
     phase = "paste";
   }
 
-  // Read once, here: Receive was just pressed (ADR 0028 §4). A read that
-  // fails or is refused is the same as nothing there.
-  onMount(async () => {
+  // Read when Receive was just pressed, and again each time the window
+  // comes back while "Paste the link you got" waits with its field empty
+  // (ADR 0028 §4, amended): the user went to copy it. Only an OurStick link
+  // is taken; a read that fails or is refused is the same as nothing there.
+  async function fromClipboard() {
     const copied = await linkOnClipboard().catch(() => null);
     if (copied) {
       found = true;
       await look(copied);
-    } else {
+    } else if (phase === "starting") {
       phase = "paste";
     }
+  }
+
+  onMount(() => {
+    void fromClipboard();
+    const back = () => {
+      if (phase === "paste" && !text.trim() && document.visibilityState === "visible") void fromClipboard();
+    };
+    window.addEventListener("focus", back);
+    return () => window.removeEventListener("focus", back);
   });
 
   async function change() {
@@ -179,7 +190,7 @@
     <h1>Paste the link you got</h1>
     <ol class="steps">
       <li>In the email or message you got, copy the whole link. It starts with <b>ourstick.com/s/</b></li>
-      <li>Come back here and paste it below.</li>
+      <li>Come back here: OurStick finds it by itself. Or paste it below.</li>
     </ol>
     <form onsubmit={open}>
       <label for="the-link">The link</label>

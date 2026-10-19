@@ -295,9 +295,11 @@ fn settings_hold_before_the_device_is_set_up(store: &dyn Store) {
     let defaults = store.settings().unwrap();
     assert!(defaults.start_at_login, "on by default (ADR 0024)");
     assert!(!defaults.start_at_login_told);
+    assert!(!defaults.still_open_told);
     let off = crate::store::Settings {
         start_at_login: false,
         start_at_login_told: true,
+        still_open_told: true,
     };
     store.set_settings(&off).unwrap();
     assert_eq!(store.settings().unwrap(), off, "kept with no device");

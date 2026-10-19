@@ -32,6 +32,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0023_protected_keychain.sql"),
     include_str!("../../../migrations/0024_settings.sql"),
     include_str!("../../../migrations/0025_waiting_links.sql"),
+    include_str!("../../../migrations/0026_simpler_window.sql"),
 ];
 
 /// The schema version this code creates and understands.

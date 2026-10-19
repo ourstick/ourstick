@@ -70,6 +70,10 @@ pub struct OwnedStick {
     pub image_path: Option<PathBuf>,
     /// False after the user's "Stop sharing", so a restart keeps it stopped.
     pub sharing_wanted: bool,
+    /// Whether the stick has a folder of its own, made into a drive by the
+    /// app (ADR 0028 §7): every stick made before ADR 0028. A new one has
+    /// none: an empty folder as its root, and linked entries only.
+    pub has_own_folder: bool,
 }
 
 impl OwnedStick {
@@ -95,6 +99,7 @@ impl OwnedStick {
             kind: StickKind::Cli,
             image_path: None,
             sharing_wanted: true,
+            has_own_folder: true,
         }
     }
 }
@@ -245,6 +250,9 @@ pub struct Settings {
     pub start_at_login: bool,
     /// The window said once that it does.
     pub start_at_login_told: bool,
+    /// The window said once, at its first close, that OurStick is still
+    /// open and how to open it again (ADR 0028 §6).
+    pub still_open_told: bool,
 }
 
 impl Default for Settings {
@@ -252,6 +260,7 @@ impl Default for Settings {
         Self {
             start_at_login: true,
             start_at_login_told: false,
+            still_open_told: false,
         }
     }
 }

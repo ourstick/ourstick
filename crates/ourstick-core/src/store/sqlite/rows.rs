@@ -60,11 +60,12 @@ pub(super) struct OwnedRow {
     kind: String,
     image_path: Option<String>,
     sharing_wanted: bool,
+    has_own_folder: bool,
 }
 
 pub(super) const OWNED_COLUMNS: &str = "stick_id, name, root_path, cipher, last_signed_seq, \
      latest_record, created_at_ms, drive_letter, latest_partial, node_id, kind, image_path, \
-     sharing_wanted";
+     sharing_wanted, has_own_folder";
 
 impl OwnedRow {
     pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -82,6 +83,7 @@ impl OwnedRow {
             kind: row.get(10)?,
             image_path: row.get(11)?,
             sharing_wanted: row.get(12)?,
+            has_own_folder: row.get(13)?,
         })
     }
 
@@ -113,6 +115,7 @@ impl OwnedRow {
             created_at_ms: to_u64(self.created_at_ms, "created_at_ms")?,
             image_path: self.image_path.map(PathBuf::from),
             sharing_wanted: self.sharing_wanted,
+            has_own_folder: self.has_own_folder,
             drive_letter: self
                 .drive_letter
                 .map(|letter| {

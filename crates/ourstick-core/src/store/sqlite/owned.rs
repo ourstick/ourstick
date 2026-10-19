@@ -79,7 +79,7 @@ pub(super) fn insert_owned(connection: &Connection, stick: &OwnedStick) -> Resul
     connection.execute(
         &format!(
             "INSERT INTO owned_sticks ({OWNED_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ),
         params![
             stick.stick_id.to_bytes(),
@@ -98,6 +98,7 @@ pub(super) fn insert_owned(connection: &Connection, stick: &OwnedStick) -> Resul
             kind_str(stick.kind),
             stick.image_path.as_deref().map(path_str).transpose()?,
             stick.sharing_wanted,
+            stick.has_own_folder,
         ],
     )?;
     Ok(())

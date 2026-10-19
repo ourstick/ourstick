@@ -25,9 +25,13 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 25
+## Version 26
 
-Version 25 (`0025_waiting_links.sql`, ADR 0025) adds the table
+Version 26 (`0026_simpler_window.sql`, ADR 0028) adds
+`owned_sticks.has_own_folder`, 1 for every stick before (each keeps its
+folder and its drive), and `settings.still_open_told`, 0.
+
+Version 25 (`0025_waiting_links.sql`, ADR 0025) added the table
 `waiting_links`, empty for every database before.
 
 Version 24 (`0024_settings.sql`, ADR 0024) added the table `settings`, empty
@@ -127,6 +131,7 @@ key is written: these hold from the first start. The CLI ignores them.
 | `id` | INTEGER | Always 1 |
 | `start_at_login` | INTEGER | 1 (the default): the app makes the system start it at login (the `Run` value, the LaunchAgent or the autostart entry); 0: it removes that |
 | `start_at_login_told` | INTEGER | 1 once the window said that the app starts at login, and how to turn it off |
+| `still_open_told` | INTEGER | 1 once the window, closed the first time, said that OurStick is still open and how to open it again (ADR 0028 §6) |
 
 ### `owned_sticks`
 
@@ -146,6 +151,7 @@ Sticks this device owns. One row per stick.
 | `kind`            | TEXT     | `app` (the app's stick: a drive) or `cli` (shared from the command line); which program lists it |
 | `image_path`      | TEXT or NULL | macOS: the app stick's disk image, recorded once and never derived from its name or id |
 | `sharing_wanted`  | INTEGER  | 1 unless the user chose "Stop sharing" (kept across restarts) |
+| `has_own_folder`  | INTEGER  | 1 (every stick made before ADR 0028): `root_path` is the stick's own folder, which the app makes a drive (letter, bookmark, disk image) and marks. 0 (an app stick made since): `root_path` is an empty folder, `<data>/sent/<stick id hex>`, and the stick is only its linked entries; no drive, no marker |
 | `removing`        | INTEGER  | 1 while the stick is being removed: every read but `removing_sticks` leaves it out, so it is never shared again; the one place that finishes removals deletes its files (behind its drive marker), secrets and rows |
 | `latest_partial`  | INTEGER  | 1 if `latest_record` is of a partial manifest (the owner was still reading its folder, ADR 0007), so a restarted owner goes on publishing partial versions until a complete one; else 0 |
 

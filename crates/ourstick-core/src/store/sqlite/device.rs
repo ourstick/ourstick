@@ -104,12 +104,13 @@ pub(super) fn record_keys_moved(
 pub(super) fn settings(connection: &Connection) -> Result<Settings, StoreError> {
     Ok(connection
         .query_row(
-            "SELECT start_at_login, start_at_login_told FROM settings WHERE id = 1",
+            "SELECT start_at_login, start_at_login_told, still_open_told FROM settings WHERE id = 1",
             [],
             |row| {
                 Ok(Settings {
                     start_at_login: row.get::<_, i64>(0)? == 1,
                     start_at_login_told: row.get::<_, i64>(1)? == 1,
+                    still_open_told: row.get::<_, i64>(2)? == 1,
                 })
             },
         )
@@ -119,11 +120,17 @@ pub(super) fn settings(connection: &Connection) -> Result<Settings, StoreError> 
 
 pub(super) fn set_settings(connection: &Connection, settings: &Settings) -> Result<(), StoreError> {
     connection.execute(
-        "INSERT INTO settings (id, start_at_login, start_at_login_told) VALUES (1, ?1, ?2)
+        "INSERT INTO settings (id, start_at_login, start_at_login_told, still_open_told)
+         VALUES (1, ?1, ?2, ?3)
          ON CONFLICT (id) DO UPDATE
          SET start_at_login = excluded.start_at_login,
-             start_at_login_told = excluded.start_at_login_told",
-        params![settings.start_at_login, settings.start_at_login_told],
+             start_at_login_told = excluded.start_at_login_told,
+             still_open_told = excluded.still_open_told",
+        params![
+            settings.start_at_login,
+            settings.start_at_login_told,
+            settings.still_open_told
+        ],
     )?;
     Ok(())
 }

@@ -323,3 +323,40 @@ fn migration_24_starts_at_login_for_a_device_from_0_1_0() {
         )
         .is_err());
 }
+
+#[test]
+fn migration_26_keeps_every_old_sticks_folder_and_has_not_told() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite");
+    let stick = crate::stick_id::StickSigningKey::from_bytes(&[3; 32]).stick_id();
+    {
+        // 0.1.3's database, version 25, with an app stick and settings.
+        let connection = Connection::open(&path).unwrap();
+        for migration in &MIGRATIONS[..25] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 25).unwrap();
+        connection
+            .execute(
+                "INSERT INTO owned_sticks VALUES (?1, 'Holiday', '/h', 1, 0, NULL, 3, NULL, 0, NULL, 'app', NULL, 1, 0)",
+                [stick.to_bytes()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO settings (id, start_at_login, start_at_login_told) VALUES (1, 0, 1)",
+                [],
+            )
+            .unwrap();
+    }
+    let store = SqliteStore::open(&path).unwrap();
+    assert!(store.owned_stick(&stick).unwrap().unwrap().has_own_folder);
+    assert_eq!(
+        store.settings().unwrap(),
+        crate::store::Settings {
+            start_at_login: false,
+            start_at_login_told: true,
+            still_open_told: false,
+        }
+    );
+}

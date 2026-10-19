@@ -143,7 +143,12 @@ fn a_stick_keeps_its_drive_letter(store: &dyn Store) {
 }
 
 fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
-    store.add_owned_stick(&owned(2, 20)).unwrap();
+    // A new stick of ADR 0028, with no folder of its own.
+    let without_folder = OwnedStick {
+        has_own_folder: false,
+        ..owned(2, 20)
+    };
+    store.add_owned_stick(&without_folder).unwrap();
     store.add_owned_stick(&owned(1, 10)).unwrap();
     assert_eq!(
         store.owned_stick(&owner(1).stick_id()).unwrap(),
@@ -152,7 +157,7 @@ fn owned_sticks_roundtrip_in_order(store: &dyn Store) {
     assert_eq!(store.owned_stick(&owner(3).stick_id()).unwrap(), None);
     assert_eq!(
         store.owned_sticks().unwrap(),
-        vec![owned(1, 10), owned(2, 20)]
+        vec![owned(1, 10), without_folder]
     );
     assert!(matches!(
         store.add_owned_stick(&owned(1, 99)),

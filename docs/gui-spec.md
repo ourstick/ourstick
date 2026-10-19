@@ -1,221 +1,337 @@
 # OurStick — GUI spec (stage 1: desktop)
 
-Reference image: `gui-mockup.png` (5 panels), the first mockup, kept as
-history: it shows one stick of a fixed size (ADR 0008 removed sizes) and a
-receiver by name (ADR 0015 never names a computer). Where they differ, this
-file and the decisions are right. Anything not in this file is out of scope
-for stage 1.
+The window as ADR 0028 makes it: two verbs, Send and Receive, and files sent
+from where they are. The mockups of ADR 0028 ("OurStick, simpler") show every
+screen and case; where they and this file differ, this file and the
+decisions are right. `gui-mockup.png` and `gui-mockup.html` are history: the
+first window, of one stick copied onto like a drive. Anything not in this
+file is out of scope for stage 1.
 
 ## Principle
 
-The app is a virtual USB stick. The user should never need to learn anything
-they don't already know from a physical stick. Every screen has the minimum
-number of elements. No settings page in stage 1.
+Someone who uses a computer for email and photos, and nothing more, sends and
+receives without help. Every screen has the fewest elements it can. No
+settings page.
 
-## The stick is a folder
+**Words.** The window never says stick, drive, mount, eject, linked, sharing
+link, capacity or manifest. "Link" is only the address
+(`ourstick.com/s/#…`); a thing is called by its name. The verbs are Send,
+Receive, Download, Stop sending, Resume (a stop by the user, on either side)
+and Remove. "Stick" stays the code's and the docs' word.
 
-The stick is one ordinary folder, like the contents of a real USB stick. Files
-dropped on the window are **copied** into it, as onto a real stick; the
-originals are not touched. Sharing and the watcher work on that folder. The
-stick has **no fixed size** (ADR 0008): what can still be copied onto it is
-what the computer has room for. The app shows the folder as a drive, per
-platform:
+**Messages** are grey (good to know, nothing to do), amber (it works, but
+something could be better) or red (stopped, needs you). Each says what to do
+next, usually with a button. State is never told by colour alone: a symbol
+goes with it (↑ ✓ ↓ ! ⏸ ✕ …).
 
-- **macOS:** a sparse APFS disk image,
-  `hdiutil create -type SPARSE -fs APFS -size <its disk's size> -volname OurStick`, kept in
-  `~/Library/Application Support/OurStick/` and attached with `hdiutil attach`.
-  It appears in Finder's Locations as a drive with an eject button. The mounted
-  volume is the stick folder. Ejecting in Finder is a real detach, and the app
-  notices. Sparse, it takes room only as it fills, so it never limits first;
-  an image made with a size before is grown at start: it stays attached
-  after Quit, so the app detaches it, grows it and attaches it again (it
-  disappears from Finder for a moment); if a file on it is open, it keeps its
-  size until the next start. Tested on a 5 GB image: grown to the disk's
-  245 GB, its files kept, 17 MB on disk. What is left is
-  measured on the disk that holds the image, not on the mounted volume.
-- **Linux:** the folder `~/OurStick`, added as a bookmark to the file manager's
-  sidebar (GTK bookmarks for Nautilus, `user-places.xbel` for Dolphin) with a
-  USB drive icon where the file manager allows one. No loop device (it needs
-  root).
-- **Windows:** the folder `%USERPROFILE%\OurStick`, shown as a drive letter
-  with `subst` (no admin rights): the letter it had before (kept in the
-  database), else `O:`, else `Z:` down to `D:`. A `subst` letter lasts until
-  logoff, so the app gives it again at every start. What is left is measured
-  on the folder's disk, not by the letter. The letter carries the system
-  disk's name ("Windows (O:)"), so the stick is also an entry at the root of
-  File Explorer's navigation pane, under its own name and OurStick's icon
-  (ADR 0023).
-- **Mobile:** not in stage 1.
+## Nothing is copied
 
-**Eject** detaches the image (macOS), removes the bookmark (Linux) or takes
-the drive letter and the pane entry away (Windows). Sharing
-goes on with the last published version; changes are picked up again after
-Mount. An ejected stick is never published as empty.
+What is sent is sent from where it is: every folder or file chosen is a
+linked entry (ADR 0008 §2), never a copy. A stick made now has no folder of
+its own (`has_own_folder = 0`): its root is an empty folder in the data
+folder, `<data>/sent/<stick id hex>`, which nothing writes to and the window
+never shows, and it has no drive, marker, letter, bookmark or image.
 
-Hidden files that operating systems and file managers put on drives are never
-part of the stick (see "Owner-side rules" in `docs/protocol.md`): `.DS_Store`,
-`._*`, `.Spotlight-V100`, `.fseventsd`, `.Trashes`, `.TemporaryItems`,
-`.Trash-*`, `.directory`, and the like. The image gets `.metadata_never_index`
-so Spotlight leaves it alone.
+**One place decides what may be sent**: `places::may_send` in the core. It
+refuses the home folder and anything holding it; private folders and what is
+in them (a top-level dot folder of the home, `~/Library`, `AppData`, what has
+the Windows hidden or system attribute); the system's folders, per platform
+(ADR 0028 §2 has the lists); OurStick's own folders; a symbolic link or a
+junction; and what is inside, or holds, something already chosen. It asks
+first about a main folder of the home (Documents, Desktop, Pictures,
+Downloads, Music, Videos, by the system's list) and a whole disk. Two entries
+with one name (ignoring case) are refused, never numbered
+(`LinkError::NameTaken`).
 
-## Panels
+The rules of linked entries hold as before: symbolic links inside are not
+followed; a gone entry (moved, its disk unplugged) keeps its last version
+offered, and comes back by itself when its path is there again; files in
+constant use are left out until still; hidden files that systems and file
+managers make (`.DS_Store`, `._*`, `.Trashes`, `.directory`, …) are never
+sent (`docs/protocol.md`, "Owner-side rules").
 
-### 1 · Main window
+### Sticks made before ADR 0028
 
-- Left: the app's sticks (ADR 0009), oldest first, each with its name and
-  what it is doing in plain words: `Sharing`, `Someone downloading`,
-  `2 downloading`, `Not sharing`, `Getting ready…`, or while it changes
-  `Renaming…`, `Changing the sharing link…`, `Removing…`. One is shown on the
-  right; at the bottom `+ New stick…` asks for a name (`Make it`; "Making
-  it… please wait."). The tray's `New stick…` opens the same field.
-- Right, the chosen stick. Title: its name; no size.
-- Next to it, pill `● Mounted ▾` (macOS, Linux; `○ Ejected ▾` after eject).
-  Click opens a two-item menu: `Open in file manager`, `Eject (keeps
-  sharing)` (or `Mount` when ejected).
-- And `⋯`, the stick's own menu: `Rename…`, `Stop sharing…` (or `Start
-  sharing`), `Change the sharing link…`, `Remove this stick…` (red). Each asks
-  in the window first, with "… please wait." while it works:
-  - Rename: the new name (1–60 characters, not the name of another stick).
-    Its folder or volume, its bookmark or letter follow; people see the new
-    name with its next version.
-  - Change the sharing link (the only way to take access back, ADR 0009
-    §5): "The old sharing link stops working. Send the new one to the people
-    who should still have it. The files stay." Button `Change it`. "Link" is
-    always "sharing link" in the window, so that nobody wonders which link.
-  - Remove: "Its sharing link stops working, and the files copied onto it are
-    deleted from this computer. Folders shared as they are (linked) stay
-    where they are."
-- Drop zone: "Drop files or folders here, or click to choose", below it
-  what is on the stick, `3 folders · 1 file · 6.9 GB`. A click (or Enter:
-  it is a button) opens `Add files…` / `Add folders…`, the system's picker
-  for several at once (Linux's and Windows' pickers do not take files and
-  folders together); what is chosen is added as a drop is, the same queue
-  and questions. Dropping **copies** into the stick folder,
-  like onto a real stick. A drop that does not fit in what is left is
-  refused, as by a real stick: nothing is copied, and the window says how
-  big it is and how much is left. First what was dropped is counted (to
-  know whether it fits: minutes for a big folder on a slow disk), and the
-  zone says "Looking at what you dropped…" with "48 210 files, 312 GB so
-  far" as it counts; then, while it copies, `Copying… 1.2 GB of 3.1 GB`
-  with a bar. Under the zone, all the while, "A big folder? Share it as it
-  is: from where it is, not copied." with `Cancel` and `Share it as it
-  is`: either stops it at its next file, nothing of it stays on the stick,
-  and the second then shares it as it is. A drop meanwhile waits its turn: one copy
-  at a time, the next once the one before is done, in the order dropped;
-  under the bar, in grey, "Next: Wallpaper, 2021-08" with `Don't add
-  these` (the ones not started). A drop that asks something ("already on
-  the stick", "does not fit") holds the queue until it is answered or
-  cancelled. What fails is said in red with the drop it was ("Wallpaper:
-  …"), each kept while the queue goes on. The queue is the stick's:
-  another stick's view and back finds it as it was; Quit drops what has
-  not started. While a copy goes on, the stick is not renamed, moved,
-  given a new link or removed ("a copy onto the stick is still going on;
-  try again once it is done"), and while it is being changed a drop is
-  refused ("The stick is being changed …; drop again once that is
-  done."). A name already on the stick is asked about
-  before anything is copied: "“new in” is already on the stick." (or "“new
-  in” and 1 more is…", "… and 2 more are…"), "Replace changes only the
-  stick's copy, never the original.", `Cancel` (also Escape), `Keep both`
-  (the new one as "new in (2)"), `Replace`. The copy is made under a hidden
-  name and takes its place only once whole: a failed copy leaves the old
-  one. A linked entry's name is not asked about: it is never replaced, the
-  new one goes beside it. Something already on the stick (also through a
-  link or the stick's drive letter) is refused: "it is already on the
-  stick".
-- A drop that does not fit offers **Share it as it is** (ADR 0008 §2): the
-  folders or files are linked, shared from where they are, not copied, taking
-  no room on the stick and with no size limit of their own. The message says
-  that moving or deleting them there takes them off the stick too. A path
-  that is, holds or lies inside the stick, the data folder or another linked
-  entry is refused, and says why. While it is added (checking and reading the
-  folder can take a moment) the message says "Adding… please wait." and its
-  buttons wait.
-- File list: the top level of the stick, name and size, folders with
-  trailing `/`: the stick folder's entries and the linked ones, marked
-  `linked` (their size is what the last read found, "reading…" before). A
-  linked entry that is not there (unplugged, moved) is marked `not available`;
-  people still get its last version. An entry of the stick folder with a
-  linked entry's name (ignoring case) is marked `hidden: same name`. Words
-  for everyone: no other jargon than "linked". Removing is
-  done in the file manager, or via right-click → Remove, which deletes the
-  copy on the stick (never an original); for a linked entry it is **Stop
-  sharing**, which removes only the link, never its files.
-- If some folders cannot be watched (e.g. the system's limit on watches), a
-  line says their changes are seen within a minute.
-- While the stick's folder is read and another program uses the same disk,
-  a line says "Reading your folder slowly, so another program can use the
-  disk." (ADR 0013), until OurStick reads at full speed again. It is a note,
-  not a problem: the event `giving-way`, told at each change.
-- Capacity: `2.1 GB used · 128 GB left`, like a real stick, and a bar of
-  used out of used + left; with `Share`, always in sight at the bottom of
-  the view, also while what is above them scrolls. "Left" is what the computer has room for once its
-  reserve and every download's claim are counted (the space
-  ledger, ADR 0008); several sticks on one disk share it.
-- Activity line (only while someone downloads):
-  `● Someone downloading · 2.1 MB/s`, or `● 2 downloading · 4.3 MB/s`: the
-  rate over the last ten seconds (a big stick can be sent in bursts). While readers wait for their files to
-  be got ready (told "not ready", nothing sent since: the owner is making a
-  file's hash or outboard, ADR 0017): `● Someone downloading · getting their
-  files ready`. While OurStick gives way to another program on a disk the
-  files are read from (ADR 0017, amendment 1), a line under it: `Sending
-  slowly, so another program can use the disk.`
-  `· direct` / `· relay` is added only if iroh gives it cheaply on the
-  owner's side.
-- Who has it (ADR 0015), under the activity: one line per computer that
-  received the stick, in its receiver's own words (what each computer
-  says of itself, never a proof), the latest first, at most 5 then "and 12
-  more": "A Mac has all of it, up to date.", "A Windows PC has what it
-  chose, up to date.", "A Mac has everything so far; you are still reading
-  your folder." (or "what it chose so far"), "A Linux PC had all of it at
-  14:30; not what changed since." (or "on 3 Oct" for another day; "what it
-  chose"), "A Mac is downloading: 60%.", "A Mac is waiting: no room
-  there." / "…: its folder is not there." / "A Mac was waiting for this
-  computer." / "A Mac is waiting.", "A Mac paused it." A computer is named
-  by its kind (Mac, Windows PC, Linux PC, computer); only if its receiver
-  typed a name is it shown, "Maria (Mac)"; two of a kind with no name are
-  told apart by when first heard, "A Mac (since 3 Oct)". When every line
-  (shown or not) is up to date: "Everyone who received it is up to
-  date."; with none, nothing at all (an empty list explains nothing).
-  Each line has `×` (Remove
-  from this list); `Clear this list` and "and 12 more" under them, then
-  "What each computer says of itself." Never "safe to delete": what was
-  received stays with the receivers.
-- `⤴ Share` button → panel 2.
+They keep what they had (`has_own_folder = 1`): their own folder, sent as
+before, its entries listed with the linked ones; and their drive, made at
+each start (macOS: the sparse image attached; Linux: `~/OurStick/<name>`
+bookmarked; Windows: `%USERPROFILE%\OurStick\<name>` as a `subst` letter
+with its entry in File Explorer's pane, ADR 0023). The window shows no Mount
+or Eject. What is put into the folder in a file manager is sent. Nothing
+dropped on the window is copied into it any more: it is linked. When the
+folder is not there (an ejected image, a deleted folder, an unplugged disk),
+an amber line above its list says "Some of its files are on a disk that is
+not attached." with `Find it…` (attaching the image on macOS); the last
+version stays offered.
 
-### 2 · Share popup
+## Screens
 
-- One line: "Anyone with this sharing link can read the stick."
-- Link field (read-only, monospace) + `Copy`.
-- No `Send by email`: most mail is read in a browser, where a mailto:
-  link opens nothing or a mail program never set up. Copy, and paste
-  where one writes.
-- No QR code until there is a phone app: a phone cannot open a link yet,
-  and a QR image passed on by mail cannot be clicked. The code that makes
-  it stays (`qr.rs`, `copy_qr_image`; `SHOW_QR` in `Share.svelte`): with a
-  phone app, the QR of the full link (including `#secret`) and `Copy QR
-  image` come back.
-- Nothing else. No expiry, no permissions, no revoke in stage 1.
+### Home
 
-### 3 · Tray icon
+- `Send` (blue, "Choose folders, get a link to send.") and `Receive`
+  ("Someone sent you a link? Open it here."), big, side by side.
+- **You are sending** and **You received**: one row per thing, its name and
+  one sentence with its symbol: "↑ Maria is getting it now: 60%", "✓ 2
+  people have all of it", "! A folder is missing", "⏸ Stopped by you",
+  "↓ Downloading 45%", "✓ All here. New files come by themselves.",
+  "! Waiting: the disk is full", "✕ Stopped: needs you", "… Waiting for the
+  sender". The whole row opens its view (›). A row has at most one button:
+  the next step when it needs the user (`Find it…`, `Resume`, `Make room…`,
+  `Try again`), or `Open folder` on a received thing that is all here.
+- Empty, the first start shows the two buttons only, under "Welcome to
+  OurStick" and "Send folders of any size straight from your computer to
+  someone else's. No account. Only the people you send the link to can see
+  them.", with the start-at-login line and its check, and `OK` (ADR 0024).
+  It makes nothing: the keys are made at the first Send or Receive.
+- A problem with the whole app (the password store does not answer) is one
+  red box at the top: "OurStick cannot open its keys" with what it means,
+  `Try again` and `Report a problem`; rows say "Waiting for the keys".
 
-- Always present while the app runs. Green dot when someone is downloading
-  from any stick.
-- Menu: `Open OurStick`; then each stick, `Name — sharing` or `Name — not
-  sharing`, with its own submenu: `Share…`, `Eject` / `Mount`, `Stop
-  sharing…` / `Start sharing`; then `New stick…`; then `About OurStick`,
-  the `Start at login` check and `Quit`. The menu is made again whenever a
-  stick is made, renamed, removed, mounted, ejected, or starts or stops
-  sharing, and when the check changes.
-- The tray is a help, never the only way: many never see it (on Windows it
-  is often under `^`; on Ubuntu a friend took the Dock's icon for it). The
-  main window's ✕, on every system, shows the Quit dialog with `Minimize`
-  instead of `Don't quit`: Minimize leaves the window in the taskbar or the
-  Dock, where it is seen and found again; it is never hidden. With nothing
-  going on (no stick shared or coming in, no drop being copied), ✕ quits
-  without asking. Other windows (Share, About, dialogs) just close.
-- The Quit dialog (from ✕, the tray, the Dock or ⌘Q) also has the start at
-  login check, as in About: the moment one thinks of it. It changes the
-  choice at once, whichever button follows.
+### Send
+
+1. **"What do you want to send?"** Drag here, or `Choose folders…` /
+   `Choose files…` (Linux's and Windows' pickers do not take both at once).
+   Each chosen thing is listed with its icon, size ("counting… 12,400 files
+   so far" while counted) and `×`. A refusal stands in the list in its place,
+   in its words, with its `×`: "“Summer” is inside “Holiday 2025”, so it
+   comes along already.", "“OurStick” is OurStick's own folder and cannot be
+   sent.", "“Windows” is part of the system and cannot be sent.", "“.ssh”
+   holds private settings and cannot be sent.", "Your whole home folder
+   cannot be sent. Choose folders inside it.", "Two folders are called
+   “Photos” (from Pictures and from the disk “Expansion”). Rename one
+   first, then add it again." A main folder or a whole disk asks first
+   (below). In blue under the list: "Nothing is copied: OurStick sends them
+   from where they are. Leave them there. If you change a file, they get the
+   change too." Then **Name, as others will see it** (1–60 characters),
+   filled in from the first thing chosen ("Filled in from the first folder.
+   You can change it."); a name another thing this computer sends has:
+   "You already send something with this name. Choose another." `Get the
+   link`.
+2. **The link.** "“Holiday 2025” is ready to send", the link hidden but for
+   its start (`ourstick.com/s/#•••`), `Copy link` ("Copied ✓" once done),
+   and in amber: "Anyone who gets this link can take everything in it, also
+   the files you add later. Send it only to people you trust." Three steps:
+   "Paste it in an email or a message." "They need OurStick too. When they
+   click the link, the page shows them how to get it." "Keep this computer
+   on and OurStick open. They get what you add or change, until you stop
+   sending." `See who gets it ›`.
+
+It is published at once, while its folders are still counted ("Getting it
+ready… 12,400 files so far"; "People with the link can start already: the
+rest follows by itself.").
+
+**Asking first** (one dialog, the safe choice blue):
+
+- "Send all of “Documents”?" "This is one of your main folders: 8,240 files,
+  46 GB. Folders like this often hold private papers, like bank letters, tax
+  forms or passwords." In bold: "Whoever gets the link sees all of it, and
+  every file you put in “Documents” later." `Send all of it` (red outline) /
+  `Choose a smaller folder`.
+- "Send the whole disk “Expansion”?" "That is 1.4 TB. It can take days, and
+  this computer must stay on the whole time." "Usually you want one folder
+  on it, not all of it." `Send all of it` / `Choose a folder on it`.
+
+### Something you send
+
+- `‹ Back`, its name, `Copy link` (here and on the link screen only; never
+  on the home or the tray) with, in amber under it, "Anyone who gets the
+  link can take everything in it, also what you add later.", and `⋯`.
+- Its status box, who has it (ADR 0015), one line per computer, in the
+  receiver's own words, never a computer's own name: "Nobody has opened the
+  link yet." (with `Copy link`); "Maria is getting it: 60%" with a bar and
+  "about 4 minutes left"; "A Windows PC is getting it: preparing a big file
+  first…"; "3 people have all of it, up to date." with `Who?`. The full
+  list: "Maria (Mac) has all of it", "A Windows PC has the part it chose",
+  "A Linux PC had all of it on 3 Oct, not what changed since", "A Mac is
+  waiting: it does not fit there", "A Mac (since 3 Oct) is waiting: the
+  disk it saves to is not plugged in", "A Windows PC paused it", each with
+  `×`; "and 12 more", `Clear this list`, "Each computer says this about
+  itself."
+- **What is in it**, with `+ Add more` (the same picker, rules and
+  questions as Send): each entry with its icon, size and where it is ("2.8
+  GB · Pictures"; a click shows it in the file manager) and `×`, which asks
+  "Stop sending “Summer”? Those who have it keep it." An old stick's own
+  entries are listed with the rest; one of its own entries with a linked
+  entry's name is hidden (`catalogue.rs`). Under the list: "Leave them where
+  they are. If you change a file, they get the change too. If you move or
+  delete one, it stops coming; what they have stays with them."
+- Notes, under the status, each while it holds:
+  - grey: "Sending slowly, so another program can use the disk." / "Reading
+    your folders slowly, so another program can use the disk." (ADR 0013,
+    0017); "Changes in some folders reach the others within a minute."
+    (watches exhausted);
+  - amber: "This is slower than it could be" with "Maria's computer cannot
+    reach this one directly, so it takes the long way. Allowing OurStick in
+    Windows Security makes it faster." and `Show me how`; on macOS with the
+    Local Network refused, "Maria is in your home, but your Mac does not let
+    OurStick reach her. Turn on OurStick under Local Network." and `Open
+    Settings` (ADR 0020); a gone entry: its name, "Not found. Was it moved,
+    or is its disk unplugged? Those who have it keep it." and `Remove it`;
+  - "Stopped by you": "The link does not work until you start again.
+    Nothing was deleted." `Resume`;
+  - red: "Stopped: the network did not start" ("Is this computer on the
+    internet? Check, then try again.") or "Stopped: OurStick is open twice"
+    ("Another OurStick on this computer has it. Close that one, then try
+    again."), each with `Try again`;
+  - while it changes, the buttons wait: "Renaming…", "Making a new link…",
+    "Stopping…", "Removing…".
+- `⋯`: `Rename…`; `Make a new link…` ("The old link stops working."); `Show
+  the files on this computer` (old sticks only); `Stop sending…` ("You can
+  start again later. The link stays.") or `Resume`; `Remove from
+  OurStick…` (red, "Your files stay where they are.").
+
+**Its dialogs** (each with "… please wait." while it works):
+
+- Rename: "New name", "Others see the new name when their copy next
+  updates. The link stays the same." `Cancel` / `Rename`. For an old stick,
+  its folder or volume, bookmark or letter follow, as before.
+- "Make a new link for “Holiday photos”?" "The old link stops working, for
+  everyone. Send the new one only to the people who should still get it."
+  "Use this if the link reached someone it shouldn't have." `Cancel` /
+  `Make a new link`. The only way to take access back (ADR 0009 §5).
+- "Stop sending “Holiday photos”?" "The link stops working until you start
+  again. Your files stay where they are." In bold, if so: "Maria is getting
+  it right now." `Keep sending` / `Stop` (red).
+- "Remove “Holiday photos” from OurStick?" "Its link stops working for good.
+  Your files stay where they are on this computer, and those who got them
+  keep their copy." `Cancel` / `Remove` (red). Remove never deletes a file
+  of the user's. For an old stick its drive goes (letter and pane entry,
+  bookmark, the image detached), its marker is deleted, and the dialog says
+  where its files stay: "Its files stay in OurStick › Holiday photos.
+  Delete them yourself when you no longer need them." (macOS: "in the file
+  Holiday photos.sparseimage", with `Show it`).
+
+### Receive
+
+- **Receive** reads the clipboard once, on that press only
+  (`link_on_clipboard`: an OurStick link or nothing; never logged, shown or
+  put into an error; the clipboard is not cleared). A failed read (a system
+  that asks, Wayland without focus) falls back to the field, silently.
+- **A link found:** "✓ We found a link you copied", then "Finding the
+  sender's computer…" ("This takes up to half a minute.", `Cancel`), then
+  its name, big, "2 folders and 1 file · 3.2 GB · it fits on this
+  computer", "It goes to Downloads › Holiday photos" with `Change…`, `I want
+  only some of it…`, "Not this one? Paste another link", and `Download`
+  (blue, bottom right).
+- **No link:** "Paste the link you got": "In the email or message you got,
+  copy the whole link. It starts with ourstick.com/s/" and "Come back here:
+  OurStick finds it by itself. Or paste it below.", the field, `Open`, and
+  "Clicked the link and a web page opened? Press “Copy the link” on that
+  page, then come back here."
+- **Only some of it** (ADR 0012): "What do you want from “Holiday
+  photos”?", `All` / `None`, every top-level folder and file with a tick
+  and its size, largest first; a folder opens (`▾`) one level down, with
+  part ticks (ADR 0012, Amendment 1); "1.9 GB · it fits", "To Downloads ›
+  Holiday photos · Change…", `Download`.
+- **When something is in the way**, in place of the card:
+  - "This link is not whole. Copy all of it from the message: it is long.";
+  - "You already get “Holiday photos” on this computer." / "This is the
+    link to “Tutu Miles”, which you send yourself." with `Show it`;
+  - "The sender's computer is off right now" "Or OurStick is closed there.
+    You can wait: it comes by itself, all of it, once their computer is
+    on." `Cancel` / `Try again now` / `Wait for it` (ADR 0025);
+  - "It does not fit: only 1.1 GB are free." "Take only some of it, save it
+    on another disk, or make some room." `Only some of it…` / `Another
+    place…`, `Download` off;
+  - "The sender is still counting, so more is coming. You can start now:
+    the rest follows." with what is counted so far;
+  - red: "The network did not start. Is this computer on the internet?
+    Check, then try again." `Try again`; "What came does not match this
+    link. Ask the sender to send you a new link."
+
+### Something you received
+
+- `‹ Back`, its name, `Open folder`, `⋯`; its status box; under it what it
+  leaves out.
+- Status: "Downloading… 38%" with a bar, "1.2 GB of 3.2 GB", "You can close
+  this window. It goes on by itself, also after a restart." and "When the
+  sender adds or changes files, you get them too."; "All here" ("New files
+  from the sender come by themselves."); "All here so far" ("The sender is
+  still counting a big folder. The rest comes by itself."); "Waiting for the
+  sender · 1.2 GB of 3.2 GB here" ("Since 14:30 their computer is off, or
+  OurStick is closed there. It goes on by itself."); "Waiting: the disk is
+  full" ("Make some room, or take only some of it. It goes on by itself."
+  `Only some of it…`); "Waiting: its disk is not plugged in" ("Plug in “My
+  Passport”. It goes on by itself."); "The sender stopped this link" ("Ask
+  them for the new link. What you have stays in your folder." `Remove…`);
+  "Paused · 1.2 GB of 3.2 GB here" `Resume`; red "Stopped: a file could not
+  be saved" ("Something on this computer failed. What came so far is
+  safe." `Try again`).
+- A link waited for (ADR 0025): "Waiting for the sender since 13 October"
+  ("Its name and files appear once their computer is on. Leave OurStick
+  open: minimize it, don't quit."); after 30 days, "The sender did not
+  answer for 30 days" ("Ask them to open OurStick, or for a new link."
+  `Remove…`).
+- What it leaves out, grey: "Not getting: Films, and Mountains (in Holiday
+  2025). No longer updated: Music (it stays in your folder)." `Change…`.
+- `⋯`: `Pause` ("Then “Resume” here, when you want.") or `Resume`; `Choose
+  what to get…` ("Take some folders out, or add them back."; un-ticking
+  what is here says it stays but is no longer updated; a name the sender no
+  longer has is marked "not there now"); `Move to another folder…`; `How
+  the sender sees you…`; `Remove…` (red, "What you have stays in its
+  folder.").
+- "Remove “Family videos”?" "New files from the sender stop coming. What
+  you have stays in Downloads › Family videos." "To get it again, open the
+  link again." `Cancel` / `Remove`.
+- "How senders see you": "Your name (you can leave it empty)", "Senders
+  will see “Maria (Mac)”. Empty, they see only “a Mac”. Your computer's own
+  name is never sent." At most 40 characters, none invisible. `Cancel` /
+  `Save`. Also in About.
+- Received things are kept up to date while the app runs, each going on
+  where it was after a restart; files the sender removes stay here; a
+  folder whose disk is unplugged is never filled on another disk.
+
+### The link page in a browser
+
+`ourstick.com/s/#…` with no app: "Someone sent you files", "They come
+straight from their computer to yours. To get them, you need the free
+OurStick app." Step 1, "Get OurStick and open it.", `Download for <this
+system>` and "Mac or Linux" (the others), "Already have it? Skip to step
+2."; step 2, "Copy the link, then press Receive in OurStick. It finds the
+link by itself." with `Copy the link` ("Copied ✓ Now open OurStick"). "On a
+phone? OurStick is only for computers for now." (until ADR 0027), and "This
+page never sees the files or the key: they stay in the link, on your
+device." The fragment never leaves the browser (ADR 0022).
+
+### Closing the window
+
+- **✕ never quits.** Windows and Linux: it minimizes the window to the
+  taskbar or dock, never hides it (see GNOME's activation token under Known
+  limitations). macOS: it closes the window; OurStick stays in the Dock,
+  and a click there brings it back. Vanilla GNOME has no minimize button:
+  the window is found with the ⊞ key, Alt+Tab or the app grid.
+- **The first ✕ only**: "OurStick is still open", with a picture of this
+  computer's screen: the app's icon at the bottom (on the left on Ubuntu)
+  marked "Click here", the small icon near the clock marked "Or here". "To
+  open it again, click its picture at the bottom of the screen." and "It is
+  also near the clock. If you do not see it there, click ^." (Windows) / "It
+  is also at the top of the screen, near the clock." (macOS) / "It is also
+  at the top right, near the clock." (Linux with a tray). Linux without a
+  tray host: the ⊞ key and the window among the others, "To open it again,
+  press the key with the Windows logo ⊞, then click OurStick." Then "What
+  you send keeps going while it is open. If you quit, sending and receiving
+  stop until you open it again." `Quit OurStick` / `OK`. `OK` sets
+  `settings.still_open_told`; `Quit OurStick` does not. The window's own
+  `–` shows nothing.
+- **The picture** is chosen each time, nothing cached. On Linux a tray host
+  is there when `org.kde.StatusNotifierWatcher` has an owner on the session
+  bus and `IsStatusNotifierHostRegistered` is true.
+- **Quit** (the tray, the app menu, the Dock and ⌘Q on macOS, `Quit
+  OurStick` above): "Quit OurStick?" "While it is closed, nothing is sent
+  or received. It all goes on when OurStick opens again." In bold, what
+  goes on: "Maria is getting “Holiday photos” right now.", "“Family videos”
+  is still downloading." The start-at-login check. `Quit` / `Minimize
+  instead` (blue).
+
+### Tray
+
+- Always there while the app runs, a green dot while someone gets
+  something. The tray is a help, never the only way: many never see it.
+- Menu: `Open OurStick`; each thing with its sentence ("↑ Maria is getting
+  it", "✓ 2 people have all of it", "↓ Downloading"), a click opening the
+  window on it; `Send…`, `Receive…`; `About OurStick`, the `Open when the
+  computer starts` check, `Quit…`. Made again when a status changes, at
+  most once a second.
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
   Tauri's, because it has to receive the shell's XDG activation token (see
   Known limitations). GNOME shows it through the AppIndicator extension,
@@ -228,66 +344,42 @@ so Spotlight leaves it alone.
 - The app starts at login, on by default: the system's own entry (Windows
   `Run`, a macOS LaunchAgent, a Linux autostart file), written by the
   installed app only. Started so (`--autostarted`), it opens no window and
-  shares its sticks; the window opens anyway for the keys' move, the Local
-  Network step or the notice. The notice, once, at the top of the main
-  window: "OurStick opens when you log in, so that your sticks are shared
-  after a restart. You can turn this off in the tray menu or in About."
-- The system's own "off" (Task Manager, Startup Applications) is kept; the
-  check shows it where it can be read (Windows, Linux).
+  sends and receives; the window opens anyway for the keys' move or the
+  Local Network step. The check is in four places: the first start, About,
+  the tray and the Quit dialog. The system's own "off" (Task Manager,
+  Startup Applications) is kept; the check shows it where it can be read
+  (Windows, Linux).
 - About: the icon, name, version and tagline; ourstick.com, Privacy, Report
-  a problem; the start at login check; the copyright line; OurStick's
-  licence and the libraries' licences (the installed files). From the
-  tray, the version line at the foot of the sidebar, and the macOS app
-  menu.
-- macOS: a click on the Dock icon shows the window.
+  a problem; the start-at-login check; "Others see this computer as a Linux
+  PC · Change…"; "To open OurStick again, click its picture:" with the
+  same picture as the first ✕; the copyright line; OurStick's licence and
+  the libraries' licences (the installed files). From the tray and the
+  macOS app menu.
 
-### 4 · Stop sharing (also on Quit)
+### macOS: first start and the keychain
 
-- "Stop sharing “Photos”?" (the stick's name) / "Anyone with the link will
-  no longer be able to download."
-- If a download is in progress: bold line `Someone is still downloading.`
-  (no names, no remaining size in stage 1).
-- Buttons: `Keep sharing`, `Stop` (red). Quit shows the same dialog for every
-  stick: "Sharing “Photos” and “Films” stops: anyone with their links will
-  no longer be able to download.", and in bold the sticks someone downloads
-  from now. A drop being copied is named too, in bold: "Copying onto
-  “Photos” is not done. It stops, and nothing of it is kept: drop it again
-  next time." (Quit is then red.) What it left, hidden and never shared,
-  is removed at the next start for each stick plugged in, else at the
-  stick's next drop.
-
-### 5 · First launch
-
-- Title "Welcome to OurStick", three sentences (see image).
-- "Name of your stick", with `OurStick` filled in.
-- Button `Plug it in` → creates keys (Secret Service on Linux, Keychain on
-  macOS), creates the stick folder (the disk image on macOS, `~/OurStick` on
-  Linux), mounts it or adds the bookmark, and opens panel 1.
-- Shown once. There is no size to choose (ADR 0008).
-
-## macOS: the Local Network permission (ADR 0020)
-
-- At the first start of a version with ADR 0020, on macOS only, the window
-  opens on one screen before anything else: "macOS will ask you a
-  question. Choose Allow, so OurStick can send data directly to nearby
-  computers, much faster." `Continue`. Nothing binds an endpoint before it, so macOS asks right
-  after; shown once per device.
-- While a declined permission keeps the other computer, on this network,
-  on the relay: on the received stick, or under a stick's activity, "This
-  is slow: the sender (someone downloading) is on your network, but
-  OurStick is not allowed to reach it. (System Settings → Privacy &
-  Security → Local Network)" and `Open Settings`. It goes once allowed.
+- The Local Network permission (ADR 0020): at the first start, before
+  anything binds, "Your Mac will ask you something" "Choose Allow. Then
+  OurStick can send straight to computers in your home, much faster." "It
+  asks only once. You can change it later in System Settings." `Continue`.
+  Shown once per device.
+- Keys moved from an old version (ADR 0021): "One last password" "Your Mac
+  will ask for your password up to 3 times. Each time, type it and choose
+  Always Allow. After this, it never asks again." `Continue`; if refused,
+  "The password was not accepted." "Nothing changed: everything works as
+  before. You can try again now or next time." `Not now` / `Try again`.
 
 ## Semantics that must hold
 
-- **Eject ≠ stop sharing.** Eject only unmounts. Sharing continues, tray stays.
-- **Stop sharing** is the only thing that stops serving. Always confirmed.
-- **Link is the key.** Never logged, never sent anywhere by the app itself.
+- **Stop sending** is the only thing that stops serving a thing; Quit stops
+  all of it. Both are always confirmed.
+- **Remove never deletes the user's files**, on either side.
+- **The link is the key.** Never logged, never shown whole in the window
+  but in its field to copy, never sent anywhere by the app itself.
 - **Relay policy (ADR 0006 v2):** never stop, never ask. Without a direct
-  path, data goes through the relay at a limited speed, with a message that
-  stays visible. That is on the receiver side (CLI for now); nothing to show
-  in the stage 1 window.
-- **Sleep:** while someone is downloading, inhibit system sleep
+  path, data goes through the relay at a limited speed, with a note that
+  stays while it does.
+- **Sleep:** while someone is getting something, system sleep is inhibited
   (`org.freedesktop.login1` on Linux, a power assertion on macOS).
 
 ## Known limitations (stage 1)
@@ -301,9 +393,9 @@ so Spotlight leaves it alone.
   paths") and says how to allow OurStick in Windows Security; the same
   message appears on Linux and macOS. That message has not yet been seen
   with a real reader: it needs one that cannot come directly.
-- macOS: a sparse image does not shrink when files are deleted; it gets
+- macOS (sticks made before ADR 0028): a sparse image does not shrink when files are deleted; it gets
   smaller only after `hdiutil compact` while detached.
-- Linux: the bookmark's icon is up to the file manager; Nautilus and Thunar
+- Linux (sticks made before ADR 0028): the bookmark's icon is up to the file manager; Nautilus and Thunar
   show bookmarks with a folder icon (the folder itself gets the USB drive icon
   where the file manager honours `metadata::custom-icon-name`).
 - Linux: the app runs WebKitGTK without compositing
@@ -322,7 +414,7 @@ so Spotlight leaves it alone.
     a hidden window anew when it is shown, and a new window comes too late
     for the token.
   - The token raises only a window GNOME already has. So a tray item that
-    opens a new window (Share…, Stop sharing…, Quit) first brings the main
+    opens a new window (Send…, Receive…, Quit…) first brings the main
     window forward with the token, and opens the new window once the app has
     the focus.
   - Started from a terminal (no launcher, so no token), the first window
@@ -365,84 +457,6 @@ Rules:
 - KDE, XFCE etc. get the GNOME theme; refine later if users ask.
 - Never use a non-system font. No web fonts, no downloads.
 
-## Receiver side
-
-The window's left column has a second group, **Received** (step 7b): the
-sticks someone sent this device, each with its name (the sender's, shown
-isolated so its writing direction never spills over) and what it is doing
-in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
-`Waiting`, `Paused`, `Stopped`. Below it, `+ Add a sharing link…`.
-
-- **Add a sharing link:** a field to paste the link (never shown back,
-  logged or put in a message: it holds the stick's key) → `Look at it` →
-  "Looking for the sender… please wait." (at most half a minute) → the
-  field and its buttons go (they have done their work), and the stick's
-  name comes, then "What to get:" with `All` / `None` and every
-  top-level folder and file with a tick (all ticked) and its size, largest
-  first; a top-level folder opens with an arrow (`▸`) to show its folders
-  and files one level down, indented, each with its own tick; a stick of
-  one folder is shown open; a folder with some of its inside un-ticked
-  shows a part tick (ADR 0012, Amendment 1); "New things the sender adds will come too."; `Save to <folder>`
-  (Downloads/<stick name> at first) with `Choose…` (the system's folder
-  picker); and `Needs up to X · fits` (the ticked ones, as they change), or
-  "Needs up to X, and only Y are left where it would be saved. Un-tick
-  something, choose another place, or free some room.", or "Tick at least
-  one thing.", or "The sender is still counting its files: more is coming."
-  (or, if what it has counted already does not fit, "Needs at least X so
-  far, and only Y are left…", and Get it is off)
-  → `Cancel` / `Get it` (ADR 0012). The list scrolls by itself when long;
-  what is below it, with `Get it`, stays in sight.
-  If the sender cannot be reached (ADR 0025): "The sender's computer is
-  off, or OurStick is not open there." and "Wait for it: it comes by
-  itself, all of it, once the sender's computer is on and OurStick is open
-  there.", with `Cancel`, `Look again` and `Wait for it`. Waited for, the
-  link is in Received at once as "Stick 1a2b3c4d · Waiting for the
-  sender"; its view says it comes by itself, "Keep OurStick open: minimize
-  it rather than quit.", "Waiting since 13 October", and has only `Forget
-  this stick…`. The app looks for the sender as a receive waits (15 s,
-  doubling to 5 minutes, again at each start); once it answers, the link
-  becomes a received stick in `Downloads/<name>`, everything ticked. After
-  30 days: "The sender did not answer for 30 days." (`No answer` in the
-  list). A link to one of this
-  device's own sticks, or one it already receives, is refused, saying so.
-- **A received stick:** its name, `Saved in <folder>` with `Open folder`,
-  and what it is doing in a sentence: "Downloading: 1.2 GB of 2.6 GB" with
-  a bar; "Up to date. New files from the sender come by themselves while
-  OurStick is open."; while the sender still reads its folder and all it
-  has said so far is here, "Up to date so far. Anything more the sender
-  adds will come by itself." (not "getting more": nothing is being fetched); "Waiting since 14:30. The sender's computer is off,
-  or OurStick is not open there. It goes on by itself when they are back."
-  (or why else it waits: no room, its folder's disk unplugged, the sender
-  no longer sharing it with this link); "Paused: …"; or, in red, why it
-  stopped, with `Try again`. Under it, what it leaves out, grouped by the
-  folder it is inside: "Not getting: Films; MUSIC and Pictures (inside
-  Rescued_Disk)." and "Not updating: Music (it stays in the folder)." Its `⋯` menu:
-  `Pause` / `Resume`, `Choose what to get…` (the same ticks, the same tree,
-  a folder opening while the sender is away too, from the latest list; un-ticking
-  what is here says "Music stays in your folder, but is no longer updated.
-  OurStick never deletes anything."; a name the stick no longer has is
-  marked "not on the stick now", at either level; `Save`), `Forget this stick…` (red): "It
-  is no longer kept up to date. Its files stay in <folder>." When there is
-  not room, its wait says to leave something out with `Choose what to
-  get…`.
-- Under the received sticks: "Senders see you as: a Mac. `Change…`" (or
-  "Maria (Mac)") — the one place a receiver may give a name. `Change…`
-  opens "Your name for senders (optional)" with `Cancel` / `Save` and
-  "Leave it empty to show only a Mac. Your computer's own name is never
-  sent."; at most 40 characters, none invisible. Never asked for by a
-  popup or a step. Not a settings page (there is none in stage 1).
-- Received sticks are kept up to date in the background while the app
-  runs, each going on where it was after a restart; files the sender
-  removes stay here; a folder whose disk is unplugged is never filled on
-  another disk. Quit names the sticks coming in: "Getting “Holiday” stops;
-  it goes on where it was next time."
-- **First launch** has a second way in: "Someone sent you a sharing link?
-  `I got a sharing link`", straight to adding it, with no stick of one's
-  own.
-- Not yet: choosing deeper than one level inside a top-level folder (ADR
-  0012, Amendment 1: a folder inside an opened folder is chosen whole), and
-  receiving without the app (a web receiver is out of v1). `ourstick get`
-  still works, but never touches a stick the window receives.
 
 ## Signing and relays
 
@@ -457,16 +471,9 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 
 - **"X GB remaining"** for the owner: needs a small addition to the protocol,
   where the reader tells the owner how much it still needs.
-- **macOS mount point:** the image is attached under `/Volumes` (where Finder
-  shows volumes), so its path can change (`OurStick 1`); the app finds the
-  stick by its image and records the folder's path at every mount. Whether
-  Finder lists it in Locations with an eject button is checked by eye in the
-  manual round.
-- **Windows drive name:** the `subst` letter shows under the system drive's
-  label ("Windows (O:)"); neither the per-user nor the machine-wide
-  `DriveIcons` label applies to a `subst` drive on Windows 11 24H2 (tried).
-  The stick's name is shown by its entry in Explorer's navigation pane
-  instead (ADR 0023); only a VHDX would name the letter itself.
+- **Sticks made before ADR 0028** keep their drive with no way to eject it
+  from the window. If people miss Eject, or the drive confuses them now that
+  new sticks have none, a later step may move them to plain folders.
 - **`ksni` upstream:** once a `ksni` release has
   `Tray::provide_xdg_activation_token` (pull request #43), drop
   `third_party/ksni` and the `[patch.crates-io]` entry.
@@ -475,7 +482,7 @@ in a few words: `Downloading 45%`, `Up to date`, `Up to date so far`,
 
 FUSE or any virtual filesystem, right-click "Send to" in file managers,
 permissions, expiry, revoking a link other than by changing it, a settings
-page (the one setting, start at login, is in the tray and About), and the
-app updating itself (planned next). Many sticks, folders linked without
-copying (ADR 0008) and the receiver window, once out of scope here, are
-built.
+page (the one setting, start at login, is in the tray and About), the
+app updating itself (planned next), copying onto a stick (gone with ADR
+0028), and languages other than English (after ADR 0028, with the strings in
+one place).

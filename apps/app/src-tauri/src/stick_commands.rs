@@ -203,7 +203,7 @@ async fn nudge(state: &AppState, stick_id: &StickId) {
 /// "Share it as it is": links dropped folders or files to the stick,
 /// shared from where they are (ADR 0008). All or none: each is checked
 /// first (no overlap with the stick, the data folder or another linked
-/// entry; a name that is taken gets a number).
+/// entry; a name that is taken is refused, ADR 0028 §2).
 #[tauri::command]
 pub async fn link_paths(
     stick_id: String,

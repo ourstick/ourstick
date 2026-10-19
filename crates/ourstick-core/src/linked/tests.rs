@@ -63,26 +63,52 @@ fn a_folder_or_a_file_outside_is_linked_under_its_name() {
 }
 
 #[test]
-fn a_name_on_the_stick_already_gets_a_number_ignoring_case() {
+fn a_name_on_the_stick_already_is_refused_ignoring_case_never_numbered() {
     let setup = setup();
+    // On an old stick's own folder.
     std::fs::create_dir(setup.own.join("films")).unwrap();
     let films = setup.outside.join("Films");
     std::fs::create_dir(&films).unwrap();
-    let first = plan(&setup, &[], &films).unwrap();
-    assert_eq!(first.name, "Films (2)");
-    // Another linked "FILMS (2)" takes that one too.
-    let other = setup.outside.join("x").join("Films");
-    std::fs::create_dir_all(&other).unwrap();
-    let taken = LinkedEntry {
-        name: "FILMS (2)".to_owned(),
-        ..first
-    };
-    assert_eq!(plan(&setup, &[taken], &other).unwrap().name, "Films (3)");
+    match plan(&setup, &[], &films) {
+        Err(LinkError::NameTaken { name, other, .. }) => {
+            assert_eq!(name, "Films");
+            assert_eq!(other, None);
+        }
+        other => panic!("{other:?}"),
+    }
+    // Another linked entry, stored or planned: the receiver would not know
+    // which is which.
+    let photos = setup.outside.join("Pictures").join("Photos");
+    let also = setup.outside.join("Expansion").join("PHOTOS");
+    for folder in [&photos, &also] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let first = plan(&setup, &[], &photos).unwrap();
+    let error = plan(&setup, std::slice::from_ref(&first), &also).unwrap_err();
+    assert!(
+        matches!(&error, LinkError::NameTaken { other: Some(other), .. } if *other == photos),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "Two things are called \u{201c}PHOTOS\u{201d} (from \u{201c}Pictures\u{201d} and from \u{201c}Expansion\u{201d}). Rename one first, then add it again."
+    );
+    setup
+        .store
+        .add_linked_entry(&setup.stick_id, &first)
+        .unwrap();
+    assert!(matches!(
+        plan(&setup, &[], &also),
+        Err(LinkError::NameTaken { .. })
+    ));
     // Greek too: case is Unicode's, not ASCII's.
     std::fs::create_dir(setup.own.join("ΤΑΙΝΙΕΣ")).unwrap();
     let greek = setup.outside.join("ταινιες");
     std::fs::create_dir(&greek).unwrap();
-    assert_eq!(plan(&setup, &[], &greek).unwrap().name, "ταινιες (2)");
+    assert!(matches!(
+        plan(&setup, &[], &greek),
+        Err(LinkError::NameTaken { .. })
+    ));
 }
 
 #[test]

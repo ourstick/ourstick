@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::drive::free_name_where;
 use crate::places::{app_places, clash, Taken};
 use crate::stick_id::StickId;
 use crate::store::{LinkedEntry, Store, StoreError};
@@ -20,6 +19,14 @@ pub enum LinkError {
     NotFileOrFolder(PathBuf),
     #[error("{}'s name cannot be shared (it is not valid Unicode, or not a name at all)", .0.display())]
     BadName(PathBuf),
+    #[error("{}", name_taken(.name, .path, .other.as_deref()))]
+    NameTaken {
+        path: PathBuf,
+        name: String,
+        /// The linked entry that has the name, if one has (else the stick's
+        /// own folder has it).
+        other: Option<PathBuf>,
+    },
     #[error("{} {relation} {other}, which a link may not touch", .path.display())]
     Overlaps {
         path: PathBuf,
@@ -34,6 +41,25 @@ pub enum LinkError {
     },
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// "Two things are called “Photos” (from “Pictures” and from “Expansion”).
+/// Rename one first, then add it again."
+fn name_taken(name: &str, path: &Path, other: Option<&Path>) -> String {
+    let from = |path: &Path| {
+        path.parent()
+            .and_then(Path::file_name)
+            .map(|parent| format!("\u{201c}{}\u{201d}", parent.to_string_lossy()))
+    };
+    let whence = match other.map(|other| (from(other), from(path))) {
+        Some((Some(other), Some(this))) if other != this => {
+            format!(" (from {other} and from {this})")
+        }
+        _ => String::new(),
+    };
+    format!(
+        "Two things are called \u{201c}{name}\u{201d}{whence}. Rename one first, then add it again."
+    )
 }
 
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> LinkError + '_ {
@@ -63,8 +89,9 @@ pub(crate) fn disk_of(metadata: &std::fs::Metadata) -> Option<u64> {
 /// stick), and the places only OurStick may use ([`crate::places`]: other
 /// app sticks' folders, the data folder). `planned` are links decided but
 /// not stored yet (several dropped at once). The name is the last component
-/// of `path`, with " (2)", " (3)"… if it clashes, ignoring case, with an
-/// entry already on the stick. `now_ms` is when it is added.
+/// of `path`; one that clashes, ignoring case, with an entry already on the
+/// stick is refused, never numbered (ADR 0028 §2: the receiver would not
+/// know which is which). `now_ms` is when it is added.
 pub fn plan_link(
     store: &dyn Store,
     stick_id: &StickId,
@@ -111,15 +138,26 @@ pub fn plan_link(
         .filter(|name| !name.contains('\\'))
         .ok_or_else(|| LinkError::BadName(path.to_path_buf()))?;
     let on_stick = top_names(own)?;
-    let taken = |candidate: &str| {
-        let lower = candidate.to_lowercase();
-        on_stick.iter().any(|name| name.to_lowercase() == lower)
-            || existing.iter().any(|entry| entry.name.to_lowercase() == lower)
-            // What the file system itself calls the same (e.g. Unicode forms).
-            || own.join(candidate).exists()
+    let lower = name.to_lowercase();
+    let refused = |other: Option<PathBuf>| LinkError::NameTaken {
+        path: path.to_path_buf(),
+        name: name.to_owned(),
+        other,
     };
+    if let Some(entry) = existing
+        .iter()
+        .find(|entry| entry.name.to_lowercase() == lower)
+    {
+        return Err(refused(Some(entry.path.clone())));
+    }
+    if on_stick.iter().any(|name| name.to_lowercase() == lower)
+        // What the file system itself calls the same (e.g. Unicode forms).
+        || own.join(name).exists()
+    {
+        return Err(refused(None));
+    }
     Ok(LinkedEntry {
-        name: free_name_where(name, taken),
+        name: name.to_owned(),
         path: path.to_path_buf(),
         is_dir: metadata.is_dir(),
         disk: disk_of(&metadata),

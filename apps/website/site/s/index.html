@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="/icon.png">
-<title>A stick for you · OurStick</title>
+<title>Someone sent you files · OurStick</title>
 <meta name="robots" content="noindex">
 </head>
 <body>
@@ -16,32 +16,37 @@
       <nav><a href="/faq">FAQ</a> <a href="/about">About</a> <a href="/#download">Download</a></nav>
     </header>
     <div id="have-it">
-      <h1>Someone sent you a stick.</h1>
-      <p class="lead">Open it with OurStick, a free app for your computer.</p>
-      <p id="phone" class="lead" hidden><strong>The app is for computers.</strong> There is no phone app yet: open this link on a Mac, a Windows or a Linux computer.</p>
-      <h2>Already have the app?</h2>
-      <p><button id="copy" type="button">Copy the link</button></p>
-      <p id="copied" class="note" aria-live="polite">Then open the app and choose “I got a sharing link” (or “Add a sharing link”): it finds the link by itself. Or copy the address from your browser's address bar.</p>
-      <h2>Get the app</h2>
-      <p>Install it, then come back to this page and copy the link.</p>
+      <h1>Someone sent you files</h1>
+      <p class="lead">They come straight from their computer to yours. To get them, you need the free OurStick app.</p>
+      <ol class="link-steps">
+        <li>
+          <p><strong>Get OurStick and open it.</strong></p>
+          <div class="downloads">
+            <a class="download" data-os="macos" data-name="Mac" href="/downloads/OurStick-macOS.dmg">Download for Mac <small>Apple silicon (M1 and later), macOS 11 or newer · SIZE_MACOS</small></a>
+            <a class="download" data-os="windows" data-name="Windows" href="/downloads/OurStick-Windows-setup.exe">Download for Windows <small>64-bit · SIZE_WINDOWS</small></a>
+            <a class="download" data-os="linux" data-name="Linux" href="/downloads/OurStick-Linux-amd64.deb">Download for Linux <small>Ubuntu 22.04, Debian 12 or newer · SIZE_LINUX</small></a>
+          </div>
+          <p class="note">Already have it? Skip to step 2.</p>
+        </li>
+        <li>
+          <p><strong>Copy the link, then press Receive in OurStick.</strong> It finds the link by itself.</p>
+          <p><button id="copy" type="button">Copy the link</button></p>
+          <p id="copied" class="note" aria-live="polite"></p>
+        </li>
+      </ol>
+      <p class="note">On a phone? OurStick is only for computers for now. Open this message on your computer.</p>
     </div>
     <div id="broken" hidden>
       <h1>This link is not whole.</h1>
       <p class="lead">Part of it was lost on the way, maybe cut off by the program it was sent with. Ask the sender to send it again.</p>
     </div>
-    <div class="downloads">
-      <a class="download" data-os="macos" href="/downloads/OurStick-macOS.dmg">macOS <small>Apple silicon (M1 and later), macOS 11 or newer · SIZE_MACOS</small></a>
-      <a class="download" data-os="windows" href="/downloads/OurStick-Windows-setup.exe">Windows <small>64-bit · SIZE_WINDOWS</small></a>
-      <a class="download" data-os="linux" href="/downloads/OurStick-Linux-amd64.deb">Linux <small>Ubuntu 22.04, Debian 12 or newer · SIZE_LINUX</small></a>
-    </div>
-    <p class="note">Not yet: Macs with an Intel processor, and phones.</p>
     <p class="note">The Mac app is signed and notarized by Apple. The Windows installer is not signed yet: your browser may warn that the file is not commonly downloaded (choose <strong>Keep</strong>), and its first start may say “Windows protected your PC”: choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
-    <p class="note">Everything in the link after “#”, the stick's key and where to find the sender, is never sent by your browser to any website, this one included. It stays in your browser's history, like every address you open.</p>
+    <p class="note">This page never sees the files or the key: they stay in the link, on your device. Everything after “#” is never sent by your browser to any website, this one included; it stays in your browser's history, like every address you open.</p>
   </main>
   <footer>
     <a href="/">OurStick</a> · <a href="/faq">FAQ</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a> · <a href="/THIRD-PARTY-LICENSES">Third-party licences</a> · <a href="https://github.com/ourstick/ourstick">Source code</a>
   </footer>
-  <script src="/link.js"></script>
   <script src="/downloads.js"></script>
+  <script src="/link.js"></script>
 </body>
 </html>

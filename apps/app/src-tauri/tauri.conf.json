@@ -16,6 +16,7 @@
         "title": "OurStick",
         "width": 700,
         "height": 600,
+        "center": true,
         "resizable": false,
         "visible": false
       }

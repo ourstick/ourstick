@@ -456,7 +456,8 @@ and the platform's spacing and corner radius.
 
 Rules:
 - Use `AccentColor` / `AccentColorText` CSS system colors where the WebView
-  supports them; fall back to the table.
+  supports them; fall back to the table. On macOS the text on the accent is
+  white: WebKit gives `AccentColorText` as black there.
 - Icons: symbolic/monochrome line icons (Adwaita-style on Linux, Fluent-style
   on Windows, SF-Symbols-like on macOS). One icon set with per-platform
   stroke weight is enough; do not ship three sets.

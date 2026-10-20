@@ -81,11 +81,15 @@
   }
 }
 
-/* The system accent where the WebView knows it. */
+/* The system accent where the WebView knows it. On macOS WebKit gives
+   AccentColorText as black, unreadable on the accent; macOS itself writes
+   white on it, so the text stays white there. */
 @supports (color: AccentColor) {
   :root[data-platform="windows"],
   :root[data-platform="macos"] {
     --accent: AccentColor;
+  }
+  :root[data-platform="windows"] {
     --accent-text: AccentColorText;
   }
 }

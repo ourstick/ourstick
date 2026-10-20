@@ -244,16 +244,24 @@ fn private_part(path: &Path, here: &Path, home: &Path, rules: &SendRules) -> Opt
     if let Some(private) = private {
         return Some(name_of(private));
     }
-    hidden_part(path)
+    // Inside the home only what lies below it counts: the home is never
+    // hidden itself, whatever holds it.
+    let below_home = here
+        .strip_prefix(home)
+        .ok()
+        .map(|inside| inside.components().count());
+    hidden_part(path, below_home)
 }
 
 /// The folder `path` is or lies inside that Windows marks hidden or of the
-/// system, short of the disk's top (which may be marked so).
+/// system, short of the disk's top (which may be marked so), and only among
+/// its last `below_home` parts when it lies in the home.
 #[cfg(windows)]
-fn hidden_part(path: &Path) -> Option<String> {
+fn hidden_part(path: &Path, below_home: Option<usize>) -> Option<String> {
     use std::os::windows::fs::MetadataExt;
     const HIDDEN_OR_SYSTEM: u32 = 0x2 | 0x4;
     path.ancestors()
+        .take(below_home.unwrap_or(usize::MAX))
         .filter(|part| part.parent().is_some())
         .find(|part| {
             std::fs::symlink_metadata(part)
@@ -263,7 +271,7 @@ fn hidden_part(path: &Path) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn hidden_part(_path: &Path) -> Option<String> {
+fn hidden_part(_path: &Path, _below_home: Option<usize>) -> Option<String> {
     None
 }
 

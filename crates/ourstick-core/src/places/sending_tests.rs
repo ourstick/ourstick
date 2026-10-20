@@ -224,3 +224,23 @@ fn this_devices_rules_refuse_its_system() {
     assert!(rules.private.contains(&home.join("AppData")));
     assert!(!rules.system.is_empty());
 }
+
+#[cfg(windows)]
+#[test]
+fn a_hidden_folder_counts_inside_the_home_only() {
+    let hide = |path: &Path| {
+        let done = std::process::Command::new("attrib")
+            .arg("+h")
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(done.success());
+    };
+    let device = device();
+    // What holds the home is hidden (as AppData holds %TEMP%): it does not count.
+    hide(&device.root.join("home"));
+    let summer = device.home.join("Pictures/Holiday 2025/Summer");
+    assert_eq!(may_send(&summer, &device.rules), MaySend::Fine);
+    hide(&device.home.join("Pictures/Holiday 2025"));
+    assert!(refusal(&device, &summer).contains("Holiday 2025"));
+}

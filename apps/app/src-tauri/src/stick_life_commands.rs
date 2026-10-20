@@ -201,7 +201,8 @@ async fn move_first_if_needed(app: &AppHandle, state: &AppState) -> Result<(), S
         .await
         .map_err(shown)?
         .into_iter()
-        .find(|stick| stick.root_path == home);
+        // Only a drive is ever moved: any other root is not OurStick's to move.
+        .find(|stick| stick.is_drive() && stick.root_path == home);
     let Some(first) = first else {
         return Ok(());
     };

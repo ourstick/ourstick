@@ -115,6 +115,10 @@ pub fn no_window(program: &str) -> std::process::Command {
 /// entry, named after the old id, goes and the new one is written (ADR
 /// 0023); the letter, the bookmark or the image do not depend on the id.
 pub fn link_renewed(old: &ourstick_core::StickId, stick: &OwnedStick) -> Result<()> {
+    // Only a drive has an entry and a letter.
+    if !stick.is_drive() {
+        return Ok(());
+    }
     #[cfg(windows)]
     {
         pane::platform::hide(old)?;

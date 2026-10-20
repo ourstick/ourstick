@@ -10,7 +10,7 @@ struct Device {
 }
 
 fn device() -> Device {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = temporary_folder();
     let root = dir.path().to_path_buf();
     let home = root.join("home/anna");
     for folder in [
@@ -43,6 +43,20 @@ fn device() -> Device {
         home,
         rules,
     }
+}
+
+/// On Windows %TEMP% lies in AppData, which is hidden: what stands for
+/// places outside the home is made in the build folder instead.
+#[cfg(windows)]
+fn temporary_folder() -> tempfile::TempDir {
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&target).unwrap();
+    tempfile::tempdir_in(target).unwrap()
+}
+
+#[cfg(not(windows))]
+fn temporary_folder() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap()
 }
 
 fn refusal(device: &Device, path: &Path) -> String {

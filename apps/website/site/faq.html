@@ -21,9 +21,9 @@
       <dt>WeTransfer, Dropbox, Google Drive</dt>
       <dd>They upload your files to their servers first, and the free plans have size limits. OurStick uploads nothing anywhere: the files go from your computer to theirs, encrypted, with no limit on size and no account.</dd>
       <dt>Magic Wormhole, croc, sendme</dt>
-      <dd>Great for sending files once, from a terminal. OurStick is an app with a window, the stick stays (the same link keeps working), it follows what you add, and the receiver chooses what to get.</dd>
+      <dd>Great for sending files once, from a terminal. OurStick is an app with a window, the same link keeps working, it follows what you add and change, and the receiver chooses what to get.</dd>
       <dt>Syncthing, Resilio Sync</dt>
-      <dd>They keep a folder the same, both ways, on devices you pair with each other: a file deleted on one is deleted on the others. OurStick is a stick you hand over: you send a link, with no pairing; the other person picks what to get, and cannot change what is on your stick. OurStick never deletes anything they received.</dd>
+      <dd>They keep a folder the same, both ways, on devices you pair with each other: a file deleted on one is deleted on the others. OurStick is a stick you hand over: you send a link, with no pairing; the other person picks what to get, and cannot change your files. OurStick never deletes anything they received.</dd>
       <dt>LocalSend</dt>
       <dd>Works only on the same network. OurStick works across the internet too.</dd>
       <dt>OnionShare</dt>
@@ -35,21 +35,25 @@
     <h2>Using it</h2>
     <dl class="faq">
       <dt>Does my computer have to stay on?</dt>
-      <dd>Yes, with OurStick running, while others get your stick: the files come from your computer, and there is no copy anywhere else. OurStick opens by itself when you log in, so a restart does not stop your sticks (turn this off with “Start at login” in its menu). A download that stops goes on where it left off when you are back.</dd>
+      <dd>Yes, with OurStick open, while others get your files: they come from your computer, and there is no copy anywhere else. Closing OurStick’s window does not quit it, and it opens by itself when the computer starts, so a restart does not stop what you send (turn this off in About, or in the menu of its small icon near the clock). A download that stops goes on where it left off when you are back.</dd>
       <dt>Does the other person need OurStick?</dt>
-      <dd>Yes. The link opens a page that explains this and lets them download OurStick; they then copy the link into it. There is no way to download a stick in a browser.</dd>
+      <dd>Yes. The link opens a page that explains this and lets them download OurStick; they copy the link and press Receive in OurStick, which finds it by itself. There is no way to download the files in a browser.</dd>
       <dt>Is there a size limit?</dt>
-      <dd>No limit of OurStick's own: a stick can be as big as your disk, with as many files. The sender keeps no second copy of the files, and the receiver needs room for what they get plus a little more (about 1 GB) while it downloads.</dd>
+      <dd>No limit of OurStick's own: what you send can be as big as your disk, with as many files. Nothing is copied first: the sender keeps no second copy of the files, and the receiver needs room for what they get plus a little more (about 1 GB) while it downloads.</dd>
       <dt>How fast is it?</dt>
       <dd>When the two computers can reach each other directly, as fast as your connections allow. When they cannot (some strict networks), the data passes through a public relay, at up to about 10 Mbit/s, while OurStick keeps looking for a direct path.</dd>
-      <dt>What if I change or delete a file on my stick?</dt>
-      <dd>People who have the stick get the new version of a changed file. A file you delete stays with them; OurStick never deletes anything on their computer, and never overwrites a file they changed themselves.</dd>
+      <dt>What if I change, move or delete a file I send?</dt>
+      <dd>OurStick sends your files from where they are, so leave them there. People who have the link get the new version of a changed file. A file you move or delete stops coming, and what they have stays with them; OurStick never deletes anything on their computer, and never overwrites a file they changed themselves.</dd>
       <dt>Can I share with many people?</dt>
       <dd>Yes: send the same link to as many as you like. They all download from your computer, so many at once share your upload speed.</dd>
-      <dt>How do I stop sharing?</dt>
-      <dd>Choose “Change the sharing link…” for the stick: the old link stops working for everyone, and you send the new one to the people you want. Or remove the stick.</dd>
+      <dt>Where do the files I receive go?</dt>
+      <dd>To a folder named after what was sent, in your Downloads folder, unless you choose another before you press Download. To put them somewhere else later, choose “Move to another folder…” in its ⋯ menu: what came so far moves, and what comes later follows.</dd>
+      <dt>How do I stop sending?</dt>
+      <dd>Choose “Stop sending…” in its ⋯ menu: the link stops working until you start again. Or “Make a new link…”: the old link stops working for everyone, and you send the new one to the people you want. “Remove from OurStick…” stops it for good. None of these deletes your files.</dd>
+      <dt>I made sticks with an older version. What happens to them?</dt>
+      <dd>Nothing to do: their links keep working, and their folders stay where they are and go on being sent, also what you put in them. What you send from now on is sent from where it is, with no folder of its own.</dd>
       <dt>How do I uninstall OurStick?</dt>
-      <dd>Windows: Settings → Apps → OurStick → Uninstall. Mac: quit OurStick, then move it from Applications to the Bin; also delete <code>~/Library/LaunchAgents/com.ourstick.OurStick.plist</code>, which starts it at login. Linux: <code>sudo apt remove ourstick</code>, and delete <code>~/.config/autostart/ourstick.desktop</code>. Your sticks’ folders and the files you received stay, as on a USB stick you put away.</dd>
+      <dd>Windows: Settings → Apps → OurStick → Uninstall. Mac: quit OurStick, then move it from Applications to the Bin; also delete <code>~/Library/LaunchAgents/com.ourstick.OurStick.plist</code>, which starts it at login. Linux: <code>sudo apt remove ourstick</code>, and delete <code>~/.config/autostart/ourstick.desktop</code>. The files you sent and the files you received stay where they are, as on a USB stick you put away.</dd>
       <dt>Phones? Intel Macs?</dt>
       <dd>Not yet. OurStick runs on Windows, on Macs with Apple silicon (M1 and later), and on Linux (Ubuntu 22.04 and Debian 12 or newer).</dd>
     </dl>
@@ -59,9 +63,9 @@
       <dt>Is it open source?</dt>
       <dd>Yes, under the Apache-2.0 licence: the code, its design and its decisions are on <a href="https://github.com/ourstick/ourstick">GitHub</a>.</dd>
       <dt>How is it encrypted? Has it been audited?</dt>
-      <dd>Files and the list of what is on a stick are encrypted on your computer with the stick's own key, which only the link carries: <a href="/privacy#encryption">how it works</a>. It has not yet been reviewed by an independent auditor. To report a security problem, write to <a href="mailto:hi@ourstick.com">hi@ourstick.com</a>.</dd>
+      <dd>Files and the list of what you send are encrypted on your computer with a key of their own, which only the link carries: <a href="/privacy#encryption">how it works</a>. It has not yet been reviewed by an independent auditor. To report a security problem, write to <a href="mailto:hi@ourstick.com">hi@ourstick.com</a>.</dd>
       <dt>What if the link leaks?</dt>
-      <dd>Anyone who has it can read the stick. Change the stick's link, and the old one stops working at once. The connection itself is encrypted too, so recording the traffic does not help someone who gets the link later.</dd>
+      <dd>Anyone who has it can take everything in it. Choose “Make a new link…”, and the old one stops working at once. The connection itself is encrypted too, so recording the traffic does not help someone who gets the link later.</dd>
       <dt>Does it track me or talk to your servers?</dt>
       <dd>There are no OurStick servers in the way. The app talks only to the other computer and, to find it, to the public relays and lookup service of n0, the makers of the networking library it uses. No analytics, no accounts. See <a href="/privacy">Privacy</a>.</dd>
       <dt>How do I hear about new versions?</dt>
@@ -75,7 +79,7 @@
     <h2>The project</h2>
     <dl class="faq">
       <dt>Is it free? How will you make money?</dt>
-      <dd>Free and open source. Later there may be a paid service that keeps a stick online while your computer is off. What works today stays free.</dd>
+      <dd>Free and open source. Later there may be a paid service that keeps what you send online while your computer is off. What works today stays free.</dd>
       <dt>Who makes it?</dt>
       <dd><a href="/about">About</a>.</dd>
     </dl>

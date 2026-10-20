@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="/icon.png">
 <title>OurStick</title>
-<meta name="description" content="A USB stick in a link: put folders in the OurStick app and send a link. Like a flash drive, without the drive. Peer to peer, encrypted, free and open source.">
+<meta name="description" content="A USB stick in a link: choose folders in the OurStick app and send a link. Like a flash drive, without the drive. Peer to peer, encrypted, free and open source.">
 </head>
 <body>
   <main>
@@ -16,14 +16,8 @@
       <nav><a href="/faq">FAQ</a> <a href="/about">About</a> <a href="/#download">Download</a></nav>
     </header>
     <h1>A USB stick in a link.</h1>
-    <p class="lead">Put folders on a stick in the OurStick app and send its link. The other person opens it in OurStick, picks what they want, and downloads it.</p>
-    <p>Straight from your computer to theirs, encrypted on your device. No accounts, no uploads to a cloud, no size limits. When you add files, the people who have your stick get them too.</p>
-    <figure class="demo">
-      <video controls muted playsinline preload="none" poster="/media/ourstick-demo-poster-2.jpg" width="1600" height="1000">
-        <source src="/media/ourstick-demo-7.mp4" type="video/mp4">
-      </video>
-      <figcaption>A minute and a half: a stick from a Mac to a Windows PC. Music: J.&nbsp;S. Bach, Aria from the Goldberg Variations, played by Kimiko Ishizaka (CC0).</figcaption>
-    </figure>
+    <p class="lead">Choose folders in the OurStick app and send the link it gives you. The other person opens it in OurStick and gets the files.</p>
+    <p>Straight from your computer to theirs, encrypted on your device. Nothing is copied first: no accounts, no uploads to a cloud, no size limits. When you add or change files, they get them too.</p>
     <div class="downloads" id="download">
       <a class="download" data-os="macos" href="/downloads/OurStick-macOS.dmg">macOS <small>Apple silicon (M1 and later), macOS 11 or newer · SIZE_MACOS</small></a>
       <a class="download" data-os="windows" href="/downloads/OurStick-Windows-setup.exe">Windows <small>64-bit · SIZE_WINDOWS</small></a>
@@ -45,8 +39,8 @@
           <path class="arrow" d="M94 44 v-12 m-4 4 l4 -4 l4 4"/>
         </svg>
         <div>
-          <h3>1. Make a stick in the OurStick app</h3>
-          <p>A stick is a virtual USB stick: nothing to buy or plug in. Open OurStick, choose “New stick…”, and drop files or folders on it. It also shows up on your computer like a USB drive (a drive letter on Windows, a disk on a Mac), so you can copy things onto it as you would onto a real one.</p>
+          <h3>1. Choose what to send</h3>
+          <p>Open OurStick and press <strong>Send</strong>. Choose folders or files, or drag them onto the window. Nothing is copied: OurStick sends them from where they are, so leave them there. Give it a name, as others will see it, and press <strong>Get the link</strong>.</p>
         </div>
       </li>
       <li class="step">
@@ -63,14 +57,14 @@
           <path class="ink" d="M92 26 h6 v6 h-6 z M102 26 h6 v6 h-6 z M92 36 h6 v6 h-6 z M103 37 h2 v2 h-2 z M106 40 h2 v2 h-2 z"/>
         </svg>
         <div>
-          <h3>2. Send its link</h3>
-          <p>Press “Share” and copy the link. Send it any way you like: email, a chat app, a text message. A link looks like this:</p>
+          <h3>2. Send the link</h3>
+          <p>Press <strong>Copy link</strong> and send it any way you like: email, a chat app, a text message. A link looks like this:</p>
           <p class="link-sample"><span class="link-site">https://ourstick.com/s/#</span><span class="link-where">ag7gk2…4qa</span><span class="link-dot">.</span><span class="link-key">crkp9x…m4t</span></p>
           <ul class="link-parts">
             <li><span class="swatch where"></span>where OurStick finds your computer</li>
-            <li><span class="swatch key"></span>the key that unlocks the stick</li>
+            <li><span class="swatch key"></span>the key that unlocks the files</li>
           </ul>
-          <p class="note">Both come after “#”, which browsers never send to any website: not even this one sees whose stick it is.</p>
+          <p class="note">Both come after “#”, which browsers never send to any website: not even this one sees whose files they are.</p>
         </div>
       </li>
       <li class="step">
@@ -82,22 +76,16 @@
           <path class="check" d="M92 36 l6 6 l11 -12"/>
         </svg>
         <div>
-          <h3>3. They choose what to get</h3>
-          <p>They open the link with OurStick (“I got a sharing link”), see what is on your stick, choose what they want and press “Get it”. The files come straight from your computer to theirs. When you add something to the stick, it comes to them too.</p>
+          <h3>3. They get it</h3>
+          <p>They copy the link, open OurStick and press <strong>Receive</strong>: OurStick finds the link by itself. They see what it holds and where it goes (their Downloads folder, or one they choose), take only some of it if they like, and press <strong>Download</strong>. The files come straight from your computer to theirs, and what you add or change later comes to them too.</p>
         </div>
       </li>
     </ol>
 
-    <h2>Works like a USB stick</h2>
-    <p><strong>It is a drive on your computer.</strong> A disk in Finder with an eject button on a Mac, a drive letter in File Explorer on Windows, a place in your file manager's sidebar on Linux.</p>
-    <div class="drives">
-      <figure class="mac"><a href="/media/drive-mac-2.png"><img src="/media/drive-mac-2.png" alt="The stick as a disk with an eject button in Finder's sidebar on a Mac" width="747" height="400" loading="lazy"></a><figcaption>Mac</figcaption></figure>
-      <figure class="windows"><a href="/media/drive-windows-4.png"><img src="/media/drive-windows-4.png" alt="The stick by its name in File Explorer on Windows, and as drive O:" width="593" height="400" loading="lazy"></a><figcaption>Windows</figcaption></figure>
-      <figure class="linux"><a href="/media/drive-linux-2.png"><img src="/media/drive-linux-2.png" alt="The stick in the file manager's sidebar on Linux" width="526" height="400" loading="lazy"></a><figcaption>Linux</figcaption></figure>
-    </div>
-    <p><strong>Copy onto it as onto a real one.</strong> Drag files onto it, or drop them on the app. Whatever is on the stick is shared; delete something, and it is off the stick.</p>
-    <p><strong>Too big to copy?</strong> Choose “Share it as it is”: a folder, or a whole external disk, is shared from where it is, without a copy.</p>
-    <p><strong>Eject it</strong> to take it off your desktop: people who have it can still get it.</p>
+    <h2>Nothing is copied</h2>
+    <p><strong>Your files stay where they are.</strong> OurStick sends them from their own folders, so a folder of any size, or a whole external disk, is sent without a second copy and without waiting.</p>
+    <p><strong>Keep them there.</strong> Change a file, and they get the change. Move or delete one, and it stops coming; what they have stays with them.</p>
+    <p><strong>Add more at any time,</strong> to the same link. Removing something from what you send never deletes it from your computer.</p>
 
     <h2>For example</h2>
     <ul class="examples">
@@ -108,11 +96,11 @@
 
     <h2>Good to know</h2>
     <ul class="facts">
-      <li><strong>Your computer has to be on</strong> (and OurStick open) for others to get your stick. There is no copy anywhere else.</li>
-      <li><strong>Everything is encrypted on your computer</strong> before it leaves it (<a href="/privacy#encryption">how</a>). The key is only in the link, so anyone who has the link can read the stick: send it only to the people it is for.</li>
+      <li><strong>Your computer has to be on</strong>, and OurStick open, for others to get your files. Closing its window does not quit OurStick, and it opens by itself when the computer starts. There is no copy anywhere else.
+      <li><strong>Everything is encrypted on your computer</strong> before it leaves it (<a href="/privacy#encryption">how</a>). The key is only in the link, so anyone who has the link can take everything in it: send it only to the people it is for.
       <li><strong>Directly when possible.</strong> When your computers can reach each other, the files go straight between them. When they cannot, the encrypted data passes through a public relay, more slowly.</li>
-      <li><strong>You see who has it.</strong> OurStick shows how far each computer that got your stick has come (“A Mac has all of it, up to date”), never its name unless its user writes one.</li>
-      <li><strong>To stop sharing,</strong> choose “Change the sharing link…”: the old link stops working for everyone, and you send the new one to whom you want. Or remove the stick.</li>
+      <li><strong>You see who has it.</strong> OurStick shows how far each computer that got your link has come (“A Mac has all of it, up to date”), never its name unless its user writes one.
+      <li><strong>To stop,</strong> choose <strong>Stop sending…</strong> (you can start again later), or <strong>Make a new link…</strong>: the old link stops working for everyone, and you send the new one to whom you want.
     </ul>
   </main>
   <footer>

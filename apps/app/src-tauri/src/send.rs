@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::linked::{name_clash, one_folder_at_top, plan_link};
+use ourstick_core::linked::{check_next_to_top, name_clash, one_folder_at_top, plan_link};
 use ourstick_core::places::{
     app_places, may_send, measure as measure_path, Ask, MaySend, Measured, SendRules,
 };
@@ -39,12 +39,14 @@ pub struct Verdict {
 }
 
 /// The verdicts on `paths`, in order: each by `rules`, with what is chosen
-/// already (`rules.chosen`, `taken`: names and paths) and the paths before
-/// it that are not refused.
+/// already (`rules.chosen`, `taken`: names and paths, and the folder at the
+/// top of the stick added to, if it has one) and the paths before it that
+/// are not refused.
 fn verdicts(
     paths: &[String],
     mut rules: SendRules,
     mut taken: Vec<(String, PathBuf)>,
+    top: Option<&LinkedEntry>,
 ) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for text in paths {
@@ -65,12 +67,16 @@ fn verdicts(
         let decided = match may_send(path, &rules) {
             MaySend::Refuse(why) => verdict("refuse", Some(why), None, None),
             judged => {
-                let clash = name_clash(
-                    path,
-                    taken
-                        .iter()
-                        .map(|(name, path)| (name.as_str(), path.as_path())),
-                );
+                let clash = top
+                    .and_then(|top| check_next_to_top(top, &name).err())
+                    .or_else(|| {
+                        name_clash(
+                            path,
+                            taken
+                                .iter()
+                                .map(|(name, path)| (name.as_str(), path.as_path())),
+                        )
+                    });
                 match (clash, judged) {
                     (Some(clash), _) => verdict("refuse", Some(clash.to_string()), None, None),
                     (None, MaySend::Ask(ask)) => {
@@ -113,18 +119,27 @@ fn rules_here(app: &AppHandle, store: &dyn Store, data_dir: &Path) -> Result<Sen
     Ok(SendRules::of_this_device(&home, main_folders, own))
 }
 
-/// The linked entries of `stick_id`, if adding to it: names and paths.
-fn entries_of(
-    store: &dyn Store,
-    stick_id: Option<&ourstick_core::StickId>,
-) -> Result<Vec<(String, PathBuf)>> {
-    Ok(match stick_id {
-        Some(id) => store
-            .linked_entries(id)?
-            .into_iter()
-            .map(|entry| (entry.name, entry.path))
-            .collect(),
+/// What the stick `stick_id` sends already, if adding to it: its entries'
+/// names and paths (two never share a name, the one at the top included),
+/// and the folder at its top, whose contents' names are taken too.
+struct Sent {
+    taken: Vec<(String, PathBuf)>,
+    paths: Vec<PathBuf>,
+    top: Option<LinkedEntry>,
+}
+
+fn sent_by(store: &dyn Store, stick_id: Option<&ourstick_core::StickId>) -> Result<Sent> {
+    let entries = match stick_id {
+        Some(id) => store.linked_entries(id)?,
         None => Vec::new(),
+    };
+    Ok(Sent {
+        taken: entries
+            .iter()
+            .map(|entry| (entry.name.clone(), entry.path.clone()))
+            .collect(),
+        paths: entries.iter().map(|entry| entry.path.clone()).collect(),
+        top: entries.into_iter().find(|entry| entry.at_top),
     })
 }
 
@@ -143,8 +158,12 @@ pub async fn check_send(
     let data_dir = state.data_dir.clone();
     blocking(move || {
         let mut rules = rules_here(&app, store.as_ref(), &data_dir)?;
-        let mut taken = entries_of(store.as_ref(), id.as_ref())?;
-        rules.chosen = taken.iter().map(|(_, path)| path.clone()).collect();
+        let Sent {
+            mut taken,
+            paths: sent,
+            top,
+        } = sent_by(store.as_ref(), id.as_ref())?;
+        rules.chosen = sent;
         for path in chosen.iter().map(PathBuf::from) {
             let name = path
                 .file_name()
@@ -154,7 +173,7 @@ pub async fn check_send(
             }
             rules.chosen.push(path);
         }
-        Ok(verdicts(&paths, rules, taken))
+        Ok(verdicts(&paths, rules, taken, top.as_ref()))
     })
     .await
 }
@@ -171,8 +190,13 @@ pub async fn measure(path: String, so_far: Channel<Measured>) -> Result<Measured
 }
 
 /// Refuses `paths` if one is refused (the window asked about the others).
-fn check_all(paths: &[String], rules: SendRules, taken: Vec<(String, PathBuf)>) -> Result<()> {
-    if let Some(refused) = verdicts(paths, rules, taken)
+fn check_all(
+    paths: &[String],
+    rules: SendRules,
+    taken: Vec<(String, PathBuf)>,
+    top: Option<&LinkedEntry>,
+) -> Result<()> {
+    if let Some(refused) = verdicts(paths, rules, taken, top)
         .into_iter()
         .find(|verdict| verdict.kind == "refuse")
     {
@@ -190,10 +214,14 @@ pub(crate) fn check_adding(
     stick_id: &ourstick_core::StickId,
     paths: &[String],
 ) -> Result<()> {
-    let taken = entries_of(store, Some(stick_id))?;
+    let Sent {
+        taken,
+        paths: sent,
+        top,
+    } = sent_by(store, Some(stick_id))?;
     let mut rules = rules_here(app, store, data_dir)?;
-    rules.chosen = taken.iter().map(|(_, path)| path.clone()).collect();
-    check_all(paths, rules, taken)
+    rules.chosen = sent;
+    check_all(paths, rules, taken, top.as_ref())
 }
 
 /// Why a name cannot be used, in the window's words (it never says stick).
@@ -224,7 +252,7 @@ pub async fn send(
     let data_dir = state.data_dir.clone();
     let handle = app.clone();
     let made = blocking(move || {
-        check_all(&paths, rules_here(&handle, store.as_ref(), &data_dir)?, Vec::new())?;
+        check_all(&paths, rules_here(&handle, store.as_ref(), &data_dir)?, Vec::new(), None)?;
         crate::keys::ensure_device(store.as_ref(), &data_dir)?;
         let secrets = crate::keys::secrets(store.as_ref())?;
         // One program makes a stick at a time: names stay unique.

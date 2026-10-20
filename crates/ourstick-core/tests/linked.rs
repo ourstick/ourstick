@@ -104,3 +104,53 @@ async fn a_linked_folder_that_goes_keeps_its_version_and_readers_wait_for_it() {
         .unwrap();
     fetcher.shutdown(true).await.unwrap();
 }
+
+/// ADR 0028 §2, amendment of 2026-10-20: a stick made from one folder sends
+/// its contents at the top, and what is added later goes next to them; the
+/// reader gets no folder inside a folder of the same name.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_one_folder_a_stick_was_made_from_is_its_top() {
+    let elsewhere = tempfile::tempdir().unwrap();
+    let holiday = elsewhere.path().join("Holiday 2026");
+    write_file(&holiday, "Beach/x.jpg", b"x");
+    write_file(&holiday, "note.txt", b"n");
+    let notes = elsewhere.path().join("notes.txt");
+    std::fs::write(&notes, b"notes").unwrap();
+
+    let owner = Owner::sending().await;
+    let stick_id = owner.signing_key.stick_id();
+    let mut planned = vec![plan_link(
+        owner.store.as_ref(),
+        &stick_id,
+        owner.cache.path(),
+        &[],
+        &holiday,
+        1,
+    )
+    .unwrap()];
+    ourstick_core::linked::one_folder_at_top(&mut planned);
+    assert!(planned[0].at_top);
+    owner
+        .store
+        .add_linked_entry(&stick_id, &planned[0])
+        .unwrap();
+    link(&owner, &notes);
+
+    let publication = owner.publish().await;
+    let paths: Vec<&str> = publication
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(paths, ["Beach/x.jpg", "note.txt", "notes.txt"]);
+
+    let reader = Reader::new();
+    reader
+        .download(&owner.ticket(&publication), &mut keep_going)
+        .await
+        .unwrap();
+    assert_eq!(reader.read("Beach/x.jpg"), b"x");
+    assert_eq!(reader.read("note.txt"), b"n");
+    assert_eq!(reader.read("notes.txt"), b"notes");
+}

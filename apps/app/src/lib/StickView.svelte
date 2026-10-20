@@ -249,9 +249,15 @@
           <button aria-haspopup="menu" aria-expanded={addOpen} onclick={() => (addOpen = !addOpen)}>+ Add more</button>
           {#if addOpen}
             <div class="menu" role="menu">
-              <button role="menuitem" onclick={() => choose("folders")}>Choose folders…</button>
-              <button role="menuitem" onclick={() => choose("files")}>Choose files…</button>
-              {#if top}<p class="hint">They go next to what is in “<bdi>{top.name}</bdi>”.</p>{/if}
+              <button role="menuitem" disabled={top?.missing} onclick={() => choose("folders")}>Choose folders…</button>
+              <button role="menuitem" disabled={top?.missing} onclick={() => choose("files")}>Choose files…</button>
+              {#if top}
+                <p class="hint" role="none">
+                  {top.missing
+                    ? `“${top.name}” is not found, so nothing can be added now.`
+                    : `They go next to what is in “${top.name}”.`}
+                </p>
+              {/if}
             </div>
           {/if}
         </div>

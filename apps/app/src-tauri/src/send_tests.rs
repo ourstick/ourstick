@@ -35,7 +35,7 @@ fn each_is_checked_with_those_before_it() {
         text(home.join("Pictures/Photos")),
         text(home.join("Expansion/Photos")),
     ];
-    let found = verdicts(&paths, rules, Vec::new());
+    let found = verdicts(&paths, rules, Vec::new(), None);
     let kinds: Vec<&str> = found.iter().map(|verdict| verdict.kind).collect();
     assert_eq!(
         kinds,
@@ -56,7 +56,7 @@ fn each_is_checked_with_those_before_it() {
 #[test]
 fn a_main_folder_is_asked_about() {
     let (_dir, home, rules) = home();
-    let found = verdicts(&[text(home.join("Pictures"))], rules, Vec::new());
+    let found = verdicts(&[text(home.join("Pictures"))], rules, Vec::new(), None);
     assert_eq!(found[0].kind, "ask");
     assert_eq!(found[0].ask, Some("main"));
     assert_eq!(
@@ -73,10 +73,64 @@ fn what_the_stick_sends_already_takes_its_name() {
         &[text(home.join("Pictures/Photos"))],
         rules.clone(),
         taken.clone(),
+        None,
     );
     assert_eq!(found[0].kind, "refuse");
-    assert!(check_all(&[text(home.join("Pictures/Photos"))], rules.clone(), taken).is_err());
-    assert!(check_all(&[text(home.join("Pictures/Photos"))], rules, Vec::new()).is_ok());
+    assert!(check_all(
+        &[text(home.join("Pictures/Photos"))],
+        rules.clone(),
+        taken,
+        None
+    )
+    .is_err());
+    assert!(check_all(
+        &[text(home.join("Pictures/Photos"))],
+        rules,
+        Vec::new(),
+        None
+    )
+    .is_ok());
+}
+
+#[test]
+fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused_at_once() {
+    let (_dir, home, rules) = home();
+    // The stick was made from "Holiday 2025" alone; it holds "Summer".
+    let top = LinkedEntry {
+        name: "Holiday 2025".to_owned(),
+        path: home.join("Pictures/Holiday 2025"),
+        is_dir: true,
+        disk: None,
+        added_at_ms: 1,
+        at_top: true,
+    };
+    std::fs::create_dir_all(home.join("Expansion/summer")).unwrap();
+    std::fs::create_dir_all(home.join("Expansion/Holiday 2025")).unwrap();
+    let rules = SendRules {
+        chosen: vec![top.path.clone()],
+        ..rules
+    };
+    let found = verdicts(
+        &[
+            text(home.join("Expansion/summer")),
+            text(home.join("Expansion/Holiday 2025")),
+        ],
+        rules,
+        vec![(top.name.clone(), top.path.clone())],
+        Some(&top),
+    );
+    assert_eq!(found[0].kind, "refuse");
+    assert_eq!(
+        found[0].why.as_deref(),
+        Some("\u{201c}summer\u{201d} is already in \u{201c}Holiday 2025\u{201d}. Rename one first, then add it again.")
+    );
+    // Its own name stays its own.
+    assert_eq!(found[1].kind, "refuse");
+    assert!(found[1]
+        .why
+        .as_deref()
+        .unwrap()
+        .starts_with("Two things are called"));
 }
 
 #[test]

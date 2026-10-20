@@ -128,7 +128,13 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
                 .map(|place| place.to_string_lossy().into_owned()),
         });
     }
-    entries.sort_by(|a, b| a.name.cmp(&b.name).then(a.linked.cmp(&b.linked)));
+    // The folder at the top first: the rest goes next to it.
+    entries.sort_by(|a, b| {
+        b.at_top
+            .cmp(&a.at_top)
+            .then(a.name.cmp(&b.name))
+            .then(a.linked.cmp(&b.linked))
+    });
     Ok(entries)
 }
 

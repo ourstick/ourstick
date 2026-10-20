@@ -32,7 +32,7 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
         left_out: Vec::new(),
     };
     let mut left_out = BTreeSet::new();
-    let mut at_top = |walked: &mut Walked, root: &Root| {
+    let mut walk_folder = |walked: &mut Walked, root: &Root| {
         let index = walked.roots.len();
         let index = u32::try_from(index).expect("fewer roots than u32::MAX");
         for_each_regular_file(&root.path, &mut |path| {
@@ -52,17 +52,21 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
         });
         Ok::<_, ManifestError>(())
     };
-    at_top(&mut walked, layout.own())?;
+    walk_folder(&mut walked, layout.own())?;
+    // What the own folder gives is never carried again for the top.
+    let own: std::collections::HashSet<String> =
+        walked.files.iter().map(|(path, _)| path.clone()).collect();
     for root in layout.linked() {
         let name = root.name.clone().unwrap_or_default();
         if root.is_gone() {
             // Its files as recorded: the folder at the top's are those under
-            // no named entry.
+            // no named entry, by its exact name (a name only shadowed, in
+            // another case, was never recorded).
             let prefix = format!("{name}/");
             let carried = recorded.iter().filter(|file| {
                 if root.at_top {
                     let first = file.path.split('/').next().unwrap_or_default();
-                    !layout.is_named(first)
+                    !layout.is_named(first) && !own.contains(&file.path)
                 } else {
                     file.path == name || file.path.starts_with(&prefix)
                 }
@@ -74,7 +78,7 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
             continue;
         }
         if root.at_top {
-            at_top(&mut walked, root)?;
+            walk_folder(&mut walked, root)?;
             continue;
         }
         let index = u32::try_from(walked.roots.len()).expect("fewer roots than u32::MAX");

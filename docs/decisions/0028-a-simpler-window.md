@@ -167,7 +167,10 @@ a whole disk the user said yes to (Ask), as any folder sent.
   of a stick is at the top, a folder, on a stick with no folder of its own.
 - **Missing or unplugged**, it is as a linked entry: `is_gone` (its disk
   recorded too, so an empty mount point in its place is not taken for an
-  empty folder), its recorded files carried, "Not found. Was it moved, or is
+  empty folder; Windows gives no disk number today, so there an empty
+  folder left where a disk was is taken as the folder emptied, as for any
+  linked entry, which here empties the whole stick: a volume's serial
+  number would close it later), its recorded files carried, "Not found. Was it moved, or is
   its disk unplugged? Those who have it keep it." in amber, and the stick
   waits for it.
 - **Decided once**, when the stick is made, and never converted: turning it

@@ -142,33 +142,20 @@ pub fn plan_link(
         .filter(|name| !name.contains('\\'))
         .ok_or_else(|| LinkError::BadName(path.to_path_buf()))?;
     let on_stick = top_names(own)?;
-    // The entry at the top has no name of its own in the stick: its
-    // contents' names are checked instead.
+    // The entry at the top keeps its name too, though it is not in the
+    // manifest: two entries of one stick never share a name.
     if let Some(refused) = name_clash(
         path,
         existing
             .iter()
-            .filter(|entry| !entry.at_top)
             .map(|entry| (entry.name.as_str(), entry.path.as_path())),
     ) {
         return Err(refused);
     }
-    let lower = name.to_lowercase();
     if let Some(top) = existing.iter().find(|entry| entry.at_top) {
-        if crate::layout::Root::from(top).is_gone() {
-            return Err(LinkError::TopNotFound(top.name.clone()));
-        }
-        if top_names(&top.path)?
-            .iter()
-            .any(|inside| inside.to_lowercase() == lower)
-            || top.path.join(name).exists()
-        {
-            return Err(LinkError::InTop {
-                name: name.to_owned(),
-                top: top.name.clone(),
-            });
-        }
+        check_next_to_top(top, name)?;
     }
+    let lower = name.to_lowercase();
     if on_stick.iter().any(|name| name.to_lowercase() == lower)
         // What the file system itself calls the same (e.g. Unicode forms).
         || own.join(name).exists()
@@ -187,6 +174,28 @@ pub fn plan_link(
         added_at_ms: now_ms,
         at_top: false,
     })
+}
+
+/// Refuses `name` next to `top`, the folder at a stick's top: a name in it
+/// already, ignoring case, or any while it is not found (its names cannot
+/// be checked). Blocking.
+pub fn check_next_to_top(top: &LinkedEntry, name: &str) -> Result<(), LinkError> {
+    if crate::layout::Root::from(top).is_gone() {
+        return Err(LinkError::TopNotFound(top.name.clone()));
+    }
+    let lower = name.to_lowercase();
+    if top_names(&top.path)?
+        .iter()
+        .any(|inside| inside.to_lowercase() == lower)
+        // What the file system itself calls the same (e.g. Unicode forms).
+        || top.path.join(name).exists()
+    {
+        return Err(LinkError::InTop {
+            name: name.to_owned(),
+            top: top.name.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// A new stick's entries, as planned: if they are exactly one folder, it

@@ -154,7 +154,10 @@ carries only the key). Every file blob of that stick must use the same cipher.
   publish, and keeps serving the last version.
 - A stick may have **linked entries** (ADR 0008): folders or files shared
   from where they are, each a top-level entry under its name (`Films/…`, or
-  `notes.txt` for a file). Nothing about them is on the wire but the name;
+  `notes.txt` for a file), except the one folder a stick was made from
+  alone (`at_top`, ADR 0028 §2, amendment of 2026-10-20), whose contents
+  are the top level and whose name is not in the manifest. Nothing about
+  them is on the wire but the names;
   where they are never leaves the device. A top-level entry of the stick's
   own folder with a linked entry's name (ignoring case) is left out. A linked
   entry that is **gone** (missing, of another kind, or on another disk than

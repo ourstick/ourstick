@@ -109,3 +109,39 @@ fn the_layout_is_loaded_from_the_store() {
         Err(StoreError::StickNotFound)
     ));
 }
+
+#[test]
+fn the_folder_at_the_top_has_every_path_no_named_entry_has() {
+    let top = LinkedEntry {
+        at_top: true,
+        ..entry("Holiday", Path::new("/home/me/Holiday"), true)
+    };
+    let layout = StickLayout::new(
+        Path::new("/sent"),
+        &[top, entry("Films", Path::new("/media/disk/Films"), true)],
+    );
+    assert_eq!(
+        layout.top().map(|root| root.path.as_path()),
+        Some(Path::new("/home/me/Holiday"))
+    );
+    assert_eq!(
+        layout.on_disk("Beach/a.jpg"),
+        Path::new("/home/me/Holiday/Beach/a.jpg")
+    );
+    assert_eq!(
+        layout.on_disk("Films/x.mkv"),
+        Path::new("/media/disk/Films/x.mkv")
+    );
+    // Its own name is not in the stick: a path under it is its own.
+    assert_eq!(
+        layout.on_disk("Holiday/b.jpg"),
+        Path::new("/home/me/Holiday/Holiday/b.jpg")
+    );
+    assert!(layout.root_of("Beach/a.jpg").at_top);
+    // A named entry's name, exactly; hiding ignores case, never by the top.
+    assert!(layout.is_named("Films"));
+    assert!(!layout.is_named("films"));
+    assert!(!layout.is_named("Holiday"));
+    assert!(layout.is_shadowed("films"));
+    assert!(!layout.is_shadowed("holiday"));
+}

@@ -258,7 +258,12 @@ fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused() {
         refused.to_string(),
         "\u{201c}beach\u{201d} is already in \u{201c}Holiday\u{201d}. Rename one first, then add it again."
     );
-    // Its own name is not in the stick: a folder called "Holiday" may come.
+    // Its own name stays its own, whatever the case.
+    std::fs::create_dir_all(dir.path().join("other/holiday")).unwrap();
+    assert!(matches!(
+        plan(&dir.path().join("other/holiday")),
+        Err(LinkError::NameTaken { name, .. }) if name == "holiday"
+    ));
     let films = plan(&dir.path().join("other/Films")).unwrap();
     assert!(!films.at_top);
     // Inside it: already sent.

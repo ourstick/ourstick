@@ -77,12 +77,21 @@ pub async fn add_received(
             check_received_folder(store.as_ref(), &data_dir, &folder, &stick_id)?;
             std::fs::create_dir_all(&folder)?;
             mark_received_folder(&folder, &stick_id)?;
-            // Kept only where secrets are safe; never in a plain file.
-            let secrets = crate::keys::secrets(store.as_ref())?;
-            ourstick_core::check_secret_store(secrets.as_ref())?;
-            // Recorded before the first key, so all keys go to one store.
-            crate::keys::ensure_device(store.as_ref(), &data_dir)?;
-            keep_ticket(secrets.as_ref(), &ticket)?;
+            let keys = || {
+                // Kept only where secrets are safe; never in a plain file.
+                let secrets = crate::keys::secrets(store.as_ref())?;
+                ourstick_core::check_secret_store(secrets.as_ref())?;
+                // Recorded before the first key, so all keys go to one store.
+                crate::keys::ensure_device(store.as_ref(), &data_dir)?;
+                keep_ticket(secrets.as_ref(), &ticket)
+            };
+            if let Err(error) = keys() {
+                // Nothing of it left: the next try makes the same folder
+                // again, not "<name> (2)" beside an empty one.
+                ourstick_core::download::unmark_received_folder(&folder, &stick_id);
+                let _ = std::fs::remove_dir(&folder);
+                return Err(error);
+            }
             Ok(lock)
         })
         .await?

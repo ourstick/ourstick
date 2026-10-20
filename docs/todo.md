@@ -4,6 +4,15 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## 0.2.0
+
+- [x] **A simpler window (ADR 0028):** Send and Receive, nothing copied;
+      one folder sent is the stick itself; what is received goes to
+      Downloads, and "Move to another folder…" moves it. Tried by hand on
+      Linux, Windows (VM) and macOS (2026-10-20), both ways.
+- [ ] **The release:** the three installers with their SHA256 sums on the
+      site, a new demo video; a GitHub Release.
+
 ## 0.1.3
 
 - [x] **The window opened after a start at login, on Linux:** it was blank

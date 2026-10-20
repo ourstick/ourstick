@@ -10,8 +10,8 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       one folder sent is the stick itself; what is received goes to
       Downloads, and "Move to another folder…" moves it. Tried by hand on
       Linux, Windows (VM) and macOS (2026-10-20), both ways.
-- [ ] **The release:** the three installers with their SHA256 sums on the
-      site, a new demo video; a GitHub Release.
+- [x] **The release:** the three installers with their SHA256 sums on the
+      site, a new demo video (2026-10-21); GitHub Release v0.2.0.
 
 ## 0.1.3
 

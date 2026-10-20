@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::linked::{name_clash, plan_link};
+use ourstick_core::linked::{name_clash, one_folder_at_top, plan_link};
 use ourstick_core::places::{
     app_places, may_send, measure as measure_path, Ask, MaySend, Measured, SendRules,
 };
@@ -207,7 +207,8 @@ fn name_words(error: &NameError) -> &'static str {
 }
 
 /// "Get the link": a new stick called `name`, with no folder of its own,
-/// sending `paths` from where they are; all or none. Shared at once.
+/// sending `paths` from where they are (one folder alone at its top); all
+/// or none. Shared at once.
 /// Returns its id.
 #[tauri::command]
 pub async fn send(
@@ -238,6 +239,7 @@ pub async fn send(
                 let entry = plan_link(store.as_ref(), &id, &data_dir, &planned, Path::new(path), SystemClock.now_ms())?;
                 planned.push(entry);
             }
+            one_folder_at_top(&mut planned);
             for entry in &planned {
                 store.add_linked_entry(&id, entry)?;
             }

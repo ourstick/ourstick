@@ -217,3 +217,82 @@ fn a_name_clash_is_found_among_any_others_ignoring_case() {
     ));
     assert!(name_clash(also, [("Films", photos)]).is_none());
 }
+
+#[test]
+fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("sent");
+    let data = dir.path().join("data");
+    let holiday = dir.path().join("Holiday");
+    for folder in [
+        &empty,
+        &data,
+        &holiday.join("Beach"),
+        &dir.path().join("other/beach"),
+    ] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::create_dir_all(dir.path().join("other/Films")).unwrap();
+    let store = MemoryStore::new();
+    let stick_id = StickSigningKey::from_bytes(&[1; 32]).stick_id();
+    store
+        .add_owned_stick(&OwnedStick {
+            kind: StickKind::App,
+            has_own_folder: false,
+            ..OwnedStick::new(stick_id, "Holiday", &empty, CipherId::XChaCha20Poly1305, 1)
+        })
+        .unwrap();
+    let top = LinkedEntry {
+        at_top: true,
+        ..plan_link(&store, &stick_id, &data, &[], &holiday, 5).unwrap()
+    };
+    store.add_linked_entry(&stick_id, &top).unwrap();
+    let plan = |path: &Path| plan_link(&store, &stick_id, &data, &[], path, 6);
+
+    // "beach" is in Holiday already, whatever the case.
+    let refused = plan(&dir.path().join("other/beach")).unwrap_err();
+    assert!(
+        matches!(&refused, LinkError::InTop { name, top } if name == "beach" && top == "Holiday")
+    );
+    assert_eq!(
+        refused.to_string(),
+        "\u{201c}beach\u{201d} is already in \u{201c}Holiday\u{201d}. Rename one first, then add it again."
+    );
+    // Its own name is not in the stick: a folder called "Holiday" may come.
+    let films = plan(&dir.path().join("other/Films")).unwrap();
+    assert!(!films.at_top);
+    // Inside it: already sent.
+    assert!(matches!(
+        plan(&holiday.join("Beach")),
+        Err(LinkError::Overlaps { .. })
+    ));
+    // Not found: nothing can be checked, so nothing is added.
+    std::fs::rename(&holiday, dir.path().join("away")).unwrap();
+    assert!(matches!(
+        plan(&dir.path().join("other/Films")),
+        Err(LinkError::TopNotFound(name)) if name == "Holiday"
+    ));
+}
+
+#[test]
+fn exactly_one_folder_goes_at_the_top() {
+    let entry = |name: &str, is_dir: bool| LinkedEntry {
+        name: name.to_owned(),
+        path: PathBuf::from("/x").join(name),
+        is_dir,
+        disk: None,
+        added_at_ms: 1,
+        at_top: false,
+    };
+    let tops = |mut planned: Vec<LinkedEntry>| {
+        one_folder_at_top(&mut planned);
+        planned.iter().map(|entry| entry.at_top).collect::<Vec<_>>()
+    };
+    assert_eq!(tops(vec![entry("Holiday", true)]), [true]);
+    assert_eq!(tops(vec![entry("notes.txt", false)]), [false]);
+    assert_eq!(
+        tops(vec![entry("A", true), entry("B", true)]),
+        [false, false]
+    );
+    assert_eq!(tops(Vec::new()), Vec::<bool>::new());
+}

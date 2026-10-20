@@ -99,8 +99,29 @@ pub(crate) fn check_device(device: &Device) -> Result<(), StoreError> {
     check_time(device.created_at_ms)
 }
 
+/// The folder at a stick's top is never taken out: the stick would be
+/// nothing; it is stopped as a whole.
+pub(crate) const AT_TOP_STAYS: &str = "the folder at a stick's top is not taken out";
+
+/// Whether an entry may be put at the top of a stick that `has_own_folder`
+/// and has `one_there` already: only of a stick with no folder of its own,
+/// and only one.
+pub(crate) fn check_at_top(has_own_folder: bool, one_there: bool) -> Result<(), StoreError> {
+    if has_own_folder {
+        return Err(StoreError::Inconsistent(
+            "a stick with a folder of its own has nothing at its top",
+        ));
+    }
+    if one_there {
+        return Err(StoreError::Inconsistent(
+            "a stick has at most one entry at its top",
+        ));
+    }
+    Ok(())
+}
+
 /// A linked entry's name is one manifest path component; its path is
-/// absolute.
+/// absolute; one at the top is a folder.
 pub(crate) fn check_linked_entry(entry: &LinkedEntry) -> Result<(), StoreError> {
     let name_ok = !entry.name.is_empty()
         && !matches!(entry.name.as_str(), "." | "..")
@@ -113,6 +134,11 @@ pub(crate) fn check_linked_entry(entry: &LinkedEntry) -> Result<(), StoreError> 
     if !entry.path.is_absolute() {
         return Err(StoreError::Inconsistent(
             "a linked entry's path is absolute",
+        ));
+    }
+    if entry.at_top && !entry.is_dir {
+        return Err(StoreError::Inconsistent(
+            "only a folder is at a stick's top",
         ));
     }
     path_str(&entry.path)?;

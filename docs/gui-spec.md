@@ -120,6 +120,10 @@ It is published at once, while its folders are still counted ("Getting it
 ready… 12,400 files so far"; "People with the link can start already: the
 rest follows by itself.").
 
+Made from exactly one folder, its contents are what is sent, at the top: a
+receiver gets `Downloads/Holiday 2026/Beach/…`, not the folder inside a
+folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
+
 **Asking first** (one dialog, the safe choice blue):
 
 - "Send all of “Documents”?" "This is one of your main folders: 8,240 files,
@@ -150,7 +154,10 @@ rest follows by itself.").
 - **What is in it**, with `+ Add more` (the same picker, rules and
   questions as Send): each entry with its icon, size and where it is ("2.8
   GB · Pictures"; a click shows it in the file manager) and `×`, which asks
-  "Stop sending “Summer”? Those who have it keep it." An old stick's own
+  "Stop sending “Summer”? Those who have it keep it." The one folder a
+  stick was made from has no `×`, and under it in grey: "This is what you
+  send. To stop, use ⋯ › Stop sending."; the `+ Add more` menu then says
+  "They go next to what is in “Holiday 2026”." An old stick's own
   entries are listed with the rest; one of its own entries with a linked
   entry's name is hidden (`catalogue.rs`). Under the list: "Leave them where
   they are. If you change a file, they get the change too. If you move or

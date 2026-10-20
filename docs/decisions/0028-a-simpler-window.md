@@ -140,6 +140,57 @@ OurStick open, they get what you add or change until you stop sending.
 A new stick is published at once, while its folders are still counted
 ("Getting it ready… 12,400 files so far"), as today.
 
+**Amendment (2026-10-20, Giorgos): one folder sent is the stick itself.**
+The round on Windows and Linux found a folder inside a folder of the same
+name: "Holiday 2026" sent alone, under its own name, landed in
+`Downloads/Holiday 2026/Holiday 2026/…`, though the receiver's screen said
+"It goes to Downloads › Holiday 2026". Every linked entry is a top-level
+name of the manifest, and the receiver puts the whole stick in a folder
+named after it, so the folder's name came twice. It is the common case:
+one folder, its name kept.
+
+When `Get the link` makes a stick from **exactly one folder** (the list as
+it stands then: not a file, not two things), that folder's contents are the
+manifest's top level. The receiver gets `Downloads/Holiday 2026/Beach/…`.
+Only the paths in the manifest differ; nothing changes on the wire, and
+receivers of every version, 0.1.3 too, get it right. Whatever the name:
+"Photos for Anna" made from "Holiday 2026" lands in
+`Downloads/Photos for Anna/Beach/…`. The one folder may be a main folder or
+a whole disk the user said yes to (Ask), as any folder sent.
+
+- **It is a linked entry, at the top.** The folder is stored as linked
+  entries are (its name, path, kind, disk), with `at_top = 1`
+  (`linked_entries.at_top`, a new migration): its files are listed without
+  its name in front. The stick's own `root_path` stays OurStick's empty
+  `<data>/sent/<id>`, so nothing that writes or deletes under `root_path`
+  (Remove, the drive code) ever reaches the user's folder. At most one entry
+  of a stick is at the top, a folder, on a stick with no folder of its own.
+- **Missing or unplugged**, it is as a linked entry: `is_gone` (its disk
+  recorded too, so an empty mount point in its place is not taken for an
+  empty folder), its recorded files carried, "Not found. Was it moved, or is
+  its disk unplugged? Those who have it keep it." in amber, and the stick
+  waits for it.
+- **Decided once**, when the stick is made, and never converted: turning it
+  into a named entry, or back, changes every path, and every receiver would
+  get everything again in new places. A stick made before this amendment
+  (with one named entry) stays as it is.
+- **`+ Add more`** adds named linked entries next to its contents, at the
+  top. The menu says so: "They go next to what is in “Holiday 2026”." A
+  name that clashes, ignoring case, with one of its top-level names is
+  refused: "“Beach” is already in “Holiday 2026”. Rename one first, then
+  add it again." While it is not found, nothing can be added ("“Holiday
+  2026” is not found, so OurStick cannot check the names in it."). A name
+  it gains later with a named entry's name is not sent
+  (`is_shadowed`, as for an older stick's own folder).
+- **"What is in it"** shows it as one row, like a linked folder: its name,
+  its size, where it is (a click shows it in the file manager), but **no
+  `×`**, and under it in grey: "This is what you send. To stop, use ⋯ ›
+  Stop sending." Taking it out would leave a stick of nothing. It cannot be
+  removed through the core either.
+- A stick made from one file, or from several things, is as above: each a
+  top-level name.
+
+
 ### 3. Something you send
 
 Its view: the name, `Copy link` (only here and on Send2, never on the home

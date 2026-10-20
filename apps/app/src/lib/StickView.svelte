@@ -182,6 +182,8 @@
   let shareState = $derived(current?.sharing.state ?? "off");
   let sending = $derived(shareState === "on" || shareState === "starting");
   let problem = $derived<ShareProblem | null>(current?.problem ?? null);
+  /** The one folder it was made from, if its contents are at the top. */
+  let top = $derived(current?.entries.find((entry) => entry.at_top) ?? null);
 </script>
 
 <svelte:window onclick={closeMenus} onkeydown={closeMenus} />
@@ -249,6 +251,7 @@
             <div class="menu" role="menu">
               <button role="menuitem" onclick={() => choose("folders")}>Choose folders…</button>
               <button role="menuitem" onclick={() => choose("files")}>Choose files…</button>
+              {#if top}<p class="hint">They go next to what is in “<bdi>{top.name}</bdi>”.</p>{/if}
             </div>
           {/if}
         </div>
@@ -324,6 +327,13 @@
   h2 {
     margin: 0;
     font-size: 1.05em;
+  }
+  .hint {
+    margin: 0;
+    padding: 6px 12px 8px;
+    max-width: 16em;
+    font-size: 0.85em;
+    color: var(--muted);
   }
   p {
     margin: 0;

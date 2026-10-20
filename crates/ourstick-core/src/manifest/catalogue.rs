@@ -13,7 +13,6 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use self::known::{carried, mtime_seconds, Known};
-use super::build::{for_each_regular_file, relative_path};
 use super::hashing::{hash_file_telling_plaintext, Hashed};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
@@ -61,7 +60,7 @@ pub enum Catalogued {
 /// file (ADR 0007: a stick may have hundreds of thousands): the path on
 /// disk is made from the root's when the file is read.
 #[derive(Debug, Clone, Copy)]
-enum Source {
+pub(super) enum Source {
     /// A file on disk, under the root of this index in `roots`.
     Disk(u32),
     /// A file of a linked entry that is gone (ADR 0008): as recorded (in
@@ -71,7 +70,7 @@ enum Source {
 
 /// A root of the catalogue: where its files are on disk.
 #[derive(Debug)]
-struct DiskRoot {
+pub(super) struct DiskRoot {
     path: PathBuf,
     /// The name of a linked entry, whose files' paths begin with it; none
     /// for the stick's own folder.
@@ -113,54 +112,12 @@ impl Catalogue {
         recorded: Vec<OwnedFile>,
         rescan: bool,
     ) -> Result<Self, ManifestError> {
-        let own = &layout.own().path;
-        let mut files = Vec::new();
-        let mut left_out = std::collections::BTreeSet::new();
-        let mut roots = vec![DiskRoot {
-            path: own.clone(),
-            name: None,
-            is_dir: true,
-        }];
-        for_each_regular_file(own, &mut |path| {
-            let relative = relative_path(own, path)?;
-            let top = relative.split('/').next().unwrap_or_default();
-            if layout.is_shadowed(top) {
-                left_out.insert(top.to_owned());
-            } else {
-                files.push((relative, Source::Disk(0)));
-            }
-            Ok(())
-        })?;
-        let mut gone = Vec::new();
-        for root in layout.linked() {
-            let name = root.name.clone().unwrap_or_default();
-            if root.is_gone() {
-                let prefix = format!("{name}/");
-                files.extend(
-                    recorded
-                        .iter()
-                        .filter(|file| file.path == name || file.path.starts_with(&prefix))
-                        .map(|file| (file.path.clone(), Source::Carried)),
-                );
-                gone.push(name);
-                continue;
-            }
-            let index = u32::try_from(roots.len()).expect("fewer roots than u32::MAX");
-            if root.is_dir {
-                for_each_regular_file(&root.path, &mut |path| {
-                    let relative = format!("{name}/{}", relative_path(&root.path, path)?);
-                    files.push((relative, Source::Disk(index)));
-                    Ok(())
-                })?;
-            } else {
-                files.push((name.clone(), Source::Disk(index)));
-            }
-            roots.push(DiskRoot {
-                path: root.path.clone(),
-                name: Some(name),
-                is_dir: root.is_dir,
-            });
-        }
+        let walk::Walked {
+            mut files,
+            roots,
+            gone,
+            left_out,
+        } = walk::walk(layout, &recorded)?;
         files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         files.shrink_to_fit();
         let known = recorded
@@ -182,7 +139,7 @@ impl Catalogue {
             rescan,
             outboards: None,
             gone,
-            left_out: left_out.into_iter().collect(),
+            left_out,
         })
     }
 
@@ -388,6 +345,7 @@ impl Catalogue {
 }
 
 mod known;
+mod walk;
 
 #[cfg(test)]
 mod tests;

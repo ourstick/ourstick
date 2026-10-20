@@ -3,6 +3,8 @@
   // size and where it is (a click shows it in the file manager), and its
   // `×`, asked about first. Nothing of the user's is ever deleted: an older
   // stick's own entries have no `×`; they are changed in the file manager.
+  // The one folder a stick was made from has none either: without it the
+  // stick would be nothing, so it is stopped as a whole.
   import { removeEntry, type Entry } from "./api";
   import { showEntry } from "./sendApi";
   import { size } from "./format";
@@ -66,8 +68,11 @@
         {:else}
           <span class="muted">{where(entry)}</span>
         {/if}
+        {#if entry.at_top}
+          <span class="muted">This is what you send. To stop, use ⋯ › Stop sending.</span>
+        {/if}
       </span>
-      {#if entry.linked}
+      {#if entry.linked && !entry.at_top}
         {#if entry.missing}
           <button onclick={() => (stopping = entry)}>Remove it</button>
         {:else}

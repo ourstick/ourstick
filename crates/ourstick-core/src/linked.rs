@@ -27,6 +27,10 @@ pub enum LinkError {
         /// own folder has it).
         other: Option<PathBuf>,
     },
+    #[error("\u{201c}{name}\u{201d} is already in \u{201c}{top}\u{201d}. Rename one first, then add it again.")]
+    InTop { name: String, top: String },
+    #[error("\u{201c}{0}\u{201d} is not found, so OurStick cannot check the names in it.")]
+    TopNotFound(String),
     #[error("{} {relation} {other}, which a link may not touch", .path.display())]
     Overlaps {
         path: PathBuf,
@@ -138,15 +142,33 @@ pub fn plan_link(
         .filter(|name| !name.contains('\\'))
         .ok_or_else(|| LinkError::BadName(path.to_path_buf()))?;
     let on_stick = top_names(own)?;
+    // The entry at the top has no name of its own in the stick: its
+    // contents' names are checked instead.
     if let Some(refused) = name_clash(
         path,
         existing
             .iter()
+            .filter(|entry| !entry.at_top)
             .map(|entry| (entry.name.as_str(), entry.path.as_path())),
     ) {
         return Err(refused);
     }
     let lower = name.to_lowercase();
+    if let Some(top) = existing.iter().find(|entry| entry.at_top) {
+        if crate::layout::Root::from(top).is_gone() {
+            return Err(LinkError::TopNotFound(top.name.clone()));
+        }
+        if top_names(&top.path)?
+            .iter()
+            .any(|inside| inside.to_lowercase() == lower)
+            || top.path.join(name).exists()
+        {
+            return Err(LinkError::InTop {
+                name: name.to_owned(),
+                top: top.name.clone(),
+            });
+        }
+    }
     if on_stick.iter().any(|name| name.to_lowercase() == lower)
         // What the file system itself calls the same (e.g. Unicode forms).
         || own.join(name).exists()
@@ -163,7 +185,18 @@ pub fn plan_link(
         is_dir: metadata.is_dir(),
         disk: disk_of(&metadata),
         added_at_ms: now_ms,
+        at_top: false,
     })
+}
+
+/// A new stick's entries, as planned: if they are exactly one folder, it
+/// goes at the top, its contents the stick's top level (ADR 0028 §2,
+/// amendment of 2026-10-20), so a receiver does not get the folder inside a
+/// folder of the same name. Decided once, when the stick is made.
+pub fn one_folder_at_top(planned: &mut [LinkedEntry]) {
+    if let [only] = planned {
+        only.at_top = only.is_dir;
+    }
 }
 
 /// The refusal of `path` if one of `others` (name, path) has its name,

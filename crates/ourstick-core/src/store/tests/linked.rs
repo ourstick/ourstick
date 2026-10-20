@@ -10,6 +10,7 @@ fn linked(name: &str, path: &str) -> LinkedEntry {
         is_dir: true,
         disk: Some(u64::MAX - 1),
         added_at_ms: 7,
+        at_top: false,
     }
 }
 
@@ -110,7 +111,57 @@ fn removing_a_linked_entry_forgets_only_its_files(store: &dyn Store) {
     ));
 }
 
+fn one_folder_at_the_top_of_a_stick_with_no_folder_of_its_own(store: &dyn Store) {
+    let at_top = |name: &str| LinkedEntry {
+        at_top: true,
+        ..linked(name, "/home/me/Holiday 2026")
+    };
+    // Not on a stick with a folder of its own.
+    let older = owned(1, 10);
+    store.add_owned_stick(&older).unwrap();
+    assert!(matches!(
+        store.add_linked_entry(&older.stick_id, &at_top("Holiday 2026")),
+        Err(StoreError::Inconsistent(_))
+    ));
+    let stick = OwnedStick {
+        has_own_folder: false,
+        ..owned(2, 20)
+    };
+    store.add_owned_stick(&stick).unwrap();
+    // A folder only.
+    let file = LinkedEntry {
+        is_dir: false,
+        ..at_top("notes.txt")
+    };
+    assert!(matches!(
+        store.add_linked_entry(&stick.stick_id, &file),
+        Err(StoreError::Inconsistent(_))
+    ));
+    store
+        .add_linked_entry(&stick.stick_id, &at_top("Holiday 2026"))
+        .unwrap();
+    assert_eq!(
+        store.linked_entries(&stick.stick_id).unwrap(),
+        vec![at_top("Holiday 2026")]
+    );
+    // One only; named ones next to it.
+    assert!(matches!(
+        store.add_linked_entry(&stick.stick_id, &at_top("Other")),
+        Err(StoreError::Inconsistent(_))
+    ));
+    store
+        .add_linked_entry(&stick.stick_id, &linked("Films", "/media/disk/Films"))
+        .unwrap();
+    // Never taken out.
+    assert!(matches!(
+        store.remove_linked_entry(&stick.stick_id, "Holiday 2026"),
+        Err(StoreError::Inconsistent(_))
+    ));
+    store.remove_linked_entry(&stick.stick_id, "Films").unwrap();
+}
+
 for_every_store!(
+    one_folder_at_the_top_of_a_stick_with_no_folder_of_its_own,
     linked_entries_roundtrip_by_name,
     a_linked_entry_must_be_one_name_and_an_absolute_path,
     removing_a_linked_entry_forgets_only_its_files,

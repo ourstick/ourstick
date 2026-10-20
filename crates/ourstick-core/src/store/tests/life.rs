@@ -23,6 +23,7 @@ fn linked(name: &str) -> LinkedEntry {
         is_dir: true,
         disk: None,
         added_at_ms: 1,
+        at_top: false,
     }
 }
 

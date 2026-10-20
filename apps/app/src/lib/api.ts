@@ -29,6 +29,9 @@ export interface Entry {
   left_out: boolean;
   /** Where a linked entry is: the name of the folder it is in. */
   place: string | null;
+  /** The one folder the stick was made from, its contents at the top:
+   * never taken out, the stick is stopped as a whole. */
+  at_top: boolean;
 }
 
 export interface Sharing {

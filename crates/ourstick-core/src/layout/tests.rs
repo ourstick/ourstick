@@ -18,6 +18,7 @@ fn entry(name: &str, path: &Path, is_dir: bool) -> LinkedEntry {
         is_dir,
         disk: metadata.as_ref().and_then(disk_of),
         added_at_ms: 1,
+        at_top: false,
     }
 }
 

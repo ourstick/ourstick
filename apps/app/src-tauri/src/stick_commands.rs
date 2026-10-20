@@ -52,6 +52,9 @@ pub struct EntryView {
     left_out: bool,
     /// Where a linked entry is: the name of the folder it is in.
     place: Option<String>,
+    /// The one folder the stick was made from, its contents at the top:
+    /// never taken out (ADR 0028 §2, amendment of 2026-10-20).
+    at_top: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +90,7 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
                 linked: false,
                 missing: false,
                 place: None,
+                at_top: false,
             });
         }
     }
@@ -94,9 +98,16 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
     for root in layout.linked() {
         let name = root.name.clone().unwrap_or_default();
         let prefix = format!("{name}/");
+        // The folder at the top has every file no named entry has.
         let mut files = recorded
             .iter()
-            .filter(|file| file.path == name || file.path.starts_with(&prefix))
+            .filter(|file| {
+                if root.at_top {
+                    !layout.is_named(file.path.split('/').next().unwrap_or_default())
+                } else {
+                    file.path == name || file.path.starts_with(&prefix)
+                }
+            })
             .peekable();
         let size = files
             .peek()
@@ -109,6 +120,7 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
             linked: true,
             missing: root.is_gone(),
             left_out: false,
+            at_top: root.at_top,
             place: root
                 .path
                 .parent()

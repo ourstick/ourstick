@@ -3,7 +3,8 @@
 use super::{claim_key, MemoryStore};
 use crate::stick_id::StickId;
 use crate::store::{
-    check_linked_entry, check_value, ClaimKind, LinkedEntry, SpaceClaim, StoreError,
+    check_at_top, check_linked_entry, check_value, ClaimKind, LinkedEntry, SpaceClaim, StoreError,
+    AT_TOP_STAYS,
 };
 
 pub(super) fn add_linked_entry(
@@ -16,6 +17,17 @@ pub(super) fn add_linked_entry(
     let key = stick_id.to_bytes();
     if !super::life::is_live(&state, &key) {
         return Err(StoreError::StickNotFound);
+    }
+    if entry.at_top {
+        let has_own_folder = state
+            .owned
+            .get(&key)
+            .is_some_and(|stick| stick.has_own_folder);
+        let one_there = state
+            .linked
+            .get(&key)
+            .is_some_and(|entries| entries.values().any(|other| other.at_top));
+        check_at_top(has_own_folder, one_there)?;
     }
     let entries = state.linked.entry(key).or_default();
     if entries.contains_key(&entry.name) {
@@ -44,13 +56,13 @@ pub(super) fn remove_linked_entry(
 ) -> Result<(), StoreError> {
     let mut state = store.state();
     let key = stick_id.to_bytes();
-    let removed = state
-        .linked
-        .get_mut(&key)
-        .and_then(|entries| entries.remove(name));
-    if removed.is_none() {
-        return Err(StoreError::LinkNotFound(name.to_owned()));
+    let entries = state.linked.get_mut(&key);
+    match entries.as_ref().and_then(|entries| entries.get(name)) {
+        None => return Err(StoreError::LinkNotFound(name.to_owned())),
+        Some(entry) if entry.at_top => return Err(StoreError::Inconsistent(AT_TOP_STAYS)),
+        Some(_) => {}
     }
+    entries.map(|entries| entries.remove(name));
     let prefix = format!("{name}/");
     if let Some(files) = state.owned_files.get_mut(&key) {
         files.retain(|path, _| path != name && !path.starts_with(&prefix));

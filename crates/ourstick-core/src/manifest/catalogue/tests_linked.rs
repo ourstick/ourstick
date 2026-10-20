@@ -21,6 +21,7 @@ fn linked(name: &str, path: &Path) -> LinkedEntry {
         is_dir: metadata.is_dir(),
         disk: crate::linked::disk_of(&metadata),
         added_at_ms: 1,
+        at_top: false,
     }
 }
 
@@ -152,4 +153,81 @@ fn a_linked_file_is_one_entry_under_its_name() {
     let bytes = manifest.to_bytes().unwrap();
     let place = disk.notes.parent().unwrap().to_string_lossy().into_owned();
     assert!(!String::from_utf8_lossy(&bytes).contains(&place));
+}
+
+/// A stick made from one folder ("Holiday" with `Beach/x.jpg` and
+/// `notes.txt`), at its top, and an empty folder of its own.
+fn at_top(disk: &Disk) -> (PathBuf, LinkedEntry) {
+    let holiday = disk.own.with_file_name("Holiday");
+    write(&holiday.join("Beach/x.jpg"), b"x");
+    write(&holiday.join("notes.txt"), b"n");
+    let empty = disk.own.with_file_name("sent");
+    std::fs::create_dir_all(&empty).unwrap();
+    let top = LinkedEntry {
+        at_top: true,
+        ..linked("Holiday", &holiday)
+    };
+    (empty, top)
+}
+
+#[test]
+fn the_folder_at_the_top_gives_its_contents_without_its_name() {
+    let disk = disk();
+    let (empty, top) = at_top(&disk);
+    let layout = StickLayout::new(&empty, &[top.clone(), linked("Films", &disk.films)]);
+    let mut catalogue = Catalogue::start_layout(&layout, Vec::new(), false).unwrap();
+    assert!(catalogue.left_out().is_empty());
+    let paths: Vec<String> = all(&mut catalogue)
+        .into_iter()
+        .map(|file| file.entry.path)
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "Beach/x.jpg",
+            "Films/2024/y.mkv",
+            "Films/x.mkv",
+            "notes.txt"
+        ]
+    );
+    assert_eq!(
+        layout.on_disk("Beach/x.jpg"),
+        top.path.join("Beach").join("x.jpg")
+    );
+    assert_eq!(layout.on_disk("Films/x.mkv"), disk.films.join("x.mkv"));
+
+    // A name it gains later that a named entry has is not sent.
+    write(&top.path.join("films/z.mkv"), b"z");
+    let mut catalogue = Catalogue::start_layout(&layout, Vec::new(), false).unwrap();
+    assert_eq!(catalogue.left_out(), ["films"]);
+    assert_eq!(all(&mut catalogue).len(), 4);
+}
+
+#[test]
+fn the_folder_at_the_top_gone_keeps_its_files_as_recorded() {
+    let disk = disk();
+    let (empty, top) = at_top(&disk);
+    let layout = StickLayout::new(&empty, &[top.clone(), linked("Films", &disk.films)]);
+    let recorded: Vec<OwnedFile> =
+        all(&mut Catalogue::start_layout(&layout, Vec::new(), false).unwrap())
+            .iter()
+            .map(CataloguedFile::owned_file)
+            .collect();
+    std::fs::rename(&top.path, top.path.with_file_name("away")).unwrap();
+    let mut catalogue = Catalogue::start_layout(&layout, recorded, false).unwrap();
+    assert_eq!(catalogue.gone(), ["Holiday"]);
+    // Its files as recorded, the named entry's as usual: the same manifest.
+    let paths: Vec<String> = all(&mut catalogue)
+        .into_iter()
+        .map(|file| file.entry.path)
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "Beach/x.jpg",
+            "Films/2024/y.mkv",
+            "Films/x.mkv",
+            "notes.txt"
+        ]
+    );
 }

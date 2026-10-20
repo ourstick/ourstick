@@ -209,6 +209,11 @@ pub struct LinkedEntry {
     /// The disk it was on when linked (`st_dev` on Unix), if known.
     pub disk: Option<u64>,
     pub added_at_ms: u64,
+    /// Its contents are the stick's top level, without `name` in front: the
+    /// one folder a stick was made from (ADR 0028 §2, amendment of
+    /// 2026-10-20). At most one per stick, a folder, on a stick with no
+    /// folder of its own; decided when the stick is made.
+    pub at_top: bool,
 }
 
 /// What a claim on a disk's room is for (the space ledger).

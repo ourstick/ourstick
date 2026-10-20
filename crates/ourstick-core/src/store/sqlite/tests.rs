@@ -9,7 +9,7 @@ use crate::ticket::NodeId;
 fn fresh_database_has_current_schema() {
     let store = SqliteStore::open_in_memory().unwrap();
     assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 26);
+    assert_eq!(SCHEMA_VERSION, 27);
 }
 
 #[test]
@@ -313,7 +313,8 @@ fn the_database_itself_refuses_bad_linked_entries() {
     let connection = store.connection();
     let insert = |stick_id: Vec<u8>, name: &str, path: &str| {
         connection.execute(
-            "INSERT INTO linked_entries VALUES (?1, ?2, ?3, 1, NULL, 0)",
+            "INSERT INTO linked_entries (stick_id, name, path, is_dir, disk, added_at_ms)
+             VALUES (?1, ?2, ?3, 1, NULL, 0)",
             params![stick_id, name, path],
         )
     };

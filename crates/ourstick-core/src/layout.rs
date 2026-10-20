@@ -18,6 +18,21 @@ pub struct Root {
     pub is_dir: bool,
     /// The disk it must be on, if known.
     pub disk: Option<u64>,
+    /// A linked folder whose contents are the stick's top level, without
+    /// its name in front (ADR 0028 §2, amendment of 2026-10-20).
+    pub at_top: bool,
+}
+
+impl From<&LinkedEntry> for Root {
+    fn from(entry: &LinkedEntry) -> Self {
+        Self {
+            name: Some(entry.name.clone()),
+            path: entry.path.clone(),
+            is_dir: entry.is_dir,
+            disk: entry.disk,
+            at_top: entry.at_top,
+        }
+    }
 }
 
 impl Root {
@@ -55,16 +70,9 @@ impl StickLayout {
                 path: own.to_path_buf(),
                 is_dir: true,
                 disk: None,
+                at_top: false,
             },
-            linked: linked
-                .iter()
-                .map(|entry| Root {
-                    name: Some(entry.name.clone()),
-                    path: entry.path.clone(),
-                    is_dir: entry.is_dir,
-                    disk: entry.disk,
-                })
-                .collect(),
+            linked: linked.iter().map(Root::from).collect(),
         }
     }
 
@@ -87,17 +95,31 @@ impl StickLayout {
         &self.linked
     }
 
-    /// The linked root named exactly `name`.
+    /// The linked root named exactly `name` in the manifest (not the one at
+    /// the top, whose name is not there).
     fn linked_named(&self, name: &str) -> Option<&Root> {
         self.linked
             .iter()
-            .find(|root| root.name.as_deref() == Some(name))
+            .find(|root| !root.at_top && root.name.as_deref() == Some(name))
     }
 
-    /// The root a manifest path is under.
+    /// The linked folder at the top, if the stick has one.
+    pub fn top(&self) -> Option<&Root> {
+        self.linked.iter().find(|root| root.at_top)
+    }
+
+    /// Whether the manifest's top-level name `name` is a linked entry's own.
+    pub fn is_named(&self, name: &str) -> bool {
+        self.linked_named(name).is_some()
+    }
+
+    /// The root a manifest path is under: a named linked entry by its first
+    /// component, else the folder at the top, else the own folder.
     pub fn root_of(&self, relative: &str) -> &Root {
         let first = relative.split('/').next().unwrap_or_default();
-        self.linked_named(first).unwrap_or(&self.own)
+        self.linked_named(first)
+            .or_else(|| self.top())
+            .unwrap_or(&self.own)
     }
 
     /// Where a manifest path is on disk.
@@ -106,7 +128,7 @@ impl StickLayout {
         let first = parts.next().unwrap_or_default();
         let (root, parts) = match self.linked_named(first) {
             Some(root) => (root, parts),
-            None => (&self.own, relative.split('/')),
+            None => (self.top().unwrap_or(&self.own), relative.split('/')),
         };
         // One path, grown in place (a join per part would make a new one).
         let mut path = PathBuf::with_capacity(root.path.as_os_str().len() + relative.len() + 1);
@@ -117,15 +139,18 @@ impl StickLayout {
         path
     }
 
-    /// Whether a top-level entry of the own folder is hidden by a linked
-    /// entry of the same name, ignoring case: the linked one keeps the name
-    /// (it was there first, and readers may have it half-downloaded).
-    pub fn is_shadowed(&self, own_top_name: &str) -> bool {
-        let lower = own_top_name.to_lowercase();
+    /// Whether a top-level entry of the own folder, or of the folder at the
+    /// top, is hidden by a named linked entry of the same name, ignoring
+    /// case: the linked one keeps the name (it was there first, and readers
+    /// may have it half-downloaded).
+    pub fn is_shadowed(&self, top_name: &str) -> bool {
+        let lower = top_name.to_lowercase();
         self.linked.iter().any(|root| {
-            root.name
-                .as_deref()
-                .is_some_and(|name| name.to_lowercase() == lower)
+            !root.at_top
+                && root
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.to_lowercase() == lower)
         })
     }
 }

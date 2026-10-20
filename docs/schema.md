@@ -25,9 +25,12 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 26
+## Version 27
 
-Version 26 (`0026_simpler_window.sql`, ADR 0028) adds
+Version 27 (`0027_at_top.sql`, ADR 0028 §2, amendment of 2026-10-20) adds
+`linked_entries.at_top`, 0 for every entry before.
+
+Version 26 (`0026_simpler_window.sql`, ADR 0028) added
 `owned_sticks.has_own_folder`, 1 for every stick before (each keeps its
 folder and its drive), and `settings.still_open_told`, 0.
 
@@ -333,7 +336,7 @@ Deleted with the stick (removed, or a new link).
 
 Folders and files shared where they are, not copied onto the stick (ADR 0008
 §2). Each is a top-level entry of its stick: its manifest paths start with
-`name`. Written by `ourstick_core::linked::plan_link`'s decision only.
+`name`, except the one `at_top`, whose contents are the top level. Written by `ourstick_core::linked::plan_link`'s decision only.
 
 | Column        | Type            | Meaning                                                  |
 |---------------|-----------------|----------------------------------------------------------|
@@ -343,6 +346,7 @@ Folders and files shared where they are, not copied onto the stick (ADR 0008
 | `is_dir`      | INTEGER 0/1     | A folder (1) or a single file (0)                        |
 | `disk`        | INTEGER or NULL | The disk it was on when linked (`st_dev`, the 64 bits stored as they are); NULL where the system has none. On another disk now: its disk is gone and an empty mount point is in its place |
 | `added_at_ms` | INTEGER         | When it was linked                                       |
+| `at_top`      | INTEGER 0/1     | 1: a folder whose contents are the stick's top level, without `name` in front (the one folder a stick was made from). At most one per stick, on a stick with `has_own_folder = 0`; never removed |
 
 Primary key `(stick_id, name)`; names that differ only in letter case are kept
 apart by `plan_link`, not by the database. Removing a row stops sharing the

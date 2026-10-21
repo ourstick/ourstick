@@ -12,15 +12,15 @@ struct Device {
 fn device() -> Device {
     let dir = temporary_folder();
     let root = dir.path().to_path_buf();
-    let home = root.join("home/anna");
+    let home = root.join("home/alice");
     for folder in [
-        "home/anna/.ssh/keys",
-        "home/anna/Library/Mail",
-        "home/anna/Documents/Bank",
-        "home/anna/Pictures/Holiday 2025/Summer",
-        "home/anna/data/ourstick",
+        "home/alice/.ssh/keys",
+        "home/alice/Library/Mail",
+        "home/alice/Documents/Bank",
+        "home/alice/Pictures/Holiday 2025/Summer",
+        "home/alice/data/ourstick",
         "usr/lib",
-        "run/media/anna/Expansion",
+        "run/media/alice/Expansion",
         "Expansion/Photos",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -118,7 +118,7 @@ fn the_systems_folders_are_refused_but_its_disks_are_not() {
         refusal(&device, &device.root.join("run")),
         "\u{201c}run\u{201d} is part of the system and cannot be sent."
     );
-    let disk = device.root.join("run/media/anna/Expansion");
+    let disk = device.root.join("run/media/alice/Expansion");
     assert_eq!(may_send(&disk, &device.rules), MaySend::Fine);
 }
 
@@ -225,7 +225,7 @@ fn a_mount_point_is_a_whole_disk() {
 
 #[test]
 fn this_devices_rules_refuse_its_system() {
-    let home = std::env::temp_dir().join("anna");
+    let home = std::env::temp_dir().join("alice");
     let rules = SendRules::of_this_device(&home, Vec::new(), Vec::new());
     #[cfg(target_os = "linux")]
     {

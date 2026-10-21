@@ -3,7 +3,7 @@ use super::*;
 /// A home with a main folder and two folders called "Photos".
 fn home() -> (crate::testing::TempFolder, PathBuf, SendRules) {
     let dir = crate::testing::TempFolder::new();
-    let home = dir.path().join("anna");
+    let home = dir.path().join("alice");
     for folder in [
         "Pictures/Holiday 2025/Summer",
         "Pictures/Photos",

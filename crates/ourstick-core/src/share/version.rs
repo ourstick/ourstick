@@ -11,7 +11,7 @@ use crate::blob::encrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::Cipher;
 use crate::clock::Clock;
-use crate::manifest::Manifest;
+use crate::manifest::{check_manifest_blob_size, Manifest};
 use crate::record::{next_seq, SignedManifestRecord};
 use crate::stick_id::StickSigningKey;
 use crate::store::Store;
@@ -48,6 +48,8 @@ impl<P: Publisher> Versions<'_, P> {
             run_blocking(move || -> Result<_, ShareError> {
                 let mut blob = Vec::new();
                 encrypt_blob(cipher.as_ref(), &mut Cursor::new(bytes), &mut blob)?;
+                // Never one that no reader would take.
+                check_manifest_blob_size(blob.len() as u64)?;
                 let hash = *blake3::hash(&blob).as_bytes();
                 Ok((blob, hash))
             })

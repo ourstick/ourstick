@@ -48,6 +48,19 @@ pub struct Manifest {
 /// The longest a stick's name may be, in Unicode scalar values.
 pub const MAX_NAME_CHARS: usize = 60;
 
+/// The largest manifest blob (encrypted, as sent) an owner makes and a reader
+/// takes: about a million files with long paths. A reader holds it in memory
+/// whole, so a peer must not choose its size.
+pub const MAX_MANIFEST_BLOB_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Refuses a manifest blob of `bytes` over [`MAX_MANIFEST_BLOB_BYTES`].
+pub fn check_manifest_blob_size(bytes: u64) -> Result<(), ManifestError> {
+    if bytes > MAX_MANIFEST_BLOB_BYTES {
+        return Err(ManifestError::TooBig { bytes });
+    }
+    Ok(())
+}
+
 /// One file inside a stick.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Entry {
@@ -98,6 +111,12 @@ pub enum ManifestError {
     EmptyInput,
     #[error("malformed manifest: {0}")]
     Postcard(#[from] postcard::Error),
+    #[error(
+        "the stick's list of files is over {} MB, more than OurStick takes; \
+         it must be split into smaller sticks",
+        MAX_MANIFEST_BLOB_BYTES / (1024 * 1024)
+    )]
+    TooBig { bytes: u64 },
 }
 
 impl ManifestError {
@@ -128,5 +147,14 @@ mod tests {
         let manifest = Manifest::empty();
         assert!(manifest.entries.is_empty());
         assert_eq!(manifest.total_size(), 0);
+    }
+
+    #[test]
+    fn a_manifest_blob_over_the_limit_is_refused() {
+        assert!(check_manifest_blob_size(0).is_ok());
+        assert!(check_manifest_blob_size(MAX_MANIFEST_BLOB_BYTES).is_ok());
+        let refused = check_manifest_blob_size(MAX_MANIFEST_BLOB_BYTES + 1).unwrap_err();
+        assert!(matches!(refused, ManifestError::TooBig { .. }));
+        assert!(refused.to_string().contains("over 256 MB"), "{refused}");
     }
 }

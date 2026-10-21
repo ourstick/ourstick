@@ -136,6 +136,12 @@ and changes whenever any field changes.
 A reader learns the stick's cipher from the manifest blob's header (the ticket
 carries only the key). Every file blob of that stick must use the same cipher.
 
+A manifest blob is at most 256 MiB (`MAX_MANIFEST_BLOB_BYTES`), about a
+million files with long paths. A reader holds it in memory whole, so its
+size must not be the owner's to choose: the reader stops fetching it once
+more has arrived, and refuses one already stored that is larger. The owner
+never publishes a larger one; its pass fails, saying the stick must be split.
+
 ### Owner-side rules for building a manifest
 
 - Symlinks are not followed and not included. Sockets, devices and other

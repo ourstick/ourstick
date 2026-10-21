@@ -3,6 +3,7 @@
 //! record floor (ADR 0004). `get` goes on to the files; `ls` stops here.
 
 use std::collections::BTreeMap;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use super::{cancelled, DownloadError};
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, CipherError, CipherId};
-use crate::manifest::Manifest;
+use crate::manifest::{check_manifest_blob_size, Manifest};
 use crate::record::{ManifestHint, RecordCheck};
 use crate::store::{ManifestVersion, Store};
 use crate::ticket::Ticket;
@@ -48,10 +49,26 @@ pub(super) async fn fetch_listing(
         RecordCheck::Unchanged(record) => (record, false),
     };
 
-    connection
-        .fetch_blob(&record.manifest_hash, &mut |_| GO)
-        .await
-        .map_err(cancelled)?;
+    // Its size is the owner's choice: stopped once it is too big to hold.
+    let mut too_big = None;
+    let fetched = connection
+        .fetch_blob(
+            &record.manifest_hash,
+            &mut |received| match check_manifest_blob_size(received) {
+                Ok(()) => GO,
+                Err(error) => {
+                    too_big = Some(error);
+                    ControlFlow::Break(())
+                }
+            },
+        )
+        .await;
+    if let Some(error) = too_big {
+        return Err(error.into());
+    }
+    fetched.map_err(cancelled)?;
+    // Also one that was here already, whole.
+    check_manifest_blob_size(fetcher.local_bytes(&record.manifest_hash).await?)?;
     let manifest_blob = fetcher.read_blob(&record.manifest_hash).await?;
     let cipher = cipher_of(&manifest_blob, ticket)?;
     let manifest = {

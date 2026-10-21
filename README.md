@@ -103,3 +103,6 @@ development server and shows an empty window.
 
 Apache-2.0. See [LICENSE](LICENSE). The licence covers the code; it gives no
 right to use the name OurStick or its logo (section 6 of the licence).
+
+OurStick is free software, provided as is, without any warranty (sections 7
+and 8 of its licence). Keep your own copies of files that matter.

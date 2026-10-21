@@ -97,6 +97,10 @@
 
   <footer>
     {#if view?.copyright}<p class="muted small">{view.copyright}</p>{/if}
+    <p class="muted small">
+      Free software, provided as is, without any warranty (sections 7 and 8 of its licence).
+      Keep your own copies of files that matter.
+    </p>
     <p class="small">
       <button class="link" onclick={() => open("licence")}>OurStick's licence</button>
       ·

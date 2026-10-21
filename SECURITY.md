@@ -7,8 +7,9 @@ reviewed by an independent auditor.
 
 ## Reporting a vulnerability
 
-Please write to **hi@ourstick.com** with "Security" in the subject, and do
-not open a public issue. Say what you found, how to reproduce it, which system
+Please write to **hi@ourstick.com** with "Security" in the subject, or use
+GitHub's private reporting (the repository's Security tab, **Report a
+vulnerability**), and do not open a public issue. Say what you found, how to reproduce it, which system
 you used, and when you downloaded OurStick (or which release).
 
 Never send a real sharing link: a link carries a stick's key. If a link is

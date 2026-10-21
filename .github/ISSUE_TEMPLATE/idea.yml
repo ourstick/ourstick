@@ -1,0 +1,14 @@
+name: An idea
+description: Something OurStick could do, or do better.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What OurStick does on purpose, and what it leaves out, is in the [README](https://github.com/ourstick/ourstick#readme) and [docs/decisions](https://github.com/ourstick/ourstick/tree/main/docs/decisions). **Never paste a real sharing link.**
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you would like to do, and why.
+    validations:
+      required: true

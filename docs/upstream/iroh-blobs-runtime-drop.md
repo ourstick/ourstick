@@ -1,7 +1,8 @@
 # Draft: an `FsStore` shut down leaves threads behind (iroh-blobs)
 
-To be sent by Giorgos (an issue, and the one-line pull request). Found by
-OurStick (ADR 0018); patched meanwhile in `third_party/iroh-blobs`.
+Status: a draft of an issue and a one-line pull request for iroh-blobs, not
+sent yet. Found by OurStick (ADR 0018); patched meanwhile in
+`third_party/iroh-blobs`.
 
 ## Issue
 

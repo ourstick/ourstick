@@ -5,8 +5,8 @@ suitcase; it has one store of its own per stick. This request now matters
 only for the reader's batches (one `FsStore` per 512 files). The draft below
 is kept as written.
 
-Status: draft, not sent (2026-10-05). To be sent by Giorgos, as an issue
-(and a PR if they welcome one) at https://github.com/n0-computer/iroh-blobs.
+Status: a draft, not sent yet (2026-10-05): an issue (and a PR if they
+welcome one) for https://github.com/n0-computer/iroh-blobs.
 Checked against iroh-blobs 0.103.0.
 
 ---

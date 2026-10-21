@@ -18,6 +18,6 @@ thread of the runtime to end, that one included, and so waits forever. Each
 closed store left two or three `iroh-blob-store` threads behind: the reader
 opens one store per batch, and reached 402 threads for 100 000 files.
 
-Used through `[patch.crates-io]` in the workspace `Cargo.toml`. Reported
-upstream (see `docs/upstream/`); once a release has the fix, delete this
-folder and the patch entry.
+Used through `[patch.crates-io]` in the workspace `Cargo.toml`. A report
+for upstream is drafted in `docs/upstream/` (not sent yet); once a release
+has the fix, delete this folder and the patch entry.

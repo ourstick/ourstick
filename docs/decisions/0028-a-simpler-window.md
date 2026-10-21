@@ -154,8 +154,8 @@ it stands then: not a file, not two things), that folder's contents are the
 manifest's top level. The receiver gets `Downloads/Holiday 2026/Beach/…`.
 Only the paths in the manifest differ; nothing changes on the wire, and
 receivers of every version, 0.1.3 too, get it right. Whatever the name:
-"Photos for Anna" made from "Holiday 2026" lands in
-`Downloads/Photos for Anna/Beach/…`. The one folder may be a main folder or
+"Photos for Alice" made from "Holiday 2026" lands in
+`Downloads/Photos for Alice/Beach/…`. The one folder may be a main folder or
 a whole disk the user said yes to (Ask), as any folder sent.
 
 - **It is a linked entry, at the top.** The folder is stored as linked

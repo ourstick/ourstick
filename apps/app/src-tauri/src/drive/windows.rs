@@ -249,4 +249,70 @@ mod tests {
             1
         );
     }
+
+    /// A letter taken away behind the app's back, then given to another
+    /// stick's folder: `is_mounted` must see both, though it remembers the
+    /// letter. It gives out a real drive letter for a moment, so it runs
+    /// only by hand: `cargo test -p ourstick-app -- --ignored letter_taken`.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "gives out a real drive letter"]
+    fn a_letter_taken_away_or_given_to_another_stick_is_seen() {
+        use ourstick_core::share::mark_drive;
+        use ourstick_core::{CipherId, OwnedStick, StickSigningKey};
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        /// The test's folders and letter, both removed when dropped.
+        struct Place(PathBuf, String);
+        impl Drop for Place {
+            fn drop(&mut self) {
+                let _ = Command::new("subst").args([&self.1, "/D"]).output();
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let letter = candidates(None)
+            .into_iter()
+            .find(|letter| !PathBuf::from(format!("{letter}:\\")).exists())
+            .expect("a free letter");
+        let place = Place(
+            std::env::temp_dir().join(format!("ourstick-letters-{}", std::process::id())),
+            format!("{letter}:"),
+        );
+        let stick = |byte: u8| {
+            let root = place.0.join(format!("stick-{byte}"));
+            std::fs::create_dir_all(&root).unwrap();
+            let id = StickSigningKey::from_bytes(&[byte; 32]).stick_id();
+            mark_drive(&root, &id).unwrap();
+            OwnedStick::new(id, "Stick", root, CipherId::None, 0)
+        };
+        let (first, second) = (stick(1), stick(2));
+        let subst = |target: &std::path::Path| {
+            let done = Command::new("subst").arg(&place.1).arg(target).output();
+            assert!(done.unwrap().status.success());
+        };
+        let take = || {
+            let done = Command::new("subst").args([&place.1, "/D"]).output();
+            assert!(done.unwrap().status.success());
+        };
+
+        subst(&first.root_path);
+        assert!(platform::is_mounted(&first), "found through subst");
+        assert!(
+            platform::is_mounted(&first),
+            "found at the remembered letter"
+        );
+        take();
+        assert!(!platform::is_mounted(&first), "its letter was taken away");
+
+        subst(&first.root_path);
+        assert!(platform::is_mounted(&first));
+        take();
+        subst(&second.root_path);
+        assert!(
+            !platform::is_mounted(&first),
+            "its letter shows another stick"
+        );
+        assert!(platform::is_mounted(&second));
+    }
 }

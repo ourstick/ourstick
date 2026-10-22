@@ -64,13 +64,13 @@ impl<P: Publisher> Versions<'_, P> {
             .clone()
             .filter(|record| record.unverified_record().manifest_hash == manifest_hash);
         let new_version = unchanged.is_none();
-        // For a restart (`serve_latest`): written again only if what is
-        // kept is not this manifest already.
+        // For a restart (`serve_latest`): a new manifest is kept; the same
+        // one again only if what is kept is not it already.
         {
             let cache_dir = self.publisher.cache_dir().to_path_buf();
             let blob = manifest_blob.clone();
             run_blocking(move || {
-                if load_latest_manifest(&cache_dir, &manifest_hash).is_some() {
+                if !new_version && load_latest_manifest(&cache_dir, &manifest_hash).is_some() {
                     return Ok(());
                 }
                 save_latest_manifest(&cache_dir, &blob)

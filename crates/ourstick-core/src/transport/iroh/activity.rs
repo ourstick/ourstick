@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
+use tokio::time::MissedTickBehavior;
 
 use crate::transport::ReaderActivity;
 
@@ -87,6 +88,8 @@ impl Counters {
 pub(super) struct Activity {
     counters: Arc<Mutex<Counters>>,
     sender: Arc<watch::Sender<ReaderActivity>>,
+    /// Wakes the ticker, which sleeps while no one downloads.
+    wake: Arc<Notify>,
 }
 
 impl Activity {
@@ -94,7 +97,14 @@ impl Activity {
         Self {
             counters: Arc::default(),
             sender: Arc::new(watch::channel(ReaderActivity::default()).0),
+            wake: Arc::default(),
         }
+    }
+
+    /// The counters, to change them: the ticker is woken.
+    fn counters_changed(&self) -> MutexGuard<'_, Counters> {
+        self.wake.notify_one();
+        self.counters()
     }
 
     fn counters(&self) -> MutexGuard<'_, Counters> {
@@ -111,7 +121,7 @@ impl Activity {
 
     /// A transfer started on `connection`.
     pub(super) fn started(&self, connection: u64) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         counters.idle_since.remove(&connection);
         counters.waiting_since.remove(&connection);
         *counters.active.entry(connection).or_default() += 1;
@@ -123,7 +133,7 @@ impl Activity {
     }
 
     fn sent_at(&self, bytes: u64, now: Instant) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         counters.sent += bytes;
         counters.sent_at = Some(now);
     }
@@ -135,25 +145,25 @@ impl Activity {
     }
 
     fn told_not_ready_at(&self, connection: u64, now: Instant) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         counters.not_ready_at = Some(now);
         counters.waiting_since.insert(connection, now);
     }
 
     /// A reader reached us directly.
     pub(super) fn reached_directly(&self) {
-        self.counters().direct = true;
+        self.counters_changed().direct = true;
     }
 
     /// A reader was still on the relay after a while.
     pub(super) fn reached_only_by_relay(&self) {
-        self.counters().relay_only = true;
+        self.counters_changed().relay_only = true;
     }
 
     /// Whether a declined local network keeps the reader on `connection` on
     /// the relay (ADR 0020).
     pub(super) fn local_network_declined(&self, connection: u64, declined: bool) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         if declined {
             counters.declined.insert(connection);
         } else {
@@ -169,7 +179,7 @@ impl Activity {
     /// The reader's `connection` closed: it no longer counts, not even for
     /// [`LINGER`].
     pub(super) fn closed(&self, connection: u64) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         counters.active.remove(&connection);
         counters.idle_since.remove(&connection);
         counters.waiting_since.remove(&connection);
@@ -177,7 +187,7 @@ impl Activity {
     }
 
     fn ended_at(&self, connection: u64, now: Instant) {
-        let mut counters = self.counters();
+        let mut counters = self.counters_changed();
         if let Some(active) = counters.active.get_mut(&connection) {
             *active = active.saturating_sub(1);
             if *active == 0 {
@@ -187,11 +197,13 @@ impl Activity {
         }
     }
 
-    /// Recomputes and publishes the activity every tick, until aborted.
+    /// Recomputes and publishes the activity every tick, until aborted;
+    /// asleep while no one downloads, until something happens.
     /// `giving_way` tells whether a disk the transfers read gives way.
     pub(super) async fn report(self, giving_way: Arc<dyn Fn() -> bool + Send + Sync>) {
         let mut samples: VecDeque<(Instant, u64)> = VecDeque::new();
         let mut ticker = tokio::time::interval(TICK);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
             let now = Instant::now();
@@ -220,11 +232,16 @@ impl Activity {
                 giving_way: readers > 0 && giving_way(),
                 local_network_declined: readers > 0 && declined,
             };
+            let quiet = activity.readers == 0 && activity.bytes_per_second == 0;
             self.sender.send_if_modified(|current| {
                 let changed = *current != activity;
                 *current = activity;
                 changed
             });
+            if quiet {
+                self.wake.notified().await;
+                ticker.reset();
+            }
         }
     }
 }
@@ -242,129 +259,5 @@ fn rate(samples: &VecDeque<(Instant, u64)>) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn readers_are_connections_with_a_transfer_in_progress() {
-        let activity = Activity::new();
-        activity.started(1);
-        activity.started(1);
-        activity.started(2);
-        assert_eq!(activity.counters().active.len(), 2);
-        activity.ended(1);
-        activity.ended(2);
-        assert_eq!(activity.counters().active.len(), 1);
-        activity.ended(1);
-        activity.ended(1); // an extra end does no harm
-        assert!(activity.counters().active.is_empty());
-    }
-
-    #[test]
-    fn a_reader_between_two_files_still_counts() {
-        let start = Instant::now();
-        let activity = Activity::new();
-        activity.started(1);
-        activity.ended_at(1, start);
-        let readers = |at: Duration| activity.counters().readers(start + at);
-        assert_eq!(readers(Duration::from_secs(5)), 1);
-        // The next file: still one reader.
-        activity.started(1);
-        assert_eq!(readers(Duration::from_secs(6)), 1);
-        activity.ended_at(1, start + Duration::from_secs(10));
-        assert_eq!(readers(LINGER), 1);
-        // Idle for longer than LINGER: gone.
-        assert_eq!(readers(LINGER + Duration::from_secs(10)), 0);
-        assert!(activity.counters().idle_since.is_empty());
-    }
-
-    #[test]
-    fn a_closed_connection_stops_counting_at_once() {
-        let start = Instant::now();
-        let activity = Activity::new();
-        activity.started(1);
-        activity.started(2);
-        activity.ended_at(1, start);
-        activity.closed(1);
-        activity.closed(2);
-        assert_eq!(activity.counters().readers(start), 0);
-    }
-
-    #[test]
-    fn a_reader_told_not_ready_is_waiting_for_files_got_ready() {
-        let start = Instant::now();
-        let activity = Activity::new();
-        let at = |seconds| start + Duration::from_secs(seconds);
-        assert!(!activity.counters().preparing(at(0)));
-        // Told "not ready": a reader, waiting while its files are got ready.
-        activity.told_not_ready_at(7, at(1));
-        assert_eq!(activity.counters().readers(at(2)), 1);
-        assert!(activity.counters().preparing(at(2)));
-        // Still a reader while it waits, past LINGER, up to its longest
-        // pause (it asks again within a minute).
-        assert_eq!(
-            activity
-                .counters()
-                .readers(at(1) + LINGER + Duration::from_secs(20)),
-            1
-        );
-        // Bytes leave: no longer only waiting.
-        activity.sent_at(1000, at(3));
-        assert!(!activity.counters().preparing(at(4)));
-        // Told again later, and waiting as long as a reader's longest pause.
-        activity.told_not_ready_at(7, at(5));
-        assert!(activity
-            .counters()
-            .preparing(at(5) + PREPARING - Duration::from_secs(1)));
-        assert!(!activity.counters().preparing(at(5) + PREPARING));
-        // A transfer in progress on that connection is not made idle, and
-        // counts once.
-        activity.started(8);
-        activity.told_not_ready_at(8, at(6));
-        assert_eq!(activity.counters().active.get(&8), Some(&1));
-        // A reader that leaves stops counting at once.
-        activity.closed(7);
-        activity.closed(8);
-        assert_eq!(activity.counters().readers(at(7)), 0);
-    }
-
-    #[test]
-    fn only_relayed_until_someone_comes_directly() {
-        let only_relayed = |activity: &Activity| activity.counters().only_relayed();
-        let activity = Activity::new();
-        assert!(!only_relayed(&activity), "no reader yet");
-        activity.reached_only_by_relay();
-        assert!(only_relayed(&activity));
-        activity.reached_directly();
-        assert!(!only_relayed(&activity), "one direct reader is enough");
-        activity.reached_only_by_relay();
-        assert!(!only_relayed(&activity));
-    }
-
-    #[test]
-    fn a_declined_local_network_counts_while_its_connection_lasts() {
-        let activity = Activity::new();
-        let declined = |activity: &Activity| !activity.counters().declined.is_empty();
-        activity.local_network_declined(1, true);
-        activity.local_network_declined(2, true);
-        assert!(declined(&activity));
-        activity.local_network_declined(1, false);
-        assert!(declined(&activity), "still for the other");
-        activity.closed(2);
-        assert!(!declined(&activity), "a closed connection no longer counts");
-    }
-
-    #[test]
-    fn rate_is_over_the_samples_kept() {
-        let start = Instant::now();
-        let samples: VecDeque<_> = [
-            (start, 0),
-            (start + Duration::from_millis(500), 1_000_000),
-            (start + Duration::from_secs(2), 4_000_000),
-        ]
-        .into();
-        assert_eq!(rate(&samples), 2_000_000);
-        assert_eq!(rate(&VecDeque::new()), 0);
-        assert_eq!(rate(&[(start, 5)].into()), 0);
-    }
-}
+#[path = "activity_tests.rs"]
+mod tests;

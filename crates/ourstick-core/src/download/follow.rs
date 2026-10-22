@@ -9,8 +9,25 @@ use super::{DownloadError, DownloadEvent};
 use crate::ticket::Ticket;
 use crate::transport::{Fetcher, PeerConnection, TransportError};
 
-/// How often `get --follow` asks for the owner's record.
+/// How often `get --follow` asks for the owner's record, at first.
 pub const FOLLOW_EVERY: Duration = Duration::from_secs(15);
+/// After this long with no new version, the owner is asked less and less
+/// often, up to [`FOLLOW_LONGEST`] apart: a stick that stays the same for
+/// days, or an owner that stays off, is not asked four times a minute.
+const FOLLOW_STEADY: Duration = Duration::from_secs(10 * 60);
+const FOLLOW_LONGEST: Duration = Duration::from_secs(2 * 60);
+
+/// The wait before the next ask, after `asked` asks with no new version:
+/// `interval` for [`FOLLOW_STEADY`], then twice as long each time, up to
+/// [`FOLLOW_LONGEST`] (or `interval`, if longer).
+fn wait_after(interval: Duration, asked: u32) -> Duration {
+    let steady =
+        u32::try_from(FOLLOW_STEADY.as_millis() / interval.as_millis().max(1)).unwrap_or(u32::MAX);
+    let over = asked.saturating_sub(steady);
+    interval
+        .saturating_mul(1 << over.min(16))
+        .min(FOLLOW_LONGEST.max(interval))
+}
 
 /// What happens while waiting, for display.
 #[derive(Debug)]
@@ -22,7 +39,7 @@ pub enum FollowEvent<'a> {
 }
 
 /// Waits until the owner offers a version newer than `seq`, asking every
-/// `interval` over one connection (reconnecting when it drops), and returns
+/// `interval` (less often after a while, see [`wait_after`]), and returns
 /// its `seq`. The record is verified as always; a bad one is an error. The
 /// download that follows checks it against the floor again.
 pub async fn wait_for_newer(
@@ -34,6 +51,7 @@ pub async fn wait_for_newer(
 ) -> Result<u64, DownloadError> {
     let mut connection = None;
     let mut unreachable = false;
+    let mut asks_in_vain = 0;
     loop {
         let asked = match connection.take() {
             Some(connection) => Ok(connection),
@@ -72,8 +90,29 @@ pub async fn wait_for_newer(
                 }
             }
         }
-        tokio::time::sleep(interval).await;
+        tokio::time::sleep(wait_after(interval, asks_in_vain)).await;
+        asks_in_vain = asks_in_vain.saturating_add(1);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn the_owner_is_asked_less_often_after_a_while() {
+    let every = FOLLOW_EVERY;
+    // Ten minutes at 15 s: 40 asks.
+    assert_eq!(wait_after(every, 0), every);
+    assert_eq!(wait_after(every, 40), every);
+    assert_eq!(wait_after(every, 41), every * 2);
+    assert_eq!(wait_after(every, 42), every * 4);
+    assert_eq!(wait_after(every, 43), FOLLOW_LONGEST);
+    assert_eq!(wait_after(every, u32::MAX), FOLLOW_LONGEST);
+    // A short interval (tests) and a long one are kept within bounds.
+    assert_eq!(
+        wait_after(Duration::from_millis(50), 0),
+        Duration::from_millis(50)
+    );
+    let long = Duration::from_secs(600);
+    assert_eq!(wait_after(long, 5), long);
 }
 
 /// Reaching the owner during a download. Once it said more is coming (a

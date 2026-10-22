@@ -174,7 +174,7 @@ impl Getter<'_> {
             return Ok(());
         }
         println!(
-            "[{}] Following: checking for a new version every {} s. Press Ctrl-C to stop.",
+            "[{}] Following: checking for a new version every {} s (less often after ten minutes without one). Press Ctrl-C to stop.",
             clock(self.started.elapsed()),
             FOLLOW_EVERY.as_secs()
         );

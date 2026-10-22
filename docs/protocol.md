@@ -306,7 +306,8 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   "damaged".
 - A **partial** manifest (the owner is still reading its folder, ADR 0007)
   does not end a download: once every file it lists is in place, the reader
-  asks for the owner's record every 15 seconds and goes on with the next
+  asks for the owner's record every 15 seconds (less often after ten minutes
+  with no new version, up to two minutes apart) and goes on with the next
   version, until one is complete. These versions are not counted against the
   10 above. `ls` says when a listing is partial.
 - A version counts as complete in a folder (`joined_sticks.completed_*`) only
@@ -774,7 +775,9 @@ Rules on every platform:
   "X GB remaining" (the owner only sees what it sends). Not in stage 1.
 
 - Readers learn of new versions by asking (`get --follow`: the signed record,
-  137 bytes, every 15 s over one connection). A push from the owner would be
+  137 bytes, each on a fresh connection, every 15 s; after ten minutes with
+  no new version less and less often, up to every 2 minutes). A push from
+  the owner would be
   quicker and cheaper with many readers; decide when there are apps that stay
   open, not before.
 - The owner's device going to sleep stops sharing (a MacBook sleeps after a

@@ -50,3 +50,16 @@ async fn a_file_being_written_is_not_settled() {
     writer.join().unwrap();
     assert!(is_settled(dir.path(), Duration::from_millis(50)).await);
 }
+
+#[test]
+fn looks_with_nothing_new_come_ever_more_slowly() {
+    let retry = Duration::from_secs(30);
+    let waits: Vec<u64> = (0..8)
+        .map(|looks| look_again_after(retry, looks).as_secs())
+        .collect();
+    assert_eq!(waits, [30, 60, 120, 240, 480, 960, 1800, 1800]);
+    assert_eq!(look_again_after(retry, u32::MAX), LONGEST_LOOK_AGAIN);
+    // A retry longer than the longest wait is kept as it is.
+    let long = Duration::from_secs(3600);
+    assert_eq!(look_again_after(long, 3), long);
+}

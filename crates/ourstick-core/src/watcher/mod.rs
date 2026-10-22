@@ -186,15 +186,40 @@ async fn present_roots(owner: &Owner<'_, impl Publisher>) -> (Vec<PathBuf>, bool
     }
 }
 
+/// What ended a wait for a change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Woken {
+    /// A sign of change.
+    Change,
+    /// The time to look again, with no sign of change.
+    LookAgain,
+    /// The events ended: the watch is over.
+    Ended,
+}
+
 /// Waits for a sign of change, or with `retry_after`, for that long at most.
-async fn next_change(events: &mut impl FolderEvents, retry_after: Option<Duration>) -> bool {
-    match retry_after {
-        None => events.changed().await.is_some(),
+async fn next_change(events: &mut impl FolderEvents, retry_after: Option<Duration>) -> Woken {
+    let changed = match retry_after {
+        None => events.changed().await,
         Some(retry) => match tokio::time::timeout(retry, events.changed()).await {
-            Ok(change) => change.is_some(),
-            Err(_) => true,
+            Ok(change) => change,
+            Err(_) => return Woken::LookAgain,
         },
-    }
+    };
+    changed.map_or(Woken::Ended, |()| Woken::Change)
+}
+
+/// The longest wait between two looks with no sign of change.
+const LONGEST_LOOK_AGAIN: Duration = Duration::from_secs(30 * 60);
+
+/// The wait before looking again after `looks` looks in a row that came
+/// with no sign of change: `retry`, then twice as long each time, up to
+/// [`LONGEST_LOOK_AGAIN`]. A drive left unplugged, or a file that stays
+/// unreadable, is not walked over every half minute for days.
+fn look_again_after(retry: Duration, looks: u32) -> Duration {
+    retry
+        .saturating_mul(1 << looks.min(16))
+        .min(LONGEST_LOOK_AGAIN.max(retry))
 }
 
 /// Publishes `root` again whenever it changes, until `events` ends. `current`
@@ -234,6 +259,8 @@ async fn follow(
     let mut ejected = false;
     let mut slow = false;
     let mut pass_now = pass_first;
+    // Looks in a row with no sign of change and no new version.
+    let mut idle_looks = 0;
     loop {
         // Watch what is there now: linked entries come and go (ADR 0008).
         // One gone, or one that cannot be watched, is looked at again every
@@ -248,10 +275,13 @@ async fn follow(
         }
         slow = !unwatched.is_empty();
         let look_again = retry || any_gone || slow;
-        if !std::mem::take(&mut pass_now)
-            && !next_change(events, look_again.then_some(timing.retry)).await
-        {
-            return;
+        if !std::mem::take(&mut pass_now) {
+            let wait = look_again_after(timing.retry, idle_looks);
+            match next_change(events, look_again.then_some(wait)).await {
+                Woken::Ended => return,
+                Woken::LookAgain => idle_looks += 1,
+                Woken::Change => idle_looks = 0,
+            }
         }
         // Let a burst of changes (a copy, an unzip) finish first.
         while let Ok(Some(())) = tokio::time::timeout(timing.quiet, events.changed()).await {}
@@ -300,6 +330,7 @@ async fn follow(
                 retry = true;
             }
             Ok(publication) if publication.new_version => {
+                idle_looks = 0;
                 let changes = ChangeSummary::between(&current, &publication.manifest);
                 on_event(WatchEvent::Published {
                     changes: &changes,

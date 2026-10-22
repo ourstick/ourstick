@@ -5,7 +5,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use super::latest::save_latest_manifest;
+use super::latest::{load_latest_manifest, save_latest_manifest};
 use super::{Publication, ShareError};
 use crate::blob::encrypt_blob;
 use crate::blocking::run_blocking;
@@ -42,25 +42,20 @@ impl<P: Publisher> Versions<'_, P> {
         manifest: Manifest,
         reused: usize,
     ) -> Result<Publication, ShareError> {
-        let (manifest_blob, manifest_hash) = {
+        // Off the async workers: a manifest of 146k files is tens of MB.
+        let (manifest, manifest_blob, manifest_hash) = {
             let cipher = self.cipher.clone();
-            let bytes = manifest.to_bytes()?;
             run_blocking(move || -> Result<_, ShareError> {
+                let bytes = manifest.to_bytes()?;
                 let mut blob = Vec::new();
                 encrypt_blob(cipher.as_ref(), &mut Cursor::new(bytes), &mut blob)?;
                 // Never one that no reader would take.
                 check_manifest_blob_size(blob.len() as u64)?;
                 let hash = *blake3::hash(&blob).as_bytes();
-                Ok((blob, hash))
+                Ok((manifest, blob, hash))
             })
             .await?
         };
-        // For a restart (`serve_latest`) and the files keeper.
-        {
-            let cache_dir = self.publisher.cache_dir().to_path_buf();
-            let blob = manifest_blob.clone();
-            run_blocking(move || save_latest_manifest(&cache_dir, &blob)).await?;
-        }
 
         // The same manifest (same bytes, so also the same partial mark): the
         // same record, no new seq.
@@ -69,6 +64,19 @@ impl<P: Publisher> Versions<'_, P> {
             .clone()
             .filter(|record| record.unverified_record().manifest_hash == manifest_hash);
         let new_version = unchanged.is_none();
+        // For a restart (`serve_latest`): written again only if what is
+        // kept is not this manifest already.
+        {
+            let cache_dir = self.publisher.cache_dir().to_path_buf();
+            let blob = manifest_blob.clone();
+            run_blocking(move || {
+                if load_latest_manifest(&cache_dir, &manifest_hash).is_some() {
+                    return Ok(());
+                }
+                save_latest_manifest(&cache_dir, &blob)
+            })
+            .await?;
+        }
         let record = match unchanged {
             Some(record) => record,
             None => {

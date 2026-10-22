@@ -91,3 +91,13 @@ fn about_and_the_login_check_come_before_quit() {
         );
     }
 }
+
+#[test]
+fn the_dot_is_drawn_again_only_when_it_changes() {
+    let dot = DotShown::default();
+    assert!(dot.changes_to(false), "the first time is always drawn");
+    assert!(!dot.changes_to(false));
+    assert!(dot.changes_to(true));
+    assert!(!dot.changes_to(true));
+    assert!(dot.changes_to(false));
+}

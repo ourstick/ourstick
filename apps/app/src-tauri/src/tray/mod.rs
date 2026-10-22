@@ -21,13 +21,35 @@ use linux as platform;
 #[cfg(not(target_os = "linux"))]
 use native as platform;
 
-pub use platform::{create, set_active, set_sticks};
+pub use platform::{create, set_sticks};
 
 use ourstick_core::StickId;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::dialog;
 use crate::state::{stick_hex, stick_id, AppState};
+
+/// The green dot as last drawn. A download changes its speed twice a
+/// second; the tray is drawn again only when the dot itself changes.
+#[derive(Default)]
+pub struct DotShown(std::sync::Mutex<Option<bool>>);
+
+impl DotShown {
+    /// Whether `active` differs from what is drawn; it is drawn from now on.
+    fn changes_to(&self, active: bool) -> bool {
+        self.0.lock().expect("tray dot lock").replace(active) != Some(active)
+    }
+}
+
+/// The green dot, while someone downloads.
+pub fn set_active(app: &AppHandle, active: bool) {
+    let changed = app
+        .try_state::<DotShown>()
+        .is_none_or(|dot| dot.changes_to(active));
+    if changed {
+        platform::set_active(app, active);
+    }
+}
 
 /// Something sent or received, as the tray shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]

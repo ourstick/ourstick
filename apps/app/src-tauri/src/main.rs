@@ -108,6 +108,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .manage(problems::Problems::default())
+        .manage(tray::DotShown::default())
         .manage(receiving::Receivers::default())
         // The main window's ✕ asks first: Minimize, or Quit, which stops
         // sharing (see dialog). The window is only ever minimized, never

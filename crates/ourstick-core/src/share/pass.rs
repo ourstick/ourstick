@@ -229,11 +229,17 @@ async fn pass(
                     continue;
                 }
             };
-            reused += usize::from(!file.read);
-            recorded.push(file.owned_file());
+            // Only a file read again is recorded again: the others' rows are
+            // what they were read from, and rewriting them would only cost
+            // the disk (and could put back an older row over the keeper's).
+            if file.read {
+                recorded.push(file.owned_file());
+            } else {
+                reused += 1;
+            }
             entries.push(file.entry);
         }
-        {
+        if !recorded.is_empty() {
             let store = owner.store.clone();
             run_blocking(move || store.record_owned_files(&stick_id, &recorded)).await?;
         }

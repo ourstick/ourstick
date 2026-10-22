@@ -187,8 +187,32 @@ pub mod platform {
         })
     }
 
+    /// The letter `subst` last showed each stick's folder at. The app asks
+    /// every few seconds; reading the marker at that letter answers without
+    /// starting `subst`, a program the antivirus looks at each time. A
+    /// letter only `subst` gave: never another drive's.
+    static SEEN: std::sync::Mutex<Vec<(PathBuf, char)>> = std::sync::Mutex::new(Vec::new());
+
     pub fn is_mounted(stick: &OwnedStick) -> bool {
-        !letters_showing(&stick.root_path).is_empty()
+        let root = &stick.root_path;
+        let mut seen = SEEN.lock().expect("drive letters lock");
+        let known = seen.iter().position(|(seen_root, _)| seen_root == root);
+        if let Some(index) = known {
+            let letter = seen[index].1;
+            let marker = std::fs::read(root.join(DRIVE_MARKER));
+            let at_letter = std::fs::read(drive_root(letter).join(DRIVE_MARKER));
+            if marker.is_ok_and(|marker| at_letter.is_ok_and(|at| at == marker)) {
+                return true;
+            }
+            seen.remove(index);
+        }
+        match letters_showing(root).first() {
+            Some(letter) => {
+                seen.push((root.clone(), *letter));
+                true
+            }
+            None => false,
+        }
     }
 
     /// The letter that shows the stick now, if any.

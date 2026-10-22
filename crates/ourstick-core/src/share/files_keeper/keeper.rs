@@ -268,6 +268,12 @@ impl Keeper {
     /// The files whose wait is over, made again. Each counts as tried now,
     /// so a retry under way is not queued once more meanwhile; the wait
     /// itself grows only if it fails.
+    /// Whether something waits to be tried again: a file that could not
+    /// be read, or the version's records.
+    pub(super) fn has_to_look(&self) -> bool {
+        !self.failed.is_empty() || self.unreadable.is_some()
+    }
+
     pub(super) fn retry_due(&mut self) {
         let now = Instant::now();
         for (hash, (tried, wait)) in &mut self.failed {

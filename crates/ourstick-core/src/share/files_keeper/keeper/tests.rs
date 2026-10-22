@@ -183,3 +183,15 @@ fn a_new_version_starts_afresh() {
     assert_eq!(blob.paths, ["c"]);
     assert!(keeper.next().is_none());
 }
+
+#[test]
+fn the_keeper_looks_again_only_while_something_failed() {
+    let mut keeper = Keeper::default();
+    assert!(!keeper.has_to_look(), "nothing to try again");
+    keeper.known.insert([3; 32], 0);
+    keeper.failed_now([3; 32]);
+    assert!(keeper.has_to_look());
+    keeper.failed.clear();
+    keeper.unreadable = Some([4; 32]);
+    assert!(keeper.has_to_look(), "a version that could not be read");
+}

@@ -26,7 +26,8 @@ use crate::store::Store;
 use crate::transport::{BlobHash, Publisher};
 
 /// How often the keeper tries again the files that could not be read, and
-/// a version whose records could not be read.
+/// a version whose records could not be read; it does not look while there
+/// are none.
 const LOOK_EVERY: Duration = Duration::from_secs(2);
 /// A file that could not be read is tried again after this, then after
 /// twice as long each time, up to `LONGEST_RETRY`.
@@ -89,6 +90,7 @@ pub async fn keep_files<P: Publisher + 'static>(
     // A blob being made, and the version it was made for.
     let mut job: Option<(Option<BlobHash>, Making)> = None;
     let mut look = tokio::time::interval(LOOK_EVERY);
+    look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let ended = loop {
         if job.is_none() {
             if let (Some(blob), Some(layout)) = (keeper.next(), keeper.layout.clone()) {
@@ -121,7 +123,7 @@ pub async fn keep_files<P: Publisher + 'static>(
                 let version = versions.borrow_and_update().clone();
                 keeper.reload(version, &publisher, &context).await;
             },
-            _ = look.tick() => {
+            _ = look.tick(), if keeper.has_to_look() => {
                 keeper.retry_due();
                 let version = versions.borrow().clone();
                 keeper.reload(version, &publisher, &context).await;

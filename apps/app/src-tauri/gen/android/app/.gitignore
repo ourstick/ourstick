@@ -1,0 +1,8 @@
+/src/main/**/generated
+/src/main/jniLibs/**/*.so
+/src/main/assets/tauri.conf.json
+/tauri.build.gradle.kts
+/proguard-tauri.pro
+/tauri.properties# Copied from the repository by each build (bundle resources).
+/src/main/assets/LICENSE.txt
+/src/main/assets/THIRD-PARTY-LICENSES.html

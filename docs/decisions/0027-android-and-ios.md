@@ -114,7 +114,9 @@ What the systems allow (official documentation, checked 2026-10-26):
      let the app create, resume, rename and set the time (`set_modified`
      is fatal in the core) of any kind of file there. A folder of that
      name left by an earlier install is not the app's: a new name, as for
-     any folder that is not ours. If the check fails, the app's own
+     any folder that is not ours (`<name> (2)`); the user removes the old
+     one in the Files app. The device check passed on Android 16 (see
+     "Device check" below). If the check fails, the app's own
      external folder, and the view says where it is and how to reach it;
      no "Export to…" that would keep a second full copy (ADR 0007).
    - Minimum: Android 11 (API 30), iOS 15 (Tauri's).
@@ -175,6 +177,12 @@ What the systems allow (official documentation, checked 2026-10-26):
      asks each time it is read; Android shows a notice).
    - Checked before the first test build ships: the link is never logged
      on its way into the app, and a malformed link does not crash it.
+   - Android: a link arrives at a small activity of its own
+     (`excludeFromRecents`, `noHistory`) that hands it to the core and
+     starts the main activity without it, so the system's recent tasks
+     never keep the link as the main task's intent. The system log at
+     launch cannot be avoided (see "Device check"); only the system and
+     `adb` read it.
 7. **Receiving on a phone is one stick at a time, and only while asked.**
    - A received stick's endpoint runs only during a "Get" the user
      started; one at a time, the others queued. No follow loop and no
@@ -227,8 +235,9 @@ What the systems allow (official documentation, checked 2026-10-26):
       first, on the test iPhone only with its owner's yes; a sender kept
       online from the Mac during App Review; export compliance and App
       Privacy answers checked before the first upload.
-    - Builds on the Mac (`giorgos` account), not on the PC serving the
-      large transfer. CI checks the Android target with the NDK that
+    - Android builds on Giorgos's Linux PC, which has the SDK, the NDK
+      and the test phone (allowed there since 2026-10-26); iOS builds on
+      the Mac (`giorgos` account). CI checks the Android target with the NDK that
       GitHub's runners carry (rusqlite, ring and blake3 compile C even
       for `cargo check`).
 
@@ -247,7 +256,9 @@ devices over paper (CLAUDE.md).
      Android 11 and the newest, and after a reinstall;
    - a transfer from the Mac over Wi-Fi (direct?) and cellular (relay?);
    - the window recreated while a transfer runs.
-   It settles decision 3 and tells whether the rest holds.
+   It settles decision 3 and tells whether the rest holds. Done on the
+   test phone on 2026-10-26 (see "Device check"); the emulator with
+   Android 11 and a link tapped in a chat follow.
 1. The app as a library, desktop pieces behind `cfg(desktop)`; no
    behaviour change on the desktop. CI: the Android check.
 2. Core and app for a phone: the Android keystore backend and its
@@ -264,6 +275,42 @@ devices over paper (CLAUDE.md).
 8. iOS on a device (with its owner's yes): Universal Links, the local
    network words, `BGContinuedProcessingTask`; TestFlight, then the App
    Store.
+
+## Device check (step 0)
+
+2026-10-26, a scratch app outside the repo (Tauri 2.12, the deep-link
+plugin, `ourstick-core` and the iroh-blobs fork built by NDK 28) on the
+test phone (HyperOS, Android 16, API 36), a test stick shared by the CLI
+from a Linux PC on the same network. Neither the core nor the CLI needed
+a change to build for Android.
+
+- **Files in `Download/OurStick/`**, plain paths, no permission asked:
+  create, write, reopen and write on (resume), rename, `set_modified`
+  (read back exactly), folders inside folders. All passed.
+- **After an uninstall and a new install**, files the earlier install
+  wrote can no longer be read, written, renamed, removed or given a time,
+  and its folders cannot be renamed; a rename onto one of its files
+  fails. New files can be written inside its folders. Hence the new name
+  of decision 3.
+- **A download** of 453 MB in 209 files: direct within a second on
+  Wi-Fi, every file identical (md5) and with its time. Killed halfway
+  and started again, it went on and ended identical. On 5G it went
+  direct too (IPv6), at about 10 MB/s. Turning the phone while it ran
+  did not stop it.
+- **A link** opened by another app (`am start`, the app link approved
+  with `pm set-app-links`) reached the app with its fragment whole, with
+  the app closed and with it open.
+- **The link in the system's records:** HyperOS logs the whole intent,
+  fragment included, to the system log when the app opens
+  (`SoScStageCoordinator`, `RecentsModel`, `MiuiFreeformModeController`),
+  and the recent task keeps it as its base intent. Apps cannot read
+  either; `adb` can. Hence the link activity of decision 6.
+- **In the background** with the screen locked, the download stopped at
+  once and the connection was lost about 35 s later, while the process
+  lived on. As decision 7 expects: the first release works while open.
+- To look at in step 2: about 6 s between large files while the received
+  file is written into `Download/`, and about 30 s to check 200 MB
+  already there before a resumed download goes on.
 
 ## Not decided here
 

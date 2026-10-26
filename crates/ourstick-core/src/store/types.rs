@@ -19,6 +19,8 @@ pub enum SecretBackend {
     ProtectedKeychain,
     /// The user's Credential Manager (Windows).
     CredentialManager,
+    /// The app's store in the Android Keystore (ADR 0027).
+    AndroidKeystore,
     /// A key file the user chose.
     KeyFile(PathBuf),
 }

@@ -31,6 +31,7 @@ pub(super) fn device(connection: &Connection) -> Result<Option<Device>, StoreErr
         ("keychain", None) => SecretBackend::Keychain,
         ("protected-keychain", None) => SecretBackend::ProtectedKeychain,
         ("credential-manager", None) => SecretBackend::CredentialManager,
+        ("android-keystore", None) => SecretBackend::AndroidKeystore,
         ("key-file", Some(path)) => SecretBackend::KeyFile(PathBuf::from(path)),
         _ => return Err(StoreError::Corrupt(format!("secret_backend {backend}"))),
     };
@@ -50,6 +51,7 @@ pub(super) fn create_device(connection: &Connection, device: &Device) -> Result<
         SecretBackend::Keychain => ("keychain", None),
         SecretBackend::ProtectedKeychain => ("protected-keychain", None),
         SecretBackend::CredentialManager => ("credential-manager", None),
+        SecretBackend::AndroidKeystore => ("android-keystore", None),
         SecretBackend::KeyFile(path) => ("key-file", Some(path_str(path)?)),
     };
     let inserted = connection.execute(

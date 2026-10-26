@@ -247,6 +247,8 @@ fn a_store_this_system_does_not_have_is_refused_not_replaced() {
     assert!(open_keyring(&SecretBackend::ProtectedKeychain).is_err());
     #[cfg(not(windows))]
     assert!(open_keyring(&SecretBackend::CredentialManager).is_err());
+    #[cfg(not(target_os = "android"))]
+    assert!(open_keyring(&SecretBackend::AndroidKeystore).is_err());
 }
 
 #[test]

@@ -52,6 +52,10 @@ zbus-secret-service-keyring-store = { version = "1", features = ["rt-async-io-cr
 apple-native-keyring-store = { version = "1", features = ["keychain", "protected"] }
 # Windows: the user's Credential Manager.
 windows-native-keyring-store = "1.1"
+# Android: the Android Keystore (ADR 0027). Pinned to the commit of its PR
+# #27 (a lost Keystore key fails instead of being replaced), which no release
+# has yet; a release that holds it replaces this rev.
+android-native-keyring-store = { git = "https://github.com/open-source-cooperative/android-native-keyring-store", rev = "bd485ded65d57715ba616c37dd58f15bdbc1c85b", default-features = false }
 argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 
 # db

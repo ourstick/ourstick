@@ -8,7 +8,12 @@
 //! All methods block. From async code, call them inside `spawn_blocking`.
 
 mod key_file;
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "macos",
+    windows,
+    target_os = "android"
+))]
 mod keyring;
 mod memory;
 mod moving;
@@ -20,7 +25,12 @@ use rand::RngCore;
 use crate::stick_id::StickId;
 
 pub use key_file::{KeyFileParams, KeyFileStore};
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "macos",
+    windows,
+    target_os = "android"
+))]
 pub use keyring::KeyringStore;
 pub use memory::MemorySecretStore;
 pub use moving::{

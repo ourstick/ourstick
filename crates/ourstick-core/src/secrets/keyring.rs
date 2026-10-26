@@ -1,6 +1,6 @@
 //! Secrets in the system keyring: the freedesktop Secret Service (GNOME
 //! Keyring, KWallet) over D-Bus on Linux, the login keychain on macOS, the
-//! user's Credential Manager on Windows.
+//! user's Credential Manager on Windows, the Android Keystore on Android.
 //!
 //! Uses `keyring-core` with the platform's store chosen explicitly, so there
 //! is no default or mock store to fall back to. Items are stored with service
@@ -96,6 +96,28 @@ impl KeyringStore {
             store,
             name: NAME,
             modifiers: &[("access-policy", "AfterFirstUnlockThisDeviceOnly")],
+        })
+    }
+
+    /// Opens the app's store in the Android Keystore (ADR 0027): the secrets
+    /// are encrypted by a Keystore key of the app's own and kept in its
+    /// private files. No user authentication: a changed screen lock does not
+    /// lose them. A lost Keystore key fails reading, never makes a new one
+    /// (rule 9). Needs the app's Android context, which the app sets.
+    #[cfg(target_os = "android")]
+    pub fn android_keystore() -> Result<Self, SecretError> {
+        const NAME: &str = "the Android Keystore";
+        let config = HashMap::from([("name", SERVICE)]);
+        let store = android_native_keyring_store::Store::new_with_configuration(&config).map_err(
+            |error| SecretError::Unavailable {
+                store: NAME.to_owned(),
+                reason: error.to_string(),
+            },
+        )?;
+        Ok(Self {
+            store,
+            name: NAME,
+            modifiers: &[],
         })
     }
 
@@ -234,6 +256,8 @@ mod tests {
         let store = KeyringStore::keychain().expect("keychain available");
         #[cfg(windows)]
         let store = KeyringStore::credential_manager().expect("Credential Manager available");
+        #[cfg(target_os = "android")]
+        let store = KeyringStore::android_keystore().expect("Android Keystore available");
         check_secret_store(&store).unwrap();
 
         let name = SecretName::HealthCheck(*b"roundtrp");

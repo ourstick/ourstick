@@ -91,6 +91,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "android-native-keyring-store"
+version = "1.0.0"
+source = "git+https://github.com/open-source-cooperative/android-native-keyring-store?rev=bd485ded65d57715ba616c37dd58f15bdbc1c85b#bd485ded65d57715ba616c37dd58f15bdbc1c85b"
+dependencies = [
+ "base64 0.22.1",
+ "jni 0.21.1",
+ "keyring-core",
+ "log",
+ "ndk-context",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4446,6 +4463,7 @@ dependencies = [
 name = "ourstick-core"
 version = "0.2.0"
 dependencies = [
+ "android-native-keyring-store",
  "apple-native-keyring-store",
  "argon2",
  "bao-tree",

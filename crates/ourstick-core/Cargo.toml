@@ -43,6 +43,9 @@ apple-native-keyring-store.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true

@@ -102,10 +102,12 @@ pub fn open_store(data_dir: &Path) -> Result<Arc<dyn Store>, DeviceError> {
 }
 
 /// Where this system keeps secrets by default: the Secret Service on Linux,
-/// the keychain on macOS, the Credential Manager on Windows; `None` where
-/// OurStick has no keyring backend yet.
+/// the keychain on macOS, the Credential Manager on Windows, the Keystore on
+/// Android; `None` where OurStick has no keyring backend yet.
 pub fn system_keyring_backend() -> Option<SecretBackend> {
-    if cfg!(target_os = "linux") {
+    if cfg!(target_os = "android") {
+        Some(SecretBackend::AndroidKeystore)
+    } else if cfg!(target_os = "linux") {
         Some(SecretBackend::SecretService)
     } else if cfg!(target_os = "macos") {
         Some(SecretBackend::Keychain)
@@ -124,7 +126,14 @@ pub fn open_system_keyring() -> Result<Box<dyn SecretStore>, DeviceError> {
     return Ok(Box::new(crate::secrets::KeyringStore::keychain()?));
     #[cfg(windows)]
     return Ok(Box::new(crate::secrets::KeyringStore::credential_manager()?));
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    #[cfg(target_os = "android")]
+    return Ok(Box::new(crate::secrets::KeyringStore::android_keystore()?));
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        windows,
+        target_os = "android"
+    )))]
     Err(DeviceError::Secret(SecretError::Unavailable {
         store: "the system keyring".to_owned(),
         reason: "OurStick has no keyring backend for this system yet".to_owned(),
@@ -150,6 +159,10 @@ pub fn open_keyring(backend: &SecretBackend) -> Result<Box<dyn SecretStore>, Dev
         #[cfg(windows)]
         SecretBackend::CredentialManager => {
             Ok(Box::new(crate::secrets::KeyringStore::credential_manager()?))
+        }
+        #[cfg(target_os = "android")]
+        SecretBackend::AndroidKeystore => {
+            Ok(Box::new(crate::secrets::KeyringStore::android_keystore()?))
         }
         other => Err(DeviceError::Secret(SecretError::Unavailable {
             store: backend_name(other),
@@ -224,6 +237,7 @@ pub fn backend_name(backend: &SecretBackend) -> String {
         SecretBackend::Keychain => "the macOS keychain".to_owned(),
         SecretBackend::ProtectedKeychain => "the macOS data protection keychain".to_owned(),
         SecretBackend::CredentialManager => "the Windows Credential Manager".to_owned(),
+        SecretBackend::AndroidKeystore => "the Android Keystore".to_owned(),
         SecretBackend::KeyFile(path) => format!("the key file {}", path.display()),
     }
 }

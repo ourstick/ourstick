@@ -106,12 +106,35 @@ pub struct PreviewView {
 fn parent_folder(parent: Option<&str>) -> Result<PathBuf, String> {
     match parent {
         Some(parent) => Ok(PathBuf::from(parent)),
-        None => {
-            let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-            let home = std::env::var_os(home).ok_or("OurStick cannot find your home folder.")?;
-            Ok(PathBuf::from(home).join("Downloads"))
-        }
+        None => downloads(),
     }
+}
+
+/// A desktop's Downloads folder.
+#[cfg(desktop)]
+fn downloads() -> Result<PathBuf, String> {
+    let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    let home = std::env::var_os(home).ok_or("OurStick cannot find your home folder.")?;
+    Ok(PathBuf::from(home).join("Downloads"))
+}
+
+/// Android: `Download/OurStick` in the phone's shared storage, which the
+/// Files app shows (ADR 0027 §3). A folder left there by an earlier install
+/// is not the app's any more: [`folder_for`] takes another name.
+#[cfg(target_os = "android")]
+fn downloads() -> Result<PathBuf, String> {
+    let storage = std::env::var_os("EXTERNAL_STORAGE")
+        .filter(|storage| !storage.is_empty())
+        .unwrap_or_else(|| "/sdcard".into());
+    Ok(PathBuf::from(storage).join("Download").join("OurStick"))
+}
+
+/// iOS: the app's `Documents`, which the Files app shows under "On My
+/// iPhone › OurStick" (ADR 0027 §3).
+#[cfg(target_os = "ios")]
+fn downloads() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").ok_or("OurStick cannot find its folder.")?;
+    Ok(PathBuf::from(home).join("Documents"))
 }
 
 /// The folder a received stick goes into: one named after it in `parent`,

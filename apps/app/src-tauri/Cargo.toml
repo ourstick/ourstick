@@ -11,6 +11,12 @@ homepage.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 
+# The app is a library, so that Android and iOS can load it (ADR 0027);
+# `src/main.rs` runs it on a desktop.
+[lib]
+name = "ourstick_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [[bin]]
 name = "ourstick-app"
 path = "src/main.rs"

@@ -52,7 +52,7 @@ fn counters_since_are_differences_and_never_go_back() {
 
 /// A fake `/sys`: `dev/block/M:N` links to `devices/...` folders, each with
 /// a `stat`, partitions with a `partition` file, layers with `slaves/`.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn fake_sys() -> tempfile::TempDir {
     use std::os::unix::fs::symlink;
     let sys = tempfile::tempdir().unwrap();

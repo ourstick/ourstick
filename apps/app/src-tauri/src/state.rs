@@ -53,9 +53,23 @@ pub struct AppState {
     pub network_open: tokio::sync::watch::Sender<bool>,
 }
 
+/// A phone's data folder (ADR 0027 §5): the app's private files, never
+/// shared with another app; Android's `filesDir`, iOS's Application Support.
+#[cfg(mobile)]
+pub fn phone_data_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
+    use tauri::Manager;
+    let dir = app.path().app_data_dir()?;
+    // Tauri gives Android's whole app folder (`dataDir`), which also holds
+    // the WebView's and the system's own folders.
+    #[cfg(target_os = "android")]
+    let dir = dir.join("files");
+    Ok(dir)
+}
+
 impl AppState {
-    pub fn open() -> Result<Self> {
-        let data_dir = device::data_dir()?;
+    /// The state in `data_dir`: a desktop's from `device::data_dir()`, a
+    /// phone's the app's own private folder ([`phone_data_dir`]).
+    pub fn open(data_dir: PathBuf) -> Result<Self> {
         let store = device::open_store(&data_dir)?;
         let open = !crate::local_network::step_due(store.as_ref());
         let started_moved = store.device()?.is_some_and(|device| {

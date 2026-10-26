@@ -65,7 +65,13 @@ pub fn run() {
         .with_writer(std::io::stderr)
         .init();
 
-    let state = match state::AppState::open() {
+    // A desktop's state is opened before the window. A phone's data folder
+    // is known only to the app, in `setup` below.
+    #[cfg(desktop)]
+    let state = match ourstick_core::device::data_dir()
+        .map_err(anyhow::Error::from)
+        .and_then(state::AppState::open)
+    {
         Ok(state) => state,
         Err(error) => {
             // Nothing can work without the data folder; say why and stop.
@@ -75,6 +81,8 @@ pub fn run() {
     };
 
     let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.manage(state);
     // The tray's activation tokens, for raising windows (see windows).
     #[cfg(target_os = "linux")]
     let builder = builder.manage(windows::Activation::default());
@@ -109,7 +117,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(state)
         .manage(problems::Problems::default())
         .manage(tray::DotShown::default())
         .manage(receiving::Receivers::default())
@@ -126,6 +133,10 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Before the window can call a command: the event loop has not
+            // started yet.
+            #[cfg(mobile)]
+            app.manage(state::AppState::open(state::phone_data_dir(app.handle())?)?);
             tray::create(app.handle())?;
             #[cfg(target_os = "macos")]
             login::no_relaunch_at_login();

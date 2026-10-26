@@ -257,8 +257,8 @@ devices over paper (CLAUDE.md).
    - a transfer from the Mac over Wi-Fi (direct?) and cellular (relay?);
    - the window recreated while a transfer runs.
    It settles decision 3 and tells whether the rest holds. Done on the
-   test phone on 2026-10-26 (see "Device check"); the emulator with
-   Android 11 and a link tapped in a chat follow.
+   test phone and on Android 11 on 2026-10-26 (see "Device check"); a
+   link tapped in a chat follows.
 1. The app as a library, desktop pieces behind `cfg(desktop)`; no
    behaviour change on the desktop. CI: the Android check.
 2. Core and app for a phone: the Android keystore backend and its
@@ -291,7 +291,11 @@ a change to build for Android.
   wrote can no longer be read, written, renamed, removed or given a time,
   and its folders cannot be renamed; a rename onto one of its files
   fails. New files can be written inside its folders. Hence the new name
-  of decision 3.
+  of decision 3. The same on Android 11 (API 30, the emulator), except
+  that there the earlier install's folders can be renamed.
+- **Android 11's WebView** draws the page under the status bar and gives
+  `env(safe-area-inset-top)` as 0: step 3 takes the insets from the
+  system, not from CSS alone.
 - **A download** of 453 MB in 209 files: direct within a second on
   Wi-Fi, every file identical (md5) and with its time. Killed halfway
   and started again, it went on and ended identical. On 5G it went

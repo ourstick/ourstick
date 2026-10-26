@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State};
 
 use crate::sharing::{readers_now, refresh_tray, start_sharing_later, stop_serving};
 use crate::state::{stick_hex, stick_id as stick_id_of, AppState, Sharing};
@@ -64,14 +64,16 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         (_, true, false) => (420.0, 300.0),
         (_, false, _) => (420.0, 230.0),
     };
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(page.into()))
-        .title("OurStick")
-        .focused(crate::windows::FOCUS_NEW)
-        .inner_size(width, height)
-        .resizable(false)
-        .always_on_top(true)
-        .center()
-        .build()?;
+    let window = crate::windows::own_window(
+        app,
+        crate::windows::OwnWindow {
+            label: &label,
+            page,
+            title: "OurStick",
+            size: (width, height),
+            dialog: true,
+        },
+    )?;
     crate::windows::show_new(&window);
     Ok(())
 }
@@ -94,6 +96,7 @@ pub fn close_requested(app: &AppHandle) {
 /// The main window put away: minimized to the taskbar or the dock (never
 /// hidden: GNOME's activation token, gui-spec), or on macOS closed as every
 /// Mac app's is, the app staying in the Dock.
+#[cfg(desktop)]
 fn put_away(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = if cfg!(target_os = "macos") {
@@ -103,6 +106,10 @@ fn put_away(app: &AppHandle) {
         };
     }
 }
+
+/// A phone's one window is never put away by the app.
+#[cfg(mobile)]
+fn put_away(_app: &AppHandle) {}
 
 /// `Minimize instead`, the Quit dialog's safe choice.
 #[tauri::command]
@@ -268,6 +275,7 @@ pub fn quitting() -> bool {
 /// While quitting, brings the Quit dialog ("Quitting… please wait.")
 /// forward instead of the main window, which would show and vanish; true
 /// then. For a launch, the tray or the Dock during the few seconds it takes.
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn quitting_shown(app: &AppHandle) -> bool {
     if !QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
         return false;

@@ -25,6 +25,7 @@ pub(super) fn ticket_of(text: &str) -> Result<Ticket, String> {
 }
 
 /// "Choose…": the system's folder picker; the folder the stick goes in.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn choose_folder(app: AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -39,6 +40,13 @@ pub async fn choose_folder(app: AppHandle) -> Result<Option<String>, String> {
     Ok(picked
         .and_then(|picked| picked.into_path().ok())
         .map(|path| path.display().to_string()))
+}
+
+/// A phone keeps what it receives in one place (ADR 0027): no picker.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn choose_folder(_app: AppHandle) -> Result<Option<String>, String> {
+    Err("A phone keeps what it receives in one folder.".to_owned())
 }
 
 /// "Get it": the stick is received into `folder` from now on, and kept up

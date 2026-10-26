@@ -39,3 +39,25 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: df -h / && cargo test --workspace
+
+  # The phone apps (ADR 0027): the workspace checked for Android with the
+  # NDK the runner carries; rusqlite, ring and blake3 compile C even for a
+  # check.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: clippy for Android
+        run: |
+          bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$bin/aarch64-linux-android30-clang"
+          export AR_aarch64_linux_android="$bin/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android30-clang"
+          cargo clippy --workspace --all-targets --target aarch64-linux-android -- -D warnings

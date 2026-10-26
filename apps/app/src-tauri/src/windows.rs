@@ -7,6 +7,7 @@ use tauri::{Runtime, WebviewWindow};
 
 /// Whether new windows ask for focus when they open. On Linux they do not:
 /// GNOME answers a request without a token with the notification.
+#[cfg(desktop)]
 pub const FOCUS_NEW: bool = !cfg!(target_os = "linux");
 
 /// How long a token is used after it came. A token belongs to one click; a
@@ -45,6 +46,41 @@ impl Activation {
     }
 }
 
+/// A window of its own: About, or a dialog (over the others, centred).
+#[cfg_attr(mobile, allow(dead_code))]
+pub struct OwnWindow<'a> {
+    pub label: &'a str,
+    /// The page, e.g. `index.html#about`.
+    pub page: String,
+    pub title: &'a str,
+    pub size: (f64, f64),
+    pub dialog: bool,
+}
+
+/// Makes `own`, not resizable. A phone shows everything in its one window
+/// (ADR 0027).
+#[cfg(desktop)]
+pub fn own_window(app: &tauri::AppHandle, own: OwnWindow) -> anyhow::Result<WebviewWindow> {
+    let builder =
+        tauri::WebviewWindowBuilder::new(app, own.label, tauri::WebviewUrl::App(own.page.into()))
+            .title(own.title)
+            .focused(FOCUS_NEW)
+            .inner_size(own.size.0, own.size.1)
+            .resizable(false);
+    let builder = if own.dialog {
+        builder.always_on_top(true).center()
+    } else {
+        builder
+    };
+    Ok(builder.build()?)
+}
+
+/// See the desktop's [`own_window`].
+#[cfg(mobile)]
+pub fn own_window(_app: &tauri::AppHandle, _own: OwnWindow) -> anyhow::Result<WebviewWindow> {
+    anyhow::bail!("a phone has no windows of their own")
+}
+
 /// Brings a window just made in front of the others, focused.
 #[cfg(not(target_os = "linux"))]
 pub fn show_new<R: Runtime>(window: &WebviewWindow<R>) {
@@ -57,6 +93,7 @@ pub fn bring_forward<R: Runtime>(window: &WebviewWindow<R>) {
     if !window.is_visible().unwrap_or(false) {
         let _ = window.show();
     }
+    #[cfg(desktop)]
     if window.is_minimized().unwrap_or(false) {
         let _ = window.unminimize();
     }

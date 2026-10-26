@@ -106,6 +106,7 @@ fn rules_here(app: &AppHandle, store: &dyn Store, data_dir: &Path) -> Result<Sen
     let home = paths.home_dir()?;
     let main_folders = [
         paths.document_dir(),
+        #[cfg(desktop)]
         paths.desktop_dir(),
         paths.picture_dir(),
         paths.download_dir(),
@@ -303,6 +304,7 @@ pub enum Pick {
 /// `Choose folders…` / `Choose files…`: the system's picker, several at
 /// once; what is chosen is then checked as a drop is. Empty if the user
 /// cancelled.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -321,6 +323,13 @@ pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, Str
         .filter_map(|picked| picked.into_path().ok())
         .map(|path| path.display().to_string())
         .collect())
+}
+
+/// Sending from a phone is not there yet (ADR 0027).
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn choose_paths(_pick: Pick, _app: AppHandle) -> Result<Vec<String>, String> {
+    Err("A phone cannot send yet.".to_owned())
 }
 
 #[cfg(test)]

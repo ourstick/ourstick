@@ -3,7 +3,7 @@
 //! line and, on macOS, the app menu.
 
 use anyhow::Result;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
 
 const LABEL: &str = "about";
 
@@ -13,12 +13,16 @@ pub fn open(app: &AppHandle) -> Result<()> {
         crate::windows::bring_forward(&window);
         return Ok(());
     }
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#about".into()))
-        .title("About OurStick")
-        .focused(crate::windows::FOCUS_NEW)
-        .inner_size(500.0, 720.0)
-        .resizable(false)
-        .build()?;
+    let window = crate::windows::own_window(
+        app,
+        crate::windows::OwnWindow {
+            label: LABEL,
+            page: "index.html#about".to_owned(),
+            title: "About OurStick",
+            size: (500.0, 720.0),
+            dialog: false,
+        },
+    )?;
     crate::windows::show_new(&window);
     Ok(())
 }

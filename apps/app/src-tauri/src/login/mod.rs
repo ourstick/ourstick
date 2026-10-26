@@ -8,6 +8,9 @@
 //! app writes the entry; the system's own "off" (Task Manager, the desktop's
 //! startup settings) is never undone at a start, only by the user turning
 //! the choice on again in OurStick.
+//!
+//! A phone has no login entry (ADR 0027): its rules are built there, unused.
+#![cfg_attr(mobile, allow(dead_code))]
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -22,6 +25,7 @@ mod windows;
 #[cfg(target_os = "macos")]
 pub use macos::no_relaunch_at_login;
 
+#[cfg(any(desktop, test))]
 pub mod entries;
 
 /// The argument the login entry starts the app with.
@@ -260,10 +264,25 @@ mod run {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+/// A phone starts no app at login (ADR 0027): the check is off, and
+/// turning it on says so.
+#[cfg(mobile)]
+mod run {
+    use ourstick_core::store::Store;
+
+    pub fn sync_at_start(_store: &dyn Store) {}
+
+    pub fn set_by_user(_store: &dyn Store, _on: bool) -> anyhow::Result<()> {
+        anyhow::bail!("a phone does not open apps when it starts")
+    }
+
+    pub fn shown(_store: &dyn Store) -> bool {
+        false
+    }
+}
+
 pub use run::{set_by_user, shown, sync_at_start};
 
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub mod commands;
 
 #[cfg(test)]

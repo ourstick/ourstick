@@ -9,17 +9,24 @@
 //! receives the XDG activation token of each click, which on Wayland is what
 //! lets "Open OurStick" bring the window to the front. Elsewhere Tauri's
 //! tray (`native`).
+//!
+//! A phone has no tray (ADR 0027): the menu is built there, unused.
+#![cfg_attr(mobile, allow(dead_code))]
 
 #[cfg(target_os = "linux")]
 mod linux;
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(desktop, not(target_os = "linux")))]
 mod native;
+#[cfg(mobile)]
+mod phone;
 pub mod words;
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(desktop, not(target_os = "linux")))]
 use native as platform;
+#[cfg(mobile)]
+use phone as platform;
 
 pub use platform::{create, set_sticks};
 

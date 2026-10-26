@@ -12,7 +12,7 @@ use anyhow::Result;
 use ourstick_core::manifest::DRIVE_MARKER;
 use ourstick_core::OwnedStick;
 
-#[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
+#[cfg(desktop)]
 const NAME: &str = "OurStick";
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]

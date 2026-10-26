@@ -95,15 +95,17 @@ pub fn run() {
             });
         }
     });
+    // A second launch shows the running app instead: one app per user,
+    // which shares its sticks (each locked, see ourstick_core::locks).
+    // The login entry's start finds the app running: nothing to show. A
+    // phone starts one app by itself.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if !login::autostarted(&args) {
+            tray::show_main(app);
+        }
+    }));
     builder
-        // A second launch shows the running app instead: one app per user,
-        // which shares its sticks (each locked, see ourstick_core::locks).
-        // The login entry's start finds the app running: nothing to show.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !login::autostarted(&args) {
-                tray::show_main(app);
-            }
-        }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

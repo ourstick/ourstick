@@ -257,8 +257,7 @@ devices over paper (CLAUDE.md).
    - a transfer from the Mac over Wi-Fi (direct?) and cellular (relay?);
    - the window recreated while a transfer runs.
    It settles decision 3 and tells whether the rest holds. Done on the
-   test phone and on Android 11 on 2026-10-26 (see "Device check"); a
-   link tapped in a chat follows.
+   test phone and on Android 11 on 2026-10-26 (see "Device check").
 1. The app as a library, desktop pieces behind `cfg(desktop)`; no
    behaviour change on the desktop. CI: the Android check.
 2. Core and app for a phone: the Android keystore backend and its
@@ -303,7 +302,9 @@ a change to build for Android.
   did not stop it.
 - **A link** opened by another app (`am start`, the app link approved
   with `pm set-app-links`) reached the app with its fragment whole, with
-  the app closed and with it open.
+  the app closed and with it open. A link tapped by Giorgos and opened
+  in Firefox: Firefox offered the app or itself, and through the app the
+  fragment arrived whole.
 - **The link in the system's records:** HyperOS logs the whole intent,
   fragment included, to the system log when the app opens
   (`SoScStageCoordinator`, `RecentsModel`, `MiuiFreeformModeController`),

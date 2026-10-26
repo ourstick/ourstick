@@ -239,3 +239,24 @@ fn the_linux_entry_and_the_desktops_switch_are_read() {
     );
     assert_eq!(linux_found(None, exe), None);
 }
+
+#[test]
+fn a_read_of_the_entry_is_used_again_for_a_while() {
+    let start = Instant::now();
+    let off = Some(Found {
+        ours: true,
+        system_off: true,
+    });
+    let mut kept = Kept::new();
+    let mut reads = 0;
+    let mut read = |found| {
+        reads += 1;
+        found
+    };
+    assert_eq!(kept.get(start, || read(None)), None);
+    assert_eq!(kept.get(start + READ_AGAIN_AFTER / 2, || read(off)), None);
+    assert_eq!(kept.get(start + READ_AGAIN_AFTER, || read(off)), off);
+    kept.forget();
+    assert_eq!(kept.get(start + READ_AGAIN_AFTER, || read(None)), None);
+    assert_eq!(reads, 3);
+}

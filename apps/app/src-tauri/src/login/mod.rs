@@ -10,6 +10,7 @@
 //! the choice on again in OurStick.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -129,6 +130,39 @@ pub fn shown_on(on: bool, found: Option<Found>) -> bool {
     on && !found.is_some_and(|found| found.system_off)
 }
 
+/// How long a read of the system's entry is used again: the tray asks at
+/// each change of a stick, and on Windows each read starts `reg` twice. The
+/// system's own "off" shows in the check this late.
+pub const READ_AGAIN_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// The last read of the system's entry, and when.
+#[derive(Debug, Default)]
+pub struct Kept(Option<(Instant, Option<Found>)>);
+
+impl Kept {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    /// The entry: the kept read if younger than [`READ_AGAIN_AFTER`] at
+    /// `now`, else `read` again.
+    pub fn get(&mut self, now: Instant, read: impl FnOnce() -> Option<Found>) -> Option<Found> {
+        match self.0 {
+            Some((at, found)) if now.saturating_duration_since(at) < READ_AGAIN_AFTER => found,
+            _ => {
+                let found = read();
+                self.0 = Some((now, found));
+                found
+            }
+        }
+    }
+
+    /// The entry was written or removed: the next ask reads it.
+    pub fn forget(&mut self) {
+        self.0 = None;
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod run {
     use super::*;
@@ -182,7 +216,9 @@ mod run {
         };
         let on = store.settings().unwrap_or_default().start_at_login;
         let step = at_start(on, platform::read(&exe));
-        if let Err(error) = apply(step, &exe) {
+        let applied = apply(step, &exe);
+        kept().forget();
+        if let Err(error) = applied {
             tracing::warn!(error = %format!("{error:#}"), "the login entry was not made to match");
         }
     }
@@ -196,7 +232,9 @@ mod run {
             ..settings
         })?;
         if let Some(exe) = writer() {
-            apply(by_user(on), &exe).context("cannot change the login entry")?;
+            let applied = apply(by_user(on), &exe);
+            kept().forget();
+            applied.context("cannot change the login entry")?;
         }
         Ok(())
     }
@@ -204,10 +242,21 @@ mod run {
     /// What the check shows now.
     pub fn shown(store: &dyn Store) -> bool {
         let on = store.settings().unwrap_or_default().start_at_login;
-        let found = std::env::current_exe()
-            .ok()
-            .and_then(|exe| platform::read(&exe));
+        if !on {
+            return false;
+        }
+        let found = kept().get(Instant::now(), || {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| platform::read(&exe))
+        });
         shown_on(on, found)
+    }
+
+    /// The last read of the system's entry, shared by the tray and About.
+    fn kept() -> std::sync::MutexGuard<'static, Kept> {
+        static KEPT: std::sync::Mutex<Kept> = std::sync::Mutex::new(Kept::new());
+        KEPT.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

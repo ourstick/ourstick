@@ -203,8 +203,9 @@ pub struct Receiving<'a, F: Fetcher> {
     pub folder: &'a Path,
     pub policy: &'a RelayPolicy,
     pub room: &'a DownloadRoom,
-    /// How often the owner is asked for a newer version (`FOLLOW_EVERY`).
-    pub follow_every: Duration,
+    /// How often the owner is asked for a newer version (`FOLLOW_EVERY`);
+    /// `None` ends the receive once it is up to date (a phone, ADR 0027).
+    pub follow_every: Option<Duration>,
 }
 
 /// Gives the room back however a receive ends.
@@ -218,7 +219,7 @@ impl Drop for GiveBack<'_> {
 
 /// Receives the stick into its marked folder and keeps it up to date until
 /// `cancel` (then `Ok`), or until an error that needs the user (`Err`,
-/// saying why). The caller holds the stick's download lock and shuts the
+/// saying why). Without `follow_every`, it ends (`Ok`) once up to date. The caller holds the stick's download lock and shuts the
 /// fetcher down after this returns (keeping its store, so the next receive
 /// resumes). A cancelled round stops at its next event, finishing the file
 /// it is placing (at most [`GRACE`]); a file being placed past that may
@@ -274,7 +275,10 @@ pub async fn receive<F: Fetcher>(
                 waited = Duration::ZERO;
                 last_why = None;
                 on_event(ReceiveEvent::UpToDate { seq });
-                match follow(receiving, cancel, seq, &mut *on_event).await {
+                let Some(after) = receiving.follow_every else {
+                    return Ok(());
+                };
+                match follow(receiving, cancel, seq, after, &mut *on_event).await {
                     None => return Ok(()),
                     Some(Ok(())) => continue,
                     Some(Err(error)) => error,
@@ -315,9 +319,9 @@ async fn follow<F: Fetcher>(
     receiving: &Receiving<'_, F>,
     cancel: &Cancel,
     seq: u64,
+    after: Duration,
     on_event: &mut (dyn FnMut(ReceiveEvent<'_>) + Send),
 ) -> Option<Result<(), DownloadError>> {
-    let after = receiving.follow_every;
     let mut told = |event: super::FollowEvent<'_>| match event {
         super::FollowEvent::Unreachable { reason } => {
             let why = match reason {

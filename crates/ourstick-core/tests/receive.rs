@@ -1,6 +1,7 @@
 //! The receiver window's loop (step 7b): a stick is received into its marked
 //! folder, kept up to date as the owner publishes, waited for when the owner
-//! is away or the folder is not there, and stopped at once by a cancel.
+//! is away or the folder is not there, and stopped at once by a cancel;
+//! or, not following (a phone), ended once up to date.
 
 mod common;
 
@@ -41,11 +42,14 @@ enum Told {
     File(String),
 }
 
-/// Runs a receive of `stick` into `folder` until `until` says it has seen
-/// enough (then cancels), doing `then` (with the receiver's store) the first
-/// time `trigger` is told.
+const FOLLOW: Option<Duration> = Some(Duration::from_millis(50));
+
+/// Runs a receive of `stick` into `folder`, following every `follow_every`,
+/// until `until` says it has seen enough (then cancels), doing `then` (with
+/// the receiver's store) the first time `trigger` is told.
 async fn run_receive(
     stick: &Versions,
+    follow_every: Option<Duration>,
     folder: &std::path::Path,
     until: impl Fn(&[Told]) -> bool + Send + Sync + 'static,
     trigger: Told,
@@ -80,7 +84,7 @@ async fn run_receive(
         folder,
         policy: &policy,
         room: &room,
-        follow_every: Duration::from_millis(50),
+        follow_every,
     };
     let cancel = Cancel::new();
     let told = Arc::new(Mutex::new(Vec::new()));
@@ -133,6 +137,7 @@ async fn a_stick_is_received_and_kept_up_to_date_until_cancelled() {
     let publisher = stick.clone();
     let told = run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| told.contains(&Told::UpToDate(2000)),
         Told::UpToDate(1000),
@@ -149,11 +154,30 @@ async fn a_stick_is_received_and_kept_up_to_date_until_cancelled() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn without_following_a_receive_ends_once_up_to_date() {
+    let stick = publish_versions(&[&[("a.txt", b"one")]]).await;
+    let folder = tempfile::tempdir().unwrap();
+    mark_received_folder(folder.path(), &stick.ticket.stick_id).unwrap();
+    let told = run_receive(
+        &stick,
+        None,
+        folder.path(),
+        |_| false,
+        Told::UpToDate(0),
+        |_| {},
+    )
+    .await;
+    assert_eq!(std::fs::read(folder.path().join("a.txt")).unwrap(), b"one");
+    assert_eq!(told.last(), Some(&Told::UpToDate(1000)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_folder_without_its_mark_is_waited_for_and_never_filled() {
     let stick = publish_versions(&[&[("a.txt", b"one")]]).await;
     let folder = tempfile::tempdir().unwrap();
     let told = run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| told.contains(&Told::Waiting(Waiting::Folder)),
         Told::UpToDate(0),
@@ -172,6 +196,7 @@ async fn an_owner_who_is_away_is_waited_for_and_says_why() {
     mark_received_folder(folder.path(), &stick.ticket.stick_id).unwrap();
     let told = run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| !told.is_empty(),
         Told::UpToDate(0),
@@ -250,6 +275,7 @@ async fn an_owner_who_goes_away_while_up_to_date_is_told_and_back_again() {
     let away = stick.clone();
     let told = run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| {
             told.iter()
@@ -297,6 +323,7 @@ async fn a_cancel_in_the_middle_of_a_download_stops_it_soon() {
     let started = std::time::Instant::now();
     let told = run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| told.iter().any(|told| matches!(told, Told::File(_))),
         Told::UpToDate(0),
@@ -353,6 +380,7 @@ async fn a_choice_saved_while_it_follows_counts_at_the_next_version() {
     let stick_id = stick.ticket.stick_id;
     run_receive(
         &stick,
+        FOLLOW,
         folder.path(),
         |told| told.contains(&Told::UpToDate(2000)),
         Told::UpToDate(1000),

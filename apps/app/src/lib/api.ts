@@ -236,13 +236,14 @@ export interface ReceivedEntry {
   /** What is saved under another name than at the sender. */
   saved_as: SavedAsList;
   /** "starting", "downloading", "getting_more", "up_to_date", "waiting",
-   * "paused", "stopped"; a link waited for: "waiting_sender", "wait_ended". */
+   * "paused", "stopped"; a phone's (ADR 0027): "queued", "checked"; a link
+   * waited for: "waiting_sender", "wait_ended". */
   state: string;
   /** Why it waits or stopped, in words for everyone. */
   message: string | null;
   done: number;
   total: number;
-  /** When it began waiting (ms since 1970), for "since 14:30". */
+  /** When it began waiting, or was checked (ms since 1970), for "since 14:30". */
   since_ms: number | null;
   /** The sender is on this network, but macOS keeps OurStick from it (ADR 0020). */
   local_network_declined: boolean;

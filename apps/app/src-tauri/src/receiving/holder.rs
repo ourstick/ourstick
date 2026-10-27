@@ -50,6 +50,9 @@ pub struct Receivers {
     /// The latest preview's manifest and bytes to write by path, for what
     /// is inside a folder when the window opens it there.
     previewed: Mutex<Option<Previewed>>,
+    /// A phone's one receive at a time: each runs holding it, the others
+    /// wait their turn (ADR 0027, decision 7).
+    pub(super) turn: tokio::sync::Mutex<()>,
     /// Quit began: nothing starts any more.
     pub(super) quitting: std::sync::atomic::AtomicBool,
 }
@@ -68,6 +71,34 @@ impl Receivers {
 
     pub(super) fn show(&self, stick_id: StickId, change: impl FnOnce(&mut Shown)) {
         change(lock(&self.shown).entry(stick_id).or_default());
+    }
+
+    /// A phone's turn to receive `stick_id`, "queued" while another's
+    /// receive runs; `None` if cancelled meanwhile. A desktop's receives
+    /// all run at once (`Some(None)`).
+    pub(super) async fn turn(
+        &self,
+        app: &AppHandle,
+        stick_id: StickId,
+        cancel: &Cancel,
+    ) -> Option<Option<tokio::sync::MutexGuard<'_, ()>>> {
+        if super::FOLLOWS {
+            return Some(None);
+        }
+        if let Ok(turn) = self.turn.try_lock() {
+            return Some(Some(turn));
+        }
+        self.show(stick_id, |shown| {
+            *shown = Shown {
+                state: "queued",
+                ..Shown::default()
+            }
+        });
+        super::changed(app);
+        tokio::select! {
+            turn = self.turn.lock() => Some(Some(turn)),
+            () = cancel.cancelled() => None,
+        }
     }
 
     /// What each stick's latest round saved under another name, for the
@@ -134,11 +165,15 @@ impl Receivers {
     }
 
     /// Whether a received stick is kept up to date or waited for now (not
-    /// paused, stopped or ended): quitting stops it until the next start.
+    /// paused, stopped, ended or checked): quitting stops it until the next
+    /// start.
     pub fn following(&self) -> bool {
-        lock(&self.shown)
-            .values()
-            .any(|shown| !matches!(shown.state, "" | "paused" | "stopped" | "wait_ended"))
+        lock(&self.shown).values().any(|shown| {
+            !matches!(
+                shown.state,
+                "" | "paused" | "stopped" | "wait_ended" | "checked"
+            )
+        })
     }
 
     /// Holds `stick_id`, with its lock if it was taken (not running yet).

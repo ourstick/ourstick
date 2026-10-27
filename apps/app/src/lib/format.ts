@@ -24,11 +24,24 @@ export function files(count: number): string {
 
 /** "since 14:30" (today), else "since 3 Oct". */
 export function since(ms: number): string {
+  return `since ${moment(ms)}`;
+}
+
+/** "Checked at 14:30" (today), else "Checked on 3 Oct". */
+export function checkedAt(ms: number): string {
+  return `Checked ${isToday(ms) ? "at" : "on"} ${moment(ms)}`;
+}
+
+function isToday(ms: number): boolean {
+  return new Date().toDateString() === new Date(ms).toDateString();
+}
+
+/** "14:30" (today), else "3 Oct". */
+function moment(ms: number): string {
   const when = new Date(ms);
-  const today = new Date().toDateString() === when.toDateString();
-  return today
-    ? `since ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-    : `since ${when.toLocaleDateString([], { day: "numeric", month: "short" })}`;
+  return isToday(ms)
+    ? when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : when.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
 /** What a received stick is doing, in a few words for the list. */
@@ -40,6 +53,10 @@ export function receivedShort(entry: { state: string; done: number; total: numbe
       return "✓ All here so far";
     case "up_to_date":
       return "✓ All here. New files come by themselves.";
+    case "checked":
+      return "✓ All here";
+    case "queued":
+      return "… Next in line";
     case "waiting":
       return "! Waiting";
     case "paused":

@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use ourstick_core::clock::{Clock, SystemClock};
-use ourstick_core::download::{DownloadEvent, ReceiveEvent};
+use ourstick_core::download::{Cancel, DownloadEvent, ReceiveEvent};
 use ourstick_core::StickId;
 use tauri::{AppHandle, Manager};
 
@@ -93,7 +93,11 @@ impl Told {
         }
     }
 
-    pub(super) fn on(&mut self, event: ReceiveEvent<'_>) {
+    /// Takes `event`; on a phone, a wait ends the receive (`cancel`).
+    pub(super) fn on(&mut self, event: ReceiveEvent<'_>, cancel: &Cancel) {
+        if !super::FOLLOWS && matches!(event, ReceiveEvent::Waiting { .. }) {
+            cancel.cancel();
+        }
         let receivers = self.app.state::<Receivers>();
         let now_ms = SystemClock.now_ms();
         let mut progress_only = false;
@@ -153,9 +157,26 @@ impl Told {
                 shown.state = "getting_more";
             }
             ReceiveEvent::Download(_) => progress_only = true,
-            ReceiveEvent::UpToDate { .. } => {
+            ReceiveEvent::UpToDate { .. } if super::FOLLOWS => {
                 *shown = Shown {
                     state: "up_to_date",
+                    ..Shown::default()
+                }
+            }
+            // Not followed: all here when it was checked.
+            ReceiveEvent::UpToDate { .. } => {
+                *shown = Shown {
+                    state: "checked",
+                    since_ms: Some(now_ms),
+                    ..Shown::default()
+                }
+            }
+            // A phone does not wait (its receive ends): tried again when
+            // the user asks.
+            ReceiveEvent::Waiting { why, .. } if !super::FOLLOWS => {
+                *shown = Shown {
+                    state: "stopped",
+                    message: Some(waiting_words(&why)),
                     ..Shown::default()
                 }
             }

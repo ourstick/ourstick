@@ -1,7 +1,8 @@
-//! The sticks this device receives in the app (step 7b): each kept up to
-//! date in the background while the app runs, its download lock held from
-//! the moment it is added until it is forgotten (paused too), so `ourstick
-//! get` never touches it. What each one is doing, for the window.
+//! The sticks this device receives in the app (step 7b): on a desktop each
+//! kept up to date in the background while the app runs; on a phone each
+//! got once when asked, one at a time (ADR 0027). Its download lock held
+//! from the moment it is added until it is forgotten (paused too), so
+//! `ourstick get` never touches it. What each one is doing, for the window.
 
 use std::sync::Mutex;
 
@@ -52,18 +53,24 @@ pub(crate) async fn work<T: Send + 'static>(
     }
 }
 
+/// A desktop follows its received sticks while the app runs; a phone gets
+/// each once, when the app opens or the user asks, one at a time (ADR 0027,
+/// decision 7), since it stops apps in the background.
+pub(crate) const FOLLOWS: bool = cfg!(desktop);
+
 /// What a received stick is doing, as the window shows it.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Shown {
-    /// "starting", "downloading", "getting_more", "up_to_date", "waiting",
-    /// "paused" or "stopped".
+    /// "starting", "queued", "downloading", "getting_more", "up_to_date",
+    /// "checked", "waiting", "paused" or "stopped".
     pub state: &'static str,
     /// Why it waits or stopped, in words for everyone.
     pub message: Option<String>,
     /// Bytes landed of those planned in this round.
     pub done: u64,
     pub total: u64,
-    /// When it began waiting (ms since the epoch), for "since 14:30".
+    /// When it began waiting, or was checked (ms since the epoch), for
+    /// "since 14:30".
     pub since_ms: Option<u64>,
     /// The sender is on this network but reached only through the relay:
     /// macOS declines OurStick the local network (ADR 0020).
@@ -179,6 +186,14 @@ async fn run(
     cancel: &Cancel,
 ) {
     let state = app.state::<AppState>();
+    let Some(_turn) = app
+        .state::<Receivers>()
+        .inner()
+        .turn(app, stick_id, cancel)
+        .await
+    else {
+        return;
+    };
     let store_dir = received_store_dir(&state.data_dir, &stick_id);
     // A reader needs no lasting identity: a fresh node key per run.
     let config = IrohConfig::new(random_key(), Network::Public);
@@ -210,7 +225,7 @@ async fn run(
         folder: &folder,
         policy: &policy,
         room: &room,
-        follow_every: FOLLOW_EVERY,
+        follow_every: FOLLOWS.then_some(FOLLOW_EVERY),
     };
     let reporter = reports::reporter_for(app, stick_id, ticket.clone()).await;
     let (downloading, mut awake_wanted) = tokio::sync::watch::channel(false);
@@ -222,7 +237,7 @@ async fn run(
             keep.set(wanted).await;
         }
     };
-    let mut on_event = |event: ReceiveEvent<'_>| told.on(event);
+    let mut on_event = |event: ReceiveEvent<'_>| told.on(event, cancel);
     let reporting = async {
         match &reporter {
             Some(reporter) => reporter.pump(&fetcher).await,

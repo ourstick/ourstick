@@ -10,7 +10,7 @@
     resumeReceived,
     type ReceivedEntry,
   } from "./api";
-  import { lastParts, since, size } from "./format";
+  import { checkedAt, lastParts, since, size } from "./format";
   import LeftOutWords from "./LeftOutWords.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
   import ChooseWhat from "./ChooseWhat.svelte";
@@ -113,6 +113,13 @@
     {:else if entry.state === "up_to_date"}
       <strong>✓ All here</strong>
       <span class="muted">New files from the sender come by themselves.</span>
+    {:else if entry.state === "checked"}
+      <strong>✓ All here</strong>
+      <span class="muted">{entry.since_ms ? checkedAt(entry.since_ms) : ""}</span>
+      <button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Check again</button>
+    {:else if entry.state === "queued"}
+      <strong>… Next in line{here ? ` · ${here}` : ""}</strong>
+      <span class="muted">It starts when the download before it ends.</span>
     {:else if entry.state === "getting_more"}
       <strong>✓ All here so far</strong>
       <span class="muted">The sender is still counting a big folder. The rest comes by itself.</span>

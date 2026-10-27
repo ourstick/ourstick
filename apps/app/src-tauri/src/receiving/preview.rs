@@ -218,7 +218,9 @@ pub async fn preview_link(
     crate::local_network::may_bind(&state).await;
     let fetcher = IrohFetcher::start(&config, &blobs).await.map_err(|error| {
         tracing::warn!(%error, "a preview's networking");
-        "This computer's network could not be started. Check it, then try again.".to_owned()
+        super::device_words::here(
+            "This computer's network could not be started. Check it, then try again.".to_owned(),
+        )
     })?;
     let choose = folder_choice(earlier.clone(), parent.as_deref())?;
     let looked = tokio::time::timeout(

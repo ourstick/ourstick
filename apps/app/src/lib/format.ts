@@ -1,4 +1,5 @@
 // Sizes as the mockup shows them: "420 MB", "10 GB", "2.1 MB/s".
+import { onPhone } from "./api";
 
 export function size(bytes: number): string {
   if (bytes >= 1e9) {
@@ -20,6 +21,11 @@ export function rate(bytesPerSecond: number): string {
 
 export function files(count: number): string {
   return count === 1 ? "1 file" : `${count} files`;
+}
+
+/** "this phone" on a phone (ADR 0027), else "this computer". */
+export function thisDevice(): string {
+  return onPhone() ? "this phone" : "this computer";
 }
 
 /** "since 14:30" (today), else "since 3 Oct". */

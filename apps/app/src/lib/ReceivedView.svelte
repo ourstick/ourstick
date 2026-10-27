@@ -11,7 +11,7 @@
     resumeReceived,
     type ReceivedEntry,
   } from "./api";
-  import { checkedAt, lastParts, since, size } from "./format";
+  import { checkedAt, lastParts, since, size, thisDevice } from "./format";
   import LeftOutWords from "./LeftOutWords.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
   import ChooseWhat from "./ChooseWhat.svelte";
@@ -138,7 +138,7 @@
       <button class="primary" onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Resume</button>
     {:else if entry.state === "stopped"}
       <strong class="error">✕ Stopped</strong>
-      <span>{entry.message ?? "Something on this computer failed. What came so far is safe."}</span>
+      <span>{entry.message ?? `Something on ${thisDevice()} failed. What came so far is safe.`}</span>
       <button onclick={() => act(() => resumeReceived(entry.id))} disabled={busy}>Try again</button>
     {:else}
       <strong>Getting ready…</strong>

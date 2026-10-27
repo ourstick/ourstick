@@ -16,7 +16,7 @@
     type PreviewEntry,
     type PreviewView,
   } from "./api";
-  import { holdsWords, lastParts, size } from "./format";
+  import { holdsWords, lastParts, size, thisDevice } from "./format";
   import ChoiceTree, { type ChoiceRow } from "./ChoiceTree.svelte";
   import PasteLink from "./PasteLink.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
@@ -233,7 +233,7 @@
     {#if known.known === "own"}
       <h1>This is the link to “<bdi>{known.name}</bdi>”, which you send yourself.</h1>
     {:else if known.known === "received"}
-      <h1>You already get “<bdi>{known.name}</bdi>” on this computer.</h1>
+      <h1>You already get “<bdi>{known.name}</bdi>” on {thisDevice()}.</h1>
     {:else}
       <h1>You already wait for this link.</h1>
     {/if}
@@ -248,7 +248,7 @@
       {#if found}<p class="found">✓ We found a link you copied</p>{/if}
       <h1><bdi>{preview.name}</bdi></h1>
       <p class="muted">
-        {holds} · {size(needs)}{fits ? " · it fits on this computer" : ""}
+        {holds} · {size(needs)}{fits ? ` · it fits on ${thisDevice()}` : ""}
       </p>
     </div>
     {#if !fits}

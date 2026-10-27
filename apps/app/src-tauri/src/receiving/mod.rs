@@ -26,6 +26,7 @@ use crate::state::AppState;
 pub mod choice;
 pub mod clipboard;
 pub mod commands;
+mod device_words;
 mod holder;
 pub mod list;
 pub mod moving;

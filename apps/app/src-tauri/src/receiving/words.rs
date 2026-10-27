@@ -109,6 +109,10 @@ pub fn waiting_words(why: &Waiting) -> String {
 /// are kept; what came from the keyring, the store, a lock or the disk is
 /// said in words for everyone.
 pub fn said(error: &anyhow::Error) -> String {
+    super::device_words::here(said_anywhere(error))
+}
+
+fn said_anywhere(error: &anyhow::Error) -> String {
     use ourstick_core::device::DeviceError;
     use ourstick_core::received::ReceivedError;
     // The keyring and the records: the same words everywhere.

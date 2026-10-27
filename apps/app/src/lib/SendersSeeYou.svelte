@@ -2,7 +2,7 @@
   // "Senders see you as: a Mac. Change…" (ADR 0015, rule 4): a name only if
   // the receiver chooses to give one; the app never asks for it.
   import { onMount } from "svelte";
-  import { KINDS, receiverName, setReceiverName } from "./api";
+  import { KINDS, onPhone, receiverName, setReceiverName } from "./api";
 
   let name = $state<string | null>(null);
   let editing = $state(false);
@@ -45,7 +45,7 @@
         <button class="primary" type="submit">Save</button>
       </span>
     </form>
-    <p class="muted">Leave it empty to show only a {kind}. Your computer's own name is never sent.</p>
+    <p class="muted">Leave it empty to show only a {kind}. Your {onPhone() ? "phone" : "computer"}'s own name is never sent.</p>
   {:else}
     <p class="muted">
       Senders see you as: {#if name}<bdi>{name}</bdi> ({kind}){:else}a {kind}{/if}.

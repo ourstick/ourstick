@@ -1,7 +1,7 @@
 <script lang="ts">
   // Home (gui-spec, Home): Send and Receive, then what you send and what
   // you received, one row each with one sentence.
-  import type { ReceivedEntry, StickEntry } from "./api";
+  import { onPhone, type ReceivedEntry, type StickEntry } from "./api";
   import { receivedShort } from "./format";
 
   let {
@@ -39,26 +39,37 @@
   }
 
   let empty = $derived(sending.length === 0 && received.length === 0);
+  /** A phone only receives, for now (ADR 0027, decision 2). */
+  const phone = onPhone();
 </script>
 
 <section class="home">
   {#if empty}
     <div class="welcome">
       <h1>Welcome to OurStick</h1>
-      <p>
-        Send folders of any size straight from your computer to someone else’s. No account. Only the people you send the
-        link to can see them.
-      </p>
+      {#if phone}
+        <p>
+          Get folders of any size that someone sends you, straight from their computer. No account. Only the people
+          they send the link to can see them.
+        </p>
+      {:else}
+        <p>
+          Send folders of any size straight from your computer to someone else’s. No account. Only the people you send
+          the link to can see them.
+        </p>
+      {/if}
     </div>
   {/if}
 
   <div class="verbs">
-    <button class="verb primary" onclick={onSend}>
-      <span class="arrow" aria-hidden="true">↑</span>
-      <span class="title">Send</span>
-      <span class="what">Choose folders, get a link to send.</span>
-    </button>
-    <button class="verb" onclick={onReceive}>
+    {#if !phone}
+      <button class="verb primary" onclick={onSend}>
+        <span class="arrow" aria-hidden="true">↑</span>
+        <span class="title">Send</span>
+        <span class="what">Choose folders, get a link to send.</span>
+      </button>
+    {/if}
+    <button class="verb" class:primary={phone} onclick={onReceive}>
       <span class="arrow" aria-hidden="true">↓</span>
       <span class="title">Receive</span>
       <span class="what">Someone sent you a link? Open it here.</span>

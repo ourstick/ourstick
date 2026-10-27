@@ -68,7 +68,7 @@ pub async fn received(
             waiting: false,
             saved_as,
             left_out,
-            shown: receivers.shown(&joined.stick_id),
+            shown: super::device_words::shown_here(receivers.shown(&joined.stick_id)),
         });
     // Then the links waited for (ADR 0025), oldest first.
     let waiting = waiting.into_iter().map(|link| ReceivedEntry {
@@ -79,7 +79,7 @@ pub async fn received(
         waiting: true,
         saved_as: super::words::saved_as_views(&[]),
         left_out: Vec::new(),
-        shown: receivers.shown(&link.stick_id),
+        shown: super::device_words::shown_here(receivers.shown(&link.stick_id)),
     });
     Ok(received.chain(waiting).collect())
 }

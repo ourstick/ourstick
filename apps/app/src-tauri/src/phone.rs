@@ -1,6 +1,7 @@
 //! What the app needs from Android that Rust cannot reach, through the
 //! app's own plugin (`PhonePlugin.kt`, ADR 0027): the sharing links opened
-//! from other apps, and the screen kept on while a download runs.
+//! from other apps, the screen kept on while a download runs, and a
+//! received folder opened in Files.
 
 use std::sync::Mutex;
 
@@ -76,9 +77,7 @@ fn screen_holders<R: Runtime>(app: &AppHandle<R>, more: bool) -> anyhow::Result<
         on: bool,
     }
 
-    let phone = app
-        .try_state::<Phone<R>>()
-        .ok_or_else(|| anyhow::anyhow!("the app's phone plugin did not start"))?;
+    let phone = phone(app)?;
     let mut holders = phone
         .screen_holders
         .lock()
@@ -95,4 +94,25 @@ fn screen_holders<R: Runtime>(app: &AppHandle<R>, more: bool) -> anyhow::Result<
             .run_mobile_plugin::<()>("keepScreenOn", KeepScreenOn { on: more })?;
     }
     Ok(())
+}
+
+/// Opens `folder` (in `Download/OurStick`) in Files.
+pub fn open_folder<R: Runtime>(app: &AppHandle<R>, folder: &std::path::Path) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct OpenFolder {
+        path: String,
+    }
+
+    phone(app)?.plugin.run_mobile_plugin::<()>(
+        "openFolder",
+        OpenFolder {
+            path: folder.to_string_lossy().into_owned(),
+        },
+    )?;
+    Ok(())
+}
+
+fn phone<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<tauri::State<'_, Phone<R>>> {
+    app.try_state::<Phone<R>>()
+        .ok_or_else(|| anyhow::anyhow!("the app's phone plugin did not start"))
 }

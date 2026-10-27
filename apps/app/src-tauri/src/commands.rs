@@ -89,11 +89,18 @@ pub async fn move_keys(
 /// (deleted, or its disk unplugged), or the file manager refused (its own
 /// words go to the log, not to the user).
 pub(crate) async fn open_folder(app: &AppHandle, folder: std::path::PathBuf) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
     use tauri_plugin_opener::OpenerExt;
     let checked = folder.clone();
     if !blocking(move || Ok(checked.is_dir())).await? {
         return Err(not_there());
     }
+    #[cfg(target_os = "android")]
+    return crate::phone::open_folder(app, &folder).map_err(|error| {
+        tracing::warn!(error = %format!("{error:#}"), "Files did not open a folder");
+        "The folder could not be opened in Files.".to_owned()
+    });
+    #[cfg(not(target_os = "android"))]
     app.opener()
         .open_path(folder.to_string_lossy(), None::<&str>)
         .map_err(|error| {

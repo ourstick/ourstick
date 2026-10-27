@@ -5,6 +5,7 @@
     chooseFolder,
     forgetReceived,
     moveReceived,
+    onPhone,
     openReceivedFolder,
     pauseReceived,
     resumeReceived,
@@ -108,8 +109,12 @@
       <strong>↓ Downloading… {percent}%</strong>
       <div class="bar"><div class="fill" style="width: {percent}%"></div></div>
       <span class="muted">{size(entry.done)} of {size(entry.total)}</span>
-      <span>You can close this window. It goes on by itself, also after a restart.</span>
-      <span class="muted">When the sender adds or changes files, you get them too.</span>
+      {#if onPhone()}
+        <span>Keep OurStick open until it finishes; it goes on from where it stopped when you open it again.</span>
+      {:else}
+        <span>You can close this window. It goes on by itself, also after a restart.</span>
+        <span class="muted">When the sender adds or changes files, you get them too.</span>
+      {/if}
     {:else if entry.state === "up_to_date"}
       <strong>✓ All here</strong>
       <span class="muted">New files from the sender come by themselves.</span>

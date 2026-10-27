@@ -13,6 +13,8 @@ mod local_network;
 mod login;
 #[cfg(target_os = "macos")]
 mod menu;
+#[cfg(target_os = "android")]
+mod phone;
 mod problems;
 mod qr;
 mod receiving;
@@ -115,7 +117,7 @@ pub fn run() {
     }));
     // A sharing link opened from another app (ADR 0027, decision 6).
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(receiving::opened::plugin());
+    let builder = builder.plugin(phone::plugin());
     builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())

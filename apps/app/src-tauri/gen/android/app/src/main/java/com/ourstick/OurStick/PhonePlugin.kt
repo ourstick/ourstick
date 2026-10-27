@@ -1,6 +1,7 @@
 package com.ourstick.OurStick
 
 import android.app.Activity
+import android.view.WindowManager
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -14,13 +15,19 @@ class SetHandlerArgs {
   lateinit var handler: Channel
 }
 
+@InvokeArg
+class KeepScreenOnArgs {
+  var on: Boolean = false
+}
+
 /**
- * Hands the links that [LinkActivity] receives to the app's Rust side
- * (`receiving::opened`), which keeps each until the window takes it. A link
- * that arrives before the app is ready waits here. Never logged.
+ * What the app's Rust side (`phone.rs`) needs from Android: the links that
+ * [LinkActivity] receives, each kept until the window takes it (a link that
+ * arrives before the app is ready waits here; never logged), and the screen
+ * kept on while a download runs (ADR 0027).
  */
 @TauriPlugin
-class LinkPlugin(activity: Activity) : Plugin(activity) {
+class PhonePlugin(private val activity: Activity) : Plugin(activity) {
   companion object {
     private val lock = Any()
     private var waiting: String? = null
@@ -47,6 +54,16 @@ class LinkPlugin(activity: Activity) : Plugin(activity) {
       handler = args.handler
       waiting?.let { send(args.handler, it) }
       waiting = null
+    }
+    invoke.resolve()
+  }
+
+  @Command
+  fun keepScreenOn(invoke: Invoke) {
+    val args = invoke.parseArgs(KeepScreenOnArgs::class.java)
+    activity.runOnUiThread {
+      val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+      if (args.on) activity.window.addFlags(flag) else activity.window.clearFlags(flag)
     }
     invoke.resolve()
   }

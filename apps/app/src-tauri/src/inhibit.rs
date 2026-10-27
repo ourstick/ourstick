@@ -1,9 +1,12 @@
 //! Keeping the computer awake while someone downloads from the stick
 //! (docs/gui-spec.md, "Sleep"): a sleeping owner stops sharing mid-download.
 //! Linux asks logind, macOS runs `caffeinate`, Windows asks the kernel
-//! (`SetThreadExecutionState`, the app's only `unsafe`).
+//! (`SetThreadExecutionState`, the app's only `unsafe`). Android keeps the
+//! screen on while a download runs (ADR 0027): it stops one once the phone
+//! is locked.
 
 use anyhow::Result;
+use tauri::AppHandle;
 
 /// While held, the system does not go to sleep on its own.
 pub struct SleepGuard {
@@ -14,13 +17,15 @@ pub struct SleepGuard {
     /// Windows: dropping it ends the thread that holds the request.
     #[cfg(windows)]
     _release: std::sync::mpsc::Sender<()>,
+    #[cfg(target_os = "android")]
+    _screen: crate::phone::ScreenOn<tauri::Wry>,
 }
 
 impl SleepGuard {
     /// Linux: a logind "sleep" inhibitor lock, held as long as its file
     /// descriptor is open.
     #[cfg(target_os = "linux")]
-    pub async fn acquire() -> Result<Self> {
+    pub async fn acquire(_app: &AppHandle) -> Result<Self> {
         const WHY: &str = "Someone is downloading from your OurStick";
         let connection = zbus::Connection::system().await?;
         let reply = connection
@@ -39,7 +44,7 @@ impl SleepGuard {
     /// macOS: `caffeinate -i` for as long as it runs; `-w` ends it with the
     /// app too, should the app die without dropping the guard.
     #[cfg(target_os = "macos")]
-    pub async fn acquire() -> Result<Self> {
+    pub async fn acquire(_app: &AppHandle) -> Result<Self> {
         let caffeinate = std::process::Command::new("caffeinate")
             .arg("-i")
             .arg("-w")
@@ -52,7 +57,7 @@ impl SleepGuard {
     /// so a thread of its own asks, waits until the guard is dropped, then
     /// takes the request back.
     #[cfg(windows)]
-    pub async fn acquire() -> Result<Self> {
+    pub async fn acquire(_app: &AppHandle) -> Result<Self> {
         use windows_sys::Win32::System::Power::{
             SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
         };
@@ -79,8 +84,20 @@ impl SleepGuard {
         Ok(Self { _release: release })
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    pub async fn acquire() -> Result<Self> {
+    #[cfg(target_os = "android")]
+    pub async fn acquire(app: &AppHandle) -> Result<Self> {
+        Ok(Self {
+            _screen: crate::phone::ScreenOn::hold(app)?,
+        })
+    }
+
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        windows,
+        target_os = "android"
+    )))]
+    pub async fn acquire(_app: &AppHandle) -> Result<Self> {
         anyhow::bail!("keeping the system awake is not done on this system yet")
     }
 }
@@ -94,15 +111,22 @@ impl Drop for SleepGuard {
 }
 
 /// Holds a guard while `downloading`, and lets go of it when not.
-#[derive(Default)]
 pub struct KeepAwake {
+    app: AppHandle,
     guard: Option<SleepGuard>,
 }
 
 impl KeepAwake {
+    pub fn new(app: &AppHandle) -> Self {
+        Self {
+            app: app.clone(),
+            guard: None,
+        }
+    }
+
     pub async fn set(&mut self, downloading: bool) {
         match (downloading, self.guard.is_some()) {
-            (true, false) => match SleepGuard::acquire().await {
+            (true, false) => match SleepGuard::acquire(&self.app).await {
                 Ok(guard) => self.guard = Some(guard),
                 // Not fatal: sharing works, the computer may just sleep.
                 Err(error) => {

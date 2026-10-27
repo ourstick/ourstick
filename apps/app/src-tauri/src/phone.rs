@@ -1,0 +1,98 @@
+//! What the app needs from Android that Rust cannot reach, through the
+//! app's own plugin (`PhonePlugin.kt`, ADR 0027): the sharing links opened
+//! from other apps, and the screen kept on while a download runs.
+
+use std::sync::Mutex;
+
+use tauri::ipc::Channel;
+use tauri::plugin::{PluginHandle, TauriPlugin};
+use tauri::{AppHandle, Manager, Runtime};
+
+/// The plugin, and how many hold the screen on.
+struct Phone<R: Runtime> {
+    plugin: PluginHandle<R>,
+    screen_holders: Mutex<usize>,
+}
+
+/// The plugin, registered at start.
+pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
+    #[derive(serde::Serialize)]
+    struct Handler {
+        handler: Channel,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Event {
+        link: String,
+    }
+
+    tauri::plugin::Builder::new("phone")
+        .setup(|app, api| {
+            let plugin = api.register_android_plugin("com.ourstick.OurStick", "PhonePlugin")?;
+            let opened = app.clone();
+            plugin.run_mobile_plugin::<()>(
+                "setHandler",
+                Handler {
+                    handler: Channel::new(move |body| {
+                        let link = body.deserialize::<Event>().map(|event| event.link);
+                        crate::receiving::opened::arrived(&opened, &link.unwrap_or_default());
+                        Ok(())
+                    }),
+                },
+            )?;
+            app.manage(Phone {
+                plugin,
+                screen_holders: Mutex::new(0),
+            });
+            Ok(())
+        })
+        .build()
+}
+
+/// While held (by any number at once), the screen stays on: Android stops
+/// a download once the screen is off and the phone locked.
+pub struct ScreenOn<R: Runtime>(AppHandle<R>);
+
+impl<R: Runtime> ScreenOn<R> {
+    pub fn hold(app: &AppHandle<R>) -> anyhow::Result<Self> {
+        screen_holders(app, true)?;
+        Ok(Self(app.clone()))
+    }
+}
+
+impl<R: Runtime> Drop for ScreenOn<R> {
+    fn drop(&mut self) {
+        if let Err(error) = screen_holders(&self.0, false) {
+            tracing::warn!(error = %format!("{error:#}"), "the screen was not let go");
+        }
+    }
+}
+
+/// One holder more (`more`) or less; the screen is kept on from the first
+/// and let go after the last.
+fn screen_holders<R: Runtime>(app: &AppHandle<R>, more: bool) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct KeepScreenOn {
+        on: bool,
+    }
+
+    let phone = app
+        .try_state::<Phone<R>>()
+        .ok_or_else(|| anyhow::anyhow!("the app's phone plugin did not start"))?;
+    let mut holders = phone
+        .screen_holders
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let before = *holders;
+    *holders = if more {
+        before + 1
+    } else {
+        before.saturating_sub(1)
+    };
+    if (before == 0) != (*holders == 0) {
+        phone
+            .plugin
+            .run_mobile_plugin::<()>("keepScreenOn", KeepScreenOn { on: more })?;
+    }
+    Ok(())
+}

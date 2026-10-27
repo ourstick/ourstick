@@ -2,7 +2,13 @@
 // ourstick-core. Types mirror the Rust side (src-tauri/src/commands.rs).
 import { invoke } from "@tauri-apps/api/core";
 
-export type Platform = "linux" | "macos" | "windows";
+export type Platform = "linux" | "macos" | "windows" | "android" | "ios";
+
+/** A phone's app (ADR 0027): from the platform the window was given at start. */
+export function onPhone(): boolean {
+  const platform = document.documentElement.dataset.platform;
+  return platform === "android" || platform === "ios";
+}
 
 export interface AppState {
   platform: Platform;

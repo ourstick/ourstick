@@ -231,7 +231,7 @@ async fn run(
     let (downloading, mut awake_wanted) = tokio::sync::watch::channel(false);
     let mut told = Told::new(app.clone(), stick_id, downloading, reporter.clone());
     let awake = async {
-        let mut keep = crate::inhibit::KeepAwake::default();
+        let mut keep = crate::inhibit::KeepAwake::new(app);
         while awake_wanted.changed().await.is_ok() {
             let wanted = *awake_wanted.borrow();
             keep.set(wanted).await;

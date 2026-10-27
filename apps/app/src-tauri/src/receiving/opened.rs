@@ -1,6 +1,6 @@
 //! A sharing link opened from another app (ADR 0027, decision 6): on
 //! Android it arrives at the app's link activity, which hands it over through
-//! a plugin of the app's own (`LinkPlugin`). It is kept here until the
+//! the app's own plugin (`crate::phone`). It is kept here until the
 //! Receive view takes it, once; as every link, never logged nor put in a
 //! message.
 
@@ -46,7 +46,7 @@ impl OpenedLink {
 
 /// A link arrived: kept, and the window shows Receive ("link-opened").
 #[cfg(target_os = "android")]
-fn arrived<R: Runtime>(app: &AppHandle<R>, text: &str) {
+pub(crate) fn arrived<R: Runtime>(app: &AppHandle<R>, text: &str) {
     app.state::<OpenedLink>().arrived(text);
     if let Err(error) = app.emit("link-opened", ()) {
         tracing::warn!(%error, "the window was not told of an opened link");
@@ -63,40 +63,6 @@ pub fn link_opened(opened: State<'_, OpenedLink>) -> bool {
 #[tauri::command]
 pub fn take_opened_link(opened: State<'_, OpenedLink>) -> Option<String> {
     opened.take()
-}
-
-/// The plugin that receives the links from the link activity.
-#[cfg(target_os = "android")]
-pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    use tauri::ipc::Channel;
-
-    #[derive(serde::Serialize)]
-    struct Handler {
-        handler: Channel,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct Event {
-        link: String,
-    }
-
-    tauri::plugin::Builder::new("opened-link")
-        .setup(|app, api| {
-            let handle = api.register_android_plugin("com.ourstick.OurStick", "LinkPlugin")?;
-            let app = app.clone();
-            handle.run_mobile_plugin::<()>(
-                "setHandler",
-                Handler {
-                    handler: Channel::new(move |body| {
-                        let link = body.deserialize::<Event>().map(|event| event.link);
-                        arrived(&app, &link.unwrap_or_default());
-                        Ok(())
-                    }),
-                },
-            )?;
-            Ok(())
-        })
-        .build()
 }
 
 #[cfg(test)]

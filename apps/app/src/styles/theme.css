@@ -94,6 +94,25 @@
   }
 }
 
+/* Phones (ADR 0027): the whole screen is the window, with no card around
+   it; the app keeps the system's bars clear itself (MainActivity). Text and
+   buttons sized for a finger. */
+:root[data-platform="android"],
+:root[data-platform="ios"] {
+  --size: 16px;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --button-height: 44px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="android"],
+  :root[data-platform="ios"] {
+    --bg: #1c1c1c;
+    --card: #1c1c1c;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -133,6 +152,18 @@ body,
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+:root[data-platform="android"] #app,
+:root[data-platform="ios"] #app {
+  padding: 0;
+}
+
+:root[data-platform="android"] .card,
+:root[data-platform="ios"] .card {
+  padding: 16px;
+  border: none;
+  border-radius: 0;
 }
 
 .card.centred {

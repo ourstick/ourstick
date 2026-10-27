@@ -1,6 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.ourstick_app" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Behind the system's bars: the app's own background (theme.css). -->
+        <item name="android:windowBackground">@color/window</item>
     </style>
 </resources>

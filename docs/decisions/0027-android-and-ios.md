@@ -316,9 +316,13 @@ a change to build for Android.
 - **In the background** with the screen locked, the download stopped at
   once and the connection was lost about 35 s later, while the process
   lived on. As decision 7 expects: the first release works while open.
-- To look at in step 2: about 6 s between large files while the received
-  file is written into `Download/`, and about 30 s to check 200 MB
-  already there before a resumed download goes on.
+- Looked at in step 2 (2026-10-27, a release build): the "6 s between
+  large files" was each 50 MB file's own download time; the phone's
+  Wi-Fi received a steady 8–10 MB/s with no gap between files, and a
+  write to `Download/` runs at about 600 MB/s. A download stopped and
+  started again went on after about 2.5 s, not 30: the debug build of
+  step 0 hashed and encrypted without optimization. All 209 files came
+  identical.
 
 ## Not decided here
 

@@ -4,7 +4,7 @@
   // found; what it brings, where it goes, and Download. The link itself is
   // never shown, logged or put into a message.
   import { onMount } from "svelte";
-  import { linkOnClipboard } from "./macApi";
+  import { linkOnClipboard, takeOpenedLink } from "./macApi";
   import {
     addReceived,
     chooseFolder,
@@ -111,7 +111,10 @@
   }
 
   onMount(() => {
-    void fromClipboard();
+    // A link opened from another app (ADR 0027, decision 6) comes first.
+    void takeOpenedLink()
+      .catch(() => null)
+      .then((opened) => (opened ? look(opened) : fromClipboard()));
     const back = () => {
       if (phase === "paste" && !text.trim() && document.visibilityState === "visible") void fromClipboard();
     };

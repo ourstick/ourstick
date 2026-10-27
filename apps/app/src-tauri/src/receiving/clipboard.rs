@@ -14,7 +14,7 @@ pub fn link_on_clipboard(app: AppHandle) -> Option<String> {
 }
 
 /// `text`, trimmed, if it is a sharing link.
-fn link_in(text: &str) -> Option<String> {
+pub(super) fn link_in(text: &str) -> Option<String> {
     let text = text.trim();
     super::commands::ticket_of(text)
         .ok()
@@ -22,18 +22,11 @@ fn link_in(text: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
-    #[test]
-    fn only_a_whole_link_is_taken() {
-        assert_eq!(link_in(""), None);
-        assert_eq!(link_in("hello"), None);
-        assert_eq!(link_in("https://ourstick.com/s/#not-a-link"), None);
-    }
-
-    #[test]
-    fn a_link_copied_with_spaces_around_is_taken_trimmed() {
+    /// A whole sharing link, with made-up keys.
+    pub fn a_link() -> String {
         let ticket = ourstick_core::Ticket {
             stick_id: ourstick_core::StickSigningKey::from_bytes(&[1; 32]).stick_id(),
             node_id: ourstick_core::NodeId([7; 32]),
@@ -44,7 +37,19 @@ mod tests {
             address_hints: Vec::new(),
             stick_key: ourstick_core::cipher::StickKey::from_bytes([2; 32]),
         };
-        let link = ticket.to_link().unwrap();
+        ticket.to_link().unwrap()
+    }
+
+    #[test]
+    fn only_a_whole_link_is_taken() {
+        assert_eq!(link_in(""), None);
+        assert_eq!(link_in("hello"), None);
+        assert_eq!(link_in("https://ourstick.com/s/#not-a-link"), None);
+    }
+
+    #[test]
+    fn a_link_copied_with_spaces_around_is_taken_trimmed() {
+        let link = a_link();
         assert_eq!(link_in(&format!("  {link}\n")), Some(link));
     }
 }

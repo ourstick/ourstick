@@ -5,6 +5,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { openAbout, setStartAtLogin, startAtLogin, startAtLoginTold } from "./aboutApi";
+  import { linkOpened } from "./macApi";
   import {
     appProblem,
     dismissAppProblem,
@@ -53,6 +54,13 @@
   let problem = $state<ShareProblem | null>(null);
   /** Answers to an older look are dropped: they arrive in any order. */
   let looks = 0;
+  /** Links opened from another app: each starts Receive afresh. */
+  let opened = $state(0);
+
+  function linkArrived() {
+    opened++;
+    shown = { kind: "receive" };
+  }
 
   async function refresh() {
     const look = ++looks;
@@ -115,6 +123,7 @@
       listen("mount-changed", refresh),
       listen("problems-changed", refresh),
       listen("received-changed", refresh),
+      listen("link-opened", linkArrived),
       // The list shows who gets it, not how fast: only a new count matters.
       listen<About<Activity>>("activity", (event) => {
         const entry = sending.find((entry) => entry.id === event.payload.stick_id);
@@ -128,6 +137,11 @@
         refresh();
       }),
     ];
+    // A link opened before the window listened (the app started with it).
+    void Promise.all(stops)
+      .then(linkOpened)
+      .then((waiting) => waiting && opened === 0 && linkArrived())
+      .catch(() => {});
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });
 </script>
@@ -184,10 +198,12 @@
           {/if}
         {/key}
       {:else if shown.kind === "receive"}
-        <ReceiveView
-          onAdded={(id) => ((shown = { kind: "received", id }), refresh())}
-          onShow={(kind, id) => ((shown = { kind, id }), refresh())}
-        />
+        {#key opened}
+          <ReceiveView
+            onAdded={(id) => ((shown = { kind: "received", id }), refresh())}
+            onShow={(kind, id) => ((shown = { kind, id }), refresh())}
+          />
+        {/key}
       {/if}
     {/if}
     {#if failure}<p class="error">{failure}</p>{/if}

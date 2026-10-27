@@ -113,6 +113,9 @@ pub fn run() {
             tray::show_main(app);
         }
     }));
+    // A sharing link opened from another app (ADR 0027, decision 6).
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(receiving::opened::plugin());
     builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
@@ -120,6 +123,7 @@ pub fn run() {
         .manage(problems::Problems::default())
         .manage(tray::DotShown::default())
         .manage(receiving::Receivers::default())
+        .manage(receiving::opened::OpenedLink::default())
         // The main window's ✕ asks first: Minimize, or Quit, which stops
         // sharing (see dialog). The window is only ever minimized, never
         // hidden, so that it stays in sight (and on Linux the tray can bring
@@ -212,6 +216,8 @@ pub fn run() {
             receiving::list::received,
             receiving::preview::preview_link,
             receiving::clipboard::link_on_clipboard,
+            receiving::opened::link_opened,
+            receiving::opened::take_opened_link,
             receiving::commands::choose_folder,
             receiving::commands::add_received,
             receiving::commands::pause_received,

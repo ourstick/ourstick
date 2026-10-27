@@ -26,6 +26,24 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- A sharing link opened from another app (ADR 0027, decision 6):
+             handed over and gone, never in the recent tasks. -->
+        <activity
+            android:name=".LinkActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="true">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="ourstick.com" />
+                <data android:pathPrefix="/s/" />
+            </intent-filter>
+        </activity>
 
         <provider
           android:name="androidx.core.content.FileProvider"

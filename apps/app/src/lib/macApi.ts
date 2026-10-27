@@ -1,10 +1,20 @@
 // The window's commands for the Local Network step and message (ADR 0020)
-// and the link already on the clipboard.
+// and the link already on the clipboard or opened from another app.
 import { invoke } from "@tauri-apps/api/core";
 
 /** The clipboard's text, if it is a whole sharing link (else null). */
 export function linkOnClipboard(): Promise<string | null> {
   return invoke("link_on_clipboard");
+}
+
+/** Whether a link opened from another app (a phone's) waits for Receive. */
+export function linkOpened(): Promise<boolean> {
+  return invoke("link_opened");
+}
+
+/** The link opened from another app, given once (else null). */
+export function takeOpenedLink(): Promise<string | null> {
+  return invoke("take_opened_link");
 }
 
 /** "Continue" on the Local Network step: the sticks start, and macOS asks. */

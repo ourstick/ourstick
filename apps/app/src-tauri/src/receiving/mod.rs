@@ -28,6 +28,7 @@ pub mod commands;
 mod holder;
 pub mod list;
 pub mod moving;
+pub mod opened;
 pub mod preview;
 pub mod reports;
 pub mod ticks;

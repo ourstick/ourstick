@@ -4,17 +4,25 @@
   let {
     text = $bindable(),
     onOpen,
+    onPaste,
   }: {
     text: string;
     onOpen: (event: SubmitEvent) => void;
+    /** A phone: the clipboard is read only when this is tapped. */
+    onPaste?: () => void;
   } = $props();
 </script>
 
 <h1>Paste the link you got</h1>
 <ol class="steps">
   <li>In the email or message you got, copy the whole link. It starts with <b>ourstick.com/s/</b></li>
-  <li>Come back here: OurStick finds it by itself. Or paste it below.</li>
+  {#if onPaste}
+    <li>Come back here and tap <b>Paste the link</b>.</li>
+  {:else}
+    <li>Come back here: OurStick finds it by itself. Or paste it below.</li>
+  {/if}
 </ol>
+{#if onPaste}<button class="primary paste" onclick={onPaste}>Paste the link</button>{/if}
 <form onsubmit={onOpen}>
   <label for="the-link">The link</label>
   <div class="row">
@@ -23,7 +31,7 @@
       id="the-link"
       bind:value={text}
       placeholder="https://ourstick.com/s/#…"
-      autofocus
+      autofocus={!onPaste}
       spellcheck="false"
       autocomplete="off"
     />
@@ -51,6 +59,9 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+  .paste {
+    align-self: flex-start;
   }
   form input {
     flex: 1 1 auto;

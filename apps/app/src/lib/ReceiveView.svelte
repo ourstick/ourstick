@@ -114,12 +114,26 @@
     }
   }
 
+  // A phone reads it only when "Paste the link" is tapped (ADR 0027,
+  // decision 6): iOS asks each time it is read, Android shows a notice.
+  async function pasteTapped() {
+    failure = null;
+    const copied = await linkOnClipboard().catch(() => null);
+    if (copied) await look(copied);
+    else failure = "No OurStick link is copied. Copy the whole link, then tap Paste the link.";
+  }
+
   onMount(() => {
     // A link opened from another app (ADR 0027, decision 6) comes first.
     void takeOpenedLink()
       .catch(() => null)
-      .then((opened) => (opened ? look(opened) : fromClipboard()));
+      .then((opened) => {
+        if (opened) void look(opened);
+        else if (phone) phase = "paste";
+        else void fromClipboard();
+      });
     const back = () => {
+      if (phone) return;
       if (phase === "paste" && !text.trim() && document.visibilityState === "visible") void fromClipboard();
     };
     window.addEventListener("focus", back);
@@ -194,7 +208,7 @@
   {#if phase === "starting"}
     <p class="muted">Looking for a link you copied…</p>
   {:else if phase === "paste"}
-    <PasteLink bind:text onOpen={open} />
+    <PasteLink bind:text onOpen={open} onPaste={phone ? pasteTapped : undefined} />
   {:else if phase === "looking"}
     {#if found}<p class="found">✓ We found a link you copied</p>{/if}
     <h1>Someone sent you files</h1>

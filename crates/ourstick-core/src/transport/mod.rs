@@ -265,6 +265,10 @@ pub trait Fetcher: Send + Sync {
     /// transfer may go through it).
     fn relay_description(&self) -> String;
 
+    /// The network changed (a phone hears it from the system, ADR 0027):
+    /// paths to peers are looked for again at once. Harmless otherwise.
+    fn network_change(&self) -> impl Future<Output = ()> + Send;
+
     /// Connects to the owner named in `ticket`.
     fn connect(
         &self,

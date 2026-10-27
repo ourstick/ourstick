@@ -11,13 +11,11 @@ use futures::StreamExt;
 use iroh::endpoint::{Connection, PathEvent};
 use iroh::{Endpoint, EndpointAddr};
 use iroh_blobs::api::remote::GetProgressItem;
-use iroh_blobs::get::fsm::DecodeError;
-use iroh_blobs::get::GetError;
-use iroh_blobs::protocol::{ERR_INTERNAL, ERR_LIMIT, ERR_PERMISSION};
 use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::watch;
 
 use super::batches::Batches;
+use super::get_error::get_error;
 use super::local_network::watch_declined;
 use super::record_protocol::{request_record, RECORD_ALPN};
 use super::report_protocol::report_on;
@@ -94,6 +92,10 @@ impl Fetcher for IrohFetcher {
 
     fn relay_description(&self) -> String {
         self.relay_description.clone()
+    }
+
+    async fn network_change(&self) {
+        self.endpoint.network_change().await;
     }
 
     /// On a connection of its own (one QUIC connection speaks one
@@ -239,35 +241,6 @@ pub struct IrohConnection {
     /// Whether a declined local network keeps it on the relay (ADR 0020).
     declined: watch::Receiver<bool>,
     declined_watcher: tokio::task::JoinHandle<()>,
-}
-
-fn is_hash_mismatch(error: &GetError) -> bool {
-    matches!(
-        error,
-        GetError::Decode {
-            source: DecodeError::LeafHashMismatch { .. } | DecodeError::ParentHashMismatch { .. },
-            ..
-        }
-    )
-}
-
-fn get_error(error: GetError) -> TransportError {
-    if is_hash_mismatch(&error) {
-        TransportError::Corrupt
-    } else if error.iroh_error_code() == Some(ERR_PERMISSION) {
-        TransportError::Refused
-    } else if error.iroh_error_code() == Some(ERR_LIMIT) {
-        // "OK to try again later" (iroh-blobs): the owner is preparing the
-        // blob (ADR 0007).
-        TransportError::NotReady
-    } else if error.iroh_error_code() == Some(ERR_INTERNAL) {
-        // The owner checks each part against the blob's tree before it sends
-        // it, and stops with this code when its file no longer gives that
-        // blob (it changed, ADR 0017).
-        TransportError::OwnerFailed
-    } else {
-        TransportError::Interrupted(error.to_string())
-    }
 }
 
 /// Dropped without `close` (an error on the way): its watchers end too.

@@ -4,6 +4,7 @@
 mod activity;
 mod batches;
 mod fetcher;
+mod get_error;
 mod handler;
 mod local_network;
 mod made_store;
@@ -143,6 +144,13 @@ async fn bind(config: &IrohConfig, alpns: Vec<Vec<u8>>) -> Result<Endpoint, Tran
             );
         }
         builder = builder.relay_mode(iroh::RelayMode::custom(urls));
+    }
+    // A phone (ADR 0027): no port mapping. Its UPnP search is multicast,
+    // which iOS allows only with an entitlement, and iroh cannot turn on
+    // only PCP and NAT-PMP.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        builder = builder.portmapper_config(iroh::endpoint::PortmapperConfig::Disabled);
     }
     builder
         .secret_key(SecretKey::from_bytes(&config.secret_key))

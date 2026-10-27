@@ -23,7 +23,13 @@
 /// Worker threads of each iroh-blobs store: they only move blobs between
 /// the disk and the network. Measured (10 000 small files, one PC): 4 made
 /// a download 20–50 % slower, 8 about as fast as one per core.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const STORE_WORKER_THREADS: usize = 8;
+
+/// A phone (ADR 0027) gets one stick at a time, with less memory and a
+/// battery: fewer.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub const STORE_WORKER_THREADS: usize = 4;
 
 /// At most this many worker threads in the program's own runtime.
 pub const PROGRAM_WORKER_THREADS: usize = 4;

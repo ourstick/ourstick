@@ -127,6 +127,7 @@ impl Fetcher for MemoryFetcher {
     fn relay_description(&self) -> String {
         "the test relay".to_owned()
     }
+    async fn network_change(&self) {}
     /// As the owner's endpoint takes a report: handed on whole, or an error
     /// if too many wait; before the owner's side takes reports, it is
     /// accepted and lost. (The stick is not checked: the fake serves one.)

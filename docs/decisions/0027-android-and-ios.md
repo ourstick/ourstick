@@ -216,7 +216,10 @@ What the systems allow (official documentation, checked 2026-10-26):
 9. **One window, sized for a phone.** The same Svelte views with a phone
    layout: safe-area insets (edge to edge), the system back gesture wired
    to the views, no desktop-only words. A build target the oldest
-   supported WebView runs, tested on the oldest device at hand.
+   supported WebView runs, tested on the oldest device at hand: Chrome 88
+   or Safari 14, since Svelte 5 needs `:where` and `replaceAll`. An older
+   web view (Android 11's own WebView 83, never updated) shows a note to
+   update Android System WebView instead of a blank window.
    `Platform` in `api.ts` gains `android` and `ios`.
 10. **Reports stay as they are.** A phone sends `kind: Other`, as
     `ComputerKind::this()` already does, so every sender's app shipped

@@ -56,7 +56,7 @@
     // sender's writing direction never spills over the sentence.
     const [open, close] = [String.fromCodePoint(0x2068), String.fromCodePoint(0x2069)];
     const quoted = list.map((name) => `“${open}${name}${close}”`);
-    return quoted.length < 2 ? (quoted[0] ?? "") : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
+    return quoted.length < 2 ? (quoted[0] ?? "") : `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
   }
 
   async function stop() {

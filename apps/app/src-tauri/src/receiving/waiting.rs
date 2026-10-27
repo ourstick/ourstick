@@ -42,6 +42,9 @@ pub async fn wait_for_link(
     state: State<'_, AppState>,
     receivers: State<'_, Receivers>,
 ) -> Result<String, String> {
+    if !super::FOLLOWS {
+        return Err("A phone does not wait for the sender: use Try again.".to_owned());
+    }
     let ticket = ticket_of(&text)?;
     let stick_id = ticket.stick_id;
     if receivers.is_held(&stick_id).await {

@@ -11,12 +11,14 @@
     previewInside,
     previewLink,
     previewNeeds,
+    onPhone,
     waitForLink,
     type PreviewEntry,
     type PreviewView,
   } from "./api";
   import { holdsWords, lastParts, size } from "./format";
   import ChoiceTree, { type ChoiceRow } from "./ChoiceTree.svelte";
+  import PasteLink from "./PasteLink.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
 
   let {
@@ -48,6 +50,8 @@
   let failure = $state<string | null>(null);
   /** A Cancel while looking drops that answer. */
   let looks = 0;
+  /** A phone does not wait for a sender (ADR 0027, decision 7). */
+  const phone = onPhone();
 
   async function look(link: string) {
     const mine = ++looks;
@@ -190,27 +194,7 @@
   {#if phase === "starting"}
     <p class="muted">Looking for a link you copied…</p>
   {:else if phase === "paste"}
-    <h1>Paste the link you got</h1>
-    <ol class="steps">
-      <li>In the email or message you got, copy the whole link. It starts with <b>ourstick.com/s/</b></li>
-      <li>Come back here: OurStick finds it by itself. Or paste it below.</li>
-    </ol>
-    <form onsubmit={open}>
-      <label for="the-link">The link</label>
-      <div class="row">
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          id="the-link"
-          bind:value={text}
-          placeholder="https://ourstick.com/s/#…"
-          autofocus
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button class="primary" type="submit" disabled={!text.trim()}>Open</button>
-      </div>
-    </form>
-    <p class="muted">Clicked the link and a web page opened? Press “Copy the link” on that page, then come back here.</p>
+    <PasteLink bind:text onOpen={open} />
   {:else if phase === "looking"}
     {#if found}<p class="found">✓ We found a link you copied</p>{/if}
     <h1>Someone sent you files</h1>
@@ -221,11 +205,15 @@
     </div>
   {:else if phase === "away"}
     <h1>The sender's computer is off right now</h1>
-    <p>Or OurStick is closed there. You can wait: it comes by itself, all of it, once their computer is on.</p>
+    <p>
+      Or OurStick is closed there. {phone
+        ? "Try again once it is open there."
+        : "You can wait: it comes by itself, all of it, once their computer is on."}
+    </p>
     <div class="actions">
       <button onclick={another} disabled={adding}>Cancel</button>
-      <button onclick={() => look(looked)} disabled={adding}>Try again now</button>
-      <button class="primary" onclick={waitForIt} disabled={adding}>Wait for it</button>
+      <button class:primary={phone} onclick={() => look(looked)} disabled={adding}>Try again now</button>
+      {#if !phone}<button class="primary" onclick={waitForIt} disabled={adding}>Wait for it</button>{/if}
     </div>
   {:else if phase === "known" && known}
     {#if known.known === "own"}
@@ -329,22 +317,6 @@
   .found {
     color: #1a7f37;
     font-weight: 600;
-  }
-  .steps {
-    margin: 0;
-    padding-left: 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  form input {
-    flex: 1 1 auto;
-    min-width: 0;
   }
   .box {
     display: flex;

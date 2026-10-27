@@ -24,4 +24,12 @@ class MainActivity : TauriActivity() {
       WindowInsetsCompat.CONSUMED
     }
   }
+
+  // Back on Home (the web view has no step to go back to): the app goes to
+  // the background, as Home does, rather than ending this activity. A new
+  // one in the same process would stay blank, and a download goes on.
+  @Deprecated("Called by Tauri's own back handling once the web view cannot go back")
+  override fun onBackPressed() {
+    moveTaskToBack(true)
+  }
 }

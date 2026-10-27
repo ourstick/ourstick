@@ -9,6 +9,7 @@
   import {
     appProblem,
     dismissAppProblem,
+    onPhone,
     received,
     sticks,
     type About,
@@ -54,6 +55,21 @@
   let problem = $state<ShareProblem | null>(null);
   /** Answers to an older look are dropped: they arrive in any order. */
   let looks = 0;
+  // A phone's back gesture (ADR 0027): a screen other than Home is one
+  // step in the web view's history, which the system's back goes back on.
+  const phone = onPhone();
+  $effect(() => {
+    if (!phone) return;
+    const away = shown.kind !== "home";
+    const marked = history.state?.away === true;
+    if (away && !marked) history.pushState({ away: true }, "");
+    else if (!away && marked) history.back();
+  });
+
+  function backToHome() {
+    if (history.state?.away !== true) shown = { kind: "home" };
+  }
+
   /** Links opened from another app: each starts Receive afresh. */
   let opened = $state(0);
 
@@ -137,12 +153,16 @@
         refresh();
       }),
     ];
+    window.addEventListener("popstate", backToHome);
     // A link opened before the window listened (the app started with it).
     void Promise.all(stops)
       .then(linkOpened)
       .then((waiting) => waiting && opened === 0 && linkArrived())
       .catch(() => {});
-    return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
+    return () => {
+      window.removeEventListener("popstate", backToHome);
+      stops.forEach((stop) => stop.then((unlisten) => unlisten()));
+    };
   });
 </script>
 

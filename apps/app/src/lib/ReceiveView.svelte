@@ -50,7 +50,8 @@
   let failure = $state<string | null>(null);
   /** A Cancel while looking drops that answer. */
   let looks = 0;
-  /** A phone does not wait for a sender (ADR 0027, decision 7). */
+  /** A phone does not wait for a sender (ADR 0027, decision 7), and its
+   * files go to Download/OurStick (decision 3): no other place to choose. */
   const phone = onPhone();
 
   async function look(link: string) {
@@ -254,10 +255,10 @@
     {#if !fits}
       <div class="box error-box">
         <strong class="error">It does not fit: only {size(preview.left)} are free.</strong>
-        <span>Take only some of it, save it on another disk, or make some room.</span>
+        <span>Take only some of it{phone ? "" : ", save it on another disk,"} or make some room.</span>
         <div class="row">
           <button onclick={() => (phase = "choose")}>Only some of it…</button>
-          <button onclick={change}>Another place…</button>
+          {#if !phone}<button onclick={change}>Another place…</button>{/if}
         </div>
       </div>
     {/if}
@@ -266,7 +267,7 @@
     {/if}
     <div class="row spread where">
       <span>It goes to <b><bdi>{goesTo}</bdi></b></span>
-      <button onclick={change} disabled={adding}>Change…</button>
+      {#if !phone}<button onclick={change} disabled={adding}>Change…</button>{/if}
     </div>
     {#if preview.earlier_elsewhere}
       <p class="muted">
@@ -299,7 +300,7 @@
     {/if}
     <div class="row spread">
       <span>To <b><bdi>{goesTo}</bdi></b></span>
-      <button onclick={change} disabled={adding}>Change…</button>
+      {#if !phone}<button onclick={change} disabled={adding}>Change…</button>{/if}
     </div>
     {#if failure}<p class="error">{failure}</p>{/if}
     <div class="row spread bottom">

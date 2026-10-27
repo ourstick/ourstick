@@ -90,7 +90,7 @@
           <button role="menuitem" onclick={() => ((menu = false), (choosing = true))}>
             <span>Choose what to get…</span><span class="hint">Take some folders out, or add them back.</span>
           </button>
-          <button role="menuitem" onclick={move}>Move to another folder…</button>
+          {#if !onPhone()}<button role="menuitem" onclick={move}>Move to another folder…</button>{/if}
           <button role="menuitem" onclick={() => ((menu = false), (seenAs = true))}>How the sender sees you…</button>
           <button role="menuitem" class="danger-text" onclick={() => ((menu = false), (removing = true))}>
             <span>Remove…</span><span class="hint">What you have stays in its folder.</span>

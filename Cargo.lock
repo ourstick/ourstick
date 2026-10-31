@@ -4489,7 +4489,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "walkdir",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
 ]

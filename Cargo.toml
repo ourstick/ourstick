@@ -62,7 +62,6 @@ argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 # fs / misc
-walkdir = "2"
 # The desktop app (docs/gui-spec.md). Linux needs webkit2gtk-4.1 and friends,
 # see the README.
 # tray-icon only where the app uses Tauri's tray (see apps/app/src-tauri).

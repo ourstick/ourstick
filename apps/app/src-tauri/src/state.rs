@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use ourstick_core::device;
-use ourstick_core::sender_files::{LocalFiles, SenderFiles};
+use ourstick_core::sender_files::SenderFiles;
 use ourstick_core::{OwnedStick, StickId, StickKind, Store};
 
 use crate::serving::Serving;
@@ -72,7 +72,14 @@ pub fn phone_data_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
 impl AppState {
     /// The state in `data_dir`: a desktop's from `device::data_dir()`, a
     /// phone's the app's own private folder ([`phone_data_dir`]).
+    #[cfg(not(target_os = "android"))]
     pub fn open(data_dir: PathBuf) -> Result<Self> {
+        Self::open_with(data_dir, Arc::new(ourstick_core::sender_files::LocalFiles))
+    }
+
+    /// [`AppState::open`], the files a stick sends read through `files`
+    /// (a phone's, ADR 0029).
+    pub fn open_with(data_dir: PathBuf, files: Arc<dyn SenderFiles>) -> Result<Self> {
         let store = device::open_store(&data_dir)?;
         let open = !crate::local_network::step_due(store.as_ref());
         let started_moved = store.device()?.is_some_and(|device| {
@@ -83,7 +90,7 @@ impl AppState {
             store,
             sticks: tokio::sync::Mutex::new(HashMap::new()),
             disks: Arc::new(DiskTurns::new(Arc::new(SystemTimer::default()))),
-            files: Arc::new(LocalFiles),
+            files,
             local_network_explained: std::sync::atomic::AtomicBool::new(false),
             keys_wait: std::sync::atomic::AtomicBool::new(false),
             started_moved,

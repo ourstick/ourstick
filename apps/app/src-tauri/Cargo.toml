@@ -44,6 +44,9 @@ tokio.workspace = true
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri = { workspace = true, features = ["tray-icon"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 

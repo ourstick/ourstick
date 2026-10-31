@@ -1,0 +1,120 @@
+//! The paths a phone gives the core for what the user chose (ADR 0029):
+//! `/ourstick-chosen/<the content URI, in hex>/<its name>`, and the names
+//! inside a chosen folder after that. The URI travels in the path, so a
+//! linked entry's stored path names its place with nothing kept beside it,
+//! and the name is the last part, as on a desktop. Nothing on disk is ever
+//! at these paths.
+
+use std::path::{Component, Path, PathBuf};
+
+/// Where every chosen place's path begins.
+const PREFIX: &str = "/ourstick-chosen";
+
+/// The path of the place `uri`, shown as `name`.
+pub fn place_path(uri: &str, name: &str) -> PathBuf {
+    let mut hex = String::with_capacity(uri.len() * 2);
+    for byte in uri.bytes() {
+        hex.push_str(&format!("{byte:02x}"));
+    }
+    Path::new(PREFIX).join(hex).join(name)
+}
+
+/// What a chosen path names.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Chosen {
+    /// The place's content URI.
+    pub uri: String,
+    /// The path of the place itself.
+    pub place: PathBuf,
+    /// Whether the path is the place itself, not something inside it.
+    pub is_place: bool,
+}
+
+/// Whether `path` is a chosen place's or inside one.
+pub fn is_chosen(path: &Path) -> bool {
+    path.starts_with(PREFIX)
+}
+
+/// The place `path` is, or lies inside; `None` if it is not a chosen path
+/// or is malformed.
+pub fn chosen(path: &Path) -> Option<Chosen> {
+    let mut parts = path.strip_prefix(PREFIX).ok()?.components();
+    let Some(Component::Normal(hex)) = parts.next() else {
+        return None;
+    };
+    let Some(Component::Normal(name)) = parts.next() else {
+        return None;
+    };
+    if parts
+        .clone()
+        .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+    let hex = hex.to_str()?;
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    Some(Chosen {
+        uri: String::from_utf8(bytes).ok()?,
+        place: Path::new(PREFIX).join(hex).join(name),
+        is_place: parts.next().is_none(),
+    })
+}
+
+/// Whether `name`, as a provider gives it, can be a part of a path: not
+/// empty, not `.` or `..`, no `/` and no NUL. Others are left out.
+pub fn is_usable_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const URI: &str =
+        "content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera";
+
+    #[test]
+    fn a_place_and_what_is_inside_it_name_their_uri() {
+        let place = place_path(URI, "Camera");
+        assert!(is_chosen(&place));
+        assert_eq!(place.file_name().unwrap(), "Camera");
+        let found = chosen(&place).unwrap();
+        assert_eq!(found.uri, URI);
+        assert!(found.is_place);
+        assert_eq!(found.place, place);
+
+        let inside = place.join("2024").join("IMG_1.jpg");
+        let found = chosen(&inside).unwrap();
+        assert_eq!(found.uri, URI);
+        assert!(!found.is_place);
+        assert_eq!(found.place, place);
+    }
+
+    #[test]
+    fn other_paths_are_not_chosen() {
+        assert!(!is_chosen(Path::new("/storage/emulated/0/DCIM")));
+        assert!(!is_chosen(Path::new("/ourstick-chosen-not")));
+        assert_eq!(chosen(Path::new("/storage/emulated/0")), None);
+        assert_eq!(chosen(Path::new("/ourstick-chosen")), None);
+        assert_eq!(chosen(Path::new("/ourstick-chosen/6162")), None);
+        assert_eq!(chosen(Path::new("/ourstick-chosen/616/x")), None);
+        assert_eq!(chosen(Path::new("/ourstick-chosen/zz/x")), None);
+        assert_eq!(chosen(Path::new("/ourstick-chosen/6162/x/../y")), None);
+    }
+
+    #[test]
+    fn names_that_cannot_be_a_part_are_left_out() {
+        for name in ["", ".", "..", "a/b", "nul\0"] {
+            assert!(!is_usable_name(name), "{name:?}");
+        }
+        for name in ["IMG_1.jpg", ".nomedia", "a..b", "Ελληνικά"] {
+            assert!(is_usable_name(name), "{name:?}");
+        }
+    }
+}

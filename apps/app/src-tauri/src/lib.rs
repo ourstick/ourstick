@@ -6,6 +6,8 @@ mod about;
 mod busy;
 mod commands;
 mod dialog;
+#[cfg(any(target_os = "android", test))]
+mod documents;
 mod drive;
 mod inhibit;
 mod keys;
@@ -141,8 +143,20 @@ pub fn run() {
         .setup(|app| {
             // Before the window can call a command: the event loop has not
             // started yet.
-            #[cfg(mobile)]
+            #[cfg(target_os = "ios")]
             app.manage(state::AppState::open(state::phone_data_dir(app.handle())?)?);
+            // What the user chooses to send is read through Android (ADR
+            // 0029), once the window can call into it.
+            #[cfg(target_os = "android")]
+            {
+                let documents = std::sync::Arc::new(documents::DocumentFiles::default());
+                let data_dir = state::phone_data_dir(app.handle())?;
+                app.manage(state::AppState::open_with(data_dir, documents.clone())?);
+                match app.get_webview_window("main") {
+                    Some(window) => documents::start(&window, documents)?,
+                    None => tracing::warn!("no window: chosen files cannot be read"),
+                }
+            }
             tray::create(app.handle())?;
             #[cfg(target_os = "macos")]
             login::no_relaunch_at_login();

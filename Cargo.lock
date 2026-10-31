@@ -4425,6 +4425,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "gtk",
+ "jni 0.21.1",
  "ksni",
  "objc2",
  "objc2-app-kit",

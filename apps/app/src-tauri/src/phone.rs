@@ -112,6 +112,38 @@ pub fn open_folder<R: Runtime>(app: &AppHandle<R>, folder: &std::path::Path) -> 
     Ok(())
 }
 
+/// The system's picker for `pick`, waiting for the user: each chosen
+/// place's content URI and name, kept readable (ADR 0029). Blocking.
+pub fn choose<R: Runtime>(
+    app: &AppHandle<R>,
+    pick: crate::send::Pick,
+) -> anyhow::Result<Vec<(String, String)>> {
+    #[derive(serde::Serialize)]
+    struct Choose {
+        pick: crate::send::Pick,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct One {
+        uri: String,
+        name: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Chosen {
+        chosen: Vec<One>,
+    }
+
+    let chosen: Chosen = phone(app)?
+        .plugin
+        .run_mobile_plugin("choose", Choose { pick })?;
+    Ok(chosen
+        .chosen
+        .into_iter()
+        .map(|one| (one.uri, one.name))
+        .collect())
+}
+
 fn phone<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<tauri::State<'_, Phone<R>>> {
     app.try_state::<Phone<R>>()
         .ok_or_else(|| anyhow::anyhow!("the app's phone plugin did not start"))

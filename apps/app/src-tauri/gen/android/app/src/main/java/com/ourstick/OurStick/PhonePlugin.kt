@@ -4,15 +4,23 @@ import android.app.Activity
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.os.ext.SdkExtensions
 import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.view.WindowManager
+import androidx.activity.result.ActivityResult
 import java.io.File
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
@@ -31,6 +39,12 @@ class OpenFolderArgs {
   lateinit var path: String
 }
 
+@InvokeArg
+class ChooseArgs {
+  /** "photos", "files" or "folders". */
+  var pick: String = "files"
+}
+
 /**
  * What the app's Rust side (`phone.rs`) needs from Android: the links that
  * [LinkActivity] receives, each kept until the window takes it (a link that
@@ -40,6 +54,10 @@ class OpenFolderArgs {
  */
 @TauriPlugin
 class PhonePlugin(private val activity: Activity) : Plugin(activity) {
+  init {
+    Documents.start(activity.applicationContext.contentResolver)
+  }
+
   companion object {
     private val lock = Any()
     private var waiting: String? = null
@@ -106,5 +124,85 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
       )
     }
     invoke.resolve()
+  }
+
+  /**
+   * The system's picker for what to send (ADR 0029): the photo picker,
+   * files, or one folder. What is chosen is kept readable after a restart;
+   * the answer is each one's URI and name, none if the user went back.
+   */
+  @Command
+  fun choose(invoke: Invoke) {
+    val args = invoke.parseArgs(ChooseArgs::class.java)
+    val intent = when (args.pick) {
+      "photos" -> if (hasPhotoPicker()) {
+        Intent(MediaStore.ACTION_PICK_IMAGES)
+          .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit())
+      } else {
+        // Its grants can be kept, unlike ACTION_GET_CONTENT's.
+        Intent(Intent.ACTION_OPEN_DOCUMENT)
+          .addCategory(Intent.CATEGORY_OPENABLE)
+          .setType("*/*")
+          .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+          .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+      }
+      "folders" -> Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+      else -> Intent(Intent.ACTION_OPEN_DOCUMENT)
+        .addCategory(Intent.CATEGORY_OPENABLE)
+        .setType("*/*")
+        .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+    }
+    startActivityForResult(invoke, intent, "chosen")
+  }
+
+  private fun hasPhotoPicker(): Boolean =
+    Build.VERSION.SDK_INT >= 33 ||
+      (Build.VERSION.SDK_INT >= 30 &&
+        SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2)
+
+  @ActivityCallback
+  fun chosen(invoke: Invoke, result: ActivityResult) {
+    val found = JSArray()
+    val data = result.data
+    if (result.resultCode == Activity.RESULT_OK && data != null) {
+      val uris = ArrayList<Uri>()
+      val clip = data.clipData
+      if (clip != null) {
+        for (index in 0 until clip.itemCount) uris.add(clip.getItemAt(index).uri)
+      } else {
+        data.data?.let { uris.add(it) }
+      }
+      val resolver = activity.contentResolver
+      for (uri in uris) {
+        try {
+          resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+          // Readable while the app runs only; told as not found later.
+        }
+        val one = JSObject()
+        one.put("uri", uri.toString())
+        one.put("name", nameOf(uri) ?: "Unnamed")
+        found.put(one)
+      }
+    }
+    val answer = JSObject()
+    answer.put("chosen", found)
+    invoke.resolve(answer)
+  }
+
+  /** The name the provider shows for `uri`; a tree's, its top folder's. */
+  private fun nameOf(uri: Uri): String? {
+    val document = if (DocumentsContract.isTreeUri(uri)) {
+      DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+    } else {
+      uri
+    }
+    return try {
+      activity.contentResolver
+        .query(document, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    } catch (_: Exception) {
+      null
+    }
   }
 }

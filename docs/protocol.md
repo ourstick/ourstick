@@ -152,8 +152,10 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   `.TemporaryItems`, `.DocumentRevisions-V100`, `.VolumeIcon.icns`, `.apdisk`,
   `.metadata_never_index`, `.com.apple.timemachine.donotpresent`, `Thumbs.db`,
   `desktop.ini`, `$RECYCLE.BIN`, `System Volume Information`, `.directory`,
-  `.ourstick-drive`, `.ourstick-partial`, and names starting with `._` or
-  `.Trash-`. The shared folder itself may have any name.
+  `.thumbnails`, `.nomedia`, `.ourstick-drive`, `.ourstick-partial`, and names
+  starting with `._`, `.Trash-`, `.trashed-` or `.pending-` (Android's media
+  store puts the last three beside photos, ADR 0029). The shared folder itself
+  may have any name.
 - A **drive** (the app's stick, `owned_sticks.kind = 'app'`) carries the file
   `.ourstick-drive`, holding its StickId in hex. Without it (an ejected disk
   image, an empty mount point, another stick's drive) the owner does not

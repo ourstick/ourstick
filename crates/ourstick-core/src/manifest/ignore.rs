@@ -23,6 +23,9 @@ const NAMES: &[&str] = &[
     "System Volume Information",
     // Linux file managers
     ".directory",
+    // Android: thumbnails, and a folder's mark for the media store
+    ".thumbnails",
+    ".nomedia",
     // OurStick: the drive marker, a reader's unfinished files, and the mark
     // of a received stick's folder
     super::DRIVE_MARKER,
@@ -31,9 +34,11 @@ const NAMES: &[&str] = &[
 ];
 
 /// Name prefixes: AppleDouble files (`._photo.jpg`), per-user trash
-/// folders (`.Trash-1000`), and every name OurStick writes beside its own
-/// (`.ourstick-received.new`), as a receiver treats them (ADR 0010).
-const PREFIXES: &[&str] = &["._", ".Trash-", ".ourstick-"];
+/// folders (`.Trash-1000`), Android's photos in its trash or still being
+/// written (`.trashed-1712345678-IMG_1.jpg`, `.pending-…`, ADR 0029), and
+/// every name OurStick writes beside its own (`.ourstick-received.new`), as
+/// a receiver treats them (ADR 0010).
+const PREFIXES: &[&str] = &["._", ".Trash-", ".trashed-", ".pending-", ".ourstick-"];
 
 /// The start of OurStick's own names, in any letter case.
 const OURSTICK_PREFIX: &[u8] = b".ourstick-";
@@ -68,6 +73,10 @@ mod tests {
             ".ourstick-partial",
             ".ourstick-received.new",
             ".OurStick-Partial",
+            ".thumbnails",
+            ".nomedia",
+            ".trashed-1712345678-IMG_1.jpg",
+            ".pending-1712345678-VID_2.mp4",
         ] {
             assert!(is_ignored(name), "{name}");
         }

@@ -311,12 +311,14 @@ pub async fn send(
 }
 
 /// What to choose with the system's picker: files, or folders
-/// (Linux's and Windows' pickers do not take both at once).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+/// (Linux's and Windows' pickers do not take both at once); on a phone
+/// also photos and videos, with its photo picker (ADR 0029).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Pick {
     Files,
     Folders,
+    Photos,
 }
 
 /// `Choose folders…` / `Choose files…`: the system's picker, several at
@@ -329,7 +331,7 @@ pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, Str
     let picked = tauri::async_runtime::spawn_blocking(move || {
         let dialog = app.dialog().file().set_title("Choose what to send");
         match pick {
-            Pick::Files => dialog.blocking_pick_files(),
+            Pick::Files | Pick::Photos => dialog.blocking_pick_files(),
             Pick::Folders => dialog.blocking_pick_folders(),
         }
     })
@@ -343,11 +345,30 @@ pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, Str
         .collect())
 }
 
-/// Sending from a phone is not there yet (ADR 0027).
-#[cfg(mobile)]
+/// Android's pickers (ADR 0029): each chosen place as the path the core
+/// reads it by, its content URI in it.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
+    let chosen = tauri::async_runtime::spawn_blocking(move || crate::phone::choose(&app, pick))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("{error:#}"))?;
+    Ok(chosen
+        .into_iter()
+        .map(|(uri, name)| {
+            crate::documents::paths::place_path(&uri, &name)
+                .display()
+                .to_string()
+        })
+        .collect())
+}
+
+/// Sending from an iPhone is not there yet (ADR 0029).
+#[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn choose_paths(_pick: Pick, _app: AppHandle) -> Result<Vec<String>, String> {
-    Err("A phone cannot send yet.".to_owned())
+    Err("An iPhone cannot send yet.".to_owned())
 }
 
 #[cfg(test)]

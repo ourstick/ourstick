@@ -20,6 +20,7 @@ async fn try_publish(owner: &Owner) -> Result<ourstick_core::share::Publication,
     publish_folder(
         &owner.publisher,
         owner.store.clone(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         &owner.clock,
         &owner.signing_key,
         &owner.stick_key,

@@ -86,7 +86,14 @@ pub async fn start(
     // Transfers read through the disks' turns too (ADR 0017).
     let turns = app.state::<crate::state::AppState>().disks.clone();
     crate::local_network::may_bind(&app.state::<crate::state::AppState>()).await;
-    let publisher = IrohPublisher::start(&config, stick_id, &cache_dir, turns).await?;
+    let publisher = IrohPublisher::start(
+        &config,
+        stick_id,
+        &cache_dir,
+        turns,
+        app.state::<crate::state::AppState>().files.clone(),
+    )
+    .await?;
     // Who has it (ADR 0015): readers' reports kept from the start.
     if let Some(reports) = publisher.take_reports() {
         readers::keep(
@@ -172,6 +179,7 @@ async fn first_publication(
             stick_id,
             keys.stick_key.clone(),
             disks.clone(),
+            app.state::<crate::state::AppState>().files.clone(),
             pass_wanted,
         );
         async move {
@@ -200,6 +208,7 @@ async fn first_publication(
             publish_folder(
                 publisher,
                 store.clone(),
+                app.state::<crate::state::AppState>().files.clone(),
                 &SystemClock,
                 &keys.signing_key,
                 &keys.stick_key,

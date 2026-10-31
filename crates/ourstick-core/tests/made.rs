@@ -70,6 +70,7 @@ fn keep_files(owner: &Owner) -> (Arc<AtomicUsize>, tokio::task::JoinHandle<()>) 
         owner.signing_key.stick_id(),
         owner.stick_key.clone(),
         common::disks(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         Arc::new(move || {
             counting.fetch_add(1, Ordering::Relaxed);
         }),

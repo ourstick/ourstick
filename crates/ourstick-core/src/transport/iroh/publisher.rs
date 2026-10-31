@@ -42,6 +42,8 @@ pub struct IrohPublisher {
     /// Transfers read the files through the disks' turns (ADR 0017,
     /// amendment 1).
     reads: super::made_store::Reads,
+    /// Through what the stick's files are read (ADR 0029).
+    sender_files: Arc<dyn crate::sender_files::SenderFiles>,
     /// The store serving the current manifest.
     manifest: Arc<Mutex<Option<(StoreId, MemStore)>>>,
     /// The owner's own store (ADR 0017), once it serves files.
@@ -99,6 +101,7 @@ impl IrohPublisher {
         stick_id: StickId,
         cache_dir: &Path,
         turns: Arc<crate::disk::turns::DiskTurns>,
+        sender_files: Arc<dyn crate::sender_files::SenderFiles>,
     ) -> Result<Self, TransportError> {
         let cache_dir = absolute(cache_dir)?;
         tokio::fs::create_dir_all(&cache_dir).await?;
@@ -156,6 +159,7 @@ impl IrohPublisher {
             serving,
             next_store: Arc::new(AtomicU64::new(1)),
             reads,
+            sender_files,
             manifest: Arc::new(Mutex::new(None)),
             made: Arc::new(Mutex::new(None)),
             demand: Arc::new(Mutex::new(Some(demand))),
@@ -274,6 +278,7 @@ impl Publisher for IrohPublisher {
                 made_runtime().handle().clone(),
                 on_not_served,
                 Some(self.reads.clone()),
+                self.sender_files.clone(),
             );
             self.serving.add_store(id, store.clone());
             self.serving.set_probe(

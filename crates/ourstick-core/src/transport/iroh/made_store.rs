@@ -25,6 +25,7 @@ use crate::blob::made::MadeBlob;
 use crate::cipher::Cipher;
 use crate::manifest::hashing::{outboard_path, BLOCK_SIZE};
 use crate::manifest::Manifest;
+use crate::sender_files::SenderFiles;
 use crate::transport::{BlobHash, ServedFile, ServedFiles};
 
 /// Told when the store could not serve a blob: its hash, and whether its
@@ -42,6 +43,8 @@ pub(super) struct Served {
     on_not_served: OnNotServed,
     /// Through the disks' turns, unless the store was started without.
     reads: Option<Reads>,
+    /// Through what the files are read (ADR 0029).
+    sender_files: Arc<dyn SenderFiles>,
 }
 
 // The table and the transport's ready set change together: each change of
@@ -145,6 +148,7 @@ pub(super) fn start(
     runtime: tokio::runtime::Handle,
     on_not_served: OnNotServed,
     reads: Option<Reads>,
+    sender_files: Arc<dyn SenderFiles>,
 ) -> (Store, Served) {
     let served = Served {
         cipher: Arc::new(Mutex::new(cipher)),
@@ -152,6 +156,7 @@ pub(super) fn start(
         files: Arc::default(),
         on_not_served,
         reads,
+        sender_files,
     };
     let (sender, commands) = tokio::sync::mpsc::channel::<Command>(64);
     let store: Store = MemStore::from_sender(sender.into()).into();
@@ -246,8 +251,8 @@ pub(super) fn probe(served: Served, runtime: tokio::runtime::Handle) -> super::s
         let Ok(found) = served.file(&hash) else {
             return false;
         };
-        let changed = match std::fs::metadata(&found.path) {
-            Ok(metadata) if metadata.len() == found.plaintext_len => false,
+        let changed = match served.sender_files.facts_followed(&found.path) {
+            Ok(facts) if facts.stamp.size == found.plaintext_len => false,
             Ok(_) => true,
             Err(_) => {
                 not_served(&served, hash, &found, false);
@@ -302,6 +307,7 @@ async fn export(
 ) -> Result<(), Refused> {
     let path = &found.path;
     let blob = MadeBlob::open(
+        served.sender_files.as_ref(),
         path,
         served.cipher(),
         found.plaintext_len,

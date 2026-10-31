@@ -329,7 +329,14 @@ impl Catalogue {
         }
         let reader = readers.map(|readers| readers.on(DiskId::of_facts(path, &facts)));
         let outboards = self.outboards.as_deref();
-        match hash_file_telling_plaintext(relative.to_owned(), path, cipher, reader, outboards) {
+        match hash_file_telling_plaintext(
+            self.sender_files.as_ref(),
+            relative.to_owned(),
+            path,
+            cipher,
+            reader,
+            outboards,
+        ) {
             Ok(Hashed {
                 entry,
                 plaintext_hash,

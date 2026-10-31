@@ -31,6 +31,7 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
         owner.signing_key.stick_id(),
         owner.cache.path(),
         common::disks(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
     )
     .await
     .unwrap();
@@ -40,6 +41,7 @@ async fn a_restarted_owner_serves_its_latest_version_at_once() {
         owner.signing_key.stick_id(),
         owner.stick_key.clone(),
         common::disks(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         std::sync::Arc::new(|| {}),
     ));
     let publishing = ourstick_core::share::Owner {

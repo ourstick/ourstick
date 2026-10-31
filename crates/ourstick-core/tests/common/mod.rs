@@ -16,6 +16,7 @@ use ourstick_core::clock::FixedClock;
 use ourstick_core::download::{
     download, DownloadError, DownloadEvent, DownloadReport, RelayPolicy,
 };
+use ourstick_core::sender_files::SenderFiles;
 use ourstick_core::share::{keep_files, publish_folder, Publication};
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, IrohPublisher, Network};
 use ourstick_core::transport::Publisher;
@@ -53,6 +54,8 @@ pub struct Owner {
     pub stick_key: StickKey,
     pub folder: TempDir,
     pub cache: TempDir,
+    /// Through what its files are read (ADR 0029).
+    pub files: Arc<dyn SenderFiles>,
 }
 
 /// The disks a test's owner reads (ADR 0013), at their real speed.
@@ -77,7 +80,14 @@ impl Owner {
     /// Like [`Owner::new`], with no files' keeper: nothing is served but the
     /// manifest, unless the test serves it itself.
     pub async fn bare(files: &[(&str, &[u8])]) -> Self {
-        Self::build(Network::LocalOnly, files, StickKind::Cli, true).await
+        Self::build(
+            Network::LocalOnly,
+            files,
+            StickKind::Cli,
+            true,
+            std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
+        )
+        .await
     }
 
     /// Serves the files of `publisher` (a restarted owner's) for this
@@ -89,6 +99,7 @@ impl Owner {
             self.signing_key.stick_id(),
             self.stick_key.clone(),
             disks(),
+            self.files.clone(),
             std::sync::Arc::new(|| {}),
         ));
     }
@@ -104,13 +115,25 @@ impl Owner {
     /// An app stick of ADR 0028: no folder of its own (an empty one), no
     /// drive, no marker; only what is linked to it is sent.
     pub async fn sending() -> Self {
-        let owner = Self::build(Network::LocalOnly, &[], StickKind::App, false).await;
+        Self::sending_through(Arc::new(ourstick_core::sender_files::LocalFiles)).await
+    }
+
+    /// [`Owner::sending`], its files read through `sender`.
+    pub async fn sending_through(sender: Arc<dyn SenderFiles>) -> Self {
+        let owner = Self::build(Network::LocalOnly, &[], StickKind::App, false, sender).await;
         owner.keep(&owner.publisher);
         owner
     }
 
     async fn with(network: Network, files: &[(&str, &[u8])], kind: StickKind) -> Self {
-        let owner = Self::build(network, files, kind, true).await;
+        let owner = Self::build(
+            network,
+            files,
+            kind,
+            true,
+            std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
+        )
+        .await;
         owner.keep(&owner.publisher);
         owner
     }
@@ -120,6 +143,7 @@ impl Owner {
         files: &[(&str, &[u8])],
         kind: StickKind,
         has_own_folder: bool,
+        sender: Arc<dyn SenderFiles>,
     ) -> Self {
         let folder = tempfile::tempdir().unwrap();
         for (path, contents) in files {
@@ -142,10 +166,15 @@ impl Owner {
             .unwrap();
         let cache = tempfile::tempdir().unwrap();
         let config = IrohConfig::new(random_key(), network);
-        let publisher =
-            IrohPublisher::start(&config, signing_key.stick_id(), cache.path(), disks())
-                .await
-                .unwrap();
+        let publisher = IrohPublisher::start(
+            &config,
+            signing_key.stick_id(),
+            cache.path(),
+            disks(),
+            sender.clone(),
+        )
+        .await
+        .unwrap();
         Self {
             publisher,
             store,
@@ -154,6 +183,7 @@ impl Owner {
             stick_key: StickKey::from_bytes(random_key()),
             folder,
             cache,
+            files: sender,
         }
     }
 
@@ -166,6 +196,7 @@ impl Owner {
         publish_folder(
             &self.publisher,
             self.store.clone(),
+            self.files.clone(),
             &self.clock,
             &self.signing_key,
             &self.stick_key,

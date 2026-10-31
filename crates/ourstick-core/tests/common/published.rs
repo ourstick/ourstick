@@ -94,6 +94,7 @@ pub async fn publish_files(files: &[(&str, &[u8])]) -> Published {
     let publication = publish_folder(
         &publisher,
         owner_store,
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         &FixedClock::new(1_000),
         &signing_key,
         &stick_key,
@@ -189,6 +190,7 @@ pub async fn publish_versions(versions: &[&[(&str, &[u8])]]) -> Versions {
         let publication = publish_folder(
             &publisher,
             owner_store.clone(),
+            std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
             &FixedClock::new(1_000 * (index as u64 + 1)),
             &signing_key,
             &stick_key,

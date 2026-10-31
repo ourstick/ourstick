@@ -5,7 +5,6 @@
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 use bao_tree::io::outboard::PreOrderOutboard;
 use bao_tree::{BaoTree, BlockSize};
@@ -15,6 +14,7 @@ use super::{Entry, ManifestError};
 use crate::blob::{blob_len, cipher_error, BlobReader};
 use crate::cipher::{Cipher, CipherError};
 use crate::disk::turns::DiskReader;
+use crate::sender_files::{InOrder, LocalFiles, SenderFiles};
 
 /// iroh's chunk groups (16 KiB): the outboards must be the ones iroh-blobs
 /// serves with.
@@ -27,8 +27,15 @@ pub(crate) fn hash_file(
     path: &Path,
     cipher: &dyn Cipher,
 ) -> Result<Entry, ManifestError> {
-    hash_file_telling_plaintext(relative_path(root, path)?, path, cipher, None, None)
-        .map(|hashed| hashed.entry)
+    hash_file_telling_plaintext(
+        &LocalFiles,
+        relative_path(root, path)?,
+        path,
+        cipher,
+        None,
+        None,
+    )
+    .map(|hashed| hashed.entry)
 }
 
 /// What hashing a file for the catalogue gives.
@@ -39,23 +46,25 @@ pub(crate) struct Hashed {
     pub(crate) plaintext_hash: [u8; 32],
 }
 
-/// [`hash_file`] for the file at `path` whose manifest path is `relative`,
-/// also telling the plaintext hash. With `reader`, the file is read through
+/// [`hash_file`] for the file at `path`, read through `files`, whose
+/// manifest path is `relative`, also telling the plaintext hash. With `reader`, the file is read through
 /// its disk's turns (ADR 0013). With `outboards`, a blob of more than one
 /// 16 KiB group has its outboard written there as `<hex hash>.obao`
 /// (through a temporary file and a rename); a smaller one has none. Blocking.
 pub(crate) fn hash_file_telling_plaintext(
+    files: &dyn SenderFiles,
     relative: String,
     path: &Path,
     cipher: &dyn Cipher,
     reader: Option<&mut DiskReader>,
     outboards: Option<&Path>,
 ) -> Result<Hashed, ManifestError> {
-    let file = File::open(path).map_err(|e| ManifestError::io(path, e))?;
-    let metadata = file.metadata().map_err(|e| ManifestError::io(path, e))?;
+    let file = files.open(path).map_err(|e| ManifestError::io(path, e))?;
+    let facts = file.facts().map_err(|e| ManifestError::io(path, e))?;
+    let file = InOrder::new(file);
     let hashed = match reader {
         Some(reader) => {
-            let len = metadata.len();
+            let len = facts.stamp.size;
             hash_plaintext(
                 cipher,
                 &mut BufReader::new(reader.open(file, len)),
@@ -71,12 +80,7 @@ pub(crate) fn hash_file_telling_plaintext(
             source,
         },
     })?;
-    let mtime = metadata
-        .modified()
-        .map_err(|e| ManifestError::io(path, e))?
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let mtime = facts.mtime_seconds();
     Ok(Hashed {
         entry: Entry {
             path: relative,

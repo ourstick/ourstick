@@ -11,6 +11,7 @@ use crate::disk::turns::{DiskId, DiskTurns, Readers};
 use crate::layout::StickLayout;
 use crate::manifest::hashing::hash_file_telling_plaintext;
 use crate::manifest::{FileStamp, ManifestError};
+use crate::sender_files::SenderFiles;
 use crate::store::OwnedFile;
 use crate::transport::BlobHash;
 
@@ -35,11 +36,17 @@ pub(super) enum Made {
     Unreadable(String),
 }
 
+/// Where a stick's files are: its roots, read through `files`.
+pub(super) struct StickFiles<'a> {
+    pub layout: &'a StickLayout,
+    pub files: &'a dyn SenderFiles,
+}
+
 /// Makes `blob` ready. Stops between disk windows once `stop` is set (the
 /// keeper ended). Blocking.
 pub(super) fn make(
     blob: &ToMake,
-    layout: &StickLayout,
+    StickFiles { layout, files }: StickFiles<'_>,
     cipher: &dyn Cipher,
     outboards: &Path,
     disks: Arc<DiskTurns>,
@@ -48,22 +55,28 @@ pub(super) fn make(
 ) -> Made {
     let first = &blob.paths[0];
     let path = layout.on_disk(first);
-    let metadata = match std::fs::metadata(&path) {
-        Ok(metadata) => metadata,
+    let facts = match files.facts_followed(&path) {
+        Ok(facts) => facts,
         Err(error) => return Made::Unreadable(error.to_string()),
     };
     // Taken before the file is read: if it changes after, the next pass
     // reads it again.
-    let stamp = FileStamp::of(&metadata);
+    let stamp = facts.stamp;
     let mut readers = Readers::new(disks, urgent, move || {
         if stop.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("sharing stopped"));
         }
         Ok(())
     });
-    let reader = readers.on(DiskId::of_file(&path, &metadata));
-    let hashed =
-        hash_file_telling_plaintext(first.clone(), &path, cipher, Some(reader), Some(outboards));
+    let reader = readers.on(DiskId::of_facts(&path, &facts));
+    let hashed = hash_file_telling_plaintext(
+        files,
+        first.clone(),
+        &path,
+        cipher,
+        Some(reader),
+        Some(outboards),
+    );
     readers.end_windows();
     let plaintext_hash = match hashed {
         Ok(hashed) if hashed.entry.hash == blob.hash => hashed.plaintext_hash,
@@ -86,8 +99,9 @@ pub(super) fn make(
     // recorded with a blob it no longer gives).
     for (other, recorded) in blob.paths.iter().zip(&blob.stamps).skip(1) {
         let Some(recorded) = recorded else { continue };
-        if std::fs::metadata(layout.on_disk(other))
-            .is_ok_and(|metadata| FileStamp::of(&metadata) == *recorded)
+        if files
+            .facts_followed(&layout.on_disk(other))
+            .is_ok_and(|facts| facts.stamp == *recorded)
         {
             records.push(record(other, *recorded));
         }

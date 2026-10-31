@@ -145,6 +145,7 @@ pub enum ShareError {
 pub async fn publish_folder(
     publisher: &impl Publisher,
     store: Arc<dyn Store>,
+    files: Arc<dyn SenderFiles>,
     clock: &dyn Clock,
     signing_key: &StickSigningKey,
     stick_key: &StickKey,
@@ -159,7 +160,7 @@ pub async fn publish_folder(
         publisher,
         store,
         disks,
-        files: Arc::new(crate::sender_files::LocalFiles),
+        files,
         clock,
         signing_key,
         stick_key,

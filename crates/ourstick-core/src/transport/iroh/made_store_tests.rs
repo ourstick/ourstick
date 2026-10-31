@@ -52,6 +52,7 @@ fn stick_with(served: &[(&str, Vec<u8>)], later: &[(&str, Vec<u8>)]) -> Stick {
         let path = folder.path().join(name);
         std::fs::write(&path, data).unwrap();
         let hashed = hash_file_telling_plaintext(
+            &crate::sender_files::LocalFiles,
             (*name).to_owned(),
             &path,
             cipher().as_ref(),
@@ -88,6 +89,7 @@ fn stick_with(served: &[(&str, Vec<u8>)], later: &[(&str, Vec<u8>)]) -> Stick {
         Some(Reads::new(Arc::new(crate::disk::turns::DiskTurns::new(
             Arc::new(crate::disk::turns::SystemTimer::default()),
         )))),
+        Arc::new(crate::sender_files::LocalFiles),
     );
     served.set(
         cipher(),

@@ -14,13 +14,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use self::keeper::Keeper;
-use self::make::{make, Made, ToMake};
+use self::make::{make, Made, StickFiles, ToMake};
 use super::ShareError;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, StickKey};
 use crate::disk::turns::DiskTurns;
 use crate::layout::StickLayout;
 use crate::manifest::hashing::outboards_dir;
+use crate::sender_files::SenderFiles;
 use crate::stick_id::StickId;
 use crate::store::Store;
 use crate::transport::{BlobHash, Publisher};
@@ -65,6 +66,7 @@ pub async fn keep_files<P: Publisher + 'static>(
     stick_id: StickId,
     stick_key: StickKey,
     disks: Arc<DiskTurns>,
+    files: Arc<dyn SenderFiles>,
     pass_wanted: PassWanted,
 ) -> Result<(), ShareError> {
     let mut demand = publisher.take_demand().ok_or(ShareError::KeeperRunning)?;
@@ -79,6 +81,7 @@ pub async fn keep_files<P: Publisher + 'static>(
         cipher: cipher_for(owned.cipher, &stick_key),
         outboards: outboards_dir(publisher.cache_dir()),
         disks,
+        files,
         pass_wanted,
         stop: Arc::new(AtomicBool::new(false)),
     };
@@ -145,6 +148,8 @@ struct Context {
     cipher: Arc<dyn Cipher>,
     outboards: PathBuf,
     disks: Arc<DiskTurns>,
+    /// Through what the stick's files are read (ADR 0029).
+    files: Arc<dyn SenderFiles>,
     pass_wanted: PassWanted,
     stop: Arc<AtomicBool>,
 }
@@ -153,11 +158,15 @@ fn start_making(context: &Context, blob: ToMake, layout: StickLayout, urgent: bo
     let cipher = context.cipher.clone();
     let outboards = context.outboards.clone();
     let disks = context.disks.clone();
+    let files = context.files.clone();
     let stop = context.stop.clone();
     tokio::task::spawn_blocking(move || {
         let made = make(
             &blob,
-            &layout,
+            StickFiles {
+                layout: &layout,
+                files: files.as_ref(),
+            },
             cipher.as_ref(),
             &outboards,
             disks,

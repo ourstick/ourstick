@@ -5,7 +5,6 @@
 //! the file is unchanged; whoever sends them must check every part against
 //! the blob's hash tree first (ADR 0017, rule 3).
 
-use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{blob_len, BlobHeader, CHUNK_SIZE};
 use crate::cipher::Cipher;
+use crate::sender_files::{FileFacts, ReadAt, SenderFiles};
 
 /// How a made blob's file is read: through a disk's turns for transfers
 /// (ADR 0017, amendment 1).
@@ -24,7 +24,7 @@ pub trait FileReads: Send + Sync {
 
 /// One file's blob, made on demand.
 pub struct MadeBlob {
-    file: File,
+    file: Box<dyn ReadAt>,
     cipher: Arc<dyn Cipher>,
     header: BlobHeader,
     header_bytes: Vec<u8>,
@@ -42,15 +42,17 @@ pub struct MadeBlob {
 }
 
 impl MadeBlob {
-    /// The blob of the file at `path`, of `plaintext_len` bytes whose BLAKE3
-    /// is `plaintext_hash`, as the catalogue recorded them. Blocking.
+    /// The blob of the file at `path`, read through `files`, of
+    /// `plaintext_len` bytes whose BLAKE3 is `plaintext_hash`, as the
+    /// catalogue recorded them. Blocking.
     pub fn open(
+        files: &dyn SenderFiles,
         path: &Path,
         cipher: Arc<dyn Cipher>,
         plaintext_len: u64,
         plaintext_hash: &[u8; 32],
     ) -> io::Result<Self> {
-        let file = File::open(path)?;
+        let file = files.open(path)?;
         let header = BlobHeader::new(
             cipher.id(),
             cipher.derive_nonce_prefix(&blake3::Hash::from_bytes(*plaintext_hash)),
@@ -74,9 +76,9 @@ impl MadeBlob {
         self
     }
 
-    /// Its file's metadata, as opened.
-    pub fn metadata(&self) -> io::Result<std::fs::Metadata> {
-        self.file.metadata()
+    /// Its file's facts, as opened.
+    pub fn facts(&self) -> io::Result<FileFacts> {
+        self.file.facts()
     }
 
     /// The blob's length, from the recorded size.
@@ -116,10 +118,12 @@ impl MadeBlob {
             Some(reads) => {
                 let begins = !self.begun.swap(true, Ordering::Relaxed);
                 reads.read(begins, &mut || {
-                    read_exact_at(&self.file, &mut plaintext, start).map(|()| len as u64)
+                    self.file
+                        .read_exact_at(&mut plaintext, start)
+                        .map(|()| len as u64)
                 })?;
             }
-            None => read_exact_at(&self.file, &mut plaintext, start)?,
+            None => self.file.read_exact_at(&mut plaintext, start)?,
         }
         let is_last = index + 1 == self.chunks();
         let index32 = u32::try_from(index).map_err(io::Error::other)?;
@@ -164,33 +168,6 @@ impl MadeBlob {
     }
 }
 
-#[cfg(unix)]
-fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
-    std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
-}
-
-#[cfg(windows)]
-fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> io::Result<()> {
-    use std::os::windows::fs::FileExt;
-    while !buf.is_empty() {
-        match file.seek_read(buf, offset) {
-            Ok(0) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "the file is shorter than recorded",
-                ))
-            }
-            Ok(n) => {
-                buf = &mut buf[n..];
-                offset += n as u64;
-            }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,7 +199,14 @@ mod tests {
                 &mut blob,
             )
             .unwrap();
-            let made = MadeBlob::open(&path, cipher(), size as u64, &info.plaintext_hash).unwrap();
+            let made = MadeBlob::open(
+                &crate::sender_files::LocalFiles,
+                &path,
+                cipher(),
+                size as u64,
+                &info.plaintext_hash,
+            )
+            .unwrap();
             assert_eq!(made.len(), blob.len() as u64);
             for (offset, len) in [
                 (0, blob.len()),
@@ -261,6 +245,7 @@ mod tests {
         changed[CHUNK_SIZE + 5] = 0;
         std::fs::write(&path, &changed).unwrap();
         let made = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
             &path,
             cipher(),
             plaintext.len() as u64,
@@ -284,11 +269,25 @@ mod tests {
         let mut blob = Vec::new();
         let info =
             encrypt_blob(cipher().as_ref(), &mut io::Cursor::new(b"hello"), &mut blob).unwrap();
-        let made = MadeBlob::open(&path, cipher(), 5, &info.plaintext_hash).unwrap();
+        let made = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
+            &path,
+            cipher(),
+            5,
+            &info.plaintext_hash,
+        )
+        .unwrap();
         let mut out = vec![0u8; blob.len()];
         made.read_at(0, &mut out).unwrap();
         assert_eq!(out, blob);
-        let empty = MadeBlob::open(&path, cipher(), 0, blake3::hash(b"").as_bytes()).unwrap();
+        let empty = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
+            &path,
+            cipher(),
+            0,
+            blake3::hash(b"").as_bytes(),
+        )
+        .unwrap();
         let mut blob = Vec::new();
         encrypt_blob(cipher().as_ref(), &mut io::Cursor::new(b""), &mut blob).unwrap();
         let mut out = vec![0u8; blob.len()];
@@ -301,7 +300,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("f");
         std::fs::write(&path, vec![1u8; 100]).unwrap();
-        let made = MadeBlob::open(&path, cipher(), 200, &[0; 32]).unwrap();
+        let made = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
+            &path,
+            cipher(),
+            200,
+            &[0; 32],
+        )
+        .unwrap();
         let mut out = vec![0u8; made.len() as usize];
         assert!(made.read_at(0, &mut out).is_err());
         // And nothing past the blob is made.
@@ -335,6 +341,7 @@ mod tests {
         .unwrap();
         let counted = Arc::new(Counted::default());
         let made = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
             &path,
             cipher(),
             plaintext.len() as u64,

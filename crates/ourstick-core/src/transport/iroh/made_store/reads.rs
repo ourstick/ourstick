@@ -31,7 +31,7 @@ impl Reads {
 
     /// `blob`, of the file at `path`, read through its disk's turns.
     pub(super) fn through_turns(&self, blob: MadeBlob, path: &Path) -> io::Result<MadeBlob> {
-        let disk = DiskId::of_file(path, &blob.metadata()?);
+        let disk = DiskId::of_facts(path, &blob.facts()?);
         let reader = self
             .readers
             .lock()
@@ -105,7 +105,14 @@ mod tests {
         timed.read_exact(&mut [0u8; 1]).unwrap();
         let reads = Reads::new(turns.clone());
         let cipher: Arc<dyn Cipher> = Arc::new(ChaChaCipher::new(&StickKey::from_bytes([1; 32])));
-        let blob = MadeBlob::open(&path, cipher, 100, &[0; 32]).unwrap();
+        let blob = MadeBlob::open(
+            &crate::sender_files::LocalFiles,
+            &path,
+            cipher,
+            100,
+            &[0; 32],
+        )
+        .unwrap();
         let blob = reads.through_turns(blob, &path).unwrap();
         let waiting = std::thread::spawn(move || {
             let started = Instant::now();

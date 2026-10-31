@@ -151,8 +151,14 @@ pub async fn run(
     let config = IrohConfig::new(node_key, Network::Public);
     // ADR 0017: blobs are made from the files when readers ask for them; no
     // encrypted copy is kept.
-    let publisher =
-        IrohPublisher::start(&config, stick.stick_id, &cache_dir, disks.clone()).await?;
+    let publisher = IrohPublisher::start(
+        &config,
+        stick.stick_id,
+        &cache_dir,
+        disks.clone(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
+    )
+    .await?;
     // A file that changed since its version asks the watcher (started
     // below) for a pass.
     let (pass_wanted, watcher_nudge) = nudge_later();
@@ -162,6 +168,7 @@ pub async fn run(
         stick.stick_id,
         stick_key.clone(),
         disks.clone(),
+        std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         pass_wanted,
     ));
     // Before the first version, so the ticket carries the relay's address.

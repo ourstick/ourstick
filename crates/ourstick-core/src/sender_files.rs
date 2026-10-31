@@ -15,9 +15,11 @@ use std::path::Path;
 use crate::manifest::FileStamp;
 
 mod local;
+mod memory;
 mod walk;
 
 pub use local::LocalFiles;
+pub use memory::MemoryFiles;
 pub use walk::for_each_file;
 
 /// What an item is. A symbolic link is never followed by the walk.

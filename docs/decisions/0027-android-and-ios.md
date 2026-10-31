@@ -268,7 +268,8 @@ devices over paper (CLAUDE.md).
    `Fetcher::network_change`, one receive at a time, the clipboard on tap,
    the port mapper off.
 3. The phone layout of the receive path; "Open" through the plugin.
-4. Play internal testing (the first upload gives Play's signing key);
+4. Play internal testing (the first upload gives Play's signing key),
+   after ADR 0029's steps 4 and 5: sending from a phone comes first;
    the `.well-known` files and the link page for phones (site deploy with
    Giorgos's yes); closed testing starts now (12 testers, 14 days).
 5. Play production.

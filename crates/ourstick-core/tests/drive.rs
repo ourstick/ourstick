@@ -39,7 +39,14 @@ async fn a_drive_is_published_without_its_marker_in_the_manifest() {
         .map(|e| e.path.as_str())
         .collect();
     assert_eq!(paths, vec!["a.txt"]);
-    assert_eq!(folder_size(owner.folder.path()).unwrap(), 5);
+    assert_eq!(
+        folder_size(
+            &ourstick_core::sender_files::LocalFiles,
+            owner.folder.path()
+        )
+        .unwrap(),
+        5
+    );
     owner.publisher.shutdown().await;
 }
 
@@ -96,6 +103,7 @@ async fn a_stick_with_no_folder_of_its_own_is_no_drive_and_sends_its_links() {
     let owner = Owner::sending().await;
     let stick_id = owner.signing_key.stick_id();
     let entry = ourstick_core::linked::plan_link(
+        &ourstick_core::sender_files::LocalFiles,
         owner.store.as_ref(),
         &stick_id,
         owner.cache.path(),
@@ -157,6 +165,7 @@ async fn the_watcher_says_ejected_once_and_picks_up_again() {
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,

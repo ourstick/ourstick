@@ -15,8 +15,10 @@ use std::path::Path;
 use crate::manifest::FileStamp;
 
 mod local;
+mod walk;
 
 pub use local::LocalFiles;
+pub use walk::for_each_file;
 
 /// What an item is. A symbolic link is never followed by the walk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +86,7 @@ pub trait ReadAt: Send + Sync {
 }
 
 /// The files a stick shares, read where they are.
-pub trait SenderFiles: Send + Sync {
+pub trait SenderFiles: Send + Sync + std::fmt::Debug {
     /// The item at `path`, a final symbolic link not followed.
     fn facts(&self, path: &Path) -> io::Result<FileFacts>;
 

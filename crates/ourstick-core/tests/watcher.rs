@@ -82,6 +82,7 @@ async fn watch_with(
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
@@ -268,6 +269,7 @@ async fn reading_first_publishes_what_changed_while_stopped() {
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,

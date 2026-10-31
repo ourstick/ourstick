@@ -80,7 +80,13 @@ fn layout(disk: &Disk) -> StickLayout {
 #[test]
 fn every_root_is_walked_under_its_name_and_links_inside_are_not_followed() {
     let disk = disk();
-    let mut catalogue = Catalogue::start_layout(&layout(&disk), Vec::new(), false).unwrap();
+    let mut catalogue = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout(&disk),
+        Vec::new(),
+        false,
+    )
+    .unwrap();
     // The own "films" is hidden by the linked "Films", whatever the case.
     assert_eq!(catalogue.left_out(), ["films"]);
     assert!(catalogue.gone().is_empty());
@@ -98,21 +104,38 @@ fn every_root_is_walked_under_its_name_and_links_inside_are_not_followed() {
 fn a_gone_linked_entry_keeps_its_files_as_recorded_even_on_a_rescan() {
     let disk = disk();
     let layout = layout(&disk);
-    let mut first = Catalogue::start_layout(&layout, Vec::new(), false).unwrap();
+    let mut first = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap();
     let recorded: Vec<OwnedFile> = all(&mut first)
         .iter()
         .map(CataloguedFile::owned_file)
         .collect();
-    let before: Vec<Entry> =
-        all(&mut Catalogue::start_layout(&layout, recorded.clone(), false).unwrap())
-            .into_iter()
-            .map(|file| file.entry)
-            .collect();
+    let before: Vec<Entry> = all(&mut Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        recorded.clone(),
+        false,
+    )
+    .unwrap())
+    .into_iter()
+    .map(|file| file.entry)
+    .collect();
 
     // Its disk unplugged.
     std::fs::rename(&disk.films, disk.films.with_file_name("away")).unwrap();
     for rescan in [false, true] {
-        let mut catalogue = Catalogue::start_layout(&layout, recorded.clone(), rescan).unwrap();
+        let mut catalogue = Catalogue::start_layout(
+            std::sync::Arc::new(crate::sender_files::LocalFiles),
+            &layout,
+            recorded.clone(),
+            rescan,
+        )
+        .unwrap();
         assert_eq!(catalogue.gone(), ["Films"]);
         let files = all(&mut catalogue);
         let films: Vec<&CataloguedFile> = files
@@ -128,7 +151,13 @@ fn a_gone_linked_entry_keeps_its_files_as_recorded_even_on_a_rescan() {
 
     // Back: read as usual, nothing new.
     std::fs::rename(disk.films.with_file_name("away"), &disk.films).unwrap();
-    let mut back = Catalogue::start_layout(&layout, recorded, false).unwrap();
+    let mut back = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        recorded,
+        false,
+    )
+    .unwrap();
     assert!(back.gone().is_empty());
     let entries: Vec<Entry> = all(&mut back).into_iter().map(|file| file.entry).collect();
     assert_eq!(entries, before);
@@ -138,7 +167,13 @@ fn a_gone_linked_entry_keeps_its_files_as_recorded_even_on_a_rescan() {
 fn a_linked_file_is_one_entry_under_its_name() {
     let disk = disk();
     let layout = StickLayout::new(&disk.own, &[linked("notes.txt", &disk.notes)]);
-    let files = all(&mut Catalogue::start_layout(&layout, Vec::new(), false).unwrap());
+    let files = all(&mut Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap());
     let notes = files
         .iter()
         .find(|file| file.entry.path == "notes.txt")
@@ -175,7 +210,13 @@ fn the_folder_at_the_top_gives_its_contents_without_its_name() {
     let disk = disk();
     let (empty, top) = at_top(&disk);
     let layout = StickLayout::new(&empty, &[top.clone(), linked("Films", &disk.films)]);
-    let mut catalogue = Catalogue::start_layout(&layout, Vec::new(), false).unwrap();
+    let mut catalogue = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap();
     assert!(catalogue.left_out().is_empty());
     let paths: Vec<String> = all(&mut catalogue)
         .into_iter()
@@ -198,7 +239,13 @@ fn the_folder_at_the_top_gives_its_contents_without_its_name() {
 
     // A name it gains later that a named entry has is not sent.
     write(&top.path.join("films/z.mkv"), b"z");
-    let mut catalogue = Catalogue::start_layout(&layout, Vec::new(), false).unwrap();
+    let mut catalogue = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap();
     assert_eq!(catalogue.left_out(), ["films"]);
     assert_eq!(all(&mut catalogue).len(), 4);
 }
@@ -208,13 +255,24 @@ fn the_folder_at_the_top_gone_keeps_its_files_as_recorded() {
     let disk = disk();
     let (empty, top) = at_top(&disk);
     let layout = StickLayout::new(&empty, &[top.clone(), linked("Films", &disk.films)]);
-    let recorded: Vec<OwnedFile> =
-        all(&mut Catalogue::start_layout(&layout, Vec::new(), false).unwrap())
-            .iter()
-            .map(CataloguedFile::owned_file)
-            .collect();
+    let recorded: Vec<OwnedFile> = all(&mut Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap())
+    .iter()
+    .map(CataloguedFile::owned_file)
+    .collect();
     std::fs::rename(&top.path, top.path.with_file_name("away")).unwrap();
-    let mut catalogue = Catalogue::start_layout(&layout, recorded, false).unwrap();
+    let mut catalogue = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        recorded,
+        false,
+    )
+    .unwrap();
     assert_eq!(catalogue.gone(), ["Holiday"]);
     // Its files as recorded, the named entry's as usual: the same manifest.
     let paths: Vec<String> = all(&mut catalogue)

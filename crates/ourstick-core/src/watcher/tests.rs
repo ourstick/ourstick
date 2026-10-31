@@ -36,7 +36,14 @@ async fn a_file_being_written_is_not_settled() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("growing.bin");
     std::fs::write(&path, b"").unwrap();
-    assert!(is_settled(dir.path(), Duration::from_millis(50)).await);
+    assert!(
+        is_settled(
+            Arc::new(crate::sender_files::LocalFiles),
+            dir.path(),
+            Duration::from_millis(50)
+        )
+        .await
+    );
 
     let writer = std::thread::spawn(move || {
         use std::io::Write;
@@ -46,9 +53,23 @@ async fn a_file_being_written_is_not_settled() {
             std::thread::sleep(Duration::from_millis(20));
         }
     });
-    assert!(!is_settled(dir.path(), Duration::from_millis(100)).await);
+    assert!(
+        !is_settled(
+            Arc::new(crate::sender_files::LocalFiles),
+            dir.path(),
+            Duration::from_millis(100)
+        )
+        .await
+    );
     writer.join().unwrap();
-    assert!(is_settled(dir.path(), Duration::from_millis(50)).await);
+    assert!(
+        is_settled(
+            Arc::new(crate::sender_files::LocalFiles),
+            dir.path(),
+            Duration::from_millis(50)
+        )
+        .await
+    );
 }
 
 #[test]

@@ -40,7 +40,15 @@ fn setup() -> Setup {
 
 /// Plans a link with `planned` decided but not stored yet.
 fn plan(setup: &Setup, planned: &[LinkedEntry], path: &Path) -> Result<LinkedEntry, LinkError> {
-    plan_link(&setup.store, &setup.stick_id, &setup.data, planned, path, 5)
+    plan_link(
+        &crate::sender_files::LocalFiles,
+        &setup.store,
+        &setup.stick_id,
+        &setup.data,
+        planned,
+        path,
+        5,
+    )
 }
 
 #[test]
@@ -244,10 +252,29 @@ fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused() {
         .unwrap();
     let top = LinkedEntry {
         at_top: true,
-        ..plan_link(&store, &stick_id, &data, &[], &holiday, 5).unwrap()
+        ..plan_link(
+            &crate::sender_files::LocalFiles,
+            &store,
+            &stick_id,
+            &data,
+            &[],
+            &holiday,
+            5,
+        )
+        .unwrap()
     };
     store.add_linked_entry(&stick_id, &top).unwrap();
-    let plan = |path: &Path| plan_link(&store, &stick_id, &data, &[], path, 6);
+    let plan = |path: &Path| {
+        plan_link(
+            &crate::sender_files::LocalFiles,
+            &store,
+            &stick_id,
+            &data,
+            &[],
+            path,
+            6,
+        )
+    };
 
     // "beach" is in Holiday already, whatever the case.
     let refused = plan(&dir.path().join("other/beach")).unwrap_err();

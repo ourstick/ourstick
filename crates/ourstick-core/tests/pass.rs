@@ -43,6 +43,7 @@ fn publishing(owner: &Owner) -> Publishing<'_, ourstick_core::transport::iroh::I
     Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,
@@ -270,6 +271,7 @@ async fn a_folder_unlinked_while_it_is_read_is_not_published_again() {
     let owner = Owner::new(&[("a.txt", b"a")]).await;
     let stick_id = owner.signing_key.stick_id();
     let entry = ourstick_core::linked::plan_link(
+        &ourstick_core::sender_files::LocalFiles,
         owner.store.as_ref(),
         &stick_id,
         owner.cache.path(),

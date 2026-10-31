@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::commands::{blocking, shown};
 use crate::drive;
 use crate::state::{stick_id as stick_id_of, AppState, Sharing};
+use ourstick_core::sender_files::SenderFiles;
 
 #[derive(Debug, Serialize)]
 pub struct SharingView {
@@ -76,7 +77,11 @@ pub struct StickView {
 /// The entries the window lists: the own folder's and the linked ones, by
 /// name. A linked entry's size is what the last pass recorded (walking a
 /// big linked folder at every look would be slow). Blocking.
-fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
+fn entries_of(
+    sender: &dyn SenderFiles,
+    stick: &OwnedStick,
+    store: &dyn Store,
+) -> Result<Vec<EntryView>> {
     let layout = StickLayout::load(store, &stick.stick_id)?;
     let mut entries: Vec<EntryView> = Vec::new();
     // An ejected image has no folder: its own entries are not shown.
@@ -118,7 +123,7 @@ fn entries_of(stick: &OwnedStick, store: &dyn Store) -> Result<Vec<EntryView>> {
             size,
             is_dir: root.is_dir,
             linked: true,
-            missing: root.is_gone(),
+            missing: root.is_gone(sender),
             left_out: false,
             at_top: root.at_top,
             place: root
@@ -150,6 +155,7 @@ pub async fn stick(
         .await
         .map_err(shown)?;
     let store = state.store.clone();
+    let sender = state.files.clone();
     let name = stick.name.clone();
     let id = stick.stick_id;
     let own_folder = stick.is_drive();
@@ -163,7 +169,7 @@ pub async fn stick(
     });
     let (entries, folder_there) = blocking(move || {
         let there = drive::folder_is_there(&stick.root_path);
-        Ok((entries_of(&stick, store.as_ref())?, there))
+        Ok((entries_of(sender.as_ref(), &stick, store.as_ref())?, there))
     })
     .await?;
     let sharing = match state.sticks.lock().await.get(&id) {
@@ -238,12 +244,21 @@ pub async fn link_paths(
     let stick = state.stick_now(&id).await.map_err(shown)?;
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
+    let files = state.files.clone();
     let handle = app.clone();
     blocking(move || {
-        crate::send::check_adding(&handle, store.as_ref(), &data_dir, &stick.stick_id, &paths)?;
+        crate::send::check_adding(
+            files.as_ref(),
+            &handle,
+            store.as_ref(),
+            &data_dir,
+            &stick.stick_id,
+            &paths,
+        )?;
         let mut planned = Vec::new();
         for path in paths {
             let entry = plan_link(
+                files.as_ref(),
                 store.as_ref(),
                 &stick.stick_id,
                 &data_dir,

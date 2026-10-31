@@ -5,9 +5,7 @@
 
 use std::path::Path;
 
-use walkdir::WalkDir;
-
-use crate::manifest::ignore::is_ignored;
+use crate::sender_files::{for_each_file, SenderFiles};
 
 /// Files and bytes counted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -17,27 +15,27 @@ pub struct Measured {
 }
 
 /// Counts what is at `path`, telling `so_far` after every `every` files.
-pub fn measure(path: &Path, every: u64, so_far: &mut dyn FnMut(Measured)) -> Measured {
+pub fn measure(
+    files: &dyn SenderFiles,
+    path: &Path,
+    every: u64,
+    so_far: &mut dyn FnMut(Measured),
+) -> Measured {
     let mut measured = Measured::default();
-    let walk = WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|item| {
-            item.depth() == 0 || !item.file_name().to_str().is_some_and(is_ignored)
-        });
-    for item in walk.flatten() {
-        if !item.file_type().is_file() {
-            continue;
-        }
-        let Ok(metadata) = item.metadata() else {
-            continue;
-        };
-        measured.files += 1;
-        measured.bytes += metadata.len();
-        if every > 0 && measured.files % every == 0 {
-            so_far(measured);
-        }
-    }
+    let _ = for_each_file::<()>(
+        files,
+        path,
+        &mut |_, facts| {
+            measured.files += 1;
+            measured.bytes += facts.stamp.size;
+            if every > 0 && measured.files % every == 0 {
+                so_far(measured);
+            }
+            Ok(())
+        },
+        // Passed over: this is only for the window.
+        &mut |_, _| Ok(()),
+    );
     measured
 }
 

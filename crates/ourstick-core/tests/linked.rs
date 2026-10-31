@@ -16,6 +16,7 @@ use ourstick_core::Store;
 fn link(owner: &Owner, path: &Path) {
     let stick_id = owner.signing_key.stick_id();
     let entry = plan_link(
+        &ourstick_core::sender_files::LocalFiles,
         owner.store.as_ref(),
         &stick_id,
         owner.cache.path(),
@@ -120,6 +121,7 @@ async fn the_one_folder_a_stick_was_made_from_is_its_top() {
     let owner = Owner::sending().await;
     let stick_id = owner.signing_key.stick_id();
     let mut planned = vec![plan_link(
+        &ourstick_core::sender_files::LocalFiles,
         owner.store.as_ref(),
         &stick_id,
         owner.cache.path(),

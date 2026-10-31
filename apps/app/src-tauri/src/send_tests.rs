@@ -1,4 +1,5 @@
 use super::*;
+use ourstick_core::sender_files::LocalFiles;
 
 /// A home with a main folder and two folders called "Photos".
 fn home() -> (crate::testing::TempFolder, PathBuf, SendRules) {
@@ -35,7 +36,7 @@ fn each_is_checked_with_those_before_it() {
         text(home.join("Pictures/Photos")),
         text(home.join("Expansion/Photos")),
     ];
-    let found = verdicts(&paths, rules, Vec::new(), None);
+    let found = verdicts(&LocalFiles, &paths, rules, Vec::new(), None);
     let kinds: Vec<&str> = found.iter().map(|verdict| verdict.kind).collect();
     assert_eq!(
         kinds,
@@ -56,7 +57,13 @@ fn each_is_checked_with_those_before_it() {
 #[test]
 fn a_main_folder_is_asked_about() {
     let (_dir, home, rules) = home();
-    let found = verdicts(&[text(home.join("Pictures"))], rules, Vec::new(), None);
+    let found = verdicts(
+        &LocalFiles,
+        &[text(home.join("Pictures"))],
+        rules,
+        Vec::new(),
+        None,
+    );
     assert_eq!(found[0].kind, "ask");
     assert_eq!(found[0].ask, Some("main"));
     assert_eq!(
@@ -70,6 +77,7 @@ fn what_the_stick_sends_already_takes_its_name() {
     let (_dir, home, rules) = home();
     let taken = vec![("photos".to_owned(), home.join("Expansion/Photos"))];
     let found = verdicts(
+        &LocalFiles,
         &[text(home.join("Pictures/Photos"))],
         rules.clone(),
         taken.clone(),
@@ -77,6 +85,7 @@ fn what_the_stick_sends_already_takes_its_name() {
     );
     assert_eq!(found[0].kind, "refuse");
     assert!(check_all(
+        &LocalFiles,
         &[text(home.join("Pictures/Photos"))],
         rules.clone(),
         taken,
@@ -84,6 +93,7 @@ fn what_the_stick_sends_already_takes_its_name() {
     )
     .is_err());
     assert!(check_all(
+        &LocalFiles,
         &[text(home.join("Pictures/Photos"))],
         rules,
         Vec::new(),
@@ -111,6 +121,7 @@ fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused_at_once() {
         ..rules
     };
     let found = verdicts(
+        &LocalFiles,
         &[
             text(home.join("Expansion/summer")),
             text(home.join("Expansion/Holiday 2025")),

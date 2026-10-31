@@ -2,13 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
-use walkdir::WalkDir;
-
 use super::encoding::validate_path;
 use super::hashing::hash_file;
-use super::ignore::is_ignored;
 use super::{Manifest, ManifestError};
 use crate::cipher::Cipher;
+use crate::sender_files::{for_each_file, FileFacts, LocalFiles, SenderFiles};
 
 impl Manifest {
     /// Builds a manifest by walking `root` recursively. Every regular file is
@@ -28,7 +26,7 @@ impl Manifest {
     pub fn from_dir(root: impl AsRef<Path>, cipher: &dyn Cipher) -> Result<Self, ManifestError> {
         let root = root.as_ref();
         let mut entries = Vec::new();
-        for path in regular_files(root)? {
+        for (path, _) in regular_files(&LocalFiles, root)? {
             entries.push(hash_file(root, &path, cipher)?);
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -42,56 +40,44 @@ impl Manifest {
 /// All regular files under `root`, in walk order. Symlinks are not followed and
 /// not returned; other non-regular files are skipped, and so are system files
 /// and folders ([`super::ignore`]).
-pub(crate) fn regular_files(root: &Path) -> Result<Vec<PathBuf>, ManifestError> {
-    let mut files = Vec::new();
-    for_each_regular_file(root, &mut |path| {
-        files.push(path.to_path_buf());
+pub(crate) fn regular_files(
+    files: &dyn SenderFiles,
+    root: &Path,
+) -> Result<Vec<(PathBuf, FileFacts)>, ManifestError> {
+    let mut found = Vec::new();
+    for_each_regular_file(files, root, &mut |path, facts| {
+        found.push((path.to_path_buf(), *facts));
         Ok(())
     })?;
-    Ok(files)
+    Ok(found)
 }
 
 /// [`regular_files`], each given to `found` as the walk meets it, without
 /// keeping them all.
 pub(crate) fn for_each_regular_file(
+    files: &dyn SenderFiles,
     root: &Path,
-    found: &mut dyn FnMut(&Path) -> Result<(), ManifestError>,
+    found: &mut dyn FnMut(&Path, &FileFacts) -> Result<(), ManifestError>,
 ) -> Result<(), ManifestError> {
-    let root_metadata = std::fs::metadata(root).map_err(|e| ManifestError::io(root, e))?;
-    if !root_metadata.is_dir() {
+    let root_facts = files
+        .facts_followed(root)
+        .map_err(|e| ManifestError::io(root, e))?;
+    if !root_facts.is_folder() {
         return Err(ManifestError::NotADirectory(root.to_path_buf()));
     }
-    let walk = WalkDir::new(root).follow_links(false).into_iter();
-    // Not the root itself: a stick may live in a folder of any name.
-    let walk = walk.filter_entry(|item| {
-        item.depth() == 0 || !item.file_name().to_str().is_some_and(is_ignored)
-    });
-    for item in walk {
-        let item = item.map_err(|e| {
-            let path = e.path().unwrap_or(root).to_path_buf();
-            ManifestError::Io {
-                path,
-                source: e.into(),
-            }
-        })?;
-        let file_type = item.file_type();
-        if file_type.is_dir() {
-            continue;
-        }
-        if !file_type.is_file() {
-            tracing::debug!(path = %item.path().display(), "skipping non-regular file");
-            continue;
-        }
-        found(item.path())?;
-    }
-    Ok(())
+    for_each_file(files, root, found, &mut |path, source| {
+        Err(ManifestError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
+    })
 }
 
 /// Turns `path` into a `/`-separated string relative to `root`.
 pub(super) fn relative_path(root: &Path, path: &Path) -> Result<String, ManifestError> {
     let relative = path
         .strip_prefix(root)
-        .expect("walkdir only yields paths under its root");
+        .expect("a walk only yields paths under its root");
     // Built in one string: this runs for every file of a walk.
     let mut joined = String::with_capacity(relative.as_os_str().len());
     for component in relative.components() {

@@ -134,8 +134,9 @@ async fn pass(
         let layout = layout.clone();
         // Outboards of the files it reads go to the stick's cache (ADR 0017).
         let outboards = outboards_dir(owner.publisher.cache_dir());
+        let files = owner.files.clone();
         run_blocking(move || {
-            Catalogue::start_layout(&layout, recorded, rescan)
+            Catalogue::start_layout(files, &layout, recorded, rescan)
                 .map(|catalogue| catalogue.keep_outboards_in(outboards))
         })
         .await?

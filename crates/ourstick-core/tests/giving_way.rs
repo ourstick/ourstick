@@ -56,6 +56,7 @@ async fn a_pass_gives_way_while_reads_are_slow_and_says_so() {
         store: owner.store.clone(),
         // Reads made slow by a fake clock, which no kernel counts: judged
         // by timing alone (ADR 0013, amendment 1).
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: Arc::new(DiskTurns::with_counters(
             timer.clone(),
             Arc::new(NoCounters),
@@ -105,6 +106,7 @@ async fn a_pass_that_fails_while_giving_way_says_it_no_longer_is() {
         store: owner.store.clone(),
         // Reads made slow by a fake clock, which no kernel counts: judged
         // by timing alone (ADR 0013, amendment 1).
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: Arc::new(DiskTurns::with_counters(
             timer.clone(),
             Arc::new(NoCounters),

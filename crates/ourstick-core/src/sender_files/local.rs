@@ -47,8 +47,13 @@ impl SenderFiles for LocalFiles {
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(path)? {
             let entry = entry?;
-            // `DirEntry::metadata` does not follow a link.
-            entries.push((entry.file_name(), FileFacts::of(&entry.metadata()?)));
+            // `DirEntry::metadata` does not follow a link. One gone since
+            // the folder was listed is not there.
+            match entry.metadata() {
+                Ok(metadata) => entries.push((entry.file_name(), FileFacts::of(&metadata))),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
         }
         Ok(entries)
     }

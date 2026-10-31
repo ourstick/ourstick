@@ -11,6 +11,7 @@ use crate::clock::Clock;
 use crate::manifest::build::regular_files;
 use crate::manifest::{Manifest, ManifestError, DRIVE_MARKER};
 use crate::record::SignedManifestRecord;
+use crate::sender_files::SenderFiles;
 use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Store, StoreError};
 use crate::transport::{BlobHash, Publisher, TransportError};
@@ -33,6 +34,8 @@ pub struct Owner<'a, P> {
     pub store: Arc<dyn Store>,
     /// The disks OurStick reads, shared by every stick (ADR 0013).
     pub disks: Arc<crate::disk::turns::DiskTurns>,
+    /// Through what the stick's files are read (ADR 0029).
+    pub files: Arc<dyn SenderFiles>,
     pub clock: &'a dyn Clock,
     pub signing_key: &'a StickSigningKey,
     pub stick_key: &'a StickKey,
@@ -55,19 +58,18 @@ pub(crate) fn outboard_len(blob_len: u64) -> u64 {
 
 /// Walks `root` (file sizes only, nothing is read) and estimates the cache.
 /// Blocking: call from `spawn_blocking` in async code.
-pub fn plan_share(root: &Path, cipher: &dyn Cipher) -> Result<SharePlan, ShareError> {
+pub fn plan_share(
+    files: &dyn SenderFiles,
+    root: &Path,
+    cipher: &dyn Cipher,
+) -> Result<SharePlan, ShareError> {
     let mut plan = SharePlan {
         files: 0,
         plaintext_bytes: 0,
         cache_bytes: 0,
     };
-    for path in regular_files(root)? {
-        let size = std::fs::metadata(&path)
-            .map_err(|source| ShareError::Io {
-                path: path.clone(),
-                source,
-            })?
-            .len();
+    for (_, facts) in regular_files(files, root)? {
+        let size = facts.stamp.size;
         let blob = blob_len(cipher, size);
         plan.files += 1;
         plan.plaintext_bytes += size;
@@ -157,6 +159,7 @@ pub async fn publish_folder(
         publisher,
         store,
         disks,
+        files: Arc::new(crate::sender_files::LocalFiles),
         clock,
         signing_key,
         stick_key,
@@ -196,16 +199,11 @@ pub fn latest_hint(
 
 /// The bytes in the files of `root` that belong to the stick (system files
 /// left out, see [`crate::manifest::ignore`]). Blocking.
-pub fn folder_size(root: &Path) -> Result<u64, ShareError> {
-    let mut size = 0;
-    for path in regular_files(root)? {
-        let metadata = std::fs::metadata(&path).map_err(|source| ShareError::Io {
-            path: path.clone(),
-            source,
-        })?;
-        size += metadata.len();
-    }
-    Ok(size)
+pub fn folder_size(files: &dyn SenderFiles, root: &Path) -> Result<u64, ShareError> {
+    Ok(regular_files(files, root)?
+        .iter()
+        .map(|(_, facts)| facts.stamp.size)
+        .sum())
 }
 
 /// Makes `root` the drive of `stick_id` by writing the drive marker into it.
@@ -292,13 +290,13 @@ mod tests {
         std::fs::write(dir.path().join("sub/b"), vec![2u8; 200_000]).unwrap();
 
         let cipher = ChaChaCipher::new(&StickKey::from_bytes([1; 32]));
-        let plan = plan_share(dir.path(), &cipher).unwrap();
+        let plan = plan_share(&crate::sender_files::LocalFiles, dir.path(), &cipher).unwrap();
         assert_eq!(plan.files, 2);
         assert_eq!(plan.plaintext_bytes, 200_100);
         let blobs = blob_len(&cipher, 100) + blob_len(&cipher, 200_000);
         assert!(plan.cache_bytes > blobs && plan.cache_bytes < blobs + 2_000);
 
-        let plain = plan_share(dir.path(), &NoCipher).unwrap();
+        let plain = plan_share(&crate::sender_files::LocalFiles, dir.path(), &NoCipher).unwrap();
         assert!(plain.cache_bytes < plan.cache_bytes);
     }
 

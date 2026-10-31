@@ -129,7 +129,14 @@ pub async fn run(
     let plan = {
         let folder = folder.clone();
         let cipher = cipher_for(stick.cipher, &stick_key);
-        tokio::task::spawn_blocking(move || plan_share(&folder, cipher.as_ref())).await??
+        tokio::task::spawn_blocking(move || {
+            plan_share(
+                &ourstick_core::sender_files::LocalFiles,
+                &folder,
+                cipher.as_ref(),
+            )
+        })
+        .await??
     };
     println!(
         "Sharing {} ({} files, {}).",
@@ -168,6 +175,7 @@ pub async fn run(
         publisher: &publisher,
         store: setup.store.clone(),
         disks,
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         clock: &SystemClock,
         signing_key: &signing_key,
         stick_key: &stick_key,

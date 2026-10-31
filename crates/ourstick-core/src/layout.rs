@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::linked::disk_of;
+use crate::sender_files::SenderFiles;
 use crate::stick_id::StickId;
 use crate::store::{LinkedEntry, Store, StoreError};
 
@@ -39,15 +39,14 @@ impl Root {
     /// Gone: missing, a symbolic link now, no longer the same kind (folder or
     /// file), or on another disk than when linked (its disk is unplugged and
     /// an empty mount point is in its place). Blocking.
-    pub fn is_gone(&self) -> bool {
-        match std::fs::symlink_metadata(&self.path) {
-            Ok(metadata) => {
-                metadata.file_type().is_symlink()
-                    || metadata.is_dir() != self.is_dir
-                    || (!self.is_dir && !metadata.is_file())
+    pub fn is_gone(&self, files: &dyn SenderFiles) -> bool {
+        match files.facts(&self.path) {
+            Ok(facts) => {
+                facts.is_folder() != self.is_dir
+                    || (!self.is_dir && !facts.is_file())
                     || self
                         .disk
-                        .is_some_and(|disk| disk_of(&metadata).is_some_and(|now| now != disk))
+                        .is_some_and(|disk| facts.disk.is_some_and(|now| now != disk))
             }
             Err(_) => true,
         }

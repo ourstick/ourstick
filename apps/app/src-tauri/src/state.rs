@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use ourstick_core::device;
+use ourstick_core::sender_files::{LocalFiles, SenderFiles};
 use ourstick_core::{OwnedStick, StickId, StickKind, Store};
 
 use crate::serving::Serving;
@@ -40,6 +41,8 @@ pub struct AppState {
     pub sticks: tokio::sync::Mutex<HashMap<StickId, Sharing>>,
     /// The disks every shared stick reads, with their turns (ADR 0013).
     pub disks: Arc<DiskTurns>,
+    /// Through what the files a stick sends are read (ADR 0029).
+    pub files: Arc<dyn SenderFiles>,
     /// The Local Network step was shown in this run (ADR 0020), remembered
     /// in the store once the device exists.
     pub local_network_explained: std::sync::atomic::AtomicBool,
@@ -80,6 +83,7 @@ impl AppState {
             store,
             sticks: tokio::sync::Mutex::new(HashMap::new()),
             disks: Arc::new(DiskTurns::new(Arc::new(SystemTimer::default()))),
+            files: Arc::new(LocalFiles),
             local_network_explained: std::sync::atomic::AtomicBool::new(false),
             keys_wait: std::sync::atomic::AtomicBool::new(false),
             started_moved,

@@ -31,6 +31,17 @@ impl DiskId {
         }
     }
 
+    /// The disk of the file at `path`, from its `facts` (already taken):
+    /// its device where the system tells one, else as [`DiskId::of`] says
+    /// on Windows, and not known on a phone's chosen files.
+    pub fn of_facts(path: &Path, facts: &crate::sender_files::FileFacts) -> Self {
+        match facts.disk {
+            Some(device) => Self::Device(device),
+            None if cfg!(unix) => Self::Unknown,
+            None => Self::of(path),
+        }
+    }
+
     /// The disk `folder` is on. Blocking.
     pub fn of(folder: &Path) -> Self {
         #[cfg(unix)]

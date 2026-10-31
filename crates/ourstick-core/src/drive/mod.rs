@@ -49,7 +49,10 @@ pub fn top_entries(root: &Path) -> Result<Vec<TopEntry>, DriveError> {
         }
         let file_type = entry.file_type().map_err(io(&entry.path()))?;
         let (size, is_dir) = if file_type.is_dir() {
-            (folder_size(&entry.path())?, true)
+            (
+                folder_size(&crate::sender_files::LocalFiles, &entry.path())?,
+                true,
+            )
         } else if file_type.is_file() {
             (entry.metadata().map_err(io(&entry.path()))?.len(), false)
         } else {

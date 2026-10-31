@@ -8,6 +8,7 @@ use super::{DiskRoot, Source};
 use crate::layout::{Root, StickLayout};
 use crate::manifest::build::{for_each_regular_file, relative_path};
 use crate::manifest::ManifestError;
+use crate::sender_files::SenderFiles;
 use crate::store::OwnedFile;
 
 /// What the walk found.
@@ -24,7 +25,11 @@ pub(super) struct Walked {
 
 /// Walks every root of `layout`; a linked entry that is gone has its files
 /// carried as `recorded`. Blocking.
-pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walked, ManifestError> {
+pub(super) fn walk(
+    files: &dyn SenderFiles,
+    layout: &StickLayout,
+    recorded: &[OwnedFile],
+) -> Result<Walked, ManifestError> {
     let mut walked = Walked {
         files: Vec::new(),
         roots: Vec::new(),
@@ -35,7 +40,7 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
     let mut walk_folder = |walked: &mut Walked, root: &Root| {
         let index = walked.roots.len();
         let index = u32::try_from(index).expect("fewer roots than u32::MAX");
-        for_each_regular_file(&root.path, &mut |path| {
+        for_each_regular_file(files, &root.path, &mut |path, _| {
             let relative = relative_path(&root.path, path)?;
             let top = relative.split('/').next().unwrap_or_default();
             if layout.is_shadowed(top) {
@@ -58,7 +63,7 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
         walked.files.iter().map(|(path, _)| path.clone()).collect();
     for root in layout.linked() {
         let name = root.name.clone().unwrap_or_default();
-        if root.is_gone() {
+        if root.is_gone(files) {
             // Its files as recorded: the folder at the top's are those under
             // no named entry, by its exact name (a name only shadowed, in
             // another case, was never recorded).
@@ -83,7 +88,7 @@ pub(super) fn walk(layout: &StickLayout, recorded: &[OwnedFile]) -> Result<Walke
         }
         let index = u32::try_from(walked.roots.len()).expect("fewer roots than u32::MAX");
         if root.is_dir {
-            for_each_regular_file(&root.path, &mut |path| {
+            for_each_regular_file(files, &root.path, &mut |path, _| {
                 let relative = format!("{name}/{}", relative_path(&root.path, path)?);
                 walked.files.push((relative, Source::Disk(index)));
                 Ok(())

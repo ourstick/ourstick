@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{comparable, relation, Relation, Taken};
+use crate::sender_files::{FileKind, SenderFiles};
 
 /// What [`may_send`] decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,18 +131,18 @@ fn this_system(_home: &Path) -> (Places, Places, Places) {
 const SYSTEM_NAMES: [&str; 2] = ["$recycle.bin", "system volume information"];
 
 /// Whether `path` may be sent, by `rules`.
-pub fn may_send(path: &Path, rules: &SendRules) -> MaySend {
+pub fn may_send(files: &dyn SenderFiles, path: &Path, rules: &SendRules) -> MaySend {
     let name = name_of(path);
     if !path.is_absolute() {
         return refuse(format!("{} is not a full path.", quoted(&name)));
     }
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
+    let facts = match files.facts(path) {
+        Ok(facts) => facts,
         Err(_) => return refuse(format!("{} is not there any more.", quoted(&name))),
     };
     // On Windows a junction is a symbolic link too (a name surrogate);
     // OneDrive's placeholders are not.
-    if metadata.file_type().is_symlink() {
+    if facts.kind == FileKind::Link {
         return refuse(format!(
             "{} is a shortcut. Choose what it points to instead.",
             quoted(&name)
@@ -213,7 +214,7 @@ pub fn may_send(path: &Path, rules: &SendRules) -> MaySend {
     {
         return MaySend::Ask(Ask::MainFolder { name });
     }
-    if metadata.is_dir() && is_whole_disk(path) {
+    if facts.is_folder() && is_whole_disk(files, path) {
         return MaySend::Ask(Ask::WholeDisk { name });
     }
     MaySend::Fine
@@ -300,15 +301,12 @@ fn system_part(here: &Path, rules: &SendRules) -> Option<String> {
 
 /// Whether `path` is a disk's top: a drive (`X:\`, a network share), or a
 /// folder on another disk than its parent (a mount point, `/Volumes/*`).
-pub(crate) fn is_whole_disk(path: &Path) -> bool {
+pub(crate) fn is_whole_disk(files: &dyn SenderFiles, path: &Path) -> bool {
     let Some(parent) = path.parent() else {
         return true;
     };
-    match (std::fs::metadata(path), std::fs::metadata(parent)) {
-        (Ok(this), Ok(parent)) => match (
-            crate::linked::disk_of(&this),
-            crate::linked::disk_of(&parent),
-        ) {
+    match (files.facts_followed(path), files.facts_followed(parent)) {
+        (Ok(this), Ok(parent)) => match (this.disk, parent.disk) {
             (Some(this), Some(parent)) => this != parent,
             _ => false,
         },

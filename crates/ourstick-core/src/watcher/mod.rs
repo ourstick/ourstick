@@ -18,6 +18,7 @@ use crate::blocking::run_blocking;
 use crate::layout::StickLayout;
 use crate::manifest::build::regular_files;
 use crate::manifest::{FileStamp, Manifest};
+use crate::sender_files::SenderFiles;
 use crate::share::{
     run_pass, PartialTiming, PassEvent, PassOptions, Publication, ShareError, PARTIAL_TIMING,
 };
@@ -125,31 +126,37 @@ pub enum WatchEvent<'a> {
 /// Every file's stamp under each of `roots` (a root may be one file), or
 /// `None` if one cannot be read right now (e.g. a file vanished during the
 /// walk).
-fn stamps(roots: &[PathBuf]) -> Option<BTreeMap<PathBuf, FileStamp>> {
+fn stamps(files: &dyn SenderFiles, roots: &[PathBuf]) -> Option<BTreeMap<PathBuf, FileStamp>> {
     let mut all = BTreeMap::new();
     for root in roots {
-        let metadata = std::fs::metadata(root).ok()?;
-        let files = if metadata.is_file() {
-            vec![root.clone()]
+        let facts = files.facts_followed(root).ok()?;
+        let found = if facts.is_file() {
+            vec![(root.clone(), facts)]
         } else {
-            regular_files(root).ok()?
+            regular_files(files, root).ok()?
         };
-        for path in files {
-            let stamp = FileStamp::of(&std::fs::metadata(&path).ok()?);
-            all.insert(path, stamp);
+        for (path, facts) in found {
+            all.insert(path, facts.stamp);
         }
     }
     Some(all)
 }
 
 /// True if no file under `root` changes size or times over `settle`.
-pub async fn is_settled(root: &Path, settle: Duration) -> bool {
-    are_settled(vec![root.to_path_buf()], settle).await
+pub async fn is_settled(files: Arc<dyn SenderFiles>, root: &Path, settle: Duration) -> bool {
+    are_settled(files, vec![root.to_path_buf()], settle).await
 }
 
 /// [`is_settled`] for several roots at once.
-pub async fn are_settled(roots: Vec<PathBuf>, settle: Duration) -> bool {
-    let read = |roots: Vec<PathBuf>| run_blocking(move || Ok::<_, std::io::Error>(stamps(&roots)));
+pub async fn are_settled(
+    files: Arc<dyn SenderFiles>,
+    roots: Vec<PathBuf>,
+    settle: Duration,
+) -> bool {
+    let read = |roots: Vec<PathBuf>| {
+        let files = files.clone();
+        run_blocking(move || Ok::<_, std::io::Error>(stamps(files.as_ref(), &roots)))
+    };
     let Ok(Some(before)) = read(roots.clone()).await else {
         return false;
     };
@@ -163,12 +170,13 @@ pub async fn are_settled(roots: Vec<PathBuf>, settle: Duration) -> bool {
 async fn present_roots(owner: &Owner<'_, impl Publisher>) -> (Vec<PathBuf>, bool) {
     let store = owner.store.clone();
     let stick_id = owner.signing_key.stick_id();
+    let files = owner.files.clone();
     let found = run_blocking(move || {
         let layout = StickLayout::load(store.as_ref(), &stick_id)?;
         let mut present = vec![layout.own().path.clone()];
         let mut any_gone = false;
         for root in layout.linked() {
-            if root.is_gone() {
+            if root.is_gone(files.as_ref()) {
                 any_gone = true;
             } else {
                 present.push(root.path.clone());
@@ -286,7 +294,7 @@ async fn follow(
         // Let a burst of changes (a copy, an unzip) finish first.
         while let Ok(Some(())) = tokio::time::timeout(timing.quiet, events.changed()).await {}
         let (roots, _) = present_roots(owner).await;
-        if !are_settled(roots, timing.settle).await {
+        if !are_settled(owner.files.clone(), roots, timing.settle).await {
             on_event(WatchEvent::StillChanging);
             retry = true;
             continue;

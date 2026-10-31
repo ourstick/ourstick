@@ -26,6 +26,7 @@ const FAST: WatchTiming = WatchTiming {
 fn link(owner: &Owner, path: &Path) {
     let stick_id = owner.signing_key.stick_id();
     let entry = plan_link(
+        &ourstick_core::sender_files::LocalFiles,
         owner.store.as_ref(),
         &stick_id,
         owner.cache.path(),
@@ -47,6 +48,7 @@ async fn added_while(
     let publishing = Publishing {
         publisher: &owner.publisher,
         store: owner.store.clone(),
+        files: std::sync::Arc::new(ourstick_core::sender_files::LocalFiles),
         disks: common::disks(),
         clock: &owner.clock,
         signing_key: &owner.signing_key,

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::places::{app_places, clash, Taken};
+use crate::sender_files::{FileKind, SenderFiles};
 use crate::stick_id::StickId;
 use crate::store::{LinkedEntry, Store, StoreError};
 
@@ -97,6 +98,7 @@ pub(crate) fn disk_of(metadata: &std::fs::Metadata) -> Option<u64> {
 /// stick is refused, never numbered (ADR 0028 §2: the receiver would not
 /// know which is which). `now_ms` is when it is added.
 pub fn plan_link(
+    files: &dyn SenderFiles,
     store: &dyn Store,
     stick_id: &StickId,
     data_dir: &Path,
@@ -113,12 +115,11 @@ pub fn plan_link(
     if !path.is_absolute() {
         return Err(LinkError::NotAbsolute(path.to_path_buf()));
     }
-    let metadata = std::fs::symlink_metadata(path).map_err(io(path))?;
-    if metadata.file_type().is_symlink() {
-        return Err(LinkError::SymbolicLink(path.to_path_buf()));
-    }
-    if !metadata.is_dir() && !metadata.is_file() {
-        return Err(LinkError::NotFileOrFolder(path.to_path_buf()));
+    let facts = files.facts(path).map_err(io(path))?;
+    match facts.kind {
+        FileKind::Link => return Err(LinkError::SymbolicLink(path.to_path_buf())),
+        FileKind::Other => return Err(LinkError::NotFileOrFolder(path.to_path_buf())),
+        FileKind::File | FileKind::Folder => {}
     }
     let mut taken = vec![Taken {
         place: crate::places::comparable(own),
@@ -141,7 +142,7 @@ pub fn plan_link(
         .and_then(|name| name.to_str())
         .filter(|name| !name.contains('\\'))
         .ok_or_else(|| LinkError::BadName(path.to_path_buf()))?;
-    let on_stick = top_names(own)?;
+    let on_stick = top_names(files, own)?;
     // The entry at the top keeps its name too, though it is not in the
     // manifest: two entries of one stick never share a name.
     if let Some(refused) = name_clash(
@@ -153,12 +154,12 @@ pub fn plan_link(
         return Err(refused);
     }
     if let Some(top) = existing.iter().find(|entry| entry.at_top) {
-        check_next_to_top(top, name)?;
+        check_next_to_top(files, top, name)?;
     }
     let lower = name.to_lowercase();
     if on_stick.iter().any(|name| name.to_lowercase() == lower)
         // What the file system itself calls the same (e.g. Unicode forms).
-        || own.join(name).exists()
+        || files.facts_followed(&own.join(name)).is_ok()
     {
         return Err(LinkError::NameTaken {
             path: path.to_path_buf(),
@@ -169,8 +170,8 @@ pub fn plan_link(
     Ok(LinkedEntry {
         name: name.to_owned(),
         path: path.to_path_buf(),
-        is_dir: metadata.is_dir(),
-        disk: disk_of(&metadata),
+        is_dir: facts.is_folder(),
+        disk: facts.disk,
         added_at_ms: now_ms,
         at_top: false,
     })
@@ -179,16 +180,20 @@ pub fn plan_link(
 /// Refuses `name` next to `top`, the folder at a stick's top: a name in it
 /// already, ignoring case, or any while it is not found (its names cannot
 /// be checked). Blocking.
-pub fn check_next_to_top(top: &LinkedEntry, name: &str) -> Result<(), LinkError> {
-    if crate::layout::Root::from(top).is_gone() {
+pub fn check_next_to_top(
+    files: &dyn SenderFiles,
+    top: &LinkedEntry,
+    name: &str,
+) -> Result<(), LinkError> {
+    if crate::layout::Root::from(top).is_gone(files) {
         return Err(LinkError::TopNotFound(top.name.clone()));
     }
     let lower = name.to_lowercase();
-    if top_names(&top.path)?
+    if top_names(files, &top.path)?
         .iter()
         .any(|inside| inside.to_lowercase() == lower)
         // What the file system itself calls the same (e.g. Unicode forms).
-        || top.path.join(name).exists()
+        || files.facts_followed(&top.path.join(name)).is_ok()
     {
         return Err(LinkError::InTop {
             name: name.to_owned(),
@@ -228,18 +233,15 @@ pub fn name_clash<'a>(
 
 /// The names in the stick's own folder (none if it is not there, e.g. an
 /// ejected disk image).
-fn top_names(own: &Path) -> Result<Vec<String>, LinkError> {
-    let entries = match std::fs::read_dir(own) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(source) => return Err(io(own)(source)),
-    };
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(io(own))?;
-        names.push(entry.file_name().to_string_lossy().into_owned());
+fn top_names(files: &dyn SenderFiles, own: &Path) -> Result<Vec<String>, LinkError> {
+    match files.entries(own) {
+        Ok(entries) => Ok(entries
+            .into_iter()
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(source) => Err(io(own)(source)),
     }
-    Ok(names)
 }
 
 #[cfg(test)]

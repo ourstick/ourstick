@@ -12,7 +12,9 @@ fn a_folder_counts_its_files_and_bytes_and_tells_as_it_goes() {
     // Never sent, so never counted.
     std::fs::write(root.join(".DS_Store"), [0u8; 1000]).unwrap();
     let mut told = Vec::new();
-    let measured = measure(&root, 2, &mut |so_far| told.push(so_far));
+    let measured = measure(&crate::sender_files::LocalFiles, &root, 2, &mut |so_far| {
+        told.push(so_far)
+    });
     assert_eq!(
         measured,
         Measured {
@@ -30,11 +32,16 @@ fn a_file_is_one_and_a_gone_path_is_nothing() {
     let notes = dir.path().join("notes.txt");
     std::fs::write(&notes, b"hello").unwrap();
     assert_eq!(
-        measure(&notes, 100, &mut |_| {}),
+        measure(&crate::sender_files::LocalFiles, &notes, 100, &mut |_| {}),
         Measured { files: 1, bytes: 5 }
     );
     assert_eq!(
-        measure(&dir.path().join("gone"), 100, &mut |_| {}),
+        measure(
+            &crate::sender_files::LocalFiles,
+            &dir.path().join("gone"),
+            100,
+            &mut |_| {}
+        ),
         Measured::default()
     );
 }
@@ -49,7 +56,7 @@ fn links_inside_are_not_followed() {
     std::os::unix::fs::symlink(dir.path().join("big"), root.join("link")).unwrap();
     std::fs::write(root.join("small"), [0u8; 1]).unwrap();
     assert_eq!(
-        measure(&root, 100, &mut |_| {}),
+        measure(&crate::sender_files::LocalFiles, &root, 100, &mut |_| {}),
         Measured { files: 1, bytes: 1 }
     );
 }

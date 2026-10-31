@@ -1,4 +1,5 @@
 use super::*;
+use crate::sender_files::LocalFiles;
 
 /// A home with a dot-folder, a main folder and OurStick's data folder, a
 /// system folder and a disk beside it, all in a temporary folder.
@@ -60,7 +61,7 @@ fn temporary_folder() -> tempfile::TempDir {
 }
 
 fn refusal(device: &Device, path: &Path) -> String {
-    match may_send(path, &device.rules) {
+    match may_send(&LocalFiles, path, &device.rules) {
         MaySend::Refuse(why) => why,
         other => panic!("{}: {other:?}", path.display()),
     }
@@ -70,10 +71,10 @@ fn refusal(device: &Device, path: &Path) -> String {
 fn a_folder_or_a_file_inside_the_home_is_fine() {
     let device = device();
     let summer = device.home.join("Pictures/Holiday 2025/Summer");
-    assert_eq!(may_send(&summer, &device.rules), MaySend::Fine);
+    assert_eq!(may_send(&LocalFiles, &summer, &device.rules), MaySend::Fine);
     let notes = device.home.join("Documents/Bank/notes.txt");
     std::fs::write(&notes, "x").unwrap();
-    assert_eq!(may_send(&notes, &device.rules), MaySend::Fine);
+    assert_eq!(may_send(&LocalFiles, &notes, &device.rules), MaySend::Fine);
 }
 
 #[test]
@@ -119,7 +120,7 @@ fn the_systems_folders_are_refused_but_its_disks_are_not() {
         "\u{201c}run\u{201d} is part of the system and cannot be sent."
     );
     let disk = device.root.join("run/media/alice/Expansion");
-    assert_eq!(may_send(&disk, &device.rules), MaySend::Fine);
+    assert_eq!(may_send(&LocalFiles, &disk, &device.rules), MaySend::Fine);
 }
 
 #[test]
@@ -139,7 +140,7 @@ fn oursticks_own_folders_are_refused() {
 fn a_main_folder_of_the_home_is_asked_about() {
     let device = device();
     assert_eq!(
-        may_send(&device.home.join("Documents"), &device.rules),
+        may_send(&LocalFiles, &device.home.join("Documents"), &device.rules),
         MaySend::Ask(Ask::MainFolder {
             name: "Documents".to_owned()
         })
@@ -153,7 +154,7 @@ fn a_main_folder_of_the_home_is_asked_about() {
     );
     // A folder inside one is not.
     let bank = device.home.join("Documents/Bank");
-    assert_eq!(may_send(&bank, &device.rules), MaySend::Fine);
+    assert_eq!(may_send(&LocalFiles, &bank, &device.rules), MaySend::Fine);
 }
 
 #[test]
@@ -185,7 +186,7 @@ fn a_missing_or_relative_path_is_refused() {
         "\u{201c}gone\u{201d} is not there any more."
     );
     assert!(matches!(
-        may_send(Path::new("Pictures"), &device.rules),
+        may_send(&LocalFiles, Path::new("Pictures"), &device.rules),
         MaySend::Refuse(_)
     ));
 }
@@ -213,14 +214,14 @@ fn a_whole_disk_is_asked_about() {
     );
     // A folder in a temporary folder is not a disk of its own.
     let dir = tempfile::tempdir().unwrap();
-    assert!(!is_whole_disk(dir.path()));
+    assert!(!is_whole_disk(&LocalFiles, dir.path()));
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn a_mount_point_is_a_whole_disk() {
     // /proc is its own file system wherever Linux runs.
-    assert!(is_whole_disk(Path::new("/proc")));
+    assert!(is_whole_disk(&LocalFiles, Path::new("/proc")));
 }
 
 #[test]
@@ -254,7 +255,7 @@ fn a_hidden_folder_counts_inside_the_home_only() {
     // What holds the home is hidden (as AppData holds %TEMP%): it does not count.
     hide(&device.root.join("home"));
     let summer = device.home.join("Pictures/Holiday 2025/Summer");
-    assert_eq!(may_send(&summer, &device.rules), MaySend::Fine);
+    assert_eq!(may_send(&LocalFiles, &summer, &device.rules), MaySend::Fine);
     hide(&device.home.join("Pictures/Holiday 2025"));
     assert!(refusal(&device, &summer).contains("Holiday 2025"));
 }

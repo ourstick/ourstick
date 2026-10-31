@@ -96,6 +96,7 @@ mod tests {
             disks: Arc::new(ourstick_core::disk::turns::DiskTurns::new(Arc::new(
                 ourstick_core::disk::turns::SystemTimer::default(),
             ))),
+            files: Arc::new(ourstick_core::sender_files::LocalFiles),
             local_network_explained: Default::default(),
             keys_wait: Default::default(),
             started_moved: false,

@@ -11,13 +11,15 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use self::known::{carried, mtime_seconds, Known};
+use self::known::{carried, Known};
 use super::hashing::{hash_file_telling_plaintext, Hashed};
 use super::{Entry, FileStamp, ManifestError};
 use crate::cipher::{Cipher, CipherError};
 use crate::disk::turns::{DiskId, Readers};
 use crate::layout::StickLayout;
+use crate::sender_files::{LocalFiles, SenderFiles};
 use crate::store::OwnedFile;
 
 /// One file of the catalogue.
@@ -81,6 +83,8 @@ pub(super) struct DiskRoot {
 /// A pass over a stick's roots, taken in parts.
 #[derive(Debug)]
 pub struct Catalogue {
+    /// Through what the files are read.
+    sender_files: Arc<dyn SenderFiles>,
     /// Every file, sorted by its path as in the manifest (not in walk
     /// order: "a-c" comes before "a/b"), so each part extends a prefix of
     /// the manifest.
@@ -101,13 +105,15 @@ impl Catalogue {
     /// Walks the stick's own folder only. `known` is what was recorded
     /// before. Blocking.
     pub fn start(root: &Path, known: Vec<OwnedFile>) -> Result<Self, ManifestError> {
-        Self::start_layout(&StickLayout::new(root, &[]), known, false)
+        let files = Arc::new(LocalFiles);
+        Self::start_layout(files, &StickLayout::new(root, &[]), known, false)
     }
 
     /// Walks every root of `layout`. `recorded` is what was recorded before;
     /// with `rescan`, it is used only for linked entries that are gone (their
     /// files are carried as recorded), never to skip reading. Blocking.
     pub fn start_layout(
+        sender_files: Arc<dyn SenderFiles>,
         layout: &StickLayout,
         recorded: Vec<OwnedFile>,
         rescan: bool,
@@ -117,7 +123,7 @@ impl Catalogue {
             roots,
             gone,
             left_out,
-        } = walk::walk(layout, &recorded)?;
+        } = walk::walk(sender_files.as_ref(), layout, &recorded)?;
         files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         files.shrink_to_fit();
         let known = recorded
@@ -132,6 +138,7 @@ impl Catalogue {
             })
             .collect();
         Ok(Self {
+            sender_files,
             files,
             roots,
             next: 0,
@@ -290,8 +297,8 @@ impl Catalogue {
         let skipped = || Catalogued::Skipped {
             path: relative.to_owned(),
         };
-        let metadata = match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.is_file() => metadata,
+        let facts = match self.sender_files.facts(path) {
+            Ok(facts) if facts.is_file() => facts,
             // Gone, or no longer a regular file (e.g. now a link).
             Ok(_) => return Ok(skipped()),
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(skipped()),
@@ -302,7 +309,7 @@ impl Catalogue {
                 })
             }
         };
-        let stamp = FileStamp::of(&metadata);
+        let stamp = facts.stamp;
         if let Some(known) = self
             .known
             .get(relative)
@@ -312,7 +319,7 @@ impl Catalogue {
                 entry: Entry {
                     path: relative.to_owned(),
                     size: stamp.size,
-                    mtime: mtime_seconds(&metadata),
+                    mtime: facts.mtime_seconds(),
                     hash: known.blob_hash,
                 },
                 stamp,
@@ -320,7 +327,7 @@ impl Catalogue {
                 read: false,
             }));
         }
-        let reader = readers.map(|readers| readers.on(DiskId::of_file(path, &metadata)));
+        let reader = readers.map(|readers| readers.on(DiskId::of_facts(path, &facts)));
         let outboards = self.outboards.as_deref();
         match hash_file_telling_plaintext(relative.to_owned(), path, cipher, reader, outboards) {
             Ok(Hashed {

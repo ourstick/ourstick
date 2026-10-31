@@ -1,4 +1,5 @@
 use super::*;
+use crate::sender_files::LocalFiles;
 
 /// `path` (written `/a/b`) as an absolute path on this system: on Windows
 /// a path needs a drive to be absolute.
@@ -16,7 +17,7 @@ fn entry(name: &str, path: &Path, is_dir: bool) -> LinkedEntry {
         name: name.to_owned(),
         path: path.to_path_buf(),
         is_dir,
-        disk: metadata.as_ref().and_then(disk_of),
+        disk: metadata.as_ref().and_then(crate::linked::disk_of),
         added_at_ms: 1,
         at_top: false,
     }
@@ -59,18 +60,21 @@ fn a_root_is_gone_when_missing_or_no_longer_what_was_linked() {
             entry("notes.txt", &file, false),
         ],
     );
-    assert!(layout.linked().iter().all(|root| !root.is_gone()));
-    assert!(!layout.own().is_gone());
+    assert!(layout
+        .linked()
+        .iter()
+        .all(|root| !root.is_gone(&LocalFiles)));
+    assert!(!layout.own().is_gone(&LocalFiles));
 
     // A file where the folder was, and the reverse.
     std::fs::remove_dir(&folder).unwrap();
     std::fs::write(&folder, "now a file").unwrap();
     std::fs::remove_file(&file).unwrap();
     std::fs::create_dir(&file).unwrap();
-    assert!(layout.linked().iter().all(Root::is_gone));
+    assert!(layout.linked().iter().all(|root| root.is_gone(&LocalFiles)));
     // Missing.
     std::fs::remove_file(&folder).unwrap();
-    assert!(layout.linked()[0].is_gone());
+    assert!(layout.linked()[0].is_gone(&LocalFiles));
     // On another disk than when linked.
     std::fs::create_dir(&folder).unwrap();
     let moved = Root {
@@ -78,9 +82,9 @@ fn a_root_is_gone_when_missing_or_no_longer_what_was_linked() {
         ..layout.linked()[0].clone()
     };
     #[cfg(unix)]
-    assert!(moved.is_gone());
+    assert!(moved.is_gone(&LocalFiles));
     #[cfg(not(unix))]
-    assert!(!moved.is_gone());
+    assert!(!moved.is_gone(&LocalFiles));
 }
 
 #[test]

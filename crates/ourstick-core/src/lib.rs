@@ -21,6 +21,7 @@ pub mod received;
 pub mod record;
 pub mod report;
 pub mod secrets;
+pub mod sender_files;
 pub mod share;
 pub mod space;
 pub mod stick_id;

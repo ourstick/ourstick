@@ -6,6 +6,7 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { checkSend, choosePaths, measure, send, type Measured, type Verdict } from "./sendApi";
   import { size } from "./format";
+  import { onPhone } from "./api";
   import AskFirst from "./AskFirst.svelte";
 
   let { onBack, onSent }: { onBack: () => void; onSent: (stickId: string) => void } = $props();
@@ -31,6 +32,8 @@
   let failure = $state<string | null>(null);
 
   let chosen = $derived(lines.filter((line) => line.verdict.kind !== "refuse"));
+  /** A phone chooses through its own pickers, nothing is dragged (ADR 0029). */
+  const phone = onPhone();
 
   function take(verdict: Verdict) {
     lines.push({ id: ++lineIds, verdict, counted: null, soFar: 0 });
@@ -72,7 +75,7 @@
     }
   }
 
-  async function pick(what: "files" | "folders") {
+  async function pick(what: "files" | "folders" | "photos") {
     try {
       await add(await choosePaths(what));
     } catch (error) {
@@ -125,11 +128,20 @@
   <button class="back" onclick={onBack}>‹ Back</button>
   <h1>What do you want to send?</h1>
 
-  <div class="drop" class:dropping>
-    <span>{lines.length > 0 ? "Drag more here, or" : "Drag folders or files here, or"}</span>
-    <button onclick={() => pick("folders")} disabled={busy}>Choose folders…</button>
-    <button onclick={() => pick("files")} disabled={busy}>Choose files…</button>
-  </div>
+  {#if phone}
+    <div class="pickers">
+      <button onclick={() => pick("photos")} disabled={busy}>Photos and videos…</button>
+      <button onclick={() => pick("files")} disabled={busy}>Files…</button>
+      <button onclick={() => pick("folders")} disabled={busy}>A folder…</button>
+    </div>
+    <p class="muted hint">For many photos, choose their folder (DCIM, then Camera). Photos leave without where they were taken.</p>
+  {:else}
+    <div class="drop" class:dropping>
+      <span>{lines.length > 0 ? "Drag more here, or" : "Drag folders or files here, or"}</span>
+      <button onclick={() => pick("folders")} disabled={busy}>Choose folders…</button>
+      <button onclick={() => pick("files")} disabled={busy}>Choose files…</button>
+    </div>
+  {/if}
 
   {#if lines.length > 0}
     <ul class="chosen">
@@ -150,6 +162,12 @@
       Nothing is copied: OurStick sends them from where they are. <b>Leave them there.</b> If you change a file, they get
       the change too.
     </p>
+    {#if phone}
+      <p class="muted hint">
+        If you uninstall OurStick, clear its data or move to a new phone, the links you sent from this phone stop
+        working.
+      </p>
+    {/if}
   {/if}
 
   <form onsubmit={getLink}>
@@ -197,6 +215,11 @@
     padding: 18px;
     border: 2px dashed var(--border);
     border-radius: var(--radius);
+  }
+  .pickers {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   .drop.dropping {
     border-color: var(--accent);

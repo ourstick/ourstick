@@ -263,6 +263,7 @@ pub fn run() {
             stick_commands::remove_entry,
             share::share_view,
             share::copy_link,
+            share::share_link,
             share::copy_qr_image,
             dialog::confirm_view,
             dialog::open_dialog,

@@ -144,6 +144,20 @@ pub fn choose<R: Runtime>(
         .collect())
 }
 
+/// The link out of the app through the plugin's `command` (`shareLink`,
+/// `copyLink`); never logged.
+pub fn link_out<R: Runtime>(app: &AppHandle<R>, command: &str, link: String) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct Link {
+        link: String,
+    }
+
+    phone(app)?
+        .plugin
+        .run_mobile_plugin::<()>(command, Link { link })?;
+    Ok(())
+}
+
 fn phone<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<tauri::State<'_, Phone<R>>> {
     app.try_state::<Phone<R>>()
         .ok_or_else(|| anyhow::anyhow!("the app's phone plugin did not start"))

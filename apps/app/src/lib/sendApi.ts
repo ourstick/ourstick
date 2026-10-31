@@ -38,8 +38,9 @@ export function send(name: string, paths: string[]): Promise<string> {
 }
 
 /** `Choose folders…` / `Choose files…`: the system's picker, several at
- * once; empty if cancelled. */
-export function choosePaths(pick: "files" | "folders"): Promise<string[]> {
+ * once; empty if cancelled. A phone also has its photo picker, and takes
+ * one folder at a time (ADR 0029). */
+export function choosePaths(pick: "files" | "folders" | "photos"): Promise<string[]> {
   return invoke("choose_paths", { pick });
 }
 

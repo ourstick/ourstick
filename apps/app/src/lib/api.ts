@@ -131,6 +131,11 @@ export function copyLink(stickId: string): Promise<void> {
   return invoke("copy_link", { stickId });
 }
 
+/** A phone's "Send the link": its share sheet (ADR 0029). */
+export function shareLink(stickId: string): Promise<void> {
+  return invoke("share_link", { stickId });
+}
+
 export function copyQrImage(stickId: string): Promise<void> {
   return invoke("copy_qr_image", { stickId });
 }

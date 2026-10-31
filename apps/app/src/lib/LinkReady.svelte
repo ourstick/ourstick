@@ -4,7 +4,7 @@
   // it on the clipboard from the app's side.
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import { copyLink, stick as loadStick, type Stick } from "./api";
+  import { copyLink, onPhone, shareLink, stick as loadStick, type Stick } from "./api";
 
   let {
     stickId,
@@ -13,12 +13,23 @@
   }: { stickId: string; onBack: () => void; onSeeWho: () => void } = $props();
 
   let current = $state<Stick | null>(null);
+  /** A phone sends the link through its share sheet (ADR 0029). */
+  const phone = onPhone();
   let copied = $state(false);
   let failure = $state<string | null>(null);
 
   async function refresh() {
     try {
       current = await loadStick(stickId);
+    } catch (error) {
+      failure = String(error);
+    }
+  }
+
+  async function share() {
+    failure = null;
+    try {
+      await shareLink(stickId);
     } catch (error) {
       failure = String(error);
     }
@@ -49,7 +60,10 @@
     <h1>“<bdi>{current.name}</bdi>” {ready ? "is ready to send" : "is getting ready…"}</h1>
     <div class="link">
       <span class="hidden-link" aria-label="The link, hidden">ourstick.com/s/#•••</span>
-      <button class="primary" onclick={copy} disabled={!ready}>{copied ? "Copied ✓" : "Copy link"}</button>
+      {#if phone}
+        <button class="primary" onclick={share} disabled={!ready}>Send the link</button>
+      {/if}
+      <button class:primary={!phone} onclick={copy} disabled={!ready}>{copied ? "Copied ✓" : "Copy link"}</button>
     </div>
     <p class="warning trust">
       Anyone who gets this link can take everything in it, also the files you add later. Send it only to people you trust.
@@ -58,9 +72,18 @@
       <p class="muted">People with the link can start already: the rest follows by itself.</p>
     {/if}
     <ol class="steps">
-      <li>Paste it in an email or a message.</li>
-      <li>They need OurStick too. When they click the link, the page shows them how to get it.</li>
-      <li>Keep this computer on and OurStick open. They get what you add or change, until you stop sending.</li>
+      {#if phone}
+        <li>Send it in a message: Send the link opens your phone’s list of apps.</li>
+        <li>They need OurStick too. When they tap the link, the page shows them how to get it.</li>
+        <li>
+          Then come back here and <b>keep OurStick open until they have it</b>, with the phone on charge for a big one:
+          a phone stops sending once you leave OurStick.
+        </li>
+      {:else}
+        <li>Paste it in an email or a message.</li>
+        <li>They need OurStick too. When they click the link, the page shows them how to get it.</li>
+        <li>Keep this computer on and OurStick open. They get what you add or change, until you stop sending.</li>
+      {/if}
     </ol>
     <button class="see-who" onclick={onSeeWho}>See who gets it ›</button>
   {/if}

@@ -39,7 +39,8 @@
   }
 
   let empty = $derived(sending.length === 0 && received.length === 0);
-  /** A phone only receives, for now (ADR 0027, decision 2). */
+  /** A phone's words: it sends from the phone, while OurStick is open
+   * (ADR 0029). */
   const phone = onPhone();
 </script>
 
@@ -49,8 +50,8 @@
       <h1>Welcome to OurStick</h1>
       {#if phone}
         <p>
-          Get folders of any size that someone sends you, straight from their computer. No account. Only the people
-          they send the link to can see them.
+          Send photos, files and folders of any size straight from this phone, and get what others send you. No
+          account. Only the people who get the link can see them.
         </p>
       {:else}
         <p>
@@ -62,14 +63,12 @@
   {/if}
 
   <div class="verbs">
-    {#if !phone}
-      <button class="verb primary" onclick={onSend}>
-        <span class="arrow" aria-hidden="true">↑</span>
-        <span class="title">Send</span>
-        <span class="what">Choose folders, get a link to send.</span>
-      </button>
-    {/if}
-    <button class="verb" class:primary={phone} onclick={onReceive}>
+    <button class="verb primary" onclick={onSend}>
+      <span class="arrow" aria-hidden="true">↑</span>
+      <span class="title">Send</span>
+      <span class="what">{phone ? "Choose photos, files or a folder, get a link to send." : "Choose folders, get a link to send."}</span>
+    </button>
+    <button class="verb" onclick={onReceive}>
       <span class="arrow" aria-hidden="true">↓</span>
       <span class="title">Receive</span>
       <span class="what">Someone sent you a link? Open it here.</span>

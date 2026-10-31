@@ -57,7 +57,29 @@ pub async fn copy_link(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let link = required_link(&state, &stick_id).await?;
+    // Android: marked sensitive, so its clipboard preview hides it (ADR 0029).
+    #[cfg(target_os = "android")]
+    return crate::phone::link_out(&app, "copyLink", link).map_err(|error| format!("{error:#}"));
+    #[cfg(not(target_os = "android"))]
     app.clipboard().write_text(link).map_err(shown)
+}
+
+/// "Send the link" on a phone: the system's share sheet, the link as text
+/// (ADR 0029). Never shown in the window, never logged.
+#[tauri::command]
+pub async fn share_link(
+    stick_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let link = required_link(&state, &stick_id).await?;
+    #[cfg(target_os = "android")]
+    return crate::phone::link_out(&app, "shareLink", link).map_err(|error| format!("{error:#}"));
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (link, app);
+        Err("Only a phone shares a link this way.".to_owned())
+    }
 }
 
 #[tauri::command]

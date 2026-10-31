@@ -3,10 +3,15 @@ package com.ourstick.OurStick
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.PersistableBundle
 import android.os.ext.SdkExtensions
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -37,6 +42,11 @@ class KeepScreenOnArgs {
 @InvokeArg
 class OpenFolderArgs {
   lateinit var path: String
+}
+
+@InvokeArg
+class LinkArgs {
+  lateinit var link: String
 }
 
 @InvokeArg
@@ -204,5 +214,31 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
     } catch (_: Exception) {
       null
     }
+  }
+
+  /** The share sheet, with the link as text: it goes straight to a chat
+   * (ADR 0029). Never logged. */
+  @Command
+  fun shareLink(invoke: Invoke) {
+    val args = invoke.parseArgs(LinkArgs::class.java)
+    val send = Intent(Intent.ACTION_SEND)
+      .setType("text/plain")
+      .putExtra(Intent.EXTRA_TEXT, args.link)
+    activity.startActivity(Intent.createChooser(send, null))
+    invoke.resolve()
+  }
+
+  /** The link on the clipboard, marked sensitive: Android's clipboard
+   * preview shows dots instead (the key works before Android 13 too). */
+  @Command
+  fun copyLink(invoke: Invoke) {
+    val args = invoke.parseArgs(LinkArgs::class.java)
+    val clip = ClipData.newPlainText("OurStick link", args.link)
+    clip.description.extras = PersistableBundle().apply {
+      putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+    }
+    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(clip)
+    invoke.resolve()
   }
 }

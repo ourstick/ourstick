@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Called only from the app's Rust side over JNI (ADR 0029): kept whole,
+# with its names, or the release build would remove or rename it.
+-keep class com.ourstick.OurStick.Documents { *; }

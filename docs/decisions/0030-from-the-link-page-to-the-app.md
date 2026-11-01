@@ -194,3 +194,17 @@ through App Links.
    over the old one; Edge and Firefox) and on the Mac (a signed test
    build; Safari); each with and without the app running, and without
    the app installed. The site deployed after Giorgos's yes.
+
+## Seen on the devices
+
+**Windows** (2026-11-01, the VM, Windows 11 24H2, Edge): the installer,
+as an update over 0.2.0, wrote the keys. `ourstick:receive` with the app
+closed started it on Receive, in front; with the app running on Home it
+opened Receive. A link from another computer on the clipboard, back on
+Home after the window lost focus: Receive opened with "✓ We found a link
+you copied" and `Open it`, and only that press found the sender; the same
+link again opened nothing. In Edge the link page's button made Edge ask
+"This site is trying to open OurStick." (`Open`, `Cancel`): so the hidden
+frame and `frame-src ourstick:` work; `Open` brought OurStick in front of
+Edge, on Receive. Still to see: Firefox and Chrome on Windows, Linux
+(GNOME, Wayland, the token), the Mac.

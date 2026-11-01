@@ -38,7 +38,7 @@
     <button class="primary" type="submit" disabled={!text.trim()}>Open</button>
   </div>
 </form>
-<p class="muted">Clicked the link and a web page opened? Press “Copy the link” on that page, then come back here.</p>
+<p class="muted">Clicked the link and a web page opened? Press “Open in OurStick” on that page.</p>
 
 <style>
   h1 {

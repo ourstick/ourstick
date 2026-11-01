@@ -234,8 +234,8 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
 - **No link:** "Paste the link you got": "In the email or message you got,
   copy the whole link. It starts with ourstick.com/s/" and "Come back here:
   OurStick finds it by itself. Or paste it below.", the field, `Open`, and
-  "Clicked the link and a web page opened? Press “Copy the link” on that
-  page, then come back here."
+  "Clicked the link and a web page opened? Press “Open in OurStick” on
+  that page."
 - **Only some of it** (ADR 0012): "What do you want from “Holiday
   photos”?", `All` / `None`, every top-level folder and file with a tick
   and its size, largest first; a folder opens (`▾`) one level down, with
@@ -303,10 +303,13 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
 
 `ourstick.com/s/#…` with no app: "Someone sent you files", "They come
 straight from their computer to yours. To get them, you need the free
-OurStick app." Step 1, "Get OurStick and open it.", `Download for <this
-system>` and "Mac or Linux" (the others), "Already have it? Skip to step
-2."; step 2, "Copy the link, then press Receive in OurStick. It finds the
-link by itself." with `Copy the link` ("Copied ✓ Now open OurStick"). "On a
+OurStick app." Step 1, "Don't have OurStick yet? Get it.", `Download for
+<this system>` and "Mac or Linux" (the others), "Already have it? Go to
+step 2."; step 2, "Open it in OurStick. The link is copied, and OurStick
+finds it by itself." with `Open in OurStick`, which copies the link and
+opens `ourstick:receive` from a hidden frame (ADR 0030) ("Copied ✓",
+"Nothing opened? Get OurStick above, open it and press Receive. The link
+is already copied."). "On a
 phone? OurStick is only for computers for now." (until ADR 0027), and "This
 page never sees the files or the key: they stay in the link, on your
 device." The fragment never leaves the browser (ADR 0022).

@@ -1,7 +1,9 @@
 // The page a link opens without the app, https://ourstick.com/s/#<public>.<secret>.
 // All of it after "#" (the key, and who and where the sender is): the
 // browser never sends it to us, and this page only copies it to the
-// clipboard when asked. It is never sent, stored or shown.
+// clipboard when asked. It is never sent, stored or shown. "Open in
+// OurStick" also opens ourstick:receive, which carries nothing: OurStick
+// comes to the front and finds the copied link itself (ADR 0030).
 (function () {
   var button = document.getElementById("copy");
   var said = document.getElementById("copied");
@@ -30,12 +32,26 @@
     list.parentNode.insertBefore(more, list.nextSibling);
   }
   button.addEventListener("click", function () {
-    navigator.clipboard.writeText(location.href).then(
+    // Both in the click itself: a browser opens an app only right after
+    // one. The copy is done when asked; OurStick reads it once in front.
+    var copying = navigator.clipboard.writeText(location.href);
+    openApp();
+    copying.then(
       function () {
         button.textContent = "Copied ✓";
-        said.textContent = "Now open OurStick and press Receive.";
+        said.textContent = "Nothing opened? Get OurStick above, open it and press Receive. The link is already copied.";
       },
       function () { said.textContent = "Could not copy. Copy the address from the address bar."; }
     );
   });
+  // From a hidden frame, so that this page stays where nothing opens it.
+  function openApp() {
+    var old = document.getElementById("open-app");
+    if (old) old.remove();
+    var frame = document.createElement("iframe");
+    frame.id = "open-app";
+    frame.hidden = true;
+    frame.src = "ourstick:receive";
+    document.body.appendChild(frame);
+  }
 })();

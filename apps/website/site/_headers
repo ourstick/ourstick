@@ -1,8 +1,9 @@
 # Nothing from other sites, ever: the link page holds a whole ticket, the
 # stick's key included, in its address (after "#"), which any script it
-# loaded could read.
+# loaded could read. The one frame the link page makes opens the app with
+# ourstick:receive, which carries nothing (ADR 0030).
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; frame-src ourstick:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   Strict-Transport-Security: max-age=31536000

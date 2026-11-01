@@ -231,4 +231,12 @@ Then a link from another computer on the clipboard opened Receive with
 "✓ We found a link you copied"; `Open it` found the sender; the same link
 again opened nothing.
 
-Still to see: Firefox and Chrome on Windows.
+**Windows, Firefox and Chrome** (2026-11-01, the VM): Firefox asked
+"Allow http://localhost:8123 to open the ourstick link with OurStick?",
+with "Always allow" for the site; its `Open Link` stays greyed while the
+window is not really in front, which the VM's driving could not make, so
+the site was allowed beforehand, as "Always allow" does. Chrome was let
+open `ourstick:` from that page by policy, as its own "Always allow"
+does. In both, with the app closed the button started it with
+`ourstick:receive`, in front on Receive; with it running, hidden in the
+tray, the button brought it in front of the browser, on Receive.

@@ -32,17 +32,18 @@ of Tauri 2.12, its CLI, tao 0.37, tauri-plugin-single-instance 2.5 and
 tauri-plugin-deep-link 2.6; the systems' and browsers' behaviour is to be
 seen on the devices):
 
-- **Registration.** The Tauri CLI reads `plugins.deep-link.desktop.schemes`
-  from `tauri.conf.json` without the plugin crate: the `.deb`'s desktop
-  file gets `MimeType=x-scheme-handler/ourstick;`, and the NSIS installer
-  writes `Software\Classes\ourstick` (`URL Protocol`, `DefaultIcon`,
-  `shell\open\command` = `"$INSTDIR\OurStick.exe" "%1"`), removing it on
-  uninstall only while it still points at this install, so an update
-  keeps it. The CLI's default desktop file has `Exec=` without `%u`, so
-  the system would start the app without the address: we give our own
-  `desktopTemplate` with `%u` and `StartupNotify=true`. macOS is not done
-  by the CLI: `CFBundleURLTypes` goes into our `Info.plist`, which Tauri
-  already merges.
+- **Registration.** The Tauri CLI could write it from
+  `plugins.deep-link.desktop.schemes` in `tauri.conf.json`, but a
+  `plugins` key there makes `generate_context!` need `serde_json` as a
+  dependency of the app: not taken. By hand instead: our `.deb` desktop
+  template gets `MimeType=x-scheme-handler/ourstick;`, `Exec=… %u` (the
+  system starts the app with the address only with a field code) and
+  `StartupNotify=true` (a launcher makes an activation token only then);
+  our NSIS hooks write `HKCU\Software\Classes\ourstick` (`URL:OurStick`,
+  `URL Protocol`, `DefaultIcon`, `shell\open\command` =
+  `"$INSTDIR\OurStick.exe" "%1"`) after each install and update, and
+  delete it on an uninstall that is not an update; macOS:
+  `CFBundleURLTypes` in our `Info.plist`, which Tauri already merges.
 - **Arrival.** On Linux and Windows the address is an argument: of the
   first process on a cold start, or forwarded by the single-instance
   plugin to the running app, which receives **only** the arguments and
@@ -53,8 +54,8 @@ seen on the devices):
   `XDG_ACTIVATION_TOKEN` or `DESKTOP_STARTUP_ID`); the running app does
   not get it through the plugin, so without more it shows "OurStick is
   ready" instead. Windows lets a process that is not in front only flash
-  its taskbar button, unless the one in front allows it
-  (`AllowSetForegroundWindow`). On Wayland the clipboard cannot be read
+  its taskbar button, but Tauri's `set_focus` (tao) takes the foreground
+  by itself when it is refused. On Wayland the clipboard cannot be read
   by a window without focus.
 - **Browsers.** The first time, a browser asks ("Open this link with
   OurStick?", with "always"). Opening a scheme from a frame needs a
@@ -99,8 +100,8 @@ only comes to the front.
 To come to the front: on Linux the second process hands its activation
 token to the running app before it exits (our own call on the session
 bus, before Tauri starts, made only for `ourstick:receive`; the token is
-handed to `windows::Activation` as the tray's is); on Windows it calls
-`AllowSetForegroundWindow` for the running app. Where this fails, the
+handed to `windows::Activation` as the tray's is); on Windows Tauri's
+`set_focus` does it, with no `unsafe` of ours. Where this fails, the
 system's "OurStick is ready" brings it, and Receive reads the clipboard
 when it gets focus.
 
@@ -163,12 +164,11 @@ through App Links.
   under the button still lead to Receive.
 - Uninstall removes the scheme (the installer; the `.deb` and the Mac app
   take their registration with them).
-- No new dependency: the deep-link plugin crate is not added, since only
-  its configuration is needed for Linux and Windows and macOS is two
-  plist keys. The Linux call uses `zbus`, already a dependency of the
-  app. `windows-sys` needs the feature `Win32_UI_WindowsAndMessaging`
-  for `AllowSetForegroundWindow`: a change to the root `Cargo.toml`,
-  asked of Giorgos first.
+- No new dependency and no `unsafe`: neither the deep-link plugin nor
+  `serde_json`; the registration is a few lines in each system's own
+  files, and the Linux call uses `zbus`, already a dependency of the
+  app. (A first draft had `AllowSetForegroundWindow`, an `unsafe` call
+  and a `windows-sys` feature: not needed, see above.)
 - Later, perhaps: Universal Links on the Mac (Safari opens the link in
   the app, no page, no clipboard), as App Links on Android.
 
@@ -177,13 +177,13 @@ through App Links.
 1. `receiving::scheme::is_receive` with tests: the four forms in any
    case, longer and shorter ones, a fragment, a key-like tail, junk,
    non-UTF-8, `--autostarted` beside an address; the 3-second gap.
-2. `tauri.conf.json` scheme, the desktop template (`%u`,
-   `StartupNotify`, the default's other lines), `Info.plist`; the
-   generated `.desktop` and the installer's keys checked in the built
-   packages; the log filter for `tao`.
-3. Arrival: first start, second start (token on Linux, foreground on
-   Windows), macOS `Opened`; Receive opened through `receiving::opened`
-   with nothing, the screens that hold it back; §2's "Open it".
+2. The desktop template (`MimeType`, `%u`, `StartupNotify`), the NSIS
+   hooks, `Info.plist`; the generated `.desktop` and the installer's keys
+   checked in the built packages; the log filter for `tao`.
+3. Arrival: first start, second start (the token on Linux; on Windows
+   seen to come in front without help), macOS `Opened`; Receive opened
+   through `receiving::opened` with nothing, the screens that hold it
+   back; §2's "Open it".
 4. §4: the read on Home when focus comes back, the hash, "already have
    it"; not on macOS.
 5. The link page and its CSP; ReceiveView's "Clicked the link and a web

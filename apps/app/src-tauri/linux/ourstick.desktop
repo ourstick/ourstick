@@ -3,12 +3,11 @@ Categories={{categories}}
 {{#if comment}}
 Comment={{comment}}
 {{/if}}
-Exec={{exec}}
+Exec={{exec}} %u
 StartupWMClass={{exec}}
 Icon={{icon}}
 Name=OurStick
 Terminal=false
 Type=Application
-{{#if mime_type}}
-MimeType={{mime_type}}
-{{/if}}
+StartupNotify=true
+MimeType=x-scheme-handler/ourstick;

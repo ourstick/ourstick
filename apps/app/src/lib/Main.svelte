@@ -5,7 +5,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getVersion } from "@tauri-apps/api/app";
   import { openAbout, setStartAtLogin, startAtLogin, startAtLoginTold } from "./aboutApi";
-  import { linkOpened } from "./macApi";
+  import { linkOpened, newLinkOnClipboard } from "./macApi";
   import {
     appProblem,
     dismissAppProblem,
@@ -72,10 +72,29 @@
 
   /** Links opened from another app: each starts Receive afresh. */
   let opened = $state(0);
+  /** Receive is past "Paste the link": one opened from outside (a desktop's)
+   * waits for the next Receive instead of ending it. */
+  let receiveBusy = false;
 
   function linkArrived() {
+    if (!phone && shown.kind === "receive" && receiveBusy) return;
     opened++;
     shown = { kind: "receive" };
+  }
+
+  // Back on Home after the window lost focus (ADR 0030 §4): a link not
+  // seen before on the clipboard opens Receive, which asks before it looks.
+  // Not the first focus after the start; the core says no on a Mac.
+  let away = false;
+  function blurred() {
+    away = true;
+  }
+  function focused() {
+    if (!away || phone || shown.kind !== "home") return;
+    away = false;
+    void newLinkOnClipboard()
+      .then((found) => found && shown.kind === "home" && linkArrived())
+      .catch(() => {});
   }
 
   async function refresh() {
@@ -154,6 +173,8 @@
       }),
     ];
     window.addEventListener("popstate", backToHome);
+    window.addEventListener("blur", blurred);
+    window.addEventListener("focus", focused);
     // A link opened before the window listened (the app started with it).
     void Promise.all(stops)
       .then(linkOpened)
@@ -161,6 +182,8 @@
       .catch(() => {});
     return () => {
       window.removeEventListener("popstate", backToHome);
+      window.removeEventListener("blur", blurred);
+      window.removeEventListener("focus", focused);
       stops.forEach((stop) => stop.then((unlisten) => unlisten()));
     };
   });
@@ -220,6 +243,7 @@
       {:else if shown.kind === "receive"}
         {#key opened}
           <ReceiveView
+            onBusy={(busy) => (receiveBusy = busy)}
             onAdded={(id) => ((shown = { kind: "received", id }), refresh())}
             onShow={(kind, id) => ((shown = { kind, id }), refresh())}
           />

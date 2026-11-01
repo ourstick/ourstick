@@ -210,9 +210,18 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
 
 ### Receive
 
+- **From the link page** (ADR 0030): "Open in OurStick" copies the link
+  and opens `ourstick:receive`, which carries nothing; OurStick comes to
+  the front and opens Receive (not over a dialog, a receive under way or
+  Quit). On Linux and Windows, coming back to Home after the window lost
+  focus also opens it, for a link not seen before of a stick this computer
+  neither sends nor receives. A link found either way shows "✓ We found a
+  link you copied", "Someone sent you files", "OurStick looks for the
+  sender's computer once you open it.", `Not this one` and `Open it`:
+  only `Open it` makes it look.
 - **Receive** reads the clipboard on that press, and again each time the
   window comes back while "Paste the link you got" waits with its field
-  empty (ADR 0028 §4, amended), never otherwise (`link_on_clipboard`: an
+  empty (ADR 0028 §4, amended), never otherwise but as above (`link_on_clipboard`: an
   OurStick link or nothing; never logged, shown or put into an error; the
   clipboard is not cleared). A failed read (a system
   that asks, Wayland without focus) falls back to the field, silently.

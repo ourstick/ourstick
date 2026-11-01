@@ -3,6 +3,8 @@
 //! `ourstick-core`.
 
 mod about;
+#[cfg(desktop)]
+mod arrival;
 mod busy;
 mod commands;
 mod dialog;
@@ -65,9 +67,14 @@ pub fn run() {
     tauri::async_runtime::set(runtime.handle().clone());
 
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(log_filter())
         .with_writer(std::io::stderr)
         .init();
+
+    // ourstick:receive (ADR 0030): the running app, if any, may come to
+    // the front, before this start hands it over and exits.
+    #[cfg(desktop)]
+    arrival::before_start();
 
     // A desktop's state is opened before the window. A phone's data folder
     // is known only to the app, in `setup` below.
@@ -113,7 +120,10 @@ pub fn run() {
     // phone starts one app by itself.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        if !login::autostarted(&args) {
+        if receiving::scheme::asked(&args) {
+            arrival::arrived(app);
+            tray::show_main(app);
+        } else if !login::autostarted(&args) {
             tray::show_main(app);
         }
     }));
@@ -128,6 +138,8 @@ pub fn run() {
         .manage(tray::DotShown::default())
         .manage(receiving::Receivers::default())
         .manage(receiving::opened::OpenedLink::default())
+        .manage(receiving::clipboard::LastSeen::default())
+        .manage(receiving::scheme::Arrivals::default())
         // The main window's ✕ asks first: Minimize, or Quit, which stops
         // sharing (see dialog). The window is only ever minimized, never
         // hidden, so that it stays in sight (and on Linux the tray can bring
@@ -165,6 +177,8 @@ pub fn run() {
                 });
             }
             tray::create(app.handle())?;
+            #[cfg(target_os = "linux")]
+            arrival::linux::serve(app.handle());
             #[cfg(target_os = "macos")]
             login::no_relaunch_at_login();
             // Sticks from an earlier run are plugged in and shared again at
@@ -206,7 +220,21 @@ pub fn run() {
                 .is_ok_and(|settings| settings.start_at_login && !settings.start_at_login_told);
             let ask_first =
                 due.is_some_and(|keys| keys > 0) || !*state.network_open.borrow() || notice;
-            if !login::autostarted(&std::env::args().collect::<Vec<_>>()) || ask_first {
+            #[cfg(desktop)]
+            let asked = arrival::asked_at_start();
+            #[cfg(mobile)]
+            let asked = false;
+            if asked {
+                // The window, once it listens, finds Receive waiting.
+                #[cfg(desktop)]
+                arrival::arrived(app.handle());
+            }
+            let autostarted = login::autostarted(
+                &std::env::args_os()
+                    .map(|argument| argument.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>(),
+            );
+            if asked || !autostarted || ask_first {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
                 }
@@ -239,6 +267,7 @@ pub fn run() {
             receiving::list::received,
             receiving::preview::preview_link,
             receiving::clipboard::link_on_clipboard,
+            receiving::clipboard::new_link_on_clipboard,
             receiving::opened::link_opened,
             receiving::opened::take_opened_link,
             receiving::commands::choose_folder,
@@ -297,6 +326,11 @@ pub fn run() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 tray::show_main(app);
             }
+            // macOS: an address opened with the app (ADR 0030).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                arrival::opened(app, urls);
+            }
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 // Quit is always confirmed (docs/gui-spec.md): from the Dock,
                 // with ⌘Q or from the app menu too, not only from the tray.
@@ -318,4 +352,20 @@ pub fn run() {
                 tauri::async_runtime::block_on(receivers.stop_all());
             }
         });
+}
+
+/// The log filter: `RUST_LOG`, with `tao` never below `debug`, since at
+/// `trace` it logs the addresses the app was opened with, and one may hold
+/// a key (ADR 0030).
+fn log_filter() -> tracing_subscriber::EnvFilter {
+    let filter = tracing_subscriber::EnvFilter::from_default_env();
+    // Without RUST_LOG only errors are logged: nothing to cap, and a cap
+    // would let tao's debug lines through.
+    if std::env::var_os("RUST_LOG").is_none() {
+        return filter;
+    }
+    match "tao=debug".parse() {
+        Ok(cap) => filter.add_directive(cap),
+        Err(_) => filter,
+    }
 }

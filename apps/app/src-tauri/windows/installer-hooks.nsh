@@ -1,12 +1,22 @@
 ; NSIS hooks of the Windows installer (Tauri's `installerHooks`).
 
+; Installing, and on each update: the ourstick: address, which opens
+; Receive and carries nothing (ADR 0030), for this user.
+!macro NSIS_HOOK_POSTINSTALL
+  WriteRegStr HKCU "Software\Classes\ourstick" "" "URL:OurStick"
+  WriteRegStr HKCU "Software\Classes\ourstick" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\ourstick\DefaultIcon" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
+  WriteRegStr HKCU "Software\Classes\ourstick\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+!macroend
+
 ; Uninstalling: the File Explorer entries the app made for its sticks
 ; (ADR 0023), as its lists under HKCU\Software\OurStick\NavigationPane
 ; name them, one subkey per data folder. Only a braced GUID is taken as an
 ; entry. Then the start at login (ADR 0024): the Run value and Task
 ; Manager's switch for it, so that a new install does not inherit an old
-; "Disabled". Not on an update: the old version is uninstalled first, and
-; the entries would vanish until the app's next start.
+; "Disabled"; and the ourstick: address. Not on an update: the old version
+; is uninstalled first, and the entries would vanish until the app's next
+; start.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $UpdateMode <> 1
     Push $R0
@@ -38,6 +48,7 @@
       Goto ourstick_lists
     ourstick_done:
     DeleteRegKey HKCU "Software\OurStick"
+    DeleteRegKey HKCU "Software\Classes\ourstick"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OurStick"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "OurStick"
     Pop $R4

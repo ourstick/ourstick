@@ -1,12 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Merged by Tauri into the macOS bundle's Info.plist: our words in the
-     questions macOS asks (ADR 0020). -->
+     questions macOS asks (ADR 0020), and the ourstick: address that opens
+     Receive and carries nothing (ADR 0030). -->
 <plist version="1.0">
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>OurStick sends sticks directly to computers on the same network. Without this, they go through a relay server, much more slowly.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>OurStick saves the sticks you receive in your Downloads folder.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.ourstick.OurStick</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ourstick</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

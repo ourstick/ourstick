@@ -1,6 +1,8 @@
 <script lang="ts">
   // Receive (gui-spec, ADR 0028 §4): the link found on the clipboard when
-  // Receive was pressed (and only then), else pasted; the sender's computer
+  // Receive was pressed (and only then), else pasted; opened by
+  // ourstick:receive or on coming back (ADR 0030), a link found is looked
+  // at only once the user says so (§2). The sender's computer
   // found; what it brings, where it goes, and Download. The link itself is
   // never shown, logged or put into a message.
   import { onMount } from "svelte";
@@ -18,23 +20,31 @@
   } from "./api";
   import { holdsWords, lastParts, size, thisDevice } from "./format";
   import ChoiceTree, { type ChoiceRow } from "./ChoiceTree.svelte";
+  import KnownLink from "./KnownLink.svelte";
   import PasteLink from "./PasteLink.svelte";
   import SavedAsNote from "./SavedAsNote.svelte";
 
   let {
     onAdded,
     onShow,
+    onBusy,
   }: {
     /** Downloading (or waited for): its view. */
     onAdded: (stickId: string) => void;
     /** A link known here: the view of what one sends, or one receives. */
     onShow: (kind: "sending" | "received", stickId: string) => void;
+    /** Past "Paste the link": a link opened from outside waits. */
+    onBusy?: (busy: boolean) => void;
   } = $props();
 
-  type Phase = "starting" | "paste" | "looking" | "seen" | "choose" | "away" | "known";
+  type Phase = "starting" | "paste" | "ask" | "looking" | "seen" | "choose" | "away" | "known";
   let phase = $state<Phase>("starting");
   /** The link came from the clipboard. */
   let found = $state(false);
+  /** Opened from outside (ADR 0030 §2): a link found waits for "Open it". */
+  let askFirst = false;
+  let asked = "";
+  $effect(() => onBusy?.(phase !== "starting" && phase !== "paste" && phase !== "ask"));
   let text = $state("");
   /** The link being looked at, or seen: Download adds exactly that one. */
   let looked = "";
@@ -109,7 +119,10 @@
     const copied = await linkOnClipboard().catch(() => null);
     if (copied) {
       found = true;
-      await look(copied);
+      if (askFirst) {
+        asked = copied;
+        phase = "ask";
+      } else await look(copied);
     } else if (phase === "starting") {
       phase = "paste";
     }
@@ -129,9 +142,12 @@
     void takeOpenedLink()
       .catch(() => null)
       .then((opened) => {
-        if (opened) void look(opened);
+        if (opened?.kind === "link") void look(opened.link);
         else if (phone) phase = "paste";
-        else void fromClipboard();
+        else {
+          askFirst = opened?.kind === "asked";
+          void fromClipboard();
+        }
       });
     const back = () => {
       if (phone) return;
@@ -210,6 +226,14 @@
     <p class="muted">Looking for a link you copied…</p>
   {:else if phase === "paste"}
     <PasteLink bind:text onOpen={open} onPaste={phone ? pasteTapped : undefined} />
+  {:else if phase === "ask"}
+    <p class="found">✓ We found a link you copied</p>
+    <h1>Someone sent you files</h1>
+    <p class="muted">OurStick looks for the sender’s computer once you open it.</p>
+    <div class="actions">
+      <button onclick={another}>Not this one</button>
+      <button class="primary" onclick={() => look(asked)}>Open it</button>
+    </div>
   {:else if phase === "looking"}
     {#if found}<p class="found">✓ We found a link you copied</p>{/if}
     <h1>Someone sent you files</h1>
@@ -231,19 +255,7 @@
       {#if !phone}<button class="primary" onclick={waitForIt} disabled={adding}>Wait for it</button>{/if}
     </div>
   {:else if phase === "known" && known}
-    {#if known.known === "own"}
-      <h1>This is the link to “<bdi>{known.name}</bdi>”, which you send yourself.</h1>
-    {:else if known.known === "received"}
-      <h1>You already get “<bdi>{known.name}</bdi>” on {thisDevice()}.</h1>
-    {:else}
-      <h1>You already wait for this link.</h1>
-    {/if}
-    <div class="actions">
-      <button onclick={another}>Paste another link</button>
-      <button class="primary" onclick={() => known && onShow(known.known === "own" ? "sending" : "received", known.id)}
-        >Show it</button
-      >
-    </div>
+    <KnownLink {known} onAnother={another} {onShow} />
   {:else if preview && phase === "seen"}
     <div class="card-head">
       {#if found}<p class="found">✓ We found a link you copied</p>{/if}
@@ -322,7 +334,7 @@
     flex: 1 1 auto;
     overflow-y: auto;
   }
-  h1 {
+  .receive :global(h1) {
     margin: 0;
     overflow-wrap: anywhere;
   }

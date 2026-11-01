@@ -214,7 +214,21 @@ it, in front; with it running, `Opened` brought it in front on Receive.
 With a link from another computer on the clipboard Receive showed "✓ We
 found a link you copied" and `Open it`, and macOS asked nothing about the
 clipboard for that read; `Open it` found the sender. In Safari the link
-page's button brought OurStick in front of Safari, on Receive.
+page's button made Safari ask once (in Greek) whether the page may open
+OurStick; on "Allow" OurStick came in front of Safari, on Receive.
 
-Still to see: Firefox and Chrome on Windows, and Linux (GNOME, Wayland,
-the token), on this PC once its big transfer is done.
+**Linux** (2026-11-01, Ubuntu, GNOME on Wayland, the .deb, Firefox as a
+snap and Chrome): installing the .deb registered the handler
+(`x-scheme-handler/ourstick` in `mimeinfo.cache`). In Firefox the link
+page's button made Firefox ask whether to open the link with "System
+Handler"; on open, OurStick started on Receive, in front. With the app
+running the button brought it in front again, from Firefox and from
+Chrome: so the token handed over D-Bus works. Coming back to Home first
+failed: the page's own `blur` and `focus` events do not come in
+WebKitGTK when the window loses and gains focus, so the window now hears
+it from Tauri (`WindowEvent::Focused`, "came-back"), on every desktop.
+Then a link from another computer on the clipboard opened Receive with
+"✓ We found a link you copied"; `Open it` found the sender; the same link
+again opened nothing.
+
+Still to see: Firefox and Chrome on Windows.

@@ -115,6 +115,12 @@ ksni = { path = "third_party/ksni" }
 # itself (third_party/iroh-blobs/OURSTICK.md).
 iroh-blobs = { path = "third_party/iroh-blobs" }
 
+# Line tables only: a panic or backtrace still names its file and line, at
+# a fraction of full debug info's size (the build folder had reached 300 GB
+# with dozens of test binaries). Tests use it too.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

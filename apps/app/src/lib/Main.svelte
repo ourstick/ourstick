@@ -82,16 +82,12 @@
     shown = { kind: "receive" };
   }
 
-  // Back on Home after the window lost focus (ADR 0030 §4): a link not
-  // seen before on the clipboard opens Receive, which asks before it looks.
-  // Not the first focus after the start; the core says no on a Mac.
-  let away = false;
-  function blurred() {
-    away = true;
-  }
-  function focused() {
-    if (!away || phone || shown.kind !== "home") return;
-    away = false;
+  // The window came back after it lost focus ("came-back", from the app:
+  // WebKitGTK's own focus events do not say so), on Home (ADR 0030 §4): a
+  // link not seen before on the clipboard opens Receive, which asks before
+  // it looks. Not the first focus after the start; the core says no on a Mac.
+  function cameBack() {
+    if (phone || shown.kind !== "home") return;
     void newLinkOnClipboard()
       .then((found) => found && shown.kind === "home" && linkArrived())
       .catch(() => {});
@@ -159,6 +155,7 @@
       listen("problems-changed", refresh),
       listen("received-changed", refresh),
       listen("link-opened", linkArrived),
+      listen("came-back", cameBack),
       // The list shows who gets it, not how fast: only a new count matters.
       listen<About<Activity>>("activity", (event) => {
         const entry = sending.find((entry) => entry.id === event.payload.stick_id);
@@ -173,8 +170,6 @@
       }),
     ];
     window.addEventListener("popstate", backToHome);
-    window.addEventListener("blur", blurred);
-    window.addEventListener("focus", focused);
     // A link opened before the window listened (the app started with it).
     void Promise.all(stops)
       .then(linkOpened)
@@ -182,8 +177,6 @@
       .catch(() => {});
     return () => {
       window.removeEventListener("popstate", backToHome);
-      window.removeEventListener("blur", blurred);
-      window.removeEventListener("focus", focused);
       stops.forEach((stop) => stop.then((unlisten) => unlisten()));
     };
   });

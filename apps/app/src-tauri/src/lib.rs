@@ -145,6 +145,13 @@ pub fn run() {
         // hidden, so that it stays in sight (and on Linux the tray can bring
         // it back, see windows).
         .on_window_event(|window, event| {
+            // The main window came back after it lost focus (ADR 0030 §4).
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if window.label() == "main" {
+                    arrival::focus_changed(window.app_handle(), *focused);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     api.prevent_close();

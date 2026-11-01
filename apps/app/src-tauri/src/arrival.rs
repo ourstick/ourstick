@@ -5,9 +5,10 @@
 //! `RunEvent::Opened`. The address is never logged: any other is a
 //! stranger's text, and may hold a key.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::receiving::scheme::{self, Arrivals};
 
@@ -45,6 +46,22 @@ pub fn arrived<R: Runtime>(app: &AppHandle<R>) {
         .any(|label| label.starts_with("confirm"));
     if !dialog_open {
         crate::receiving::opened::asked(app);
+    }
+}
+
+/// Set while the main window has lost focus since it last had it.
+static AWAY: AtomicBool = AtomicBool::new(false);
+
+/// The main window gained or lost focus: gained after it was lost, the
+/// window is told ("came-back"), and on Home it looks for a new link on the
+/// clipboard (ADR 0030 §4). Not the first focus after the start.
+pub fn focus_changed<R: Runtime>(app: &AppHandle<R>, focused: bool) {
+    if !focused {
+        AWAY.store(true, Ordering::SeqCst);
+    } else if AWAY.swap(false, Ordering::SeqCst) {
+        if let Err(error) = app.emit("came-back", ()) {
+            tracing::warn!(%error, "the window was not told it came back");
+        }
     }
 }
 

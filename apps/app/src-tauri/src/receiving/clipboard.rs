@@ -54,6 +54,7 @@ pub async fn new_link_on_clipboard(
         return Ok(false);
     };
     if before == seen.last() {
+        tracing::debug!("back on Home: the link on the clipboard was seen before");
         return Ok(false);
     }
     let store = state.store.clone();
@@ -61,6 +62,7 @@ pub async fn new_link_on_clipboard(
         Ok(check_link(store.as_ref(), &ticket.stick_id, StickKind::App).is_ok())
     })
     .await?;
+    tracing::debug!(new, "back on Home: a link on the clipboard");
     if new {
         app.state::<super::opened::OpenedLink>().asked();
     }

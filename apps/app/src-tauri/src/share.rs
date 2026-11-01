@@ -64,6 +64,19 @@ pub async fn copy_link(
     app.clipboard().write_text(link).map_err(shown)
 }
 
+/// Whether this device goes on sending once OurStick is not in front: a
+/// desktop does; an Android phone from Android 14 (ADR 0029).
+#[tauri::command]
+pub async fn sends_in_background(app: AppHandle) -> bool {
+    #[cfg(target_os = "android")]
+    return crate::phone::sends_in_background(&app).unwrap_or(false);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        cfg!(desktop)
+    }
+}
+
 /// "Send the link" on a phone: the system's share sheet, the link as text
 /// (ADR 0029). Never shown in the window, never logged.
 #[tauri::command]

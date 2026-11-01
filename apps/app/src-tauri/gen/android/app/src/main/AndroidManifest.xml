@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Sending goes on in the background (ADR 0029): a user-initiated
+         data transfer job. Notifications are never asked for. -->
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -44,6 +48,11 @@
                 <data android:pathPrefix="/s/" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".SendingJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

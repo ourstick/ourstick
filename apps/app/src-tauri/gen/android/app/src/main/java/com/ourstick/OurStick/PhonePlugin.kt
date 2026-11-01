@@ -40,6 +40,11 @@ class KeepScreenOnArgs {
 }
 
 @InvokeArg
+class KeepSendingArgs {
+  var on: Boolean = false
+}
+
+@InvokeArg
 class OpenFolderArgs {
   lateinit var path: String
 }
@@ -47,6 +52,11 @@ class OpenFolderArgs {
 @InvokeArg
 class LinkArgs {
   lateinit var link: String
+}
+
+@InvokeArg
+class ReleaseArgs {
+  var uris: Array<String> = arrayOf()
 }
 
 @InvokeArg
@@ -243,5 +253,49 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
     val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(clip)
     invoke.resolve()
+  }
+
+  /** The URIs whose read grants the app keeps (ADR 0029). */
+  @Command
+  fun keptGrants(invoke: Invoke) {
+    val uris = JSArray()
+    for (grant in activity.contentResolver.persistedUriPermissions) {
+      if (grant.isReadPermission) uris.put(grant.uri.toString())
+    }
+    val answer = JSObject()
+    answer.put("uris", uris)
+    invoke.resolve(answer)
+  }
+
+  /** Gives back the read grants of `uris`: no stick uses them any more. */
+  @Command
+  fun releaseGrants(invoke: Invoke) {
+    val args = invoke.parseArgs(ReleaseArgs::class.java)
+    for (uri in args.uris) {
+      try {
+        activity.contentResolver.releasePersistableUriPermission(
+          Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+      } catch (_: SecurityException) {
+        // Not held any more.
+      }
+    }
+    invoke.resolve()
+  }
+
+  /** Sending goes on in the background, or no longer ([SendingJob]). */
+  @Command
+  fun keepSending(invoke: Invoke) {
+    val args = invoke.parseArgs(KeepSendingArgs::class.java)
+    SendingJob.keep(activity.applicationContext, args.on)
+    invoke.resolve()
+  }
+
+  /** Whether sending goes on in the background here (Android 14+). */
+  @Command
+  fun sendsInBackground(invoke: Invoke) {
+    val answer = JSObject()
+    answer.put("yes", Build.VERSION.SDK_INT >= 34)
+    invoke.resolve(answer)
   }
 }

@@ -4,6 +4,8 @@
 //! place's path carries its content URI ([`paths`]); the URIs of what is
 //! inside a chosen folder are kept from its last listing.
 
+#[cfg(target_os = "android")]
+pub mod naming;
 pub mod paths;
 
 use ourstick_core::manifest::FileStamp;

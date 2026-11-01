@@ -4,7 +4,7 @@
   // it on the clipboard from the app's side.
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import { copyLink, onPhone, shareLink, stick as loadStick, type Stick } from "./api";
+  import { copyLink, onPhone, sendsInBackground, shareLink, stick as loadStick, type Stick } from "./api";
 
   let {
     stickId,
@@ -15,6 +15,8 @@
   let current = $state<Stick | null>(null);
   /** A phone sends the link through its share sheet (ADR 0029). */
   const phone = onPhone();
+  /** This phone goes on sending in the background (Android 14+). */
+  let background = $state(false);
   let copied = $state(false);
   let failure = $state<string | null>(null);
 
@@ -47,6 +49,7 @@
 
   onMount(() => {
     refresh();
+    if (phone) void sendsInBackground().then((yes) => (background = yes)).catch(() => {});
     const stops = [listen("sharing-changed", refresh), listen("stick-changed", refresh)];
     return () => stops.forEach((stop) => stop.then((unlisten) => unlisten()));
   });
@@ -75,10 +78,17 @@
       {#if phone}
         <li>Send it in a message: Send the link opens your phone’s list of apps.</li>
         <li>They need OurStick too. When they tap the link, the page shows them how to get it.</li>
-        <li>
-          Then come back here and <b>keep OurStick open until they have it</b>, with the phone on charge for a big one:
-          a phone stops sending once you leave OurStick.
-        </li>
+        {#if background}
+          <li>
+            It goes on in the background while this phone is on and online, also with the screen off. Keep it charged
+            for a big one. They get what you add or change, until you stop sending.
+          </li>
+        {:else}
+          <li>
+            Then come back here and <b>keep OurStick open until they have it</b>, with the phone on charge for a big
+            one: this phone stops sending once you leave OurStick.
+          </li>
+        {/if}
       {:else}
         <li>Paste it in an email or a message.</li>
         <li>They need OurStick too. When they click the link, the page shows them how to get it.</li>

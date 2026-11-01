@@ -20,6 +20,22 @@ pub fn place_path(uri: &str, name: &str) -> PathBuf {
     Path::new(PREFIX).join(hex).join(usable_name(name))
 }
 
+/// `name` with ` (n)` before its extension: `IMG_1 (2).jpg`, `Notes (3)`.
+pub fn numbered(name: &str, n: u32) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => format!("{stem} ({n}).{extension}"),
+        _ => format!("{name} ({n})"),
+    }
+}
+
+/// The chosen place `place` under the name `name` instead.
+pub fn renamed(place: &Path, name: &str) -> PathBuf {
+    match place.parent() {
+        Some(parent) => parent.join(usable_name(name)),
+        None => place.to_path_buf(),
+    }
+}
+
 /// `name` as a part of a path: `/` and `\` become `_`, control characters
 /// go, and a name left empty, `.` or `..` is "Unnamed".
 pub fn usable_name(name: &str) -> String {
@@ -159,5 +175,22 @@ mod naming_tests {
         let found = chosen(&place).unwrap();
         assert!(found.is_place);
         assert_eq!(place.file_name().unwrap(), "_etc_passwd");
+    }
+}
+
+#[cfg(test)]
+mod numbering_tests {
+    use super::*;
+
+    #[test]
+    fn a_clashing_name_is_numbered_before_its_extension() {
+        assert_eq!(numbered("IMG_0001.jpg", 2), "IMG_0001 (2).jpg");
+        assert_eq!(numbered("archive.tar.gz", 3), "archive.tar (3).gz");
+        assert_eq!(numbered("Notes", 2), "Notes (2)");
+        assert_eq!(numbered(".nomedia", 2), ".nomedia (2)");
+        let place = place_path("content://x/y", "IMG_0001.jpg");
+        let other = renamed(&place, "IMG_0001 (2).jpg");
+        assert_eq!(chosen(&other).unwrap().uri, "content://x/y");
+        assert_eq!(other.file_name().unwrap(), "IMG_0001 (2).jpg");
     }
 }

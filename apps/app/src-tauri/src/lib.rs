@@ -156,6 +156,13 @@ pub fn run() {
                     Some(window) => documents::start(&window, documents)?,
                     None => tracing::warn!("no window: chosen files cannot be read"),
                 }
+                let handle = app.handle().clone();
+                let store = app.state::<state::AppState>().store.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error) = phone::tidy_grants(&handle, store.as_ref()) {
+                        tracing::warn!(error = %format!("{error:#}"), "read grants were not tidied");
+                    }
+                });
             }
             tray::create(app.handle())?;
             #[cfg(target_os = "macos")]
@@ -264,6 +271,7 @@ pub fn run() {
             share::share_view,
             share::copy_link,
             share::share_link,
+            share::sends_in_background,
             share::copy_qr_image,
             dialog::confirm_view,
             dialog::open_dialog,

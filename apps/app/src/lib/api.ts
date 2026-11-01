@@ -131,6 +131,11 @@ export function copyLink(stickId: string): Promise<void> {
   return invoke("copy_link", { stickId });
 }
 
+/** Whether sending goes on once OurStick is not in front (ADR 0029). */
+export function sendsInBackground(): Promise<boolean> {
+  return invoke("sends_in_background");
+}
+
 /** A phone's "Send the link": its share sheet (ADR 0029). */
 export function shareLink(stickId: string): Promise<void> {
   return invoke("share_link", { stickId });

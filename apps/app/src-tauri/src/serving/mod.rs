@@ -42,6 +42,9 @@ pub struct Serving {
     pub activity: watch::Receiver<ReaderActivity>,
     /// Tells the watcher to look now (a linked entry came or went).
     pub nudge: Nudge,
+    /// Sending goes on in the background while this is held (ADR 0029).
+    #[cfg(target_os = "android")]
+    _background: crate::phone::KeepSending<tauri::Wry>,
 }
 
 impl Serving {
@@ -122,6 +125,8 @@ pub async fn start(
 
     let (stop, stopped) = oneshot::channel();
     let root = keys.stick.root_path.clone();
+    #[cfg(target_os = "android")]
+    let background = app.clone();
     let shared = Shared {
         app,
         publisher,
@@ -166,6 +171,8 @@ pub async fn start(
         link,
         activity,
         nudge,
+        #[cfg(target_os = "android")]
+        _background: crate::phone::KeepSending::hold(&background)?,
     })
 }
 

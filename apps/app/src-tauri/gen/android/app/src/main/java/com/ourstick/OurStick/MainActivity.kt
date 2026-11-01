@@ -25,6 +25,12 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  override fun onResume() {
+    super.onResume()
+    // Sending in the background can start only while the app is in front.
+    SendingJob.resumed(this)
+  }
+
   // Back on Home (the web view has no step to go back to): the app goes to
   // the background, as Home does, rather than ending this activity. A new
   // one in the same process would stay blank, and a download goes on.

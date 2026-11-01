@@ -52,6 +52,12 @@ fn verdicts(
 ) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for text in paths {
+        // A phone cannot rename what it chose: a name taken already is
+        // numbered instead of refused (ADR 0029).
+        #[cfg(target_os = "android")]
+        let numbered = crate::documents::naming::free_name(files, text, &taken, top);
+        #[cfg(target_os = "android")]
+        let text = &numbered;
         let path = Path::new(text);
         let name = path
             .file_name()

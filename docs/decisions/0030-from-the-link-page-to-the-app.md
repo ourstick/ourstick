@@ -206,5 +206,15 @@ you copied" and `Open it`, and only that press found the sender; the same
 link again opened nothing. In Edge the link page's button made Edge ask
 "This site is trying to open OurStick." (`Open`, `Cancel`): so the hidden
 frame and `frame-src ourstick:` work; `Open` brought OurStick in front of
-Edge, on Receive. Still to see: Firefox and Chrome on Windows, Linux
-(GNOME, Wayland, the token), the Mac.
+Edge, on Receive.
+
+**macOS** (2026-11-01, macOS 26.7.1, a signed test build, Safari): Tauri
+merged `CFBundleURLTypes`. `ourstick:receive` with the app closed started
+it, in front; with it running, `Opened` brought it in front on Receive.
+With a link from another computer on the clipboard Receive showed "✓ We
+found a link you copied" and `Open it`, and macOS asked nothing about the
+clipboard for that read; `Open it` found the sender. In Safari the link
+page's button brought OurStick in front of Safari, on Receive.
+
+Still to see: Firefox and Chrome on Windows, and Linux (GNOME, Wayland,
+the token), on this PC once its big transfer is done.

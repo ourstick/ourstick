@@ -4,6 +4,8 @@
 //! `ourstick:` address is refused whole and never read as a link, logged,
 //! shown or put into an error: someone may have put a key in it.
 
+#![cfg(desktop)]
+
 use std::ffi::OsStr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

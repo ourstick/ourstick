@@ -119,14 +119,16 @@ pub fn run() {
     // The login entry's start finds the app running: nothing to show. A
     // phone starts one app by itself.
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        if receiving::scheme::asked(&args) {
-            arrival::arrived(app);
-            tray::show_main(app);
-        } else if !login::autostarted(&args) {
-            tray::show_main(app);
-        }
-    }));
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if receiving::scheme::asked(&args) {
+                arrival::arrived(app);
+                tray::show_main(app);
+            } else if !login::autostarted(&args) {
+                tray::show_main(app);
+            }
+        }))
+        .manage(receiving::scheme::Arrivals::default());
     // A sharing link opened from another app (ADR 0027, decision 6).
     #[cfg(target_os = "android")]
     let builder = builder.plugin(phone::plugin());
@@ -139,7 +141,7 @@ pub fn run() {
         .manage(receiving::Receivers::default())
         .manage(receiving::opened::OpenedLink::default())
         .manage(receiving::clipboard::LastSeen::default())
-        .manage(receiving::scheme::Arrivals::default())
+        .manage(serving::looked::LastLooked::default())
         // The main window's ✕ asks first: Minimize, or Quit, which stops
         // sharing (see dialog). The window is only ever minimized, never
         // hidden, so that it stays in sight (and on Linux the tray can bring

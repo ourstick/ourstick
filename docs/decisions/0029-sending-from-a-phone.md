@@ -101,13 +101,15 @@ What the systems allow (official documentation and the reviews,
    - **Files**: `ACTION_OPEN_DOCUMENT`, several at once.
    - **A folder**: `ACTION_OPEN_DOCUMENT_TREE`; everything under it, as
      a folder chosen on a desktop. One grant for any number of files.
-   Photos and files chosen one by one go under one folder of the stick
-   ("Photos", "Files"), numbered inside it on a clash (`IMG_0001 (2).jpg`),
-   since a phone cannot rename them first as ADR 0028 asks. Each grant is
-   kept at once and released when no stick uses it any more. The view
-   counts what is left of the 512 grants and says, near the limit and on
-   any pick of many photos: "For many photos, choose their folder"
-   (DCIM/Camera can be chosen).
+   Photos and files chosen one by one are each an entry at the top of the
+   stick, as files chosen on a desktop; a name an entry has already is
+   numbered (`IMG_0001 (2).jpg`), since a phone cannot rename them first
+   as ADR 0028 asks (amended 2026-11-01: no "Photos" or "Files" folder,
+   which would have needed a record of its own). Each grant is kept at
+   once; at every start the grants no stick uses are given back. The Send
+   view says "For many photos, choose their folder" (DCIM/Camera can be
+   chosen); counting what is left of the 512 grants waits for a device
+   that comes near them.
 3. **Files are sent from where they are, also on a phone.** No copy into
    the app: a phone has the least room for a second one (ADR 0028).
    - **One trait for the sender's files** (rule 2), path-keyed so that
@@ -302,6 +304,19 @@ Android 16), files chosen by Giorgos:
   notifications: the job runs without them (its notice then shows only in
   the system's task manager). Not measured yet: on battery, still and
   locked for hours (Doze cannot start while the phone charges).
+
+## Done so far (2026-11-01)
+
+Steps 1 (all), 2 (photos, files and folders through the same code, a
+clash numbered, grants tidied at start), 3 (Home, the Send view, the
+share sheet, the sensitive copy, the words of decisions 6 and 7) and the
+code of 5 (the job held while anything is sent, from Android 14), after a
+review by Fable and Sonnet. A phone looks again every minute instead of
+watching (decision 4; "Look again" and on resume are still to come).
+Still to come: the job seen working on the test phone, a long test on
+battery (Doze), "Find it…", telling the user when a grant could not be
+kept, and `relation` for places that overlap (two chosen places are now
+compared as text, so a folder and its own subfolder are sent twice).
 
 ## Not decided here
 

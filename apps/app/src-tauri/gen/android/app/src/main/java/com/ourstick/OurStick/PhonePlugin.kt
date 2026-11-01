@@ -197,7 +197,7 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
         try {
           resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: SecurityException) {
-          // Readable while the app runs only; told as not found later.
+          // Readable while the app runs only: Send refuses it (pick.rs).
         }
         val one = JSObject()
         one.put("uri", uri.toString())

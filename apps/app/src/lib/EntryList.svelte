@@ -4,10 +4,12 @@
   // `×`, asked about first. Nothing of the user's is ever deleted: an older
   // stick's own entries have no `×`; they are changed in the file manager.
   // The one folder a stick was made from has none either: without it the
-  // stick would be nothing, so it is stopped as a whole.
-  import { onPhone, removeEntry, type Entry } from "./api";
+  // stick would be nothing, so it is stopped as a whole. One not found
+  // has "Find it…" (ADR 0029): chosen again where it is now, it keeps its
+  // name and the link.
+  import { findEntry, onPhone, removeEntry, type Entry } from "./api";
   import { showEntry } from "./sendApi";
-  import { size } from "./format";
+  import { size, thisDevice } from "./format";
 
   let {
     stickId,
@@ -43,6 +45,18 @@
     }
   }
 
+  /** "Find it…": chosen again where it is now, keeping its name and the link. */
+  async function find(entry: Entry) {
+    busy = true;
+    try {
+      if (await findEntry(stickId, entry.name)) onChanged();
+    } catch (error) {
+      onFailure(String(error));
+    } finally {
+      busy = false;
+    }
+  }
+
   async function stop(entry: Entry) {
     busy = true;
     try {
@@ -74,12 +88,15 @@
           <span class="muted">This is what you send. To stop, use ⋯ › Stop sending.</span>
         {/if}
       </span>
-      {#if entry.linked && !entry.at_top}
-        {#if entry.missing}
-          <button onclick={() => (stopping = entry)}>Remove it</button>
-        {:else}
-          <button class="remove" aria-label="Stop sending {entry.name}" onclick={() => (stopping = entry)}>×</button>
-        {/if}
+      {#if entry.linked && entry.missing}
+        <span class="actions">
+          <button disabled={busy} onclick={() => find(entry)}>Find it…</button>
+          {#if !entry.at_top}
+            <button disabled={busy} onclick={() => (stopping = entry)}>Remove it</button>
+          {/if}
+        </span>
+      {:else if entry.linked && !entry.at_top}
+        <button class="remove" aria-label="Stop sending {entry.name}" onclick={() => (stopping = entry)}>×</button>
       {/if}
     </li>
   {/each}
@@ -89,7 +106,7 @@
   <div class="dialog-back">
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="stop-entry-title">
       <h2 id="stop-entry-title">Stop sending “<bdi>{stopping.name}</bdi>”?</h2>
-      <p>Those who have it keep it. It stays where it is on this computer.</p>
+      <p>Those who have it keep it. It stays where it is on {thisDevice()}.</p>
       <div class="actions">
         <!-- svelte-ignore a11y_autofocus -->
         <button class="primary" autofocus disabled={busy} onclick={() => (stopping = null)}>Cancel</button>
@@ -145,5 +162,11 @@
   }
   .remove {
     padding: 0 10px;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
   }
 </style>

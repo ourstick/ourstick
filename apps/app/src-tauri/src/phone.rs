@@ -149,11 +149,11 @@ pub fn open_folder<R: Runtime>(app: &AppHandle<R>, folder: &std::path::Path) -> 
 /// place's content URI and name, kept readable (ADR 0029). Blocking.
 pub fn choose<R: Runtime>(
     app: &AppHandle<R>,
-    pick: crate::send::Pick,
+    pick: crate::pick::Pick,
 ) -> anyhow::Result<Vec<(String, String)>> {
     #[derive(serde::Serialize)]
     struct Choose {
-        pick: crate::send::Pick,
+        pick: crate::pick::Pick,
     }
 
     #[derive(serde::Deserialize)]
@@ -191,6 +191,19 @@ pub fn link_out<R: Runtime>(app: &AppHandle<R>, command: &str, link: String) -> 
     Ok(())
 }
 
+/// The content URIs whose read grant this app keeps (ADR 0029). Blocking.
+pub fn kept_grants<R: Runtime>(
+    app: &AppHandle<R>,
+) -> anyhow::Result<std::collections::HashSet<String>> {
+    #[derive(serde::Deserialize)]
+    struct Kept {
+        uris: Vec<String>,
+    }
+
+    let kept: Kept = phone(app)?.plugin.run_mobile_plugin("keptGrants", ())?;
+    Ok(kept.uris.into_iter().collect())
+}
+
 /// Gives back every read grant no stick of `store` uses any more, kept
 /// when it was chosen (ADR 0029): Android keeps at most 512. At start
 /// only, so a place being chosen meanwhile never loses its grant.
@@ -199,11 +212,6 @@ pub fn tidy_grants<R: Runtime>(
     app: &AppHandle<R>,
     store: &dyn ourstick_core::Store,
 ) -> anyhow::Result<()> {
-    #[derive(serde::Deserialize)]
-    struct Kept {
-        uris: Vec<String>,
-    }
-
     #[derive(serde::Serialize)]
     struct Release {
         uris: Vec<String>,
@@ -217,10 +225,7 @@ pub fn tidy_grants<R: Runtime>(
             }
         }
     }
-    let phone = phone(app)?;
-    let kept: Kept = phone.plugin.run_mobile_plugin("keptGrants", ())?;
-    let uris: Vec<String> = kept
-        .uris
+    let uris: Vec<String> = kept_grants(app)?
         .into_iter()
         .filter(|uri| !used.contains(uri))
         .collect();
@@ -229,7 +234,7 @@ pub fn tidy_grants<R: Runtime>(
             count = uris.len(),
             "read grants no stick uses are given back"
         );
-        phone
+        phone(app)?
             .plugin
             .run_mobile_plugin::<()>("releaseGrants", Release { uris })?;
     }

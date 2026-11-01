@@ -312,13 +312,34 @@ clash numbered, grants tidied at start), 3 (Home, the Send view, the
 share sheet, the sensitive copy, the words of decisions 6 and 7) and the
 code of 5 (the job held while anything is sent, from Android 14), after a
 review by Fable and Sonnet. A phone looks again every minute instead of
-watching (decision 4; "Look again" and on resume are still to come).
-On the test phone (Android 16) the job ran while photos chosen one by
-one were sent, and a computer got them all with the phone's screen off
-and OurStick not opened again. Still to come: a long test on battery
-(Doze), "Find it…", telling the user when a grant could not be
-kept, and `relation` for places that overlap (two chosen places are now
-compared as text, so a folder and its own subfolder are sent twice).
+watching (decision 4). On the test phone (Android 16) the job ran while
+photos chosen one by one were sent, and a computer got them all with the
+phone's screen off and OurStick not opened again.
+
+Then, the same day:
+
+- **Looking again** (decision 4): the stick's view on a phone says when
+  it last looked ("Looked for changes at 23:22") with `Look again`, and
+  every stick sent is looked at when the app comes back to the front
+  (Tauri's `WindowEvent::Resumed`). Seen on the phone: back at 23:23:21,
+  before the minute's look, it had looked.
+- **`relation`** is the sender's files' own (`SenderFiles::relation`):
+  paths on a desktop, and on a phone the provider's
+  `DocumentsContract.isChildDocument`, or the names inside one place
+  when one URI is chosen twice. Seen on the phone: a folder and then its
+  subfolder, chosen apart, gave "“inner” is inside “ostest”, so it comes
+  along already."
+- **"Find it…"**, on a desktop too: an entry not found is chosen again
+  where it is now (`plan_found`, the same rules as a new link, the same
+  kind); it keeps its name, its recorded files and the link
+  (`Store::move_linked_entry`). Seen on the phone: the stick's folder
+  moved with `mv`, then found again under its new name, the link kept.
+- **A grant not kept**: Send and `+ Add more` refuse what the system let
+  OurStick read only while it is open ("Choose the folder it is in
+  instead"), from the grants Android says it keeps; not seen on the
+  phone, whose pickers always gave a grant that could be kept.
+
+Still to come: a long test on battery (Doze).
 
 ## Not decided here
 

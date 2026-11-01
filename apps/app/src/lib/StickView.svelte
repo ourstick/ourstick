@@ -8,6 +8,7 @@
   import {
     copyLink,
     linkPaths,
+    onPhone,
     openDialog,
     openInFileManager,
     startSharingAgain,
@@ -17,7 +18,7 @@
     type ShareProblem,
     type Stick,
   } from "./api";
-  import { checkSend, choosePaths, type Verdict } from "./sendApi";
+  import { checkSend, choosePaths, lookAgain, type Verdict } from "./sendApi";
   import { rate } from "./format";
   import AskFirst from "./AskFirst.svelte";
   import EntryList from "./EntryList.svelte";
@@ -60,6 +61,27 @@
   /** Answers to an older look are dropped: they arrive in any order. */
   let looks = 0;
 
+  // A phone has no watcher (ADR 0029): it says when it last looked, and
+  // looks again when asked.
+  const phone = onPhone();
+  /** "Look again" pressed: the time it showed until the look is done. */
+  let lookingSince = $state<number | null | undefined>(undefined);
+
+  async function look() {
+    failure = null;
+    lookingSince = current?.looked_at ?? null;
+    try {
+      await lookAgain(stickId);
+    } catch (error) {
+      failure = String(error);
+      lookingSince = undefined;
+    }
+  }
+
+  function clock(seconds: number): string {
+    return new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
   async function refresh() {
     const look = ++looks;
     try {
@@ -67,6 +89,7 @@
       if (look !== looks) return;
       current = loaded;
       activity = loaded.sharing;
+      if (lookingSince !== undefined && loaded.looked_at !== lookingSince) lookingSince = undefined;
     } catch (error) {
       if (look === looks) failure = String(error);
     }
@@ -206,6 +229,20 @@
         </p>
       {/if}
       <ReaderList {stickId} nobodyNow={activity.readers === 0} />
+      {#if phone && shareState === "on"}
+        <div class="row spread">
+          <span class="muted">
+            {#if lookingSince !== undefined}
+              Looking for changes…
+            {:else if current.looked_at}
+              Looked for changes at {clock(current.looked_at)}
+            {:else}
+              Getting it ready…
+            {/if}
+          </span>
+          <button onclick={look} disabled={lookingSince !== undefined}>Look again</button>
+        </div>
+      {/if}
     </div>
 
     <!-- Notes, each while it holds. -->

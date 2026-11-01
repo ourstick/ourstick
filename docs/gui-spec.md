@@ -173,7 +173,9 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
     Local Network refused, "Maria is in your home, but your Mac does not let
     OurStick reach her. Turn on OurStick under Local Network." and `Open
     Settings` (ADR 0020); a gone entry: its name, "Not found. Was it moved,
-    or is its disk unplugged? Those who have it keep it." and `Remove it`;
+    or is its disk unplugged? Those who have it keep it.", `Find it…`
+    (chosen again where it is now, it keeps its name and the link; the
+    folder at the top too, ADR 0029) and `Remove it`;
   - "Stopped by you": "The link does not work until you start again.
     Nothing was deleted." `Resume`;
   - red: "Stopped: the network did not start" ("Is this computer on the

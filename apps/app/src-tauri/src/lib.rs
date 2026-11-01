@@ -11,6 +11,7 @@ mod dialog;
 #[cfg(any(target_os = "android", test))]
 mod documents;
 mod drive;
+mod found;
 mod inhibit;
 mod keys;
 mod local_network;
@@ -19,6 +20,7 @@ mod login;
 mod menu;
 #[cfg(target_os = "android")]
 mod phone;
+mod pick;
 mod problems;
 mod qr;
 mod receiving;
@@ -153,6 +155,15 @@ pub fn run() {
                 if window.label() == "main" {
                     arrival::focus_changed(window.app_handle(), *focused);
                 }
+            }
+            // A phone looks at what it sends again when it comes back to
+            // the front (ADR 0029 decision 4).
+            #[cfg(mobile)]
+            if let tauri::WindowEvent::Resumed = event {
+                let app = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    stick_commands::look_at_all(&app.state::<state::AppState>()).await;
+                });
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
@@ -299,13 +310,15 @@ pub fn run() {
             receiving::choice::choose_what_to_get,
             problems::dismiss_app_problem,
             stick_life_commands::remove,
-            send::choose_paths,
+            pick::choose_paths,
             stick_commands::link_paths,
             stick_commands::show_entry,
             send::check_send,
             send::measure,
             send::send,
             stick_commands::remove_entry,
+            stick_commands::look_again,
+            found::find_entry,
             share::share_view,
             share::copy_link,
             share::share_link,

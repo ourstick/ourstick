@@ -10,6 +10,7 @@
   // The dialogs of something you send (gui-spec, "Its dialogs"); each says
   // "… please wait." while it works.
   import { newLink, removeStick, renameStick } from "./api";
+  import { thisDevice } from "./format";
 
   let {
     stickId,
@@ -93,8 +94,8 @@
     {:else}
       <h2 id="stick-ask-title">Remove “<bdi>{name}</bdi>” from OurStick?</h2>
       <p>
-        Its link stops working for good. Your files stay where they are on this computer, and those who got them keep
-        their copy.
+        Its link stops working for good. Your files stay where they are on {thisDevice()}, and those who got them
+        keep their copy.
       </p>
       {#if folder}
         <p>Its files stay in <b>{folder}</b>. Delete them yourself when you no longer need them.</p>

@@ -48,3 +48,9 @@ export function choosePaths(pick: "files" | "folders" | "photos"): Promise<strin
 export function showEntry(stickId: string, name: string): Promise<void> {
   return invoke("show_entry", { stickId, name });
 }
+
+/** "Look again": the stick is looked at now; "stick-changed" follows. A
+ * phone has no watcher (ADR 0029). */
+export function lookAgain(stickId: string): Promise<void> {
+  return invoke("look_again", { stickId });
+}

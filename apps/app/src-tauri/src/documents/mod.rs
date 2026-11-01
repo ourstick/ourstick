@@ -55,7 +55,8 @@ mod android {
 
     use super::facts;
     use super::jvm::Jvm;
-    use super::paths::{chosen, is_chosen, is_usable_name};
+    use super::paths::{chosen, is_chosen, is_usable_name, relation_within};
+    use ourstick_core::places::Relation;
 
     /// What the user chose, read through Android.
     #[derive(Default)]
@@ -170,6 +171,39 @@ mod android {
                 return LocalFiles.entries(path);
             }
             self.listed(path)
+        }
+
+        /// A chosen place is compared by its URI, by Android when two
+        /// places are chosen (ADR 0029); a chosen place and a path never
+        /// meet.
+        fn relation(&self, a: &Path, b: &Path) -> Option<Relation> {
+            match (is_chosen(a), is_chosen(b)) {
+                (false, false) => return LocalFiles.relation(a, b),
+                (true, true) => {}
+                _ => return None,
+            }
+            if let Some(within) = relation_within(a, b) {
+                return within;
+            }
+            let (first, second) = (chosen(a)?, chosen(b)?);
+            // Inside two places: not told, as nothing below a place is
+            // chosen on its own.
+            if !(first.is_place && second.is_place) {
+                return None;
+            }
+            match self
+                .jvm()
+                .and_then(|jvm| jvm.relation(&first.uri, &second.uri))
+            {
+                Ok(1) => Some(Relation::Is),
+                Ok(2) => Some(Relation::Contains),
+                Ok(3) => Some(Relation::IsInside),
+                Ok(_) => None,
+                Err(error) => {
+                    tracing::debug!(%error, "two chosen places were not compared");
+                    None
+                }
+            }
         }
 
         fn open(&self, path: &Path) -> io::Result<Box<dyn ReadAt>> {

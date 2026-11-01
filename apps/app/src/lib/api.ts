@@ -67,6 +67,8 @@ export interface Stick {
   folder: string | null;
   /** Its last problem, kept by the app (event `problems-changed`). */
   problem: ShareProblem | null;
+  /** When it was last looked at in this run, in seconds since 1970. */
+  looked_at: number | null;
 }
 
 /** An event about one stick (`activity`). */
@@ -108,6 +110,12 @@ export function stick(stickId: string): Promise<Stick> {
 /** `+ Add more`: links them, sent from where they are. */
 export function linkPaths(stickId: string, paths: string[]): Promise<void> {
   return invoke("link_paths", { stickId, paths });
+}
+
+/** "Find it…": asks where a linked entry that is not found is now, and
+ * sends it from there under its name (ADR 0029). False if cancelled. */
+export function findEntry(stickId: string, name: string): Promise<boolean> {
+  return invoke("find_entry", { stickId, name });
 }
 
 /** "Stop sending “Summer”?": takes a linked entry out; its files stay. */

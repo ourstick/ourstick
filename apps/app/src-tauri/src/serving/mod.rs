@@ -25,6 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, watch};
 
 mod events;
+pub mod looked;
 pub mod readers;
 
 pub use events::{ActivityView, ShareProblem, StickEvent};
@@ -345,6 +346,7 @@ impl Shared {
 fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
     let problem = match event {
         WatchEvent::Published { .. } | WatchEvent::Unchanged => {
+            app.state::<looked::LastLooked>().looked(stick_id);
             let _ = app.emit("stick-changed", ());
             ShareProblem::Cleared
         }
@@ -353,6 +355,7 @@ fn on_watch_event(app: &AppHandle, stick_id: &StickId, event: &WatchEvent<'_>) {
         // The window lists linked entries that are gone and own entries
         // left out from the stick itself; it only needs to look again.
         WatchEvent::Roots { .. } => {
+            app.state::<looked::LastLooked>().looked(stick_id);
             let _ = app.emit("stick-changed", ());
             return;
         }

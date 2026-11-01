@@ -118,6 +118,22 @@ impl Jvm {
         })
     }
 
+    /// How the place `a` relates to the place `b`: 0 apart, 1 the same, 2
+    /// `a` holds `b`, 3 `a` lies inside `b`.
+    pub fn relation(&self, a: &str, b: &str) -> io::Result<i32> {
+        self.call(|env, class| {
+            let a = env.new_string(a)?;
+            let b = env.new_string(b)?;
+            env.call_static_method(
+                class,
+                "relation",
+                "(Ljava/lang/String;Ljava/lang/String;)I",
+                &[JValue::from(&a), JValue::from(&b)],
+            )?
+            .i()
+        })
+    }
+
     /// Opens the file at `uri`; its handle in `Documents.kt`.
     pub fn open(&self, uri: &str) -> io::Result<i32> {
         self.call(|env, class| {

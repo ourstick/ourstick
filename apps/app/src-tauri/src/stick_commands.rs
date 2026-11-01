@@ -72,6 +72,9 @@ pub struct StickView {
     folder: Option<String>,
     /// Its last problem (see `problems`), or none.
     problem: Option<crate::serving::ShareProblem>,
+    /// When it was last looked at in this run, in seconds since 1970: a
+    /// phone has no watcher and says so (ADR 0029 decision 4).
+    looked_at: Option<u64>,
 }
 
 /// The entries the window lists: the own folder's and the linked ones, by
@@ -197,6 +200,7 @@ pub async fn stick(
         folder_there,
         folder,
         problem: tauri::Manager::state::<crate::problems::Problems>(&app).of(Some(&id)),
+        looked_at: tauri::Manager::state::<crate::serving::looked::LastLooked>(&app).of(&id),
     })
 }
 
@@ -222,9 +226,28 @@ fn sharing_view(
 
 /// Tells the running share of `stick_id` to look at the stick now (a
 /// linked entry came or went: no file system event says so).
-async fn nudge(state: &AppState, stick_id: &StickId) {
+pub(crate) async fn nudge(state: &AppState, stick_id: &StickId) {
     if let Some(Sharing::On(serving)) = state.sticks.lock().await.get(stick_id) {
         serving.nudge.now();
+    }
+}
+
+/// "Look again": the stick is looked at now, as on a phone, which has no
+/// watcher (ADR 0029 decision 4). The view hears of it ("stick-changed").
+#[tauri::command]
+pub async fn look_again(stick_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    nudge(&state, &stick_id_of(&stick_id)?).await;
+    Ok(())
+}
+
+/// The app came back to the front on a phone: every stick it sends is
+/// looked at now.
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub async fn look_at_all(state: &AppState) {
+    for sharing in state.sticks.lock().await.values() {
+        if let Sharing::On(serving) = sharing {
+            serving.nudge.now();
+        }
     }
 }
 

@@ -7,6 +7,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use ourstick_core::places::{relation, Relation};
+
 /// Where every chosen place's path begins.
 const PREFIX: &str = "/ourstick-chosen";
 
@@ -99,6 +101,24 @@ pub fn chosen(path: &Path) -> Option<Chosen> {
     })
 }
 
+/// How the chosen paths `a` and `b` relate, when the paths alone tell:
+/// both of one place (one URI, also chosen twice under two names), by the
+/// names inside it. `None` when they are of two places, or not both
+/// chosen: only Android can tell then.
+pub fn relation_within(a: &Path, b: &Path) -> Option<Option<Relation>> {
+    let (first, second) = (chosen(a)?, chosen(b)?);
+    if first.uri != second.uri {
+        return None;
+    }
+    let inside = |path: &Path, place: &Path| {
+        Path::new("/").join(path.strip_prefix(place).unwrap_or(Path::new("")))
+    };
+    Some(relation(
+        &inside(a, &first.place),
+        &inside(b, &second.place),
+    ))
+}
+
 /// Whether `name`, as a provider gives it, can be a part of a manifest
 /// path: not empty, not `.` or `..`, no `/`, no `\` and no control
 /// character (the manifest refuses those, and one would stop the whole
@@ -133,6 +153,30 @@ mod tests {
         assert_eq!(found.uri, URI);
         assert!(!found.is_place);
         assert_eq!(found.place, place);
+    }
+
+    #[test]
+    fn one_place_is_compared_by_the_names_inside_it() {
+        let uri = "content://com.android.externalstorage.documents/tree/primary%3ADCIM";
+        let dcim = place_path(uri, "DCIM");
+        let again = place_path(uri, "DCIM (2)");
+        assert_eq!(relation_within(&dcim, &again), Some(Some(Relation::Is)));
+        assert_eq!(
+            relation_within(&dcim, &again.join("Camera")),
+            Some(Some(Relation::Contains))
+        );
+        assert_eq!(
+            relation_within(&dcim.join("Camera/a.jpg"), &again.join("Camera")),
+            Some(Some(Relation::IsInside))
+        );
+        assert_eq!(
+            relation_within(&dcim.join("Camera"), &dcim.join("Screenshots")),
+            Some(None)
+        );
+        // Two places, or a path that is not chosen: Android tells.
+        let other = place_path("content://example/tree/2", "Camera");
+        assert_eq!(relation_within(&dcim, &other), None);
+        assert_eq!(relation_within(&dcim, Path::new("/home/alice")), None);
     }
 
     #[test]

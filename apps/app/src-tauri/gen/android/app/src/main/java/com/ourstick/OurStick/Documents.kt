@@ -76,6 +76,39 @@ object Documents {
   private fun long(cursor: Cursor, column: Int): Long =
     if (column < 0 || cursor.isNull(column)) UNKNOWN else cursor.getLong(column)
 
+  /**
+   * How the place `a` relates to the place `b`, both as chosen: 0 apart,
+   * 1 the same, 2 `a` holds `b`, 3 `a` lies inside `b`. Told by the
+   * provider: two URIs cannot be compared as text. A provider that cannot
+   * tell keeps them apart.
+   */
+  @JvmStatic
+  fun relation(a: String, b: String): Int {
+    val first = document(a)
+    val second = document(b)
+    return when {
+      first == second -> 1
+      first.authority != second.authority -> 0
+      holds(a, second) -> 2
+      holds(b, first) -> 3
+      else -> 0
+    }
+  }
+
+  /** Whether the chosen folder `tree` holds `document`, of its provider. */
+  private fun holds(tree: String, document: Uri): Boolean {
+    val uri = Uri.parse(tree)
+    if (!DocumentsContract.isTreeUri(uri)) return false
+    return try {
+      val child = DocumentsContract.buildDocumentUriUsingTree(
+        uri, DocumentsContract.getDocumentId(document)
+      )
+      DocumentsContract.isChildDocument(resolver(), document(tree), child)
+    } catch (_: Exception) {
+      false
+    }
+  }
+
   /** The facts of the file or folder at `uri`. Every column is looked up
    * by name: the photo picker's provider has fewer than a documents one. */
   @JvmStatic

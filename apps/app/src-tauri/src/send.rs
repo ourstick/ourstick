@@ -2,6 +2,7 @@
 //! (`places::may_send`), counted, then made into a new stick of linked
 //! entries, all or none, shared at once.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
@@ -49,6 +50,7 @@ fn verdicts(
     mut rules: SendRules,
     mut taken: Vec<(String, PathBuf)>,
     top: Option<&LinkedEntry>,
+    kept: Option<&HashSet<String>>,
 ) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for text in paths {
@@ -74,7 +76,8 @@ fn verdicts(
             ask,
             question,
         };
-        let decided = match may_send(files, path, &rules) {
+        let refused = crate::pick::not_kept(kept, path, &name).map(MaySend::Refuse);
+        let decided = match refused.unwrap_or_else(|| may_send(files, path, &rules)) {
             MaySend::Refuse(why) => verdict("refuse", Some(why), None, None),
             judged => {
                 let clash = top
@@ -185,7 +188,15 @@ pub async fn check_send(
             }
             rules.chosen.push(path);
         }
-        Ok(verdicts(files.as_ref(), &paths, rules, taken, top.as_ref()))
+        let kept = crate::pick::kept_here(&app);
+        Ok(verdicts(
+            files.as_ref(),
+            &paths,
+            rules,
+            taken,
+            top.as_ref(),
+            kept.as_ref(),
+        ))
     })
     .await
 }
@@ -218,8 +229,9 @@ fn check_all(
     rules: SendRules,
     taken: Vec<(String, PathBuf)>,
     top: Option<&LinkedEntry>,
+    kept: Option<&HashSet<String>>,
 ) -> Result<()> {
-    if let Some(refused) = verdicts(files, paths, rules, taken, top)
+    if let Some(refused) = verdicts(files, paths, rules, taken, top, kept)
         .into_iter()
         .find(|verdict| verdict.kind == "refuse")
     {
@@ -245,7 +257,8 @@ pub(crate) fn check_adding(
     } = sent_by(store, Some(stick_id))?;
     let mut rules = rules_here(app, store, data_dir)?;
     rules.chosen = sent;
-    check_all(files, paths, rules, taken, top.as_ref())
+    let kept = crate::pick::kept_here(app);
+    check_all(files, paths, rules, taken, top.as_ref(), kept.as_ref())
 }
 
 /// Why a name cannot be used, in the window's words (it never says stick).
@@ -277,7 +290,8 @@ pub async fn send(
     let files = state.files.clone();
     let handle = app.clone();
     let made = blocking(move || {
-        check_all(files.as_ref(), &paths, rules_here(&handle, store.as_ref(), &data_dir)?, Vec::new(), None)?;
+        let kept = crate::pick::kept_here(&handle);
+        check_all(files.as_ref(), &paths, rules_here(&handle, store.as_ref(), &data_dir)?, Vec::new(), None, kept.as_ref())?;
         crate::keys::ensure_device(store.as_ref(), &data_dir)?;
         let secrets = crate::keys::secrets(store.as_ref())?;
         // One program makes a stick at a time: names stay unique.
@@ -314,67 +328,6 @@ pub async fn send(
     crate::local_network::remember(&state);
     start_sharing_later(&app, made);
     Ok(stick_hex(&made))
-}
-
-/// What to choose with the system's picker: files, or folders
-/// (Linux's and Windows' pickers do not take both at once); on a phone
-/// also photos and videos, with its photo picker (ADR 0029).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Pick {
-    Files,
-    Folders,
-    Photos,
-}
-
-/// `Choose folders…` / `Choose files…`: the system's picker, several at
-/// once; what is chosen is then checked as a drop is. Empty if the user
-/// cancelled.
-#[cfg(desktop)]
-#[tauri::command]
-pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        let dialog = app.dialog().file().set_title("Choose what to send");
-        match pick {
-            Pick::Files | Pick::Photos => dialog.blocking_pick_files(),
-            Pick::Folders => dialog.blocking_pick_folders(),
-        }
-    })
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(picked
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|picked| picked.into_path().ok())
-        .map(|path| path.display().to_string())
-        .collect())
-}
-
-/// Android's pickers (ADR 0029): each chosen place as the path the core
-/// reads it by, its content URI in it.
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub async fn choose_paths(pick: Pick, app: AppHandle) -> Result<Vec<String>, String> {
-    let chosen = tauri::async_runtime::spawn_blocking(move || crate::phone::choose(&app, pick))
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| format!("{error:#}"))?;
-    Ok(chosen
-        .into_iter()
-        .map(|(uri, name)| {
-            crate::documents::paths::place_path(&uri, &name)
-                .display()
-                .to_string()
-        })
-        .collect())
-}
-
-/// Sending from an iPhone is not there yet (ADR 0029).
-#[cfg(target_os = "ios")]
-#[tauri::command]
-pub async fn choose_paths(_pick: Pick, _app: AppHandle) -> Result<Vec<String>, String> {
-    Err("An iPhone cannot send yet.".to_owned())
 }
 
 #[cfg(test)]

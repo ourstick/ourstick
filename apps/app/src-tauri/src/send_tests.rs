@@ -36,7 +36,7 @@ fn each_is_checked_with_those_before_it() {
         text(home.join("Pictures/Photos")),
         text(home.join("Expansion/Photos")),
     ];
-    let found = verdicts(&LocalFiles, &paths, rules, Vec::new(), None);
+    let found = verdicts(&LocalFiles, &paths, rules, Vec::new(), None, None);
     let kinds: Vec<&str> = found.iter().map(|verdict| verdict.kind).collect();
     assert_eq!(
         kinds,
@@ -63,6 +63,7 @@ fn a_main_folder_is_asked_about() {
         rules,
         Vec::new(),
         None,
+        None,
     );
     assert_eq!(found[0].kind, "ask");
     assert_eq!(found[0].ask, Some("main"));
@@ -82,6 +83,7 @@ fn what_the_stick_sends_already_takes_its_name() {
         rules.clone(),
         taken.clone(),
         None,
+        None,
     );
     assert_eq!(found[0].kind, "refuse");
     assert!(check_all(
@@ -89,7 +91,8 @@ fn what_the_stick_sends_already_takes_its_name() {
         &[text(home.join("Pictures/Photos"))],
         rules.clone(),
         taken,
-        None
+        None,
+        None,
     )
     .is_err());
     assert!(check_all(
@@ -97,7 +100,8 @@ fn what_the_stick_sends_already_takes_its_name() {
         &[text(home.join("Pictures/Photos"))],
         rules,
         Vec::new(),
-        None
+        None,
+        None,
     )
     .is_ok());
 }
@@ -129,6 +133,7 @@ fn next_to_the_folder_at_the_top_a_name_inside_it_is_refused_at_once() {
         rules,
         vec![(top.name.clone(), top.path.clone())],
         Some(&top),
+        None,
     );
     assert_eq!(found[0].kind, "refuse");
     assert_eq!(

@@ -236,9 +236,9 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
   - "This link is not whole. Copy all of it from the message: it is long.";
   - "You already get “Holiday photos” on this computer." / "This is the
     link to “Tutu Miles”, which you send yourself." with `Show it`;
-  - "The sender's computer is off right now" "Or OurStick is closed there.
-    You can wait: it comes by itself, all of it, once their computer is
-    on." `Cancel` / `Try again now` / `Wait for it` (ADR 0025);
+  - "The sender is offline right now" "You can wait: it comes by itself,
+    all of it, once they are back." `Cancel` / `Try again now` / `Wait for
+    it` (ADR 0025; not "computer": a sender may be a phone, ADR 0029);
   - "It does not fit: only 1.1 GB are free." "Take only some of it, save it
     on another disk, or make some room." `Only some of it…` / `Another
     place…`, `Download` off;

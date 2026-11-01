@@ -43,10 +43,10 @@ mod tests {
     fn a_phone_is_this_phone_and_asks_for_try_again() {
         assert_eq!(
             on_a_phone(
-                "The sender's computer is off, or OurStick is not open there. It goes on by \
-                 itself when they are back."
+                "The sender is offline right now. It goes on by itself, all of it, once they \
+                 are back."
             ),
-            "The sender's computer is off, or OurStick is not open there. Use Try again."
+            "The sender is offline right now. Use Try again."
         );
         assert_eq!(
             on_a_phone("Not enough room on this computer. It goes on when there is room. Sorry."),

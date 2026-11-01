@@ -219,11 +219,11 @@
       <button onclick={cancelLook}>Cancel</button>
     </div>
   {:else if phase === "away"}
-    <h1>The sender's computer is off right now</h1>
+    <h1>The sender is offline right now</h1>
     <p>
-      Or OurStick is closed there. {phone
-        ? "Try again once it is open there."
-        : "You can wait: it comes by itself, all of it, once their computer is on."}
+      {phone
+        ? "Try again once they are back."
+        : "You can wait: it comes by itself, all of it, once they are back."}
     </p>
     <div class="actions">
       <button onclick={another} disabled={adding}>Cancel</button>

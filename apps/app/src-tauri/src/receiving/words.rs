@@ -66,8 +66,8 @@ pub fn saved_as_views(lines: &[ourstick_core::download::SavedAs]) -> SavedAsList
 pub fn waiting_words(why: &Waiting) -> String {
     match why {
         Waiting::Sender(_) => {
-            "The sender's computer is off, or OurStick is not open there. It goes on by itself \
-             when they are back."
+            "The sender is offline right now. It goes on by itself, all of it, once they are \
+             back."
                 .to_owned()
         }
         Waiting::NoLongerShared => {

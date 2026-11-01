@@ -44,7 +44,7 @@
       <span>{entry.message}</span>
     {:else}
       <strong>… Waiting for the sender{day ? ` since ${day}` : ""}</strong>
-      <span>Its name and files appear once their computer is on. Leave OurStick open: minimize it, don't quit.</span>
+      <span>Its name and files appear once the sender is back. Leave OurStick open: minimize it, don't quit.</span>
     {/if}
     <button class:danger-outline={entry.state === "wait_ended"} onclick={() => (removing = true)}>Remove…</button>
   </div>

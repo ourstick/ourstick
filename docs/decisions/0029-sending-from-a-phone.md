@@ -313,8 +313,10 @@ share sheet, the sensitive copy, the words of decisions 6 and 7) and the
 code of 5 (the job held while anything is sent, from Android 14), after a
 review by Fable and Sonnet. A phone looks again every minute instead of
 watching (decision 4; "Look again" and on resume are still to come).
-Still to come: the job seen working on the test phone, a long test on
-battery (Doze), "Find it…", telling the user when a grant could not be
+On the test phone (Android 16) the job ran while photos chosen one by
+one were sent, and a computer got them all with the phone's screen off
+and OurStick not opened again. Still to come: a long test on battery
+(Doze), "Find it…", telling the user when a grant could not be
 kept, and `relation` for places that overlap (two chosen places are now
 compared as text, so a folder and its own subfolder are sent twice).
 

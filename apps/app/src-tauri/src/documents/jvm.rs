@@ -10,9 +10,7 @@ use jni::objects::{
 };
 use jni::{JNIEnv, JavaVM};
 
-/// What `Documents.kt` tells of a file or folder: kind (0 a file, 1 a
-/// folder, 2 anything else), size and last modified in ms (-1 untold).
-pub type Told = [i64; 3];
+use super::Told;
 
 /// An entry of a folder: its name, URI and facts.
 pub struct Entry {
@@ -60,12 +58,16 @@ impl Jvm {
             .attach_current_thread_permanently()
             .map_err(io::Error::other)?;
         let class = <&JClass>::from(self.documents.as_obj());
-        let called = env.with_local_frame(32, |env| call(env, class));
-        match called {
-            Ok(value) => Ok(value),
-            Err(jni::errors::Error::JavaException) => Err(thrown(&mut env)),
-            Err(error) => Err(io::Error::other(error.to_string())),
-        }
+        // An exception is read and cleared inside the frame, so its
+        // references go with it (the thread stays attached).
+        let called = env.with_local_frame(32, |env| {
+            Ok::<_, jni::errors::Error>(match call(env, class) {
+                Ok(value) => Ok(value),
+                Err(jni::errors::Error::JavaException) => Err(thrown(env)),
+                Err(error) => Err(io::Error::other(error.to_string())),
+            })
+        });
+        called.unwrap_or_else(|error| Err(io::Error::other(error.to_string())))
     }
 
     pub fn facts(&self, uri: &str) -> io::Result<Told> {

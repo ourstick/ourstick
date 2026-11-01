@@ -5,7 +5,7 @@
   // stick's own entries have no `×`; they are changed in the file manager.
   // The one folder a stick was made from has none either: without it the
   // stick would be nothing, so it is stopped as a whole.
-  import { removeEntry, type Entry } from "./api";
+  import { onPhone, removeEntry, type Entry } from "./api";
   import { showEntry } from "./sendApi";
   import { size } from "./format";
 
@@ -27,6 +27,8 @@
 
   /** One of an older stick's own entries with a linked entry's name is not sent. */
   let shown = $derived(entries.filter((entry) => !entry.left_out));
+  /** A phone has no file manager to show an entry in (ADR 0029). */
+  const phone = onPhone();
 
   function where(entry: Entry): string {
     const counted = entry.size === null ? "counting…" : size(entry.size);
@@ -63,7 +65,7 @@
         <bdi class="name">{entry.name}</bdi>
         {#if entry.missing}
           <span class="warning">Not found. Was it moved, or is its disk unplugged? Those who have it keep it.</span>
-        {:else if entry.linked}
+        {:else if entry.linked && !phone}
           <button class="where" title="Show it in the file manager" onclick={() => show(entry)}>{where(entry)}</button>
         {:else}
           <span class="muted">{where(entry)}</span>

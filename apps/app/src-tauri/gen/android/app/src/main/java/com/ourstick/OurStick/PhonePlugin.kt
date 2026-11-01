@@ -234,8 +234,11 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
   fun copyLink(invoke: Invoke) {
     val args = invoke.parseArgs(LinkArgs::class.java)
     val clip = ClipData.newPlainText("OurStick link", args.link)
-    clip.description.extras = PersistableBundle().apply {
-      putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+    // Extras exist from Android 8; the key is read from Android 13.
+    if (Build.VERSION.SDK_INT >= 26) {
+      clip.description.extras = PersistableBundle().apply {
+        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+      }
     }
     val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(clip)

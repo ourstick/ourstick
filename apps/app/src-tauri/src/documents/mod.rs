@@ -6,6 +6,35 @@
 
 pub mod paths;
 
+use ourstick_core::manifest::FileStamp;
+use ourstick_core::sender_files::{FileFacts, FileKind};
+
+/// What `Documents.kt` tells of a file or folder: kind (0 a file, 1 a
+/// folder, 2 anything else), size and last modified in ms (-1 untold).
+pub type Told = [i64; 3];
+
+/// The facts Android told. A file of untold size is not shared; one whose
+/// time is untold (or 0, as some providers say when they do not know) has a
+/// stamp of its size alone, and is read again at every pass.
+pub fn facts([kind, size, modified_ms]: Told) -> FileFacts {
+    let kind = match kind {
+        0 if size >= 0 => FileKind::File,
+        1 => FileKind::Folder,
+        _ => FileKind::Other,
+    };
+    let modified_ms = u64::try_from(modified_ms).unwrap_or(0);
+    FileFacts {
+        kind,
+        stamp: FileStamp {
+            size: u64::try_from(size).unwrap_or(0),
+            mtime_ns: modified_ms.saturating_mul(1_000_000),
+            ctime_ns: 0,
+        },
+        disk: None,
+        time_known: modified_ms > 0,
+    }
+}
+
 #[cfg(target_os = "android")]
 mod jvm;
 
@@ -19,19 +48,18 @@ mod android {
     use std::io;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex, OnceLock};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use ourstick_core::manifest::FileStamp;
-    use ourstick_core::sender_files::{FileFacts, FileKind, LocalFiles, ReadAt, SenderFiles};
+    use ourstick_core::sender_files::{FileFacts, LocalFiles, ReadAt, SenderFiles};
 
-    use super::jvm::{Jvm, Told};
+    use super::facts;
+    use super::jvm::Jvm;
     use super::paths::{chosen, is_chosen, is_usable_name};
 
     /// What the user chose, read through Android.
     #[derive(Default)]
     pub struct DocumentFiles {
         /// Set once the window has started.
-        jvm: Arc<OnceLock<Jvm>>,
+        jvm: Arc<OnceLock<Option<Jvm>>>,
         /// The URI of each path inside a chosen folder, from its last listing.
         uris: Mutex<HashMap<PathBuf, String>>,
     }
@@ -44,7 +72,7 @@ mod android {
 
     impl DocumentFiles {
         /// Reads through `jvm` from now on.
-        pub fn ready(&self, jvm: Jvm) {
+        pub fn ready(&self, jvm: Option<Jvm>) {
             let _ = self.jvm.set(jvm);
         }
 
@@ -78,6 +106,9 @@ mod android {
             let mut names = HashSet::new();
             let mut listed = Vec::with_capacity(entries.len());
             let mut uris = lock(&self.uris);
+            // What the folder held before goes: a renamed file is not
+            // answered by its old name.
+            uris.retain(|known, _| known.parent() != Some(path));
             for entry in entries {
                 // A name no path can hold, or one the folder has twice, is
                 // left out: never a manifest path twice.
@@ -95,10 +126,14 @@ mod android {
     /// The Java VM once the window has started; a few seconds' wait at
     /// most (sticks are shared again as the app starts, from the core's
     /// blocking threads, maybe before the window).
-    fn ready(jvm: &OnceLock<Jvm>) -> io::Result<&Jvm> {
+    fn ready(jvm: &OnceLock<Option<Jvm>>) -> io::Result<&Jvm> {
         for _ in 0..200 {
-            if let Some(jvm) = jvm.get() {
-                return Ok(jvm);
+            match jvm.get() {
+                Some(Some(jvm)) => return Ok(jvm),
+                Some(None) => {
+                    return Err(io::Error::other("this phone does not let OurStick read it"))
+                }
+                None => {}
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
@@ -109,34 +144,6 @@ mod android {
         mutex
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// The facts Android told. A file of untold size is not shared; one of
-    /// untold time is read again at every look (its stamp never matches).
-    fn facts([kind, size, modified_ms]: Told) -> FileFacts {
-        let kind = match kind {
-            0 if size >= 0 => FileKind::File,
-            1 => FileKind::Folder,
-            _ => FileKind::Other,
-        };
-        let (mtime_ns, ctime_ns) = match u64::try_from(modified_ms) {
-            Ok(ms) => (ms.saturating_mul(1_000_000), 0),
-            Err(_) => (
-                0,
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_or(1, |now| now.as_nanos() as u64),
-            ),
-        };
-        FileFacts {
-            kind,
-            stamp: FileStamp {
-                size: u64::try_from(size).unwrap_or(0),
-                mtime_ns,
-                ctime_ns,
-            },
-            disk: None,
-        }
     }
 
     impl SenderFiles for DocumentFiles {
@@ -178,7 +185,7 @@ mod android {
 
     /// A chosen file open in `Documents.kt`, closed when dropped.
     struct Opened {
-        jvm: Arc<OnceLock<Jvm>>,
+        jvm: Arc<OnceLock<Option<Jvm>>>,
         handle: i32,
     }
 
@@ -217,8 +224,14 @@ mod android {
             webview
                 .jni_handle()
                 .exec(move |env, activity, _| match Jvm::new(env, activity) {
-                    Ok(jvm) => files.ready(jvm),
-                    Err(error) => tracing::warn!(%error, "chosen files cannot be read"),
+                    Ok(jvm) => files.ready(Some(jvm)),
+                    Err(error) => {
+                        // Nothing left pending for Java, and every call
+                        // fails at once instead of waiting.
+                        let _ = env.exception_clear();
+                        tracing::warn!(%error, "chosen files cannot be read");
+                        files.ready(None);
+                    }
                 });
         })
     }
@@ -226,3 +239,27 @@ mod android {
 
 #[cfg(target_os = "android")]
 pub use android::start;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_android_tells_becomes_facts() {
+        let file = facts([0, 1234, 1_700_000_000_123]);
+        assert_eq!(file.kind, FileKind::File);
+        assert_eq!(file.stamp.size, 1234);
+        assert_eq!(file.stamp.mtime_ns, 1_700_000_000_123_000_000);
+        assert!(file.time_known);
+        assert!(facts([1, 0, -1]).is_folder());
+        // A file of untold size is never shared.
+        assert_eq!(facts([0, -1, 5]).kind, FileKind::Other);
+        assert_eq!(facts([2, 10, 5]).kind, FileKind::Other);
+        // An untold time gives the same stamp each time, never trusted.
+        for untold in [-1, 0] {
+            let one = facts([0, 10, untold]);
+            assert!(!one.time_known);
+            assert_eq!(one, facts([0, 10, untold]));
+        }
+    }
+}

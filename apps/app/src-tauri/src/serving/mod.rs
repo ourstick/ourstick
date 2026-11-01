@@ -131,7 +131,14 @@ pub async fn start(
         read_again,
         lock,
     };
-    let (done, nudge) = match NotifyEvents::start(&root) {
+    // A phone has no watcher (ADR 0029): what was chosen there is looked
+    // at again now and then, and when asked.
+    let watched = if cfg!(target_os = "android") {
+        Err(None)
+    } else {
+        NotifyEvents::start(&root).map_err(Some)
+    };
+    let (done, nudge) = match watched {
         Ok(events) => {
             let nudge = events.nudge();
             let _ = watcher_nudge.set(nudge.clone());
@@ -141,7 +148,9 @@ pub async fn start(
             )
         }
         Err(error) => {
-            tracing::warn!(%error, "the folder cannot be watched; checking it now and then");
+            if let Some(error) = error {
+                tracing::warn!(%error, "the folder cannot be watched; checking it now and then");
+            }
             let events = PeriodicEvents::new(RESCAN_EVERY);
             let nudge = events.nudge();
             let _ = watcher_nudge.set(nudge.clone());

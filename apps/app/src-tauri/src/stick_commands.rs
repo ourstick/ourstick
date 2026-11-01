@@ -126,10 +126,13 @@ fn entries_of(
             missing: root.is_gone(sender),
             left_out: false,
             at_top: root.at_top,
+            // The folder it is in; none on a phone, whose chosen places
+            // have no folder to show (ADR 0029).
             place: root
                 .path
                 .parent()
                 .and_then(Path::file_name)
+                .filter(|_| !cfg!(mobile))
                 .map(|place| place.to_string_lossy().into_owned()),
         });
     }
@@ -330,6 +333,10 @@ pub async fn show_entry(
             .linked_entries(&stick.stick_id)?
             .into_iter()
             .find(|entry| entry.name == name);
+        // A phone has no file manager to show it in (ADR 0029).
+        if cfg!(mobile) {
+            anyhow::bail!("A phone cannot show it in a file manager.");
+        }
         match entry {
             Some(entry) if entry.path.exists() => Ok(entry.path),
             _ => anyhow::bail!(

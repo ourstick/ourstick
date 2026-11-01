@@ -3,7 +3,10 @@ package com.ourstick.OurStick
 import android.content.ContentResolver
 import android.database.Cursor
 import android.net.Uri
+import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.OpenableColumns
@@ -11,7 +14,10 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -33,6 +39,9 @@ object Documents {
   @Volatile private var resolver: ContentResolver? = null
   private val opened = ConcurrentHashMap<Int, Opened>()
   private val next = AtomicInteger(1)
+  /** Cancels an open that takes too long (a cloud file being fetched). */
+  private val timer = Executors.newSingleThreadScheduledExecutor()
+  private const val OPEN_SECONDS = 30L
 
   private class Opened(val uri: Uri, val file: ParcelFileDescriptor, val channel: FileChannel)
 
@@ -121,16 +130,35 @@ object Documents {
     return found.toTypedArray()
   }
 
-  /** Opens the file at `uri` for reading; its handle. */
+  /**
+   * Opens the file at `uri` for reading; its handle. Only a file on the
+   * phone: one its provider would fetch for longer than [OPEN_SECONDS], or
+   * that is not a regular file (a cloud provider's pipe), is refused.
+   */
   @JvmStatic
   fun open(uri: String): Int {
     val document = document(uri)
-    val file = resolver().openFileDescriptor(document, "r")
-      ?: throw FileNotFoundException("not found")
-    val channel = FileInputStream(file.fileDescriptor).channel
-    val handle = next.getAndIncrement()
-    opened[handle] = Opened(document, file, channel)
-    return handle
+    val signal = CancellationSignal()
+    val cancel = timer.schedule({ signal.cancel() }, OPEN_SECONDS, TimeUnit.SECONDS)
+    val opening: ParcelFileDescriptor?
+    try {
+      opening = resolver().openFileDescriptor(document, "r", signal)
+    } finally {
+      cancel.cancel(false)
+    }
+    val file = opening ?: throw FileNotFoundException("not found")
+    try {
+      if (!OsConstants.S_ISREG(Os.fstat(file.fileDescriptor).st_mode)) {
+        throw IOException("not a file on this phone")
+      }
+      val channel = FileInputStream(file.fileDescriptor).channel
+      val handle = next.getAndIncrement()
+      opened[handle] = Opened(document, file, channel)
+      return handle
+    } catch (error: Exception) {
+      file.close()
+      throw error
+    }
   }
 
   /** Fills `buffer` from `position` of the file `handle` as far as it can;

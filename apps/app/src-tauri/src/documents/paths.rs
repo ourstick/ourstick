@@ -10,13 +10,30 @@ use std::path::{Component, Path, PathBuf};
 /// Where every chosen place's path begins.
 const PREFIX: &str = "/ourstick-chosen";
 
-/// The path of the place `uri`, shown as `name`.
+/// The path of the place `uri`, shown as `name` (made usable first: a
+/// provider may name a document anything).
 pub fn place_path(uri: &str, name: &str) -> PathBuf {
     let mut hex = String::with_capacity(uri.len() * 2);
     for byte in uri.bytes() {
         hex.push_str(&format!("{byte:02x}"));
     }
-    Path::new(PREFIX).join(hex).join(name)
+    Path::new(PREFIX).join(hex).join(usable_name(name))
+}
+
+/// `name` as a part of a path: `/` and `\` become `_`, control characters
+/// go, and a name left empty, `.` or `..` is "Unnamed".
+pub fn usable_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if c == '/' || c == '\\' { '_' } else { c })
+        .collect();
+    let name = name.trim();
+    if is_usable_name(name) {
+        name.to_owned()
+    } else {
+        "Unnamed".to_owned()
+    }
 }
 
 /// What a chosen path names.
@@ -66,10 +83,16 @@ pub fn chosen(path: &Path) -> Option<Chosen> {
     })
 }
 
-/// Whether `name`, as a provider gives it, can be a part of a path: not
-/// empty, not `.` or `..`, no `/` and no NUL. Others are left out.
+/// Whether `name`, as a provider gives it, can be a part of a manifest
+/// path: not empty, not `.` or `..`, no `/`, no `\` and no control
+/// character (the manifest refuses those, and one would stop the whole
+/// pass). Others are left out of a listing.
 pub fn is_usable_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\'])
+        && !name.chars().any(char::is_control)
 }
 
 #[cfg(test)]
@@ -110,11 +133,31 @@ mod tests {
 
     #[test]
     fn names_that_cannot_be_a_part_are_left_out() {
-        for name in ["", ".", "..", "a/b", "nul\0"] {
+        for name in ["", ".", "..", "a/b", "nul\0", "a\\b", "line\nbreak"] {
             assert!(!is_usable_name(name), "{name:?}");
         }
         for name in ["IMG_1.jpg", ".nomedia", "a..b", "Ελληνικά"] {
             assert!(is_usable_name(name), "{name:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn a_place_gets_a_usable_name_whatever_the_provider_said() {
+        assert_eq!(usable_name("IMG_1.jpg"), "IMG_1.jpg");
+        assert_eq!(usable_name("a/b\\c"), "a_b_c");
+        assert_eq!(usable_name(" x\ny "), "xy");
+        for bad in ["", ".", "..", "/", "\n"] {
+            let fixed = usable_name(bad);
+            assert!(is_usable_name(&fixed), "{bad:?} -> {fixed:?}");
+        }
+        let place = place_path("content://x/y", "/etc/passwd");
+        let found = chosen(&place).unwrap();
+        assert!(found.is_place);
+        assert_eq!(place.file_name().unwrap(), "_etc_passwd");
     }
 }

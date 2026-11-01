@@ -184,10 +184,12 @@ What the systems allow (official documentation and the reviews,
      getting files and suggests a charger for a large stick. The
      receiver's waiting words say the sender's OurStick must be open.
    - The view says when it sends over mobile data (`isActiveNetworkMetered`).
-   - Background sending comes after the device check measures it: an
-     Android 14+ user-initiated job while a receiver is connected (network
-     constraint, the stick's size as estimate), and what happens while
-     no one has come yet; `dataSync` only if Giorgos chooses it then.
+   - Background sending: an Android 14+ user-initiated job, started by
+     Send (or by opening the stick) while the app is visible, with a
+     network constraint and the stick's size as estimate, kept while the
+     stick is sent; the device check found it kept for an hour with no
+     receiver and no notification permission (see "Device check").
+     Notifications are never asked for. `dataSync` is not used.
      Android 11–13 stays "while open". iOS 26+:
      `BGContinuedProcessingTask`.
 7. **What a phone loses, said before the first Send.** "If you uninstall
@@ -283,6 +285,23 @@ Android 16), files chosen by Giorgos:
     without JNI.
   The network gave 8–10 MB/s (ADR 0027), so a receiver cannot tell; a
   5 GB video takes about a minute to be ready, which the storage sets.
+- **The first send from the phone** (2026-11-01, a release build of
+  step 3): a test folder chosen with "A folder…" (Android asked to allow
+  that one folder), counted, "Get the link", "Send the link" into a chat,
+  opened by the Linux app: while OurStick was in the background (the chat
+  in front) the receiver said the sender was offline; with OurStick in
+  front it came, every file identical (md5). The link was nowhere in the
+  phone's log. The release build had removed `Documents.kt`, which only
+  JNI calls: ProGuard keeps it now.
+- **In the background, a user-initiated job** (a scratch app: a job with
+  a network constraint and an estimate, its thread connecting out every
+  10 s, the screen off, the phone on USB power): 10 minutes with the
+  notification allowed, then a whole hour with **notifications denied**,
+  the network answering every time, the job never stopped, though no
+  data moved and no receiver came. So the app never asks for
+  notifications: the job runs without them (its notice then shows only in
+  the system's task manager). Not measured yet: on battery, still and
+  locked for hours (Doze cannot start while the phone charges).
 
 ## Not decided here
 

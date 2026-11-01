@@ -313,7 +313,7 @@ impl Catalogue {
         if let Some(known) = self
             .known
             .get(relative)
-            .filter(|known| !self.rescan && known.stamp == stamp)
+            .filter(|known| !self.rescan && facts.time_known && known.stamp == stamp)
         {
             return Ok(Catalogued::File(CataloguedFile {
                 entry: Entry {

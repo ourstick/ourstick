@@ -40,6 +40,10 @@ pub struct FileFacts {
     pub stamp: FileStamp,
     /// The disk it is on (`st_dev`), where the system tells.
     pub disk: Option<u64>,
+    /// Whether its time is told. One that is not (some phone pickers'
+    /// files) has a stamp that cannot show a change of the same size: it is
+    /// read again at every pass, never taken from its record.
+    pub time_known: bool,
 }
 
 impl FileFacts {

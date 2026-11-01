@@ -43,7 +43,8 @@ pub fn for_each_file<E>(
                 folders.push(inside.into_iter());
             }
             FileKind::Link | FileKind::Other => {
-                tracing::debug!(path = %path.display(), "skipping non-regular file");
+                // No path: on a phone it holds what the user chose.
+                tracing::debug!("skipping a non-regular file");
             }
         }
     }

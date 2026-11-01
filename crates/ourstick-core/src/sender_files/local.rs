@@ -30,6 +30,7 @@ impl FileFacts {
             kind,
             stamp: FileStamp::of(metadata),
             disk: disk_of(metadata),
+            time_known: true,
         }
     }
 }

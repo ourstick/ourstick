@@ -84,3 +84,14 @@ fn looks_with_nothing_new_come_ever_more_slowly() {
     let long = Duration::from_secs(3600);
     assert_eq!(look_again_after(long, 3), long);
 }
+
+#[tokio::test]
+async fn files_whose_time_is_not_told_settle() {
+    let away = tempfile::tempdir().unwrap();
+    let phone = Arc::new(crate::sender_files::MemoryFiles::new(
+        away.path().join("chosen"),
+    ));
+    phone.write_untimed("Camera/IMG_1.jpg", b"photo");
+    let folder = phone.path("Camera");
+    assert!(is_settled(phone, &folder, Duration::from_millis(20)).await);
+}

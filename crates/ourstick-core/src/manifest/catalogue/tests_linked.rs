@@ -289,3 +289,31 @@ fn the_folder_at_the_top_gone_keeps_its_files_as_recorded() {
         ]
     );
 }
+
+#[test]
+fn a_file_whose_time_is_not_told_is_read_at_every_pass() {
+    use crate::sender_files::MemoryFiles;
+    let own = tempfile::tempdir().unwrap();
+    let away = tempfile::tempdir().unwrap();
+    let phone = Arc::new(MemoryFiles::new(away.path().join("chosen")));
+    phone.write_untimed("photo.jpg", b"one");
+    phone.write("note.txt", b"two");
+    let entry = |name: &str| LinkedEntry {
+        name: name.to_owned(),
+        path: phone.path(name),
+        is_dir: false,
+        disk: None,
+        added_at_ms: 1,
+        at_top: false,
+    };
+    let layout = StickLayout::new(own.path(), &[entry("photo.jpg"), entry("note.txt")]);
+    let first =
+        all(&mut Catalogue::start_layout(phone.clone(), &layout, Vec::new(), false).unwrap());
+    let recorded = first.iter().map(CataloguedFile::owned_file).collect();
+    let again = all(&mut Catalogue::start_layout(phone, &layout, recorded, false).unwrap());
+    let read: Vec<(&str, bool)> = again
+        .iter()
+        .map(|file| (file.entry.path.as_str(), file.read))
+        .collect();
+    assert_eq!(read, [("note.txt", false), ("photo.jpg", true)]);
+}

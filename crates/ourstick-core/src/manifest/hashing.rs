@@ -20,6 +20,10 @@ use crate::sender_files::{InOrder, LocalFiles, SenderFiles};
 /// serves with.
 pub(crate) const BLOCK_SIZE: BlockSize = iroh_blobs::store::IROH_BLOCK_SIZE;
 
+/// How much of a file is read at once when it is hashed: a phone reads
+/// each piece through Kotlin, so few large pieces (ADR 0029).
+const READ_SIZE: usize = 256 << 10;
+
 /// Encrypts one file, hashes the resulting blob and builds the entry. The size is
 /// the number of plaintext bytes actually encrypted, so it always matches the hash.
 pub(crate) fn hash_file(
@@ -67,11 +71,15 @@ pub(crate) fn hash_file_telling_plaintext(
             let len = facts.stamp.size;
             hash_plaintext(
                 cipher,
-                &mut BufReader::new(reader.open(file, len)),
+                &mut BufReader::with_capacity(READ_SIZE, reader.open(file, len)),
                 outboards,
             )
         }
-        None => hash_plaintext(cipher, &mut BufReader::new(file), outboards),
+        None => hash_plaintext(
+            cipher,
+            &mut BufReader::with_capacity(READ_SIZE, file),
+            outboards,
+        ),
     }
     .map_err(|error| match error {
         CipherError::Io(source) => ManifestError::io(path, source),

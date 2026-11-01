@@ -51,6 +51,12 @@ impl MemoryFiles {
         lock(&self.files).insert(self.path(relative), (Arc::new(contents.to_vec()), time));
     }
 
+    /// Writes `contents` at `relative` with no time told, as some phone
+    /// pickers' files are.
+    pub fn write_untimed(&self, relative: &str, contents: &[u8]) {
+        lock(&self.files).insert(self.path(relative), (Arc::new(contents.to_vec()), 0));
+    }
+
     /// Removes the file at `relative`.
     pub fn remove(&self, relative: &str) {
         lock(&self.files).remove(&self.path(relative));
@@ -67,6 +73,7 @@ impl MemoryFiles {
                 kind: FileKind::File,
                 stamp: stamp(contents.len() as u64, *time),
                 disk: None,
+                time_known: *time != 0,
             });
         }
         if path == self.root || files.keys().any(|file| file.starts_with(path)) {
@@ -74,6 +81,7 @@ impl MemoryFiles {
                 kind: FileKind::Folder,
                 stamp: stamp(0, 0),
                 disk: None,
+                time_known: true,
             });
         }
         Err(io::ErrorKind::NotFound.into())
@@ -171,6 +179,7 @@ impl ReadAt for Opened {
             kind: FileKind::File,
             stamp: stamp(self.contents.len() as u64, self.time),
             disk: None,
+            time_known: self.time != 0,
         })
     }
 }

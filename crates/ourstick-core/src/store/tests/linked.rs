@@ -160,7 +160,48 @@ fn one_folder_at_the_top_of_a_stick_with_no_folder_of_its_own(store: &dyn Store)
     store.remove_linked_entry(&stick.stick_id, "Films").unwrap();
 }
 
+fn a_linked_entry_found_elsewhere_keeps_its_name_and_files(store: &dyn Store) {
+    let stick = owned(1, 10);
+    store.add_owned_stick(&stick).unwrap();
+    store
+        .add_linked_entry(&stick.stick_id, &linked("Summer", "/home/alice/Summer"))
+        .unwrap();
+    store
+        .add_linked_entry(&stick.stick_id, &linked("Films", "/media/disk/Films"))
+        .unwrap();
+    store
+        .record_owned_files(&stick.stick_id, &[owned_file("Summer/a.jpg")])
+        .unwrap();
+    let found = LinkedEntry {
+        disk: Some(3),
+        ..linked("Summer", "/media/disk/Summer")
+    };
+    store.move_linked_entry(&stick.stick_id, &found).unwrap();
+    assert_eq!(
+        store.linked_entries(&stick.stick_id).unwrap(),
+        vec![linked("Films", "/media/disk/Films"), found.clone()]
+    );
+    assert_eq!(store.owned_files(&stick.stick_id).unwrap().len(), 1);
+    // Still a folder, under a name the stick has.
+    let file = LinkedEntry {
+        is_dir: false,
+        ..found.clone()
+    };
+    assert!(matches!(
+        store.move_linked_entry(&stick.stick_id, &file),
+        Err(StoreError::Inconsistent(_))
+    ));
+    assert!(matches!(
+        store.move_linked_entry(&stick.stick_id, &linked("Winter", "/media/disk/Winter")),
+        Err(StoreError::LinkNotFound(_))
+    ));
+    assert!(store
+        .move_linked_entry(&stick.stick_id, &linked("Summer", "relative/Summer"))
+        .is_err());
+}
+
 for_every_store!(
+    a_linked_entry_found_elsewhere_keeps_its_name_and_files,
     one_folder_at_the_top_of_a_stick_with_no_folder_of_its_own,
     linked_entries_roundtrip_by_name,
     a_linked_entry_must_be_one_name_and_an_absolute_path,

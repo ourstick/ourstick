@@ -3,7 +3,7 @@
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use super::super::{
-    check_at_top, check_linked_entry, path_str, LinkedEntry, StoreError, AT_TOP_STAYS,
+    check_at_top, check_linked_entry, path_str, LinkedEntry, StoreError, AT_TOP_STAYS, FOUND_STAYS,
 };
 use super::rows::{is_constraint_violation, time_i64, to_u64};
 use crate::stick_id::StickId;
@@ -114,6 +114,40 @@ pub(super) fn remove(
         "DELETE FROM owned_files WHERE stick_id = ?1
          AND (path = ?2 OR substr(path, 1, length(?2) + 1) = ?2 || '/')",
         params![stick_id.to_bytes(), name],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub(super) fn move_to(
+    connection: &mut Connection,
+    stick_id: &StickId,
+    entry: &LinkedEntry,
+) -> Result<(), StoreError> {
+    check_linked_entry(entry)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let stored: Option<(bool, bool)> = transaction
+        .query_row(
+            "SELECT is_dir, at_top FROM linked_entries WHERE stick_id = ?1 AND name = ?2",
+            params![stick_id.to_bytes(), entry.name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    match stored {
+        None => return Err(StoreError::LinkNotFound(entry.name.clone())),
+        Some(stored) if stored != (entry.is_dir, entry.at_top) => {
+            return Err(StoreError::Inconsistent(FOUND_STAYS))
+        }
+        Some(_) => {}
+    }
+    transaction.execute(
+        "UPDATE linked_entries SET path = ?3, disk = ?4 WHERE stick_id = ?1 AND name = ?2",
+        params![
+            stick_id.to_bytes(),
+            entry.name,
+            path_str(&entry.path)?,
+            entry.disk.map(|disk| disk as i64),
+        ],
     )?;
     transaction.commit()?;
     Ok(())

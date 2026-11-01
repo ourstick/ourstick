@@ -259,3 +259,55 @@ fn a_hidden_folder_counts_inside_the_home_only() {
     hide(&device.home.join("Pictures/Holiday 2025"));
     assert!(refusal(&device, &summer).contains("Holiday 2025"));
 }
+
+/// Files whose places are compared by their own rules, as a phone's are
+/// (ADR 0029): here "Camera" lies inside "DCIM" though their paths differ.
+#[derive(Debug)]
+struct OwnRules(PathBuf, PathBuf);
+
+impl SenderFiles for OwnRules {
+    fn facts(&self, path: &Path) -> std::io::Result<crate::sender_files::FileFacts> {
+        LocalFiles.facts(path)
+    }
+    fn facts_followed(&self, path: &Path) -> std::io::Result<crate::sender_files::FileFacts> {
+        LocalFiles.facts_followed(path)
+    }
+    fn entries(
+        &self,
+        path: &Path,
+    ) -> std::io::Result<Vec<(std::ffi::OsString, crate::sender_files::FileFacts)>> {
+        LocalFiles.entries(path)
+    }
+    fn open(&self, path: &Path) -> std::io::Result<Box<dyn crate::sender_files::ReadAt>> {
+        LocalFiles.open(path)
+    }
+    fn relation(&self, a: &Path, b: &Path) -> Option<Relation> {
+        let (dcim, camera) = (&self.0, &self.1);
+        if a == camera && b == dcim {
+            Some(Relation::IsInside)
+        } else if a == dcim && b == camera {
+            Some(Relation::Contains)
+        } else {
+            LocalFiles.relation(a, b)
+        }
+    }
+}
+
+#[test]
+fn chosen_places_are_compared_by_the_files_own_rules() {
+    let mut device = device();
+    let dcim = device.root.join("Expansion");
+    let camera = device.root.join("Expansion-camera");
+    std::fs::create_dir_all(&camera).unwrap();
+    let files = OwnRules(dcim.clone(), camera.clone());
+    device.rules.chosen = vec![dcim];
+    match may_send(&files, &camera, &device.rules) {
+        MaySend::Refuse(why) => assert!(why.contains("comes along already"), "{why}"),
+        other => panic!("not refused: {other:?}"),
+    }
+    // Plain paths alone would not have seen it.
+    assert!(!matches!(
+        may_send(&LocalFiles, &camera, &device.rules),
+        MaySend::Refuse(_)
+    ));
+}

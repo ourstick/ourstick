@@ -185,7 +185,7 @@ pub fn may_send(files: &dyn SenderFiles, path: &Path, rules: &SendRules) -> MayS
     }
     for chosen in &rules.chosen {
         let other = name_of(chosen);
-        match relation(&here, &comparable(chosen)) {
+        match files.relation(path, chosen) {
             Some(Relation::Is) => {
                 return refuse(format!("{} is in the list already.", quoted(&name)))
             }

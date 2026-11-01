@@ -4,7 +4,7 @@ use super::{claim_key, MemoryStore};
 use crate::stick_id::StickId;
 use crate::store::{
     check_at_top, check_linked_entry, check_value, ClaimKind, LinkedEntry, SpaceClaim, StoreError,
-    AT_TOP_STAYS,
+    AT_TOP_STAYS, FOUND_STAYS,
 };
 
 pub(super) fn add_linked_entry(
@@ -47,6 +47,26 @@ pub(super) fn linked_entries(
         .get(&stick_id.to_bytes())
         .map(|entries| entries.values().cloned().collect())
         .unwrap_or_default())
+}
+
+pub(super) fn move_linked_entry(
+    store: &MemoryStore,
+    stick_id: &StickId,
+    entry: &LinkedEntry,
+) -> Result<(), StoreError> {
+    check_linked_entry(entry)?;
+    let mut state = store.state();
+    let stored = state
+        .linked
+        .get_mut(&stick_id.to_bytes())
+        .and_then(|entries| entries.get_mut(&entry.name))
+        .ok_or_else(|| StoreError::LinkNotFound(entry.name.clone()))?;
+    if (stored.is_dir, stored.at_top) != (entry.is_dir, entry.at_top) {
+        return Err(StoreError::Inconsistent(FOUND_STAYS));
+    }
+    stored.path = entry.path.clone();
+    stored.disk = entry.disk;
+    Ok(())
 }
 
 pub(super) fn remove_linked_entry(

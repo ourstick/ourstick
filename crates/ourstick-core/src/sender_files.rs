@@ -104,6 +104,13 @@ pub trait SenderFiles: Send + Sync + std::fmt::Debug {
 
     /// The file at `path`, for reading.
     fn open(&self, path: &Path) -> io::Result<Box<dyn ReadAt>>;
+
+    /// How the place `a` relates to the place `b` (ADR 0029): the same,
+    /// one holding the other, or apart (`None`). Compared as paths here;
+    /// a phone's places are not paths and cannot be compared as text.
+    fn relation(&self, a: &Path, b: &Path) -> Option<crate::places::Relation> {
+        crate::places::relation(&crate::places::comparable(a), &crate::places::comparable(b))
+    }
 }
 
 /// A [`ReadAt`] read in order, as [`Read`] and [`Seek`] (the catalogue

@@ -103,6 +103,10 @@ pub(crate) fn check_device(device: &Device) -> Result<(), StoreError> {
 /// nothing; it is stopped as a whole.
 pub(crate) const AT_TOP_STAYS: &str = "the folder at a stick's top is not taken out";
 
+/// A linked entry found elsewhere stays what it was (ADR 0029).
+pub(crate) const FOUND_STAYS: &str =
+    "a linked entry found elsewhere stays a folder or a file, at the top or not";
+
 /// Whether an entry may be put at the top of a stick that `has_own_folder`
 /// and has `one_there` already: only of a stick with no folder of its own,
 /// and only one.

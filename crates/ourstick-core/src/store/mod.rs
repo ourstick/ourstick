@@ -137,6 +137,14 @@ pub trait Store: Send + Sync {
     /// under its name. The user's files are never touched.
     fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError>;
 
+    /// A linked entry that was not found is somewhere else now ("Find it…",
+    /// ADR 0029): the entry named `entry.name` takes its path and disk; its
+    /// recorded files stay, so what did not change is not hashed again.
+    /// Fails with [`StoreError::LinkNotFound`], or
+    /// [`StoreError::Inconsistent`] if it would change from a folder to a
+    /// file, or move to or from the top.
+    fn move_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError>;
+
     /// Every claim on room, stale ones included (the caller tells them
     /// apart).
     fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError>;

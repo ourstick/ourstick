@@ -5,9 +5,27 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::super::{check_drive_letter, path_str, OwnedStick, StoreError};
-use super::rows::{kind_str, seq_i64, time_i64, to_u64, OWNED_COLUMNS};
+use super::rows::{kind_str, seq_i64, time_i64, to_u64, OwnedRow, OWNED_COLUMNS};
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
+
+/// The owned stick `stick_id`, unless it is being removed.
+pub(super) fn stick(
+    connection: &Connection,
+    stick_id: &StickId,
+) -> Result<Option<OwnedStick>, StoreError> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {OWNED_COLUMNS} FROM owned_sticks WHERE stick_id = ?1 AND removing = 0"
+            ),
+            [stick_id.to_bytes()],
+            OwnedRow::read,
+        )
+        .optional()?
+        .map(OwnedRow::into_stick)
+        .transpose()
+}
 
 pub(super) fn move_owned_stick(
     connection: &Connection,

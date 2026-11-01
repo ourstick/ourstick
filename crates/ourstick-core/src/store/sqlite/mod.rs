@@ -58,17 +58,7 @@ impl Store for SqliteStore {
     }
 
     fn owned_stick(&self, stick_id: &StickId) -> Result<Option<OwnedStick>, StoreError> {
-        self.connection()
-            .query_row(
-                &format!(
-                    "SELECT {OWNED_COLUMNS} FROM owned_sticks WHERE stick_id = ?1 AND removing = 0"
-                ),
-                [stick_id.to_bytes()],
-                OwnedRow::read,
-            )
-            .optional()?
-            .map(OwnedRow::into_stick)
-            .transpose()
+        owned::stick(&self.connection(), stick_id)
     }
 
     fn owned_sticks(&self) -> Result<Vec<OwnedStick>, StoreError> {
@@ -180,6 +170,10 @@ impl Store for SqliteStore {
 
     fn remove_linked_entry(&self, stick_id: &StickId, name: &str) -> Result<(), StoreError> {
         linked::remove(&mut self.connection(), stick_id, name)
+    }
+
+    fn move_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
+        linked::move_to(&mut self.connection(), stick_id, entry)
     }
 
     fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError> {

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::places::{app_places, clash, Taken};
-use crate::sender_files::{FileKind, SenderFiles};
+use crate::sender_files::{FileFacts, FileKind, SenderFiles};
 use crate::stick_id::StickId;
 use crate::store::{LinkedEntry, Store, StoreError};
 
@@ -38,6 +38,8 @@ pub enum LinkError {
         relation: &'static str,
         other: String,
     },
+    #[error("{}", found::not_the_same_kind(.name, *.was_folder))]
+    NotTheSameKind { name: String, was_folder: bool },
     #[error("I/O error on {}: {source}", .path.display())]
     Io {
         path: PathBuf,
@@ -112,31 +114,7 @@ pub fn plan_link(
     let own = stick.root_path.as_path();
     let mut existing = store.linked_entries(stick_id)?;
     existing.extend(planned.iter().cloned());
-    if !path.is_absolute() {
-        return Err(LinkError::NotAbsolute(path.to_path_buf()));
-    }
-    let facts = files.facts(path).map_err(io(path))?;
-    match facts.kind {
-        FileKind::Link => return Err(LinkError::SymbolicLink(path.to_path_buf())),
-        FileKind::Other => return Err(LinkError::NotFileOrFolder(path.to_path_buf())),
-        FileKind::File | FileKind::Folder => {}
-    }
-    let mut taken = vec![Taken {
-        place: crate::places::comparable(own),
-        what: "the stick's own folder".to_owned(),
-    }];
-    taken.extend(existing.iter().map(|entry| Taken {
-        place: crate::places::comparable(&entry.path),
-        what: format!("\u{201c}{}\u{201d}, already shared", entry.name),
-    }));
-    taken.extend(app_places(store, data_dir, Some(stick_id))?);
-    if let Some((relation, taken)) = clash(path, &taken) {
-        return Err(LinkError::Overlaps {
-            path: path.to_path_buf(),
-            relation: relation.words(),
-            other: taken.what.clone(),
-        });
-    }
+    let facts = check_place(files, store, stick_id, data_dir, own, &existing, path)?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -175,6 +153,54 @@ pub fn plan_link(
         added_at_ms: now_ms,
         at_top: false,
     })
+}
+
+/// Whether `path` may be one of the stick's links beside `others`: a file
+/// or a folder, neither a link nor anything else; not, nor around, nor
+/// inside the stick's own folder `own`, one of `others`, or a place only
+/// OurStick may use. Its facts if it may.
+fn check_place(
+    files: &dyn SenderFiles,
+    store: &dyn Store,
+    stick_id: &StickId,
+    data_dir: &Path,
+    own: &Path,
+    others: &[LinkedEntry],
+    path: &Path,
+) -> Result<FileFacts, LinkError> {
+    if !path.is_absolute() {
+        return Err(LinkError::NotAbsolute(path.to_path_buf()));
+    }
+    let facts = files.facts(path).map_err(io(path))?;
+    match facts.kind {
+        FileKind::Link => return Err(LinkError::SymbolicLink(path.to_path_buf())),
+        FileKind::Other => return Err(LinkError::NotFileOrFolder(path.to_path_buf())),
+        FileKind::File | FileKind::Folder => {}
+    }
+    let overlaps = |relation: crate::places::Relation, other: String| LinkError::Overlaps {
+        path: path.to_path_buf(),
+        relation: relation.words(),
+        other,
+    };
+    let own_place = [Taken {
+        place: crate::places::comparable(own),
+        what: "the stick's own folder".to_owned(),
+    }];
+    if let Some((relation, taken)) = clash(path, &own_place) {
+        return Err(overlaps(relation, taken.what.clone()));
+    }
+    // Compared by the files' own rules: a phone's places are not paths.
+    for entry in others {
+        if let Some(relation) = files.relation(path, &entry.path) {
+            let other = format!("\u{201c}{}\u{201d}, already shared", entry.name);
+            return Err(overlaps(relation, other));
+        }
+    }
+    let taken = app_places(store, data_dir, Some(stick_id))?;
+    if let Some((relation, taken)) = clash(path, &taken) {
+        return Err(overlaps(relation, taken.what.clone()));
+    }
+    Ok(facts)
 }
 
 /// Refuses `name` next to `top`, the folder at a stick's top: a name in it
@@ -243,6 +269,10 @@ fn top_names(files: &dyn SenderFiles, own: &Path) -> Result<Vec<String>, LinkErr
         Err(source) => Err(io(own)(source)),
     }
 }
+
+mod found;
+
+pub use found::plan_found;
 
 #[cfg(test)]
 mod tests;

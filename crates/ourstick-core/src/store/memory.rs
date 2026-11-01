@@ -209,6 +209,10 @@ impl Store for MemoryStore {
         extra::remove_linked_entry(self, stick_id, name)
     }
 
+    fn move_linked_entry(&self, stick_id: &StickId, entry: &LinkedEntry) -> Result<(), StoreError> {
+        extra::move_linked_entry(self, stick_id, entry)
+    }
+
     fn space_claims(&self) -> Result<Vec<SpaceClaim>, StoreError> {
         extra::space_claims(self)
     }

@@ -302,8 +302,8 @@ Android 16), files chosen by Giorgos:
   the network answering every time, the job never stopped, though no
   data moved and no receiver came. So the app never asks for
   notifications: the job runs without them (its notice then shows only in
-  the system's task manager). Not measured yet: on battery, still and
-  locked for hours (Doze cannot start while the phone charges).
+  the system's task manager). On battery, still and locked for hours:
+  see "Done so far" (2026-11-02).
 
 ## Done so far (2026-11-01)
 
@@ -339,7 +339,14 @@ Then, the same day:
   instead"), from the grants Android says it keeps; not seen on the
   phone, whose pickers always gave a grant that could be kept.
 
-Still to come: a long test on battery (Doze).
+On 2026-11-02, on battery, still and locked all night (the phone in
+deep Doze two minutes after it was locked, by its `device_idle` log): a
+folder of 6 GB went to a computer, which stopped receiving twice on
+purpose. At 26 minutes and again at 3½ hours after the lock, in deep
+Doze between maintenance windows, the computer came back and got the
+rest at once (about 8 MB/s), all 12 files equal to the phone's (md5),
+OurStick not opened on the phone. The battery went from 64 % to 54 % in
+nine hours.
 
 ## Not decided here
 

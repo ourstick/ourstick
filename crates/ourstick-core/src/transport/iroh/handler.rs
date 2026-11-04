@@ -222,7 +222,13 @@ async fn serve_stream(
                 refuse(&mut writer, ERR_LIMIT);
                 return;
             };
-            handler.activity.started(connection);
+            // A file's transfer makes a reader; the manifest alone does
+            // not: anyone with a link's public part, the key not needed,
+            // may fetch it (encrypted).
+            let reads_a_file = guard.probe().is_some();
+            if reads_a_file {
+                handler.activity.started(connection);
+            }
             let pair = StreamPair::new(
                 connection,
                 reader,
@@ -232,7 +238,9 @@ async fn serve_stream(
             if let Err(error) = handle_get(pair, guard.store(), request).await {
                 tracing::debug!(%error, "a transfer ended early");
             }
-            handler.activity.ended(connection);
+            if reads_a_file {
+                handler.activity.ended(connection);
+            }
             // The store may leave now.
             drop(guard);
             drop(place);

@@ -139,3 +139,31 @@ fn a_file_and_a_folder_of_one_name_with_one_not_chosen() {
     );
     assert_eq!(saved.saved, ["a (2)", "a/b"]);
 }
+
+#[test]
+fn many_names_that_are_one_here_cost_a_bounded_number_of_tries() {
+    // Every case of a ten-letter name: 1 024 names Windows takes for one.
+    let names: Vec<String> = (0..1024u32)
+        .map(|bits| {
+            "abcdefghij"
+                .chars()
+                .enumerate()
+                .map(|(at, c)| {
+                    if bits & (1 << at) != 0 {
+                        c.to_ascii_uppercase()
+                    } else {
+                        c
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    let mut paths: Vec<&str> = names.iter().map(String::as_str).collect();
+    paths.sort_unstable();
+    let started = std::time::Instant::now();
+    let saved = plan(&paths, WINDOWS);
+    // Up to the round's tries, each gets a number; the rest wait.
+    let numbered = paths.len() - saved.left_out.len();
+    assert!(numbered > 600 && !saved.left_out.is_empty(), "{numbered}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+}

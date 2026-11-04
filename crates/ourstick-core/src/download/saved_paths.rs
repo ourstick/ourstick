@@ -94,6 +94,12 @@ pub(crate) struct SavedPaths<'a> {
 /// How many numbers a name tries before its entry is left out.
 const MOST_NUMBERS: u32 = 1_000;
 
+/// How many numbered names a round tries in all: names that are one on
+/// this disk (letter case, Windows' rules) cost a try for each one before
+/// them, so a stick of many such names would cost the square of their
+/// number. Past this, an entry that needs a number is left out this round.
+const MOST_TRIES: u32 = 200_000;
+
 /// The names OurStick uses itself at the top of a received folder.
 const OURS: [&str; 2] = [super::PARTIAL_DIR, super::receive::RECEIVED_MARKER];
 
@@ -169,6 +175,7 @@ pub(crate) fn saved_paths<'a>(
     }
     // The rest, top-down.
     let mut left_out = Vec::new();
+    let mut tries = 0;
     for (index, path) in paths.iter().enumerate() {
         if not_chosen.contains(&index) {
             if saved[index].is_none() {
@@ -177,7 +184,7 @@ pub(crate) fn saved_paths<'a>(
             continue;
         }
         if saved[index].is_none() {
-            match choose(path, index, &mut taken, &on_disk, rules) {
+            match choose(path, index, &mut taken, &on_disk, rules, &mut tries) {
                 Some(place) => saved[index] = Some(own_or_borrowed(path, &place)),
                 None => {
                     tracing::warn!("a file left out: every place for it is in the way");
@@ -279,6 +286,7 @@ fn choose(
     taken: &mut Taken,
     on_disk: &impl Fn(&str, Option<usize>) -> OnDisk,
     rules: Rules,
+    tries: &mut u32,
 ) -> Option<String> {
     let names: Vec<&str> = path.split('/').collect();
     let mut stick = String::new();
@@ -315,9 +323,10 @@ fn choose(
         let mut candidate = join(&base);
         let mut number = 2;
         while !free(&candidate) {
-            if number > MOST_NUMBERS {
+            if number > MOST_NUMBERS || *tries >= MOST_TRIES {
                 return None;
             }
+            *tries += 1;
             candidate = join(&numbered(&base, number, !last, rules.windows));
             number += 1;
         }

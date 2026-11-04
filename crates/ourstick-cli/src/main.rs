@@ -104,7 +104,9 @@ fn parse_share(options: &[String]) -> Result<Command> {
                 _ => bail!("--name needs one name\n\n{USAGE}"),
             },
             "--rescan" => rescan = true,
-            other if other.starts_with("--") => bail!("unknown option {other}\n\n{USAGE}"),
+            other if other.starts_with("--") => {
+                bail!("unknown option {}\n\n{USAGE}", shown_option(other))
+            }
             _ if folder.is_some() => bail!("share takes one folder\n\n{USAGE}"),
             path => folder = Some(PathBuf::from(path)),
         }
@@ -120,6 +122,15 @@ fn parse_share(options: &[String]) -> Result<Command> {
     })
 }
 
+/// An argument not understood, as an error shows it: a link put in the
+/// wrong place carries its key after `#`, which is never printed.
+fn shown_option(argument: &str) -> String {
+    match argument.split_once('#') {
+        Some((before, _)) => format!("{before}#… (a link goes right after the command)"),
+        None => display::untrusted(argument),
+    }
+}
+
 /// `get <ticket>` followed by `--out <folder>` and/or `--follow`, in any order.
 fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
     let mut output = None;
@@ -132,7 +143,7 @@ fn parse_get(ticket: &str, options: &[String]) -> Result<Command> {
                 _ => bail!("--out needs one folder\n\n{USAGE}"),
             },
             "--follow" => follow = true,
-            other => bail!("unknown option {other}\n\n{USAGE}"),
+            other => bail!("unknown option {}\n\n{USAGE}", shown_option(other)),
         }
     }
     Ok(Command::Get {
@@ -172,7 +183,12 @@ async fn run_main() -> std::process::ExitCode {
 }
 
 async fn run() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // Not `args()`, which panics on an argument that is not UTF-8, and the
+    // panic would print it.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect();
     match parse(&args)? {
         Command::Share {
             folder,
@@ -209,6 +225,21 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|arg| arg.to_string()).collect()
+    }
+
+    #[test]
+    fn a_link_in_the_wrong_place_is_never_printed() {
+        let link = "https://ourstick.com/s/#PUBLICPART.SECRETPART";
+        let Err(error) = parse(&args(&["get", "--follow", link])) else {
+            panic!("taken")
+        };
+        let shown = format!("{error:#}");
+        assert!(!shown.contains("SECRETPART"), "{shown}");
+        assert!(shown.contains("https://ourstick.com/s/#…"), "{shown}");
+        let Err(error) = parse(&args(&["share", "--odd\u{1b}[2J", "photos"])) else {
+            panic!("taken")
+        };
+        assert!(!format!("{error:#}").contains('\u{1b}'));
     }
 
     #[test]

@@ -589,7 +589,7 @@ stick, never per device: two owners cannot match their readers.
 
 | Field      | Type                | Meaning                                                        |
 |------------|---------------------|----------------------------------------------------------------|
-| `counter`  | u64                 | Grows with every report of this reader, across restarts        |
+| `counter`  | u64                 | Grows with every report of this reader, across restarts: the reader's clock in ms, taken to the hour, or the last plus one |
 | `seq`      | u64                 | The version (record `seq`) it is about                         |
 | `state`    | enum                | `Downloading { percent: u8 }` (0–99), `UpToDate`, `Waiting(reason)` with `SenderAway`, `NoRoom`, `FolderMissing` or `Other`, `Paused`, `Forgotten` |
 | `everything` | bool              | It gets the whole stick (nothing left out)                     |

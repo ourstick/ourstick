@@ -189,7 +189,10 @@ fn migration_20_starts_every_counter_and_list_empty() {
     }
     let store = SqliteStore::open(&path).unwrap();
     assert_eq!(store.receiver_name().unwrap(), None);
-    assert_eq!(store.next_report_counter(&stick, 5).unwrap(), 5);
+    assert_eq!(
+        store.next_report_counter(&stick, 3_600_005).unwrap(),
+        3_600_000
+    );
     store.set_receiver_name(Some("Μαρία")).unwrap();
     assert_eq!(store.receiver_name().unwrap().as_deref(), Some("Μαρία"));
     // The new table holds a line, and its checks hold.

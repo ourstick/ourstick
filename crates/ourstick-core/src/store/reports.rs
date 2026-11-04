@@ -143,7 +143,10 @@ pub(super) fn check_receiver_name(name: Option<&str>) -> Result<(), StoreError> 
 }
 
 /// The counter of a reader's next report: above the last, and the clock's
-/// time when the clock is ahead.
+/// time, to the hour, when the clock is ahead. Not to the millisecond: two
+/// owners comparing counters with the times they got them would learn how
+/// far the reader's clock is off, and so that their readers are one.
 pub(super) fn next_counter(last: u64, now_ms: u64) -> u64 {
-    now_ms.max(last.saturating_add(1))
+    const HOUR_MS: u64 = 3_600_000;
+    (now_ms - now_ms % HOUR_MS).max(last.saturating_add(1))
 }

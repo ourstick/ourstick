@@ -57,7 +57,10 @@ Things that hold, from earlier decisions:
    - **the kind of computer** (`macos`, `windows`, `linux`, `other`) and
      **a name only if the receiver typed one** (rule 3);
    - a **counter** that only grows: milliseconds of the reader's clock, or
-     the last one sent plus one if the clock went back. The last one sent is
+     the last one sent plus one if the clock went back. (Since 2026-11-04
+     the clock is taken to the hour: to the millisecond, two owners
+     comparing counters with the times they got them would learn how far
+     the reader's clock is off, and so that their readers are one.) The last one sent is
      kept with the received stick (a column of `joined_sticks`), so it
      grows across restarts too.
 2. **Each reader speaks only for itself.** When the app receives a stick

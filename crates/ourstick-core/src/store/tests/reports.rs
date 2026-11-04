@@ -351,14 +351,21 @@ fn a_counter_grows_even_when_the_clock_goes_back(store: &dyn Store) {
         Err(StoreError::StickNotFound)
     ));
     store.add_joined_stick(&stick).unwrap();
-    assert_eq!(store.next_report_counter(&id, NOW).unwrap(), NOW);
-    assert_eq!(store.next_report_counter(&id, NOW).unwrap(), NOW + 1);
+    // The clock to the hour: never how far it is off, to the millisecond.
+    const HOUR: u64 = 3_600_000;
+    let hour = NOW - NOW % HOUR;
+    assert_eq!(store.next_report_counter(&id, NOW).unwrap(), hour);
+    assert_eq!(store.next_report_counter(&id, NOW).unwrap(), hour + 1);
     // The clock set back: still above the last.
     assert_eq!(
         store.next_report_counter(&id, NOW - 60_000).unwrap(),
-        NOW + 2
+        hour + 2
     );
-    assert_eq!(store.next_report_counter(&id, NOW + 50).unwrap(), NOW + 50);
+    let later = hour + 3 * HOUR + 1_234;
+    assert_eq!(
+        store.next_report_counter(&id, later).unwrap(),
+        hour + 3 * HOUR
+    );
     // Being forgotten: no more reports.
     store
         .change_joined_stick(&id, &crate::store::JoinedChange::Forgetting)

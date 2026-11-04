@@ -78,24 +78,7 @@ pub fn run() {
     #[cfg(desktop)]
     arrival::before_start();
 
-    // A desktop's state is opened before the window. A phone's data folder
-    // is known only to the app, in `setup` below.
-    #[cfg(desktop)]
-    let state = match ourstick_core::device::data_dir()
-        .map_err(anyhow::Error::from)
-        .and_then(state::AppState::open)
-    {
-        Ok(state) => state,
-        Err(error) => {
-            // Nothing can work without the data folder; say why and stop.
-            eprintln!("OurStick cannot start: {error:#}");
-            std::process::exit(1);
-        }
-    };
-
     let builder = tauri::Builder::default();
-    #[cfg(desktop)]
-    let builder = builder.manage(state);
     // The tray's activation tokens, for raising windows (see windows).
     #[cfg(target_os = "linux")]
     let builder = builder.manage(windows::Activation::default());
@@ -174,8 +157,25 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // A desktop's state, opened only once this start is the one
+            // that runs (a second start hands over and exits before it, and
+            // never opens nor migrates the database of the running one).
             // Before the window can call a command: the event loop has not
             // started yet.
+            #[cfg(desktop)]
+            match ourstick_core::device::data_dir()
+                .map_err(anyhow::Error::from)
+                .and_then(state::AppState::open)
+            {
+                Ok(state) => {
+                    app.manage(state);
+                }
+                Err(error) => {
+                    // Nothing can work without the data folder; say why and stop.
+                    eprintln!("OurStick cannot start: {error:#}");
+                    std::process::exit(1);
+                }
+            }
             #[cfg(target_os = "ios")]
             app.manage(state::AppState::open(state::phone_data_dir(app.handle())?)?);
             // What the user chooses to send is read through Android (ADR

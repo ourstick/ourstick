@@ -28,6 +28,7 @@ pub mod stick_id;
 pub mod stick_life;
 pub mod stick_names;
 pub mod store;
+mod system_program;
 pub mod threads;
 pub mod ticket;
 pub mod transport;
@@ -50,6 +51,7 @@ pub use store::{
     OwnedFile, OwnedStick, RetiredStick, SecretBackend, SpaceClaim, SqliteStore, StickKind, Store,
     StoreError,
 };
+pub use system_program::system_program;
 pub use ticket::{AddressHint, NodeId, Ticket, TicketError};
 
 #[cfg(test)]

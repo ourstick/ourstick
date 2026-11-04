@@ -230,7 +230,7 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
 fn hide_folder(folder: &Path) {
     #[cfg(windows)]
     {
-        let hidden = std::process::Command::new("attrib")
+        let hidden = std::process::Command::new(crate::system_program("attrib"))
             .arg("+h")
             .arg(folder)
             .stdout(std::process::Stdio::null())

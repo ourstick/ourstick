@@ -100,7 +100,7 @@ pub mod platform {
     }
 
     fn hdiutil(arguments: &[&std::ffi::OsStr]) -> Result<String> {
-        let output = Command::new("hdiutil")
+        let output = Command::new("/usr/bin/hdiutil")
             .args(arguments)
             .output()
             .context("cannot run hdiutil")?;
@@ -189,7 +189,7 @@ pub mod platform {
         if !folder_is_there(&stick.root_path) {
             bail!("the stick is ejected; mount it, then rename it");
         }
-        let output = Command::new("diskutil")
+        let output = Command::new("/usr/sbin/diskutil")
             .arg("rename")
             .arg(&stick.root_path)
             .arg(folder)

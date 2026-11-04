@@ -45,7 +45,7 @@ impl SleepGuard {
     /// app too, should the app die without dropping the guard.
     #[cfg(target_os = "macos")]
     pub async fn acquire(_app: &AppHandle) -> Result<Self> {
-        let caffeinate = std::process::Command::new("caffeinate")
+        let caffeinate = std::process::Command::new("/usr/bin/caffeinate")
             .arg("-i")
             .arg("-w")
             .arg(std::process::id().to_string())

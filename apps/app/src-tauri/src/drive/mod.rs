@@ -100,13 +100,15 @@ mod platform {
 
 pub use platform::{eject, is_mounted, mount, rename, sticks_home};
 
-/// A program to run on Windows without a console window flashing up: the
-/// app has none of its own, so each console program would open one.
+/// A program of Windows' own to run without a console window flashing up:
+/// the app has none of its own, so each console program would open one.
+/// Taken from System32 by its whole path, never looked for on the PATH,
+/// where a folder of the user's could hold another of that name.
 #[cfg(windows)]
 pub fn no_window(program: &str) -> std::process::Command {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = std::process::Command::new(program);
+    let mut command = std::process::Command::new(ourstick_core::system_program(program));
     command.creation_flags(CREATE_NO_WINDOW);
     command
 }

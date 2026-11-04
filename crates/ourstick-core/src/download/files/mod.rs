@@ -349,7 +349,9 @@ fn place(
     // unplugged meanwhile is not filled in its place.
     partial_there(&output_dir.join(PARTIAL_DIR))?;
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(io_error(parent))?;
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            return its_place_refused(plaintext, error).map_err(io_error(parent));
+        }
     }
     // Again, now that the folders exist: nothing may have been swapped for a
     // symbolic link since the download started.
@@ -358,12 +360,23 @@ fn place(
         std::fs::remove_file(plaintext).map_err(io_error(plaintext))?;
         return Ok(None);
     }
-    std::fs::rename(plaintext, &target).map_err(io_error(&target))?;
+    if let Err(error) = std::fs::rename(plaintext, &target) {
+        // The folder itself closed is the whole stick's matter (the user is
+        // told), not one file's.
+        let whole_folder = error.kind() == std::io::ErrorKind::PermissionDenied
+            && target.parent() == Some(output_dir);
+        if whole_folder {
+            return Err(io_error(&target)(error));
+        }
+        return its_place_refused(plaintext, error).map_err(io_error(&target));
+    }
     let written = std::fs::metadata(&target).map_err(io_error(&target))?;
     Ok(Some(FileStamp::of(&written)))
 }
 
 mod from_internet;
+mod refused;
+use refused::its_place_refused;
 
 #[cfg(test)]
 mod tests;

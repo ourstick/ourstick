@@ -49,8 +49,15 @@ impl SenderFiles for LocalFiles {
         for entry in std::fs::read_dir(path)? {
             let entry = entry?;
             // `DirEntry::metadata` does not follow a link. One gone since
-            // the folder was listed is not there.
-            match entry.metadata() {
+            // the folder was listed is not there. On Windows it is what the
+            // folder's listing says, which NTFS brings up to date only once
+            // a file being written is closed: the file's own record is read
+            // instead, or a file still being written looks settled.
+            #[cfg(windows)]
+            let metadata = std::fs::symlink_metadata(entry.path());
+            #[cfg(not(windows))]
+            let metadata = entry.metadata();
+            match metadata {
                 Ok(metadata) => entries.push((entry.file_name(), FileFacts::of(&metadata))),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),

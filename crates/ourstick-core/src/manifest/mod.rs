@@ -57,6 +57,11 @@ pub const MAX_PATH_BYTES: usize = 4096;
 /// file).
 pub const MAX_PATH_DEPTH: usize = 128;
 
+/// The most files a stick may have. A reader holds every entry in memory,
+/// and more for each file it plans each round: a manifest blob of 256 MB
+/// with short paths would hold millions, so the number is bounded too.
+pub const MAX_ENTRIES: usize = 2_000_000;
+
 /// The most bytes a stick's files may add up to: 2^60, an exbibyte.
 pub const MAX_TOTAL_BYTES: u64 = 1 << 60;
 
@@ -131,6 +136,12 @@ pub enum ManifestError {
     TooBig { bytes: u64 },
     #[error("the stick's files add up to more than any disk holds")]
     TooManyBytes,
+    #[error(
+        "the stick has {count} files, more than OurStick takes ({}); \
+         it must be split into smaller sticks",
+        MAX_ENTRIES
+    )]
+    TooManyFiles { count: usize },
 }
 
 impl ManifestError {

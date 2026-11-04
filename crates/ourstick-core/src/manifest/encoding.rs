@@ -8,7 +8,8 @@
 use serde::Deserialize;
 
 use super::{
-    Entry, Manifest, ManifestError, MAX_NAME_CHARS, MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES,
+    Entry, Manifest, ManifestError, MAX_ENTRIES, MAX_NAME_CHARS, MAX_PATH_BYTES, MAX_PATH_DEPTH,
+    MAX_TOTAL_BYTES,
 };
 
 /// Version of the manifest wire format written by [`Manifest::to_bytes`].
@@ -54,10 +55,16 @@ impl Manifest {
         Ok(manifest)
     }
 
-    /// Checks the name, that every path is safe, that the sizes add up to at
-    /// most [`MAX_TOTAL_BYTES`], and that entries are strictly sorted by path.
+    /// Checks the name, that there are at most [`MAX_ENTRIES`] entries, that
+    /// every path is safe, that the sizes add up to at most
+    /// [`MAX_TOTAL_BYTES`], and that entries are strictly sorted by path.
     fn validate(&self) -> Result<(), ManifestError> {
         validate_name(&self.name)?;
+        if self.entries.len() > MAX_ENTRIES {
+            return Err(ManifestError::TooManyFiles {
+                count: self.entries.len(),
+            });
+        }
         for entry in &self.entries {
             validate_path(&entry.path)?;
         }

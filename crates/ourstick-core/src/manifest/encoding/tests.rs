@@ -1,5 +1,5 @@
 use super::*;
-use crate::manifest::{MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES};
+use crate::manifest::{MAX_ENTRIES, MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES};
 
 #[test]
 fn a_stick_name_is_made_fit_for_the_manifest() {
@@ -338,5 +338,32 @@ fn sizes_adding_up_past_any_disk_are_refused() {
             .unwrap()
             .total_size(),
         MAX_TOTAL_BYTES
+    );
+}
+
+#[test]
+fn more_files_than_a_stick_may_have_are_refused() {
+    let names: Vec<String> = (0..=MAX_ENTRIES)
+        .map(|index| format!("{index:08}"))
+        .collect();
+    let mut many = Manifest {
+        entries: names.iter().map(|name| entry(name)).collect(),
+        ..Manifest::default()
+    };
+    match Manifest::from_bytes(&encode_unchecked(&many)) {
+        Err(ManifestError::TooManyFiles { count }) => assert_eq!(count, MAX_ENTRIES + 1),
+        other => panic!("{:?}", other.map(|manifest| manifest.entries.len())),
+    }
+    assert!(matches!(
+        many.to_bytes(),
+        Err(ManifestError::TooManyFiles { .. })
+    ));
+    many.entries.pop();
+    assert_eq!(
+        Manifest::from_bytes(&many.to_bytes().unwrap())
+            .unwrap()
+            .entries
+            .len(),
+        MAX_ENTRIES
     );
 }

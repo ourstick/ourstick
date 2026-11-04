@@ -24,6 +24,13 @@ use crate::share::{
 };
 use crate::transport::Publisher;
 
+/// The longest the watcher waits for a folder to go quiet before a pass.
+const MOST_QUIET_WAIT: Duration = Duration::from_secs(60);
+
+/// The longest a folder still being written holds its changes back; after
+/// that a pass runs anyway, leaving out what keeps changing.
+const MOST_UNSETTLED: Duration = Duration::from_secs(5 * 60);
+
 /// How long to wait at each stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchTiming {
@@ -269,6 +276,8 @@ async fn follow(
     let mut pass_now = pass_first;
     // Looks in a row with no sign of change and no new version.
     let mut idle_looks = 0;
+    // Since when the folder has been found still being written.
+    let mut changing_since: Option<std::time::Instant> = None;
     loop {
         // Watch what is there now: linked entries come and go (ADR 0008).
         // One gone, or one that cannot be watched, is looked at again every
@@ -291,14 +300,32 @@ async fn follow(
                 Woken::Change => idle_looks = 0,
             }
         }
-        // Let a burst of changes (a copy, an unzip) finish first.
-        while let Ok(Some(())) = tokio::time::timeout(timing.quiet, events.changed()).await {}
+        // Let a burst of changes (a copy, an unzip) finish first; but not
+        // for ever: a file written all the time (a log, a database in use)
+        // would keep every other change from being sent.
+        let quiet_from = std::time::Instant::now();
+        while quiet_from.elapsed() < MOST_QUIET_WAIT {
+            match tokio::time::timeout(timing.quiet, events.changed()).await {
+                Ok(Some(())) => {}
+                _ => break,
+            }
+        }
         let (roots, _) = present_roots(owner).await;
-        if !are_settled(owner.files.clone(), roots, timing.settle).await {
+        let settled = are_settled(owner.files.clone(), roots, timing.settle).await;
+        if !settled
+            && changing_since
+                .get_or_insert_with(std::time::Instant::now)
+                .elapsed()
+                < MOST_UNSETTLED
+        {
             on_event(WatchEvent::StillChanging);
             retry = true;
             continue;
         }
+        // Settled, or still changing after that long: the pass runs (and
+        // leaves out the files that change while it reads them); the next
+        // one waits as long again.
+        changing_since = None;
         let options = PassOptions {
             rescan: false,
             partial: timing.partial,

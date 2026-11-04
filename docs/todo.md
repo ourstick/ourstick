@@ -4,6 +4,16 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## 0.2.1
+
+- [x] **From the link page to the app (ADR 0030):** "Open in OurStick" on
+      the link page, and a link copied seen when the window comes back.
+      Tried by hand on Linux and Windows (Firefox and Chrome).
+- [x] **Quit within reach:** `Quit OurStick…` on Home, and on Linux a tray
+      icon that comes when the panel does.
+- [ ] **The release:** the three installers with their SHA256 sums on the
+      site, with the link page, the new texts and the new demo video.
+
 ## 0.2.0
 
 - [x] **A simpler window (ADR 0028):** Send and Receive, nothing copied;

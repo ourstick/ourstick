@@ -10,17 +10,25 @@
 pub fn escape(text: &str) -> String {
     text.chars()
         .map(|character| {
-            // Line and paragraph separators break a line as `\n` does.
-            if character.is_control()
-                || turns_direction(character)
-                || matches!(character, '\u{2028}' | '\u{2029}')
-            {
+            if character.is_control() || turns_direction(character) || unseen(character) {
                 format!("\\u{{{:x}}}", character as u32)
             } else {
                 character.to_string()
             }
         })
         .collect()
+}
+
+/// A format character or a line or paragraph separator (the ones a stick's
+/// name may not hold, `manifest::is_format_or_separator`): invisible, or
+/// breaking a line, so two names would look alike. Kept, as words need
+/// them: the joiners of emoji and of Persian, and the direction marks.
+fn unseen(character: char) -> bool {
+    crate::manifest::is_format_or_separator(character)
+        && !matches!(
+            character,
+            '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{061c}'
+        )
 }
 
 /// Whether `character` changes the direction text is shown in.
@@ -43,6 +51,9 @@ mod tests {
         assert_eq!(escape("a\nb\rc\u{7}"), "a\\u{a}b\\u{d}c\\u{7}");
         assert_eq!(escape("\u{9b}31m"), "\\u{9b}31m");
         assert_eq!(escape("a\u{2028}b\u{2029}"), "a\\u{2028}b\\u{2029}");
+        // Invisible: a word joiner, a soft hyphen, tag characters.
+        assert_eq!(escape("a\u{2060}.pdf"), "a\\u{2060}.pdf");
+        assert_eq!(escape("x\u{ad}\u{e0041}"), "x\\u{ad}\\u{e0041}");
     }
 
     #[test]

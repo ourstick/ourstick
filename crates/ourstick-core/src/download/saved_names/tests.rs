@@ -119,6 +119,20 @@ fn ourstick_names_get_a_mark_in_front() {
         Some("_.ourstick-received.new")
     );
     assert_eq!(not_ours(".ourstick", &ours), None);
+    // As a disk that ignores case folds them, and Windows' short names.
+    for name in [
+        ".ourſtick-partial",
+        ".OURSTIC\u{212a}-x",
+        "OURSTI~1",
+        "oursti~12.new",
+    ] {
+        assert_eq!(not_ours(name, &ours), Some(format!("_{name}")), "{name}");
+    }
+    for name in ["OURSTI~", "oursti~x", "ourstick~1"] {
+        assert_eq!(not_ours(name, &ours), None, "{name}");
+    }
+    assert_eq!(fold_case("ΟΔΟΣ"), fold_case("οδος"));
+    assert_eq!(fold_case("Straſſe"), "strasse");
 }
 
 #[test]

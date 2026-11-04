@@ -112,7 +112,8 @@ recorded, so later versions write to the same place:
   followed by `:`, e.g. `c:evil`) becomes `c_evil`, so a stick behaves the
   same everywhere; a first name the reader uses itself (any name starting
   with `.ourstick-`, such as `.ourstick-partial` and `.ourstick-received`,
-  in any letter case) gets `_` in front, and an owner leaves such names out
+  in any letter case as a disk folds it, and a short name Windows may give
+  them, such as `OURSTI~1`) gets `_` in front, and an owner leaves such names out
   of its sticks; a name too
   long for the system is cut, keeping its extension; a name no rule can
   make savable (it should not happen) is saved as `_`;

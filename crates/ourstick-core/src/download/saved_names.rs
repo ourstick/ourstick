@@ -152,11 +152,41 @@ fn cut_to(text: &str, max: usize, windows: bool) -> String {
 /// The first name of a path, if OurStick uses it itself in a received
 /// folder, given a `_` in front (`.ourstick-partial` → `_.ourstick-partial`):
 /// `ours`, and any name starting with `.ourstick-` (its files written beside
-/// a mark, and any it may use later), in any letter case.
+/// a mark, and any it may use later), in any letter case as a disk folds it
+/// (`.ourſtick-` too), and the short names Windows may give them
+/// (`OURSTI~1`).
 pub(crate) fn not_ours(first: &str, ours: &[&str]) -> Option<String> {
-    let lower = first.to_ascii_lowercase();
-    (ours.iter().any(|name| lower == name.to_ascii_lowercase()) || lower.starts_with(".ourstick-"))
+    let folded = fold_case(first);
+    let short = folded.strip_prefix("oursti~").is_some_and(|rest| {
+        rest.split('.')
+            .next()
+            .is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+    });
+    (ours.iter().any(|name| folded == fold_case(name)) || folded.starts_with(".ourstick-") || short)
         .then(|| format!("_{first}"))
+}
+
+/// `text` in one letter case, as a disk that ignores case compares names:
+/// lower case, and the letters whose case folding is not their lower case
+/// (`ſ` is `s`, final `ς` is `σ`…) folded too.
+pub(crate) fn fold_case(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'ſ' => 's',
+            'ς' => 'σ',
+            'ϐ' => 'β',
+            'ϑ' => 'θ',
+            'ϕ' => 'φ',
+            'ϖ' => 'π',
+            'ϰ' => 'κ',
+            'ϱ' => 'ρ',
+            'ϵ' => 'ε',
+            'ẛ' => 'ṡ',
+            '\u{1fbe}' | '\u{345}' => 'ι',
+            other => other,
+        })
+        .collect()
 }
 
 #[cfg(test)]

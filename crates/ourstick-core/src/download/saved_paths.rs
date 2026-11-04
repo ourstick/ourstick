@@ -33,7 +33,7 @@ impl Rules {
     /// `path` as this folder's disk sees it.
     fn fold(&self, path: &str) -> String {
         let cased = if self.fold_case {
-            path.to_lowercase()
+            super::saved_names::fold_case(path)
         } else {
             path.to_owned()
         };

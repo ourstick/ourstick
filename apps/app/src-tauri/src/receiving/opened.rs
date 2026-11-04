@@ -15,7 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Opened {
-    /// A whole sharing link: looked at at once. Only a phone gets one.
+    /// A whole sharing link, looked at once the user says so, as one found
+    /// on the clipboard (any app can open one). Only a phone gets one.
     #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
     Link { link: String },
     /// Nothing: the link is on the clipboard, if anywhere, and is looked at
@@ -33,9 +34,18 @@ impl std::fmt::Debug for Opened {
     }
 }
 
-/// What opened Receive last and was not yet taken.
+/// Links opened closer than this to the last one are dropped.
+#[cfg(any(target_os = "android", test))]
+const GAP: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// What opened Receive last and was not yet taken, and when a link last
+/// arrived.
 #[derive(Default)]
-pub struct OpenedLink(Mutex<Option<Opened>>);
+pub struct OpenedLink(
+    Mutex<Option<Opened>>,
+    #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+    Mutex<Option<std::time::Instant>>,
+);
 
 impl OpenedLink {
     /// Keeps `text` if it is a whole sharing link. Anything else is dropped:
@@ -47,6 +57,24 @@ impl OpenedLink {
             tracing::warn!("an opened link is not a whole sharing link");
         }
         self.set(link.map(|link| Opened::Link { link }));
+    }
+
+    /// [`Self::arrived`] at `now`, unless a link came less than [`GAP`]
+    /// before: then dropped, and `false`.
+    #[cfg(any(target_os = "android", test))]
+    fn arrived_at(&self, text: &str, now: std::time::Instant) -> bool {
+        {
+            let mut last = self
+                .1
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if last.is_some_and(|last| now.saturating_duration_since(last) < GAP) {
+                return false;
+            }
+            *last = Some(now);
+        }
+        self.arrived(text);
+        true
     }
 
     /// Receive is to open with nothing in it.
@@ -77,10 +105,18 @@ impl OpenedLink {
     }
 }
 
-/// A link arrived: kept, and the window shows Receive ("link-opened").
+/// A link arrived: kept, and the window shows Receive ("link-opened"), where
+/// it waits for "Open it". Any app can open one: links closer together than
+/// a few seconds are dropped, so none can keep raising the window.
 #[cfg(target_os = "android")]
 pub(crate) fn arrived<R: Runtime>(app: &AppHandle<R>, text: &str) {
-    app.state::<OpenedLink>().arrived(text);
+    if !app
+        .state::<OpenedLink>()
+        .arrived_at(text, std::time::Instant::now())
+    {
+        tracing::debug!("an opened link dropped: one came a moment ago");
+        return;
+    }
     tell(app);
 }
 
@@ -136,6 +172,17 @@ mod tests {
         assert!(opened.waiting());
         assert_eq!(opened.take(), Some(Opened::Asked));
         assert_eq!(opened.take(), None);
+    }
+
+    #[test]
+    fn links_close_together_are_dropped() {
+        let opened = OpenedLink::default();
+        let link = crate::receiving::clipboard::tests::a_link();
+        let start = std::time::Instant::now();
+        assert!(opened.arrived_at(&link, start));
+        assert!(!opened.arrived_at(&link, start + GAP / 2));
+        assert!(opened.arrived_at(&link, start + GAP));
+        assert_eq!(opened.take(), Some(Opened::Link { link }));
     }
 
     #[test]

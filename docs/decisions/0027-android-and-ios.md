@@ -344,3 +344,21 @@ a change to build for Android.
   run time, and the package id `com.ourstick.OurStick`.
 - The link page stops saying phones are not supported only when the
   Android app is in production.
+
+## Amendment 1 (2026-11-04): an opened link waits for "Open it"
+
+The security review before the repository went public found that the link
+activity is exported, as it must be for links from chats and mail: so any
+app on the phone can open a link in OurStick, and could have it look at
+once, with no press. OurStick would then reach for the computer the link
+names (telling it that this phone has OurStick, and from where), show that
+stranger's files as if someone the user knows sent them, and come to the
+front again and again.
+
+A link opened from another app now waits on Receive with "Open it" and
+"Not this one", as a link found on a computer's clipboard does (ADR 0030
+§2): only that press makes OurStick look. Links closer together than three
+seconds are dropped, as `ourstick:receive` is on a computer. Decision 6's
+`assetlinks.json` is still to come with the Play signing key; until then
+an Android 6–11 phone may offer the link to another app that claims the
+same address, so the file goes up before the app is offered more widely.

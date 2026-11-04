@@ -138,12 +138,14 @@
   }
 
   onMount(() => {
-    // A link opened from another app (ADR 0027, decision 6) comes first.
+    // A link opened from another app (ADR 0027, decision 6, Amendment 1) comes first, and waits for "Open it".
     void takeOpenedLink()
       .catch(() => null)
       .then((opened) => {
-        if (opened?.kind === "link") void look(opened.link);
-        else if (phone) phase = "paste";
+        if (opened?.kind === "link") {
+          asked = opened.link;
+          phase = "ask";
+        } else if (phone) phase = "paste";
         else {
           askFirst = opened?.kind === "asked";
           void fromClipboard();
@@ -227,7 +229,7 @@
   {:else if phase === "paste"}
     <PasteLink bind:text onOpen={open} onPaste={phone ? pasteTapped : undefined} />
   {:else if phase === "ask"}
-    <p class="found">✓ We found a link you copied</p>
+    {#if found}<p class="found">✓ We found a link you copied</p>{/if}
     <h1>Someone sent you files</h1>
     <p class="muted">OurStick looks for the sender’s computer once you open it.</p>
     <div class="actions">

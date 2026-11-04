@@ -1,0 +1,73 @@
+# 0031. What one peer may hold
+
+Date: 2026-11-04. Status: accepted (found by the security review before the
+repository went public; Giorgos asked for every finding to be fixed).
+
+## Context
+
+An owner serves its sticks to whoever connects. A node id is in every link's
+public part, and a new node id costs nothing, so the number of peers, of
+their connections and of their streams is the peer's choice. A reader with
+the link may also ask for every blob it likes, as often as it likes.
+
+The review found what that allowed (a test, `tests/serving_limits.rs`,
+reproduces the first):
+
+- **Gets that are never read.** Each get keeps a file and its hash tree
+  open (ADR 0017) until it is sent. A reader that asks and never reads,
+  on 100 streams of each of a few connections, kept hundreds of files open.
+  macOS gives an app 256: the app could then open no file, no database,
+  no socket, for any stick. A file kept open also keeps its disk from
+  being ejected.
+- **Requests that never end.** The request of a get was read with
+  iroh-blobs' own limit of 1 MiB, with no time limit, on each of up to
+  100 streams per connection: about 100 MiB per connection, without even
+  knowing a link.
+- **Record and report protocols** waited for a stream and its request with
+  no time limit either.
+
+## Decision
+
+1. **Requests are small and come at once.** A request is read by the owner
+   itself, at most 64 KiB (a get is under 100 bytes; a resume adds a few
+   per gap), within 10 seconds of its stream. On the record and report
+   protocols the stream comes within 10 seconds of the connection.
+2. **QUIC holds little for a peer.** An owner's endpoint takes at most 33
+   streams at once per connection (32 gets, ADR 0016, and one more), no
+   unidirectional streams, 256 KiB unread per stream and 1 MiB per
+   connection. A reader's endpoint keeps iroh's defaults: it downloads.
+3. **Transfers are counted.** At most 32 at once per connection: its next
+   stream is taken only once one ends, so the peer waits. At most 64 at
+   once in the whole program, all sticks together, since the limit is the
+   program's open files: one more is answered "not ready" (`ERR_LIMIT`),
+   and the reader asks again later, as it does for a file not ready yet.
+   At most 128 connections at once per stick on the blobs protocol; one
+   more is closed.
+4. **A stalled transfer ends.** If the reader takes nothing for 2 minutes
+   (each write to the stream waits at most that long), the transfer ends
+   and its file is closed. A reader that was asleep (a laptop closed, a
+   phone in Doze) asks again and resumes from what it has.
+5. **A reader takes no more than it was told.** The size of a manifest
+   entry is the owner's word, and a blob's hash covers whatever the owner
+   sends. A reader fetches at most the blob length the entry's size allows
+   (header, size and one tag per chunk, for any cipher), and stops as soon
+   as more shows; the manifest blob keeps its own limit. Together with the
+   manifest's bounds on paths and sizes (protocol.md, "Validity rules"),
+   the space a reader asks the user for is the space it uses.
+
+## Consequences
+
+- An owner's open files from serving are bounded: two per transfer, 64
+  transfers. The test measures fewer than 170 more files open for 132
+  stalled gets, against 385 without the limits.
+- Someone with the link can still take the 64 places, from a few
+  connections, and keep them by reading very slowly: other readers are
+  then told "not ready" until they free. That stops the stick's transfers,
+  not the app; the remedy is the one the protocol has for any unwanted
+  reader, a new link.
+- Three readers each fetching 32 small files at once share 64 places: the
+  third waits a little. Small files are sent quickly, so this is rarely
+  seen.
+- The 64 places are one static for the program, like the made-blobs
+  runtime (ADR 0017, rule 8): both are limits of the process, not of a
+  stick.

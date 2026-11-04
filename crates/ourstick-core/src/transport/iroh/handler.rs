@@ -18,8 +18,10 @@ use iroh_blobs::provider::events::{
 use iroh_blobs::provider::{handle_get, StreamPair};
 
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::Semaphore;
 
 use super::activity::Activity;
+use super::limits;
 use super::local_network::watch_declined;
 use super::reader_paths::watch_paths;
 use super::serving::{Decision, Serving};
@@ -39,6 +41,8 @@ pub(super) struct BlobsHandler {
     /// declined (ADR 0020).
     pub(super) endpoint: Endpoint,
     pub(super) probe: Arc<SharedProbe>,
+    /// Places for connections at once (ADR 0031).
+    connections: Arc<Semaphore>,
 }
 
 /// Only gets are asked for events, to count the bytes sent; every other
@@ -94,12 +98,19 @@ impl BlobsHandler {
             endpoint,
             probe,
             demand,
+            connections: Arc::new(Semaphore::new(limits::CONNECTIONS_PER_STICK)),
         }
     }
 }
 
 impl ProtocolHandler for BlobsHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        // Node ids cost nothing: a stick takes so many connections at once.
+        let Ok(_place) = self.connections.clone().try_acquire_owned() else {
+            tracing::debug!("a connection refused: the stick has all it takes");
+            connection.close(0u32.into(), b"busy");
+            return Ok(());
+        };
         let id = connection.stable_id() as u64;
         let watch = tokio::spawn(watch_paths(
             connection.clone(),
@@ -122,8 +133,21 @@ impl ProtocolHandler for BlobsHandler {
             })
             .await
             .ok();
-        while let Ok((writer, reader)) = connection.accept_bi().await {
-            tokio::spawn(serve_stream(self.clone(), id, writer, reader));
+        // At most this many transfers of the connection at once: its next
+        // stream is taken only once one ends (ADR 0031).
+        let places = Arc::new(Semaphore::new(limits::TRANSFERS_PER_CONNECTION));
+        loop {
+            let Ok(place) = places.clone().acquire_owned().await else {
+                break;
+            };
+            let Ok((writer, reader)) = connection.accept_bi().await else {
+                break;
+            };
+            let handler = self.clone();
+            tokio::spawn(async move {
+                serve_stream(handler, id, writer, reader).await;
+                drop(place);
+            });
         }
         watch.abort();
         declined.abort();
@@ -147,15 +171,15 @@ async fn serve_stream(
     mut writer: SendStream,
     mut reader: iroh::endpoint::RecvStream,
 ) {
-    let request = match Request::read_async(&mut reader).await {
-        Ok((Request::Get(request), _)) => request,
-        Ok(_) => {
+    let request = match limits::read_request(&mut reader).await {
+        Some(Request::Get(request)) => request,
+        Some(_) => {
             tracing::debug!("refused a request that is not a get");
             refuse(&mut writer, ERR_PERMISSION);
             return;
         }
-        Err(error) => {
-            tracing::debug!(%error, "unreadable request");
+        None => {
+            tracing::debug!("a request that is unreadable, too long or too slow");
             refuse(&mut writer, ERR_PERMISSION);
             return;
         }
@@ -185,14 +209,28 @@ async fn serve_stream(
                     return;
                 }
             }
+            // The program serves all it may: asked again later, as if not
+            // ready (ADR 0031).
+            let Some(place) = limits::transfer_place() else {
+                drop(guard);
+                tracing::debug!("a transfer waits: the program serves all it may");
+                refuse(&mut writer, ERR_LIMIT);
+                return;
+            };
             handler.activity.started(connection);
-            let pair = StreamPair::new(connection, reader, writer, handler.events.clone());
+            let pair = StreamPair::new(
+                connection,
+                reader,
+                limits::Watched(writer),
+                handler.events.clone(),
+            );
             if let Err(error) = handle_get(pair, guard.store(), request).await {
                 tracing::debug!(%error, "a transfer ended early");
             }
             handler.activity.ended(connection);
             // The store may leave now.
             drop(guard);
+            drop(place);
         }
         Decision::NotReady => {
             handler.activity.told_not_ready(connection);

@@ -669,6 +669,25 @@ plaintext hash or outboard yet, or one that failed its check) is answered
 The owner reads each request itself and decides, under one lock, what it
 gets; the blob's bytes are then made from the file as above.
 
+What one peer may hold of an owner is bounded (ADR 0031), since anyone who
+knows the node id can connect:
+
+- a request is at most 64 KiB, and comes within 10 seconds of its stream
+  (on `ourstick/record/1` and `ourstick/report/1`, the stream within 10
+  seconds of the connection), or the stream is refused;
+- an owner's QUIC limits: 33 streams at once per connection, 256 KiB
+  unread per stream and 1 MiB per connection;
+- 32 transfers at once per connection (its next stream is taken only once
+  one ends), 64 at once in the whole program, all sticks together (one
+  more is answered "not ready", and the reader asks again), and 128
+  connections at once per stick on the blobs protocol (one more is closed);
+- a transfer that the reader takes nothing of for 2 minutes is ended; the
+  reader asks again and resumes.
+
+A reader fetches no more of a file's blob than its manifest entry's size
+allows (header, size and one tag per chunk): a longer blob is stopped as
+soon as that shows, and waited out like damaged data.
+
 ### Reader paths
 
 The owner watches the paths of every reader's blob connection. If one

@@ -6,6 +6,7 @@ mod batches;
 mod fetcher;
 mod get_error;
 mod handler;
+mod limits;
 mod local_network;
 mod made_store;
 mod publisher;
@@ -129,6 +130,15 @@ impl fmt::Debug for IrohConfig {
 }
 
 async fn bind(config: &IrohConfig, alpns: Vec<Vec<u8>>) -> Result<Endpoint, TransportError> {
+    bind_with(config, alpns, None).await
+}
+
+/// [`bind`], with `transport` for an owner's endpoint (ADR 0031).
+async fn bind_with(
+    config: &IrohConfig,
+    alpns: Vec<Vec<u8>>,
+    transport: Option<iroh::endpoint::QuicTransportConfig>,
+) -> Result<Endpoint, TransportError> {
     let mut builder = match config.network {
         // Relay connections go through an HTTP(S) proxy if the environment
         // names one (ADR 0006).
@@ -151,6 +161,9 @@ async fn bind(config: &IrohConfig, alpns: Vec<Vec<u8>>) -> Result<Endpoint, Tran
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         builder = builder.portmapper_config(iroh::endpoint::PortmapperConfig::Disabled);
+    }
+    if let Some(transport) = transport {
+        builder = builder.transport_config(transport);
     }
     builder
         .secret_key(SecretKey::from_bytes(&config.secret_key))

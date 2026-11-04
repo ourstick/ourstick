@@ -46,8 +46,18 @@ impl RecordServer {
 
 impl ProtocolHandler for RecordServer {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let (mut send, mut recv) = connection.accept_bi().await?;
-        let request = recv.read_to_end(32).await.map_err(AcceptError::from_err)?;
+        // A peer that asks nothing, or slowly, is not waited for (ADR 0031).
+        let asked = tokio::time::timeout(super::limits::REQUEST_WAIT, async {
+            let (send, mut recv) = connection.accept_bi().await?;
+            let request = recv.read_to_end(32).await.map_err(AcceptError::from_err)?;
+            Ok::<_, AcceptError>((send, request))
+        })
+        .await;
+        let Ok(asked) = asked else {
+            connection.close(0u32.into(), b"too slow");
+            return Ok(());
+        };
+        let (mut send, request) = asked?;
         send.write_all(&self.answer(&request))
             .await
             .map_err(AcceptError::from_err)?;

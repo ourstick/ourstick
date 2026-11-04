@@ -18,7 +18,7 @@ use super::reader_paths::RELAY_ONLY_AFTER;
 use super::record_protocol::{RecordServer, RECORD_ALPN};
 use super::report_protocol::{ReportServer, REPORT_ALPN, WAITING_REPORTS};
 use super::serving::{Serving, StoreId};
-use super::{absolute, address_hints, bind, network_report, node_id, IrohConfig};
+use super::{absolute, address_hints, bind_with, network_report, node_id, IrohConfig};
 use crate::manifest::Manifest;
 use crate::record::SignedManifestRecord;
 use crate::stick_id::StickId;
@@ -126,7 +126,8 @@ impl IrohPublisher {
         });
         let (demand_sender, demand) = tokio::sync::mpsc::unbounded_channel();
         let (report_sender, reports) = tokio::sync::mpsc::channel(WAITING_REPORTS);
-        let endpoint: Endpoint = bind(config, Vec::new()).await?;
+        let endpoint: Endpoint =
+            bind_with(config, Vec::new(), Some(super::limits::serving_transport())).await?;
         let handler = BlobsHandler::new(
             serving.clone(),
             activity.clone(),

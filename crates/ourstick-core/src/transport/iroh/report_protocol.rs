@@ -54,13 +54,24 @@ impl ReportServer {
 
 impl ProtocolHandler for ReportServer {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let (mut send, mut recv) = connection.accept_bi().await?;
+        // A peer that sends nothing, or slowly, is not waited for (ADR 0031).
+        let Ok(opened) =
+            tokio::time::timeout(super::limits::REQUEST_WAIT, connection.accept_bi()).await
+        else {
+            connection.close(0u32.into(), b"too slow");
+            return Ok(());
+        };
+        let (mut send, mut recv) = opened?;
         // Longer than a report can be: refused unread past the limit, and
         // said so (a stream merely dropped would end as if taken).
-        let request = match recv.read_to_end(MAX_REPORT_BYTES).await {
-            Ok(request) => request,
-            Err(_) => {
-                tracing::debug!("a request on the report protocol was too long");
+        let read = tokio::time::timeout(
+            super::limits::REQUEST_WAIT,
+            recv.read_to_end(MAX_REPORT_BYTES),
+        );
+        let request = match read.await {
+            Ok(Ok(request)) => request,
+            _ => {
+                tracing::debug!("a request on the report protocol was too long or too slow");
                 send.reset(TOO_LONG.into()).ok();
                 linger(&connection).await;
                 return Ok(());

@@ -87,7 +87,7 @@ pub fn chosen(path: &Path) -> Option<Chosen> {
         return None;
     }
     let hex = hex.to_str()?;
-    if hex.len() % 2 != 0 {
+    if hex.len() % 2 != 0 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
     let bytes = (0..hex.len())

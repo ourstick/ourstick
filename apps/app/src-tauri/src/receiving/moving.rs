@@ -21,6 +21,11 @@ pub async fn move_received(
     receivers: State<'_, Receivers>,
 ) -> Result<(), String> {
     let id = stick_id_of(&stick_id)?;
+    // The stick's folder goes inside `into`: as one received there would.
+    let inside = Path::new(&into).join("_");
+    if let Some(why) = super::into::refused(&inside, super::into::home().as_deref()) {
+        return Err(why.to_owned());
+    }
     if !receivers.is_held(&id).await {
         return Err("This is not received here any more.".to_owned());
     }

@@ -152,7 +152,9 @@ pub fn app_sticks(store: &dyn Store) -> Result<Vec<OwnedStick>> {
 /// A stick id as the UI passes it (64 hex digits).
 pub fn stick_id(hex: &str) -> Result<StickId, String> {
     let not_one = || "not a stick id".to_owned();
-    if hex.len() != 64 || !hex.is_ascii() {
+    // Hex digits only: a `+` would pass `from_str_radix`, giving one id a
+    // second spelling.
+    if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(not_one());
     }
     let mut bytes = [0u8; 32];
@@ -181,6 +183,8 @@ mod tests {
         assert_eq!(stick_id(&stick_hex(&id)), Ok(id));
         assert_eq!(stick_id(&stick_hex(&id).to_uppercase()), Ok(id));
         assert!(stick_id("zz").is_err());
+        let signed = format!("+{}", &stick_hex(&id)[1..]);
+        assert!(stick_id(&signed).is_err());
         assert!(stick_id(&"ab".repeat(31)).is_err());
     }
 }

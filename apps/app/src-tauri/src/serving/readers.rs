@@ -124,7 +124,7 @@ fn reason_word(reason: WaitReason) -> &'static str {
 
 fn reader_of(hex: &str) -> Result<ReaderId, String> {
     let gone = || "That line is not there any more.".to_owned();
-    if hex.len() != 64 || !hex.is_ascii() {
+    if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(gone());
     }
     let mut bytes = [0u8; 32];

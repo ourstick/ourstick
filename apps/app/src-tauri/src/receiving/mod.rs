@@ -15,8 +15,7 @@ use ourstick_core::secrets::SecretName;
 use ourstick_core::space::DownloadRoom;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::Fetcher;
-use ourstick_core::{clock::SystemClock, device::random_key};
-use ourstick_core::{StickId, Ticket};
+use ourstick_core::{clock::SystemClock, device::random_key, StickId, Ticket};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -27,6 +26,7 @@ pub mod clipboard;
 pub mod commands;
 mod device_words;
 mod holder;
+mod into;
 pub mod list;
 pub mod moving;
 pub mod opened;

@@ -67,6 +67,9 @@ pub async fn add_received(
         return Err("This stick is being added already.".to_owned());
     }
     let folder = PathBuf::from(folder);
+    if let Some(why) = super::into::refused(&folder, super::into::home().as_deref()) {
+        return Err(why.to_owned());
+    }
     let store = state.store.clone();
     let data_dir = state.data_dir.clone();
     let made = {

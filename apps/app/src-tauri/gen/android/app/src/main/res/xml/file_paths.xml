@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Only what the WebView's file chooser shares: a photo it takes, kept in
+     the app's own Pictures folder (wry's RustWebChromeClient). Nothing of
+     shared storage nor of the app's cache. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
+  <external-files-path name="captures" path="Pictures/" />
 </paths>

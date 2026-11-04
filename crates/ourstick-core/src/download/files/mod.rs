@@ -275,6 +275,7 @@ pub(super) fn decrypt_into_place(
             actual: written,
         });
     }
+    from_internet::mark(plaintext);
     set_mtime(&output, entry.mtime);
     output.sync_all().map_err(io_error(plaintext))?;
     drop(output);
@@ -325,6 +326,7 @@ pub(super) fn copy_into_place(
         .write(true)
         .open(plaintext)
         .map_err(io_error(plaintext))?;
+    from_internet::mark(plaintext);
     set_mtime(&output, entry.mtime);
     output.sync_all().map_err(io_error(plaintext))?;
     drop(output);
@@ -360,6 +362,8 @@ fn place(
     let written = std::fs::metadata(&target).map_err(io_error(&target))?;
     Ok(Some(FileStamp::of(&written)))
 }
+
+mod from_internet;
 
 #[cfg(test)]
 mod tests;

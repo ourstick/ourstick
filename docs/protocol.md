@@ -286,6 +286,9 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   power cut); otherwise it is counted as here but not recorded: it may be
   the user's own, whose content the owner guessed, and a later version must
   never replace it.
+- Every file written is marked as from the internet first, as a browser's
+  download is (ADR 0032): the Mark of the Web on Windows, the quarantine on
+  macOS. A disk that cannot hold the mark keeps the file without it.
 - Right before a file is moved into place, the file there is checked again:
   it must be absent, or still as planned. Otherwise it is left and reported.
 - Each file is written into the hidden partial folder, synced, then moved

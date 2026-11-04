@@ -73,12 +73,13 @@
 
   /** Links opened from another app: each starts Receive afresh. */
   let opened = $state(0);
-  /** Receive is past "Paste the link": one opened from outside (a desktop's)
-   * waits for the next Receive instead of ending it. */
+  /** Receive is past "Paste the link" (on a phone, at "Open it" too): one
+   * opened from outside waits for the next Receive instead of ending it,
+   * and no app can keep pulling the user out of a receive. */
   let receiveBusy = false;
 
   function linkArrived() {
-    if (!phone && shown.kind === "receive" && receiveBusy) return;
+    if (shown.kind === "receive" && receiveBusy) return;
     opened++;
     shown = { kind: "receive" };
   }

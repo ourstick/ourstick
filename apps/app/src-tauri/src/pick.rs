@@ -123,10 +123,13 @@ pub async fn pick_one(
 /// The read grants a phone kept for what it chose (ADR 0029); `None`
 /// elsewhere, or when the phone does not say. Blocking.
 pub fn kept_here(app: &AppHandle) -> Option<HashSet<String>> {
+    // Not known on a phone: none counts as kept (refused, never let pass).
     #[cfg(target_os = "android")]
-    return crate::phone::kept_grants(app)
-        .inspect_err(|error| tracing::warn!(%error, "the kept read grants are not known"))
-        .ok();
+    return Some(
+        crate::phone::kept_grants(app)
+            .inspect_err(|error| tracing::warn!(%error, "the kept read grants are not known"))
+            .unwrap_or_default(),
+    );
     #[cfg(not(target_os = "android"))]
     {
         let _ = app;

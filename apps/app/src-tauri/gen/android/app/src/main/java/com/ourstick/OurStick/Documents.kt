@@ -56,6 +56,11 @@ object Documents {
   /** A tree URI stands for its top folder's document. */
   private fun document(text: String): Uri {
     val uri = Uri.parse(text)
+    // A provider's document only, never a file:// path (which would read
+    // OurStick's own files).
+    if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
+      throw FileNotFoundException("not a document")
+    }
     if (DocumentsContract.isTreeUri(uri) && !isDocument(uri)) {
       return DocumentsContract.buildDocumentUriUsingTree(
         uri, DocumentsContract.getTreeDocumentId(uri)

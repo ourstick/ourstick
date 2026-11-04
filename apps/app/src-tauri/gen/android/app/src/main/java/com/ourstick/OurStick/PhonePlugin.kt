@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -193,6 +194,10 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
         data.data?.let { uris.add(it) }
       }
       val resolver = activity.contentResolver
+      // Only a document a provider gives: a picker answered by another app
+      // could name a file:// of OurStick's own, or its file provider.
+      val ours = activity.packageName + ".fileprovider"
+      uris.retainAll { it.scheme == ContentResolver.SCHEME_CONTENT && it.authority != ours }
       for (uri in uris) {
         try {
           resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)

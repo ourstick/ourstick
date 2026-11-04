@@ -44,7 +44,7 @@
   /** Opened from outside (ADR 0030 §2): a link found waits for "Open it". */
   let askFirst = false;
   let asked = "";
-  $effect(() => onBusy?.(phase !== "starting" && phase !== "paste" && phase !== "ask"));
+  $effect(() => onBusy?.(phase !== "starting" && phase !== "paste" && (phase !== "ask" || phone))); // a phone's "Open it" too
   let text = $state("");
   /** The link being looked at, or seen: Download adds exactly that one. */
   let looked = "";

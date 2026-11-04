@@ -130,6 +130,8 @@ pub enum CipherError {
     CipherMismatch { expected: CipherId, found: CipherId },
     #[error("blob is truncated")]
     Truncated,
+    #[error("the stick is not encrypted; OurStick takes only encrypted sticks")]
+    NotEncrypted,
     #[error("nonce prefix has length {found}, expected {expected}")]
     InvalidNoncePrefix { expected: usize, found: usize },
     #[error("plaintext changed while it was being encrypted")]

@@ -21,3 +21,7 @@ opens one store per batch, and reached 402 threads for 100 000 files.
 Used through `[patch.crates-io]` in the workspace `Cargo.toml`. A report
 for upstream is drafted in `docs/upstream/` (not sent yet); once a release
 has the fix, delete this folder and the patch entry.
+
+`OURSTICK.patch` is the whole difference from the published crate, and CI
+checks it (`tools/third_party/check.sh`; `--write` after a deliberate
+change).

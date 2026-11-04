@@ -19,3 +19,7 @@ window to the front; without it GNOME shows "OurStick is ready" instead (see
 
 Used through `[patch.crates-io]` in the workspace `Cargo.toml`. Once a ksni
 release has the method, delete this folder and the patch entry.
+
+`OURSTICK.patch` is the whole difference from the published crate, and CI
+checks it (`tools/third_party/check.sh`; `--write` after a deliberate
+change).

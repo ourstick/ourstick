@@ -61,3 +61,13 @@ jobs:
           export AR_aarch64_linux_android="$bin/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android30-clang"
           cargo clippy --workspace --all-targets --target aarch64-linux-android -- -D warnings
+
+  # The crates vendored in third_party/ are as published on crates.io,
+  # with only the changes their OURSTICK.patch shows.
+  third-party:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - run: tools/third_party/check.sh

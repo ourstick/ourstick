@@ -22,3 +22,12 @@ apps/website/dist
 .vscode/
 *.swp
 .DS_Store
+
+# signing keys and profiles: never in the repository
+*.jks
+*.keystore
+*.p12
+*.p8
+*.pem
+*.provisionprofile
+*.mobileprovision

@@ -15,10 +15,17 @@ $keys = 'C:\ProgramData\ssh\administrators_authorized_keys'
 Copy-Item -Path (Join-Path $PSScriptRoot 'authorized_key') -Destination $keys
 icacls $keys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
 $config = 'C:\ProgramData\ssh\sshd_config'
-Add-Content -Path $config -Encoding ascii -Value @(
-    'PasswordAuthentication no',
-    'KbdInteractiveAuthentication no'
-)
+# Before the first Match block: lines after it apply only to that block
+# (Windows' own file ends with "Match Group administrators").
+$lines = Get-Content -Path $config
+$match = ($lines | Select-String -Pattern '^\s*Match\s' | Select-Object -First 1).LineNumber
+$ours = @('PasswordAuthentication no', 'KbdInteractiveAuthentication no')
+if ($match) {
+    $lines = $lines[0..($match - 2)] + $ours + $lines[($match - 1)..($lines.Count - 1)]
+} else {
+    $lines = $lines + $ours
+}
+Set-Content -Path $config -Encoding ascii -Value $lines
 New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell `
     -Value 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -PropertyType String -Force
 # The VM runs unattended: never turn the display off or sleep (a locked

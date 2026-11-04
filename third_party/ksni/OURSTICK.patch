@@ -1,0 +1,141 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -62,57 +62,6 @@
+ name = "ksni"
+ path = "src/lib.rs"
+ 
+-[[example]]
+-name = "about_to_show"
+-path = "examples/about_to_show.rs"
+-doc-scrape-examples = true
+-required-features = ["tokio"]
+-
+-[[example]]
+-name = "async"
+-path = "examples/async.rs"
+-doc-scrape-examples = true
+-required-features = ["tokio"]
+-
+-[[example]]
+-name = "async_smol"
+-path = "examples/async_smol.rs"
+-doc-scrape-examples = false
+-required-features = ["async-io"]
+-
+-[[example]]
+-name = "blocking"
+-path = "examples/blocking.rs"
+-doc-scrape-examples = true
+-required-features = ["blocking"]
+-
+-[[example]]
+-name = "custom_icon"
+-path = "examples/custom_icon.rs"
+-doc-scrape-examples = true
+-required-features = ["tokio"]
+-
+-[[example]]
+-name = "realworld"
+-path = "examples/realworld.rs"
+-doc-scrape-examples = true
+-required-features = ["tokio"]
+-
+-[[test]]
+-name = "blocking"
+-path = "tests/blocking.rs"
+-required-features = ["blocking"]
+-
+-[[test]]
+-name = "smol"
+-path = "tests/smol.rs"
+-required-features = ["async-io"]
+-
+-[[test]]
+-name = "tokio"
+-path = "tests/tokio.rs"
+-required-features = ["tokio"]
+-
+ [dependencies.async-executor]
+ version = "1"
+ optional = true
+@@ -158,28 +107,3 @@
+ [dependencies.zbus]
+ version = "5"
+ default-features = false
+-
+-[dev-dependencies.ashpd]
+-version = "0.13"
+-features = ["async-io"]
+-default-features = false
+-
+-[dev-dependencies.chrono]
+-version = "0.4"
+-
+-[dev-dependencies.image]
+-version = "0.25"
+-
+-[dev-dependencies.macro_rules_attribute]
+-version = "0.2"
+-
+-[dev-dependencies.smol]
+-version = "2"
+-
+-[dev-dependencies.smol-macros]
+-version = "0.1"
+-
+-[dev-dependencies.zbus]
+-version = "5"
+-features = ["blocking-api"]
+-default-features = false
+--- a/src/dbus_interface.rs
++++ b/src/dbus_interface.rs
+@@ -101,6 +101,16 @@
+         Ok(())
+     }
+ 
++    async fn provide_xdg_activation_token(
++        &self,
++        #[zbus(connection)] conn: &Connection,
++        token: String,
++    ) -> zbus::fdo::Result<()> {
++        let mut service = self.0.lock().await; // do NOT use any self methods after this
++        service.call_provide_xdg_activation_token(conn, token).await;
++        Ok(())
++    }
++
+     async fn scroll(
+         &self,
+         #[zbus(connection)] conn: &Connection,
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -92,6 +92,16 @@
+     /// an hint to the item where to show eventual windows (if any).
+     fn secondary_activate(&mut self, _x: i32, _y: i32) {}
+ 
++    /// The host passes an [XDG activation token], usually right before an
++    /// activation or a menu event.
++    ///
++    /// On Wayland an application may only bring its own window to the front
++    /// with such a token; hand it to the toolkit (e.g. GTK's
++    /// `gtk_window_set_startup_id`) before presenting the window.
++    ///
++    /// [XDG activation token]: https://wayland.app/protocols/xdg-activation-v1
++    fn provide_xdg_activation_token(&mut self, _token: String) {}
++
+     /// The user asked for a scroll action. This is caused from input such as
+     /// mouse wheel over the graphical representation of the item.
+     ///
+--- a/src/service.rs
++++ b/src/service.rs
+@@ -545,6 +545,11 @@
+         let _ = self.update(conn).await;
+     }
+ 
++    pub async fn call_provide_xdg_activation_token(&mut self, conn: &Connection, token: String) {
++        self.tray.provide_xdg_activation_token(token);
++        let _ = self.update(conn).await;
++    }
++
+     pub async fn call_scroll(
+         &mut self,
+         conn: &Connection,

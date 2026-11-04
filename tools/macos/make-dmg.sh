@@ -67,6 +67,8 @@ cd "$root/apps/app"
 config=$(python3 -c 'import json, sys; print(json.dumps({"build": {"beforeBuildCommand": ""}, "bundle": {"macOS": {"entitlements": "OurStick.entitlements", "files": {"embedded.provisionprofile": sys.argv[1]}}}}))' "$provisioning")
 bundles=app,dmg
 [ "$notarize" = 0 ] && bundles=app
+# No dmg of an earlier build may be taken for this one's.
+rm -f "$root"/target/release/bundle/dmg/*.dmg
 APPLE_SIGNING_IDENTITY="$identity" cargo tauri build --bundles "$bundles" --config "$config"
 
 app="$root/target/release/bundle/macos/OurStick.app"
@@ -82,7 +84,8 @@ if [ "$notarize" = 0 ]; then
   exit 0
 fi
 
-dmg=$(ls -t "$root"/target/release/bundle/dmg/*.dmg | head -1)
+dmg=$(ls "$root"/target/release/bundle/dmg/*.dmg | head -1)
+[ -f "$dmg" ] || { echo "The build made no .dmg." >&2; exit 1; }
 echo "Sending $(basename "$dmg") to Apple for notarization (a few minutes)..."
 submitted=$(xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait 2>&1 | tee /dev/stderr)
 if ! grep -q "status: Accepted" <<<"$submitted"; then

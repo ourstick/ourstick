@@ -23,8 +23,9 @@ until [ -f "$R/share.out" ] && tr '\r' '\n' < "$R/share.out" | grep -aq "Read al
 done
 owner=$(pgrep -P $driver)
 link=$(grep -ao 'https://ourstick.com/s/[^[:space:]]*' "$R/share.out" | head -1)
-OURSTICK_DATA_DIR="$R/data" RUST_LOG=warn /usr/bin/time -v "$EXE" get "$link" --out "$R/out" \
-  < /dev/null > "$R/get.out" 2> "$R/get.err" &
+# The link on stdin ("-"), never on the command line, which ps shows.
+OURSTICK_DATA_DIR="$R/data" RUST_LOG=warn /usr/bin/time -v "$EXE" get - --out "$R/out" \
+  <<<"$link" > "$R/get.out" 2> "$R/get.err" &
 timer=$!
 unset link
 sleep 2

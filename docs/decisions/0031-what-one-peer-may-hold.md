@@ -41,11 +41,16 @@ reproduces the first):
    once in the whole program, all sticks together, since the limit is the
    program's open files: one more is answered "not ready" (`ERR_LIMIT`),
    and the reader asks again later, as it does for a file not ready yet.
-   At most 128 connections at once per stick on the blobs protocol; one
-   more is closed.
+   Only a file's transfer takes one of the 64: the manifest is served from
+   memory, and anyone with a link's public part may ask for it. At most 128
+   connections at once per stick on the blobs protocol; one more closes the
+   one idle the longest (with no transfer), so that connections asking
+   nothing, which a node id is enough to open, never keep a reader out.
 4. **A stalled transfer ends.** If the reader takes nothing for 2 minutes
-   (each write to the stream waits at most that long), the transfer ends
-   and its file is closed. A reader that was asleep (a laptop closed, a
+   (each write to the stream waits at most that long), or less than 64 KiB
+   in 2 minutes (a trickle that keeps each write going), the transfer ends
+   and its file is closed. The record protocol's answer is given within 10
+   seconds too, and an owner keeps no datagrams. A reader that was asleep (a laptop closed, a
    phone in Doze) asks again and resumes from what it has.
 5. **A reader takes no more than it was told.** The size of a manifest
    entry is the owner's word, and a blob's hash covers whatever the owner
@@ -57,8 +62,9 @@ reproduces the first):
 
 6. **Asks are a hint, so many a second.** Each get the owner does not
    refuse tells its keeper what was asked (ADR 0017), on a queue with no
-   bound. A connection's asks are told at most 64 a second, after a burst
-   of 256; the rest are answered as ever, only not told. A reader fetching
+   bound. A stick's "not ready" asks, the ones the keeper acts on, are
+   told at most 64 a second, after a burst of 256; the rest are answered
+   as ever, only not told. Served ones are bounded by the transfers. A reader fetching
    32 files at once, asking again after a "not ready" a quarter of a second
    later and then less often, stays well under it.
 
@@ -68,8 +74,8 @@ reproduces the first):
   transfers. The test measures fewer than 170 more files open for 132
   stalled gets, against 385 without the limits.
 - Someone with the link can still take the 64 places, from a few
-  connections, and keep them by reading very slowly: other readers are
-  then told "not ready" until they free. That stops the stick's transfers,
+  connections, and keep them by reading slowly (at least 64 KiB each 2
+  minutes): other readers are then told "not ready" until they free. That stops the stick's transfers,
   not the app; the remedy is the one the protocol has for any unwanted
   reader, a new link.
 - Three readers each fetching 32 small files at once share 64 places: the

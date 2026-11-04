@@ -58,9 +58,15 @@ impl ProtocolHandler for RecordServer {
             return Ok(());
         };
         let (mut send, request) = asked?;
-        send.write_all(&self.answer(&request))
-            .await
-            .map_err(AcceptError::from_err)?;
+        // Nor one that takes the answer slowly, or never (a window of 0).
+        let answer = self.answer(&request);
+        let answered =
+            tokio::time::timeout(super::limits::REQUEST_WAIT, send.write_all(&answer)).await;
+        let Ok(answered) = answered else {
+            connection.close(0u32.into(), b"too slow");
+            return Ok(());
+        };
+        answered.map_err(AcceptError::from_err)?;
         send.finish()?;
         super::report_protocol::linger(&connection).await;
         Ok(())

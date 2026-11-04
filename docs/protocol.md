@@ -708,14 +708,20 @@ knows the node id can connect:
 - an owner's QUIC limits: 33 streams at once per connection, 256 KiB
   unread per stream and 1 MiB per connection;
 - 32 transfers at once per connection (its next stream is taken only once
-  one ends), 64 at once in the whole program, all sticks together (one
-  more is answered "not ready", and the reader asks again), and 128
-  connections at once per stick on the blobs protocol (one more is closed);
+  one ends), 64 file transfers at once in the whole program, all sticks
+  together (one more is answered "not ready", and the reader asks again;
+  the manifest, in memory, takes no place), and 128
+  connections at once per stick on the blobs protocol (below);
 - a transfer that the reader takes nothing of for 2 minutes is ended; the
   reader asks again and resumes;
-- what a connection asks for is told to the owner's keeper (ADR 0017) at
-  most 64 times a second, after a burst of 256: the rest is answered as
-  ever, only not told.
+- what a connection asks for and is not ready is told to the owner's keeper
+  (ADR 0017) at most 64 times a second, after a burst of 256: the rest is
+  answered as ever, only not told;
+- a transfer the reader takes less than 64 KiB of in 2 minutes is ended
+  too (a trickle that keeps each write going holds its place for nothing);
+- a stick keeps 128 connections at once on the blobs protocol; one more
+  closes the one idle the longest (with no transfer), and is refused only
+  if every one has a transfer.
 
 A reader fetches no more of a file's blob than its manifest entry's size
 allows (header, size and one tag per chunk): a longer blob is stopped as

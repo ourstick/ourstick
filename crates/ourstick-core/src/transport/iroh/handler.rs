@@ -41,8 +41,10 @@ pub(super) struct BlobsHandler {
     /// declined (ADR 0020).
     pub(super) endpoint: Endpoint,
     pub(super) probe: Arc<SharedProbe>,
-    /// Places for connections at once (ADR 0031).
-    connections: Arc<Semaphore>,
+    /// The connections taken, at most so many (ADR 0031).
+    connections: Arc<limits::Connections<Connection>>,
+    /// The "not ready" asks the keeper hears of, so many a second.
+    asks: Arc<limits::Asks>,
 }
 
 /// Only gets are asked for events, to count the bytes sent; every other
@@ -98,20 +100,32 @@ impl BlobsHandler {
             endpoint,
             probe,
             demand,
-            connections: Arc::new(Semaphore::new(limits::CONNECTIONS_PER_STICK)),
+            connections: Arc::default(),
+            asks: Arc::new(limits::Asks::new(std::time::Instant::now())),
         }
     }
 }
 
 impl ProtocolHandler for BlobsHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        // Node ids cost nothing: a stick takes so many connections at once.
-        let Ok(_place) = self.connections.clone().try_acquire_owned() else {
-            tracing::debug!("a connection refused: the stick has all it takes");
-            connection.close(0u32.into(), b"busy");
-            return Ok(());
-        };
         let id = connection.stable_id() as u64;
+        // Node ids cost nothing: a stick keeps so many connections at once,
+        // and makes room by closing the one idle the longest.
+        match self
+            .connections
+            .admit(id, connection.clone(), std::time::Instant::now())
+        {
+            Ok(None) => {}
+            Ok(Some(idle)) => {
+                tracing::debug!("a connection idle the longest closed for a new one");
+                idle.close(0u32.into(), b"idle");
+            }
+            Err(()) => {
+                tracing::debug!("a connection refused: every one of the stick's is busy");
+                connection.close(0u32.into(), b"busy");
+                return Ok(());
+            }
+        }
         let watch = tokio::spawn(watch_paths(
             connection.clone(),
             self.activity.clone(),
@@ -136,7 +150,6 @@ impl ProtocolHandler for BlobsHandler {
         // At most this many transfers of the connection at once: its next
         // stream is taken only once one ends (ADR 0031).
         let places = Arc::new(Semaphore::new(limits::TRANSFERS_PER_CONNECTION));
-        let asks = Arc::new(limits::Asks::new(std::time::Instant::now()));
         loop {
             let Ok(place) = places.clone().acquire_owned().await else {
                 break;
@@ -145,9 +158,11 @@ impl ProtocolHandler for BlobsHandler {
                 break;
             };
             let handler = self.clone();
-            let asks = asks.clone();
             tokio::spawn(async move {
-                serve_stream(handler, id, &asks, writer, reader).await;
+                let now = std::time::Instant::now;
+                handler.connections.transfer(id, true, now());
+                serve_stream(handler.clone(), id, writer, reader).await;
+                handler.connections.transfer(id, false, now());
                 drop(place);
             });
         }
@@ -161,6 +176,7 @@ impl ProtocolHandler for BlobsHandler {
             .await
             .ok();
         self.activity.closed(id);
+        self.connections.closed(id);
         self.demand.send(Demand::Closed { connection: id }).ok();
         Ok(())
     }
@@ -170,7 +186,6 @@ impl ProtocolHandler for BlobsHandler {
 async fn serve_stream(
     handler: BlobsHandler,
     connection: u64,
-    asks: &limits::Asks,
     mut writer: SendStream,
     mut reader: iroh::endpoint::RecvStream,
 ) {
@@ -190,9 +205,16 @@ async fn serve_stream(
     let decision = handler
         .serving
         .decide(request.hash, request.ranges.is_blob());
-    // A hint for the owner's keeper, so many a second per connection: a
-    // reader asking again and again does not fill its queue (ADR 0031).
-    if !matches!(decision, Decision::Refuse) && asks.take(std::time::Instant::now()) {
+    // A hint for the owner's keeper. Its "not ready" ones, which make it
+    // hurry, come so many a second per stick: a reader asking again
+    // and again does not fill its queue (ADR 0031). A served one is
+    // bounded by the transfer places.
+    let told = match decision {
+        Decision::Serve(_) => true,
+        Decision::NotReady => handler.asks.take(std::time::Instant::now()),
+        Decision::Refuse => false,
+    };
+    if told {
         handler
             .demand
             .send(Demand::Asked {
@@ -214,25 +236,33 @@ async fn serve_stream(
                     return;
                 }
             }
-            // The program serves all it may: asked again later, as if not
-            // ready (ADR 0031).
-            let Some(place) = limits::transfer_place() else {
-                drop(guard);
-                tracing::debug!("a transfer waits: the program serves all it may");
-                refuse(&mut writer, ERR_LIMIT);
-                return;
-            };
             // A file's transfer makes a reader; the manifest alone does
             // not: anyone with a link's public part, the key not needed,
             // may fetch it (encrypted).
             let reads_a_file = guard.probe().is_some();
+            // The program serves so many files at once: asked again later,
+            // as if not ready (ADR 0031). Only a file's transfer takes a
+            // place, for the files it keeps open; the manifest is in memory,
+            // and taking a place for it would let a passer-by with the
+            // public part stop every stick's transfers.
+            let place = if reads_a_file {
+                let Some(place) = limits::transfer_place() else {
+                    drop(guard);
+                    tracing::debug!("a transfer waits: the program serves all it may");
+                    refuse(&mut writer, ERR_LIMIT);
+                    return;
+                };
+                Some(place)
+            } else {
+                None
+            };
             if reads_a_file {
                 handler.activity.started(connection);
             }
             let pair = StreamPair::new(
                 connection,
                 reader,
-                limits::Watched(writer),
+                limits::Watched::new(writer),
                 handler.events.clone(),
             );
             if let Err(error) = handle_get(pair, guard.store(), request).await {

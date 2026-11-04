@@ -35,10 +35,84 @@ pub(super) const TRANSFERS_PER_CONNECTION: usize = 32;
 /// more is refused as "not ready", and the reader asks again later.
 pub(super) const TRANSFERS_AT_ONCE: usize = 64;
 
-/// Connections one stick's owner takes at once on its blobs protocol. Each
+/// Connections one stick's owner keeps at once on its blobs protocol. Each
 /// costs QUIC state and two watching tasks; a stick's readers are at most
-/// 200 (ADR 0015), and few are connected at once.
+/// 200 (ADR 0015), and few are connected at once. One more makes room by
+/// closing the connection idle the longest (with no transfer), so that
+/// connections that ask nothing, which anyone knowing the node id can
+/// open, never keep a reader out.
 pub(super) const CONNECTIONS_PER_STICK: usize = 128;
+
+/// The connections of one stick's blobs protocol, with what each does.
+#[derive(Debug)]
+pub(super) struct Connections<C>(std::sync::Mutex<std::collections::HashMap<u64, Held<C>>>);
+
+#[derive(Debug)]
+struct Held<C> {
+    connection: C,
+    transfers: usize,
+    last_used: std::time::Instant,
+}
+
+impl<C> Default for Connections<C> {
+    fn default() -> Self {
+        Self(std::sync::Mutex::new(std::collections::HashMap::new()))
+    }
+}
+
+impl<C: Clone> Connections<C> {
+    fn held(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<u64, Held<C>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Takes the connection `id`. `Ok` with the connection to close to make
+    /// room, if one had to go; `Err` if every one has a transfer.
+    pub(super) fn admit(
+        &self,
+        id: u64,
+        connection: C,
+        now: std::time::Instant,
+    ) -> Result<Option<C>, ()> {
+        let mut held = self.held();
+        let mut evicted = None;
+        if held.len() >= CONNECTIONS_PER_STICK {
+            let idle = held
+                .iter()
+                .filter(|(_, held)| held.transfers == 0)
+                .min_by_key(|(_, held)| held.last_used)
+                .map(|(id, _)| *id)
+                .ok_or(())?;
+            evicted = held.remove(&idle).map(|held| held.connection);
+        }
+        held.insert(
+            id,
+            Held {
+                connection,
+                transfers: 0,
+                last_used: now,
+            },
+        );
+        Ok(evicted)
+    }
+
+    /// A transfer of `id` starts (`true`) or ends.
+    pub(super) fn transfer(&self, id: u64, starts: bool, now: std::time::Instant) {
+        if let Some(held) = self.held().get_mut(&id) {
+            held.transfers = if starts {
+                held.transfers + 1
+            } else {
+                held.transfers.saturating_sub(1)
+            };
+            held.last_used = now;
+        }
+    }
+
+    pub(super) fn closed(&self, id: u64) {
+        self.held().remove(&id);
+    }
+}
 
 // Two readers fetching all they may at once both fit.
 const _: () = assert!(TRANSFERS_AT_ONCE >= 2 * TRANSFERS_PER_CONNECTION);
@@ -53,12 +127,12 @@ const STREAM_WINDOW: u32 = 256 * 1024;
 /// What a peer may send on all streams of one connection of an owner.
 const CONNECTION_WINDOW: u32 = 1024 * 1024;
 
-/// What a connection's asks may tell the owner's keeper (ADR 0031): a steady
+/// What a stick's "not ready" asks may tell the owner's keeper (ADR 0031): a steady
 /// rate, and a burst of [`ASKS_BURST`].
 const ASKS_PER_SECOND: f64 = 64.0;
 const ASKS_BURST: f64 = 256.0;
 
-/// The asks of one connection that the owner's keeper hears of.
+/// The asks of one stick that the owner's keeper hears of.
 #[derive(Debug)]
 pub(super) struct Asks(std::sync::Mutex<(f64, std::time::Instant)>);
 
@@ -93,6 +167,8 @@ pub(super) fn serving_transport() -> QuicTransportConfig {
         .max_concurrent_uni_streams(VarInt::from_u32(0))
         .stream_receive_window(VarInt::from_u32(STREAM_WINDOW))
         .receive_window(VarInt::from_u32(CONNECTION_WINDOW))
+        // Nothing is ever read from datagrams: none is kept.
+        .datagram_receive_buffer_size(None)
         .build()
 }
 
@@ -127,10 +203,60 @@ fn parse_request(bytes: &[u8]) -> Option<Request> {
     }
 }
 
+/// The least a reader takes in each [`STALL`] of a transfer: one taking
+/// less (a trickle that keeps each write going) holds the transfer's place
+/// for nothing, and the transfer ends.
+pub(super) const LEAST_PER_STALL: u64 = 64 * 1024;
+
 /// A transfer's stream that ends the transfer once the reader has taken
-/// nothing for [`STALL`].
+/// nothing for [`STALL`], or less than [`LEAST_PER_STALL`] in one.
 #[derive(Debug)]
-pub(super) struct Watched(pub(super) SendStream);
+pub(super) struct Watched {
+    stream: SendStream,
+    pace: Pace,
+}
+
+impl Watched {
+    pub(super) fn new(stream: SendStream) -> Self {
+        Self {
+            stream,
+            pace: Pace::new(std::time::Instant::now()),
+        }
+    }
+}
+
+/// How much a reader took since when.
+#[derive(Debug)]
+struct Pace {
+    since: std::time::Instant,
+    taken: u64,
+}
+
+impl Pace {
+    fn new(now: std::time::Instant) -> Self {
+        Self {
+            since: now,
+            taken: 0,
+        }
+    }
+
+    /// `bytes` more were taken at `now`: an error once a whole [`STALL`]
+    /// passed with less than [`LEAST_PER_STALL`] taken.
+    fn took(&mut self, bytes: u64, now: std::time::Instant) -> io::Result<()> {
+        self.taken = self.taken.saturating_add(bytes);
+        if now.saturating_duration_since(self.since) < STALL {
+            return Ok(());
+        }
+        if self.taken < LEAST_PER_STALL {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the reader takes too little",
+            ));
+        }
+        *self = Self::new(now);
+        Ok(())
+    }
+}
 
 async fn within<T>(sending: impl Future<Output = io::Result<T>>) -> io::Result<T> {
     within_for(STALL, sending).await
@@ -147,95 +273,37 @@ async fn within_for<T>(
 
 impl iroh_blobs::util::SendStream for Watched {
     async fn send_bytes(&mut self, bytes: Bytes) -> io::Result<()> {
-        within(iroh_blobs::util::SendStream::send_bytes(&mut self.0, bytes)).await
+        let len = bytes.len() as u64;
+        within(iroh_blobs::util::SendStream::send_bytes(
+            &mut self.stream,
+            bytes,
+        ))
+        .await?;
+        self.pace.took(len, std::time::Instant::now())
     }
 
     async fn send(&mut self, buf: &[u8]) -> io::Result<()> {
-        within(iroh_blobs::util::SendStream::send(&mut self.0, buf)).await
+        within(iroh_blobs::util::SendStream::send(&mut self.stream, buf)).await?;
+        self.pace.took(buf.len() as u64, std::time::Instant::now())
     }
 
     async fn sync(&mut self) -> io::Result<()> {
-        within(iroh_blobs::util::SendStream::sync(&mut self.0)).await
+        within(iroh_blobs::util::SendStream::sync(&mut self.stream)).await
     }
 
     fn reset(&mut self, code: VarInt) -> io::Result<()> {
-        iroh_blobs::util::SendStream::reset(&mut self.0, code)
+        iroh_blobs::util::SendStream::reset(&mut self.stream, code)
     }
 
     async fn stopped(&mut self) -> io::Result<Option<VarInt>> {
-        iroh_blobs::util::SendStream::stopped(&mut self.0).await
+        iroh_blobs::util::SendStream::stopped(&mut self.stream).await
     }
 
     fn id(&self) -> u64 {
-        iroh_blobs::util::SendStream::id(&self.0)
+        iroh_blobs::util::SendStream::id(&self.stream)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use iroh_blobs::protocol::{GetRequest, PushRequest};
-    use iroh_blobs::Hash;
-
-    fn written(request: &Request) -> Vec<u8> {
-        postcard::to_allocvec(request).unwrap()
-    }
-
-    #[test]
-    fn a_get_is_read_as_iroh_blobs_writes_it() {
-        let get = Request::Get(GetRequest::blob(Hash::new(b"a")));
-        let bytes = written(&get);
-        assert!(bytes.len() < 100, "{} bytes", bytes.len());
-        assert_eq!(parse_request(&bytes), Some(get));
-        // The kind byte is iroh-blobs' own (`RequestType`): a get is 0.
-        assert_eq!(bytes[0], 0);
-    }
-
-    #[test]
-    fn other_kinds_are_read_as_such_and_garbage_is_not() {
-        let push = Request::Push(PushRequest::new(
-            Hash::new(b"a"),
-            iroh_blobs::protocol::ChunkRangesSeq::root(),
-        ));
-        assert!(matches!(
-            parse_request(&written(&push)),
-            Some(Request::Push(_))
-        ));
-        let mut trailing = written(&Request::Get(GetRequest::blob(Hash::new(b"a"))));
-        trailing.push(0);
-        assert_eq!(parse_request(&trailing), None);
-        assert_eq!(parse_request(&[]), None);
-        assert_eq!(parse_request(&[200, 1, 2]), None);
-    }
-
-    #[test]
-    fn a_connections_asks_are_told_at_a_steady_rate() {
-        let start = std::time::Instant::now();
-        let asks = Asks::new(start);
-        let told = (0..1000).filter(|_| asks.take(start)).count();
-        assert_eq!(told, ASKS_BURST as usize);
-        // A second later, a second's worth more.
-        let later = start + Duration::from_secs(1);
-        let more = (0..1000).filter(|_| asks.take(later)).count();
-        assert_eq!(more, ASKS_PER_SECOND as usize);
-    }
-
-    #[tokio::test]
-    async fn a_send_the_reader_never_takes_ends() {
-        let never = std::future::pending::<io::Result<()>>();
-        let ended = within_for(Duration::from_millis(20), never).await;
-        assert_eq!(ended.unwrap_err().kind(), io::ErrorKind::TimedOut);
-        let sent = within_for(Duration::from_millis(20), async { Ok(7) }).await;
-        assert_eq!(sent.unwrap(), 7);
-    }
-
-    #[test]
-    fn the_program_wide_places_run_out_and_come_back() {
-        let semaphore = Arc::new(Semaphore::new(2));
-        let first = semaphore.clone().try_acquire_owned().unwrap();
-        let _second = semaphore.clone().try_acquire_owned().unwrap();
-        assert!(semaphore.clone().try_acquire_owned().is_err());
-        drop(first);
-        assert!(semaphore.try_acquire_owned().is_ok());
-    }
-}
+#[path = "limits_tests.rs"]
+mod tests;

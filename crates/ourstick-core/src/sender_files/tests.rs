@@ -78,3 +78,24 @@ fn in_order_reads_and_seeks_as_a_file_does() {
     assert!(in_order.seek(SeekFrom::Current(-200_000)).is_err());
     assert_eq!(in_order.seek(SeekFrom::Start(3)).unwrap(), 3);
 }
+
+#[cfg(unix)]
+#[test]
+fn only_a_regular_file_is_opened_never_a_link_or_a_pipe() {
+    let dir = folder();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.txt"), b"not in the stick").unwrap();
+    // A link put where a file of the stick was.
+    let link = dir.path().join("swapped.txt");
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), &link).unwrap();
+    let error = LocalFiles.open(&link).err().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    // A named pipe with no writer: opening it would block for good.
+    let pipe = dir.path().join("pipe");
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+    if made.is_ok_and(|status| status.success()) {
+        let error = LocalFiles.open(&pipe).err().unwrap();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+    assert!(LocalFiles.open(&dir.path().join("a.txt")).is_ok());
+}

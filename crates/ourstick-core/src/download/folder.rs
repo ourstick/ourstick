@@ -276,6 +276,19 @@ pub(super) fn plan_folder_by(
                 files.push(FilePlan::LeftOut);
                 continue;
             }
+            // Its own place only: a path too long for this system with the
+            // folder in front, or a folder of it the user closed. One such
+            // file must not stop the others every round.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::InvalidFilename | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                tracing::warn!(%error, "a file left out: its place cannot be used");
+                files.push(FilePlan::LeftOut);
+                continue;
+            }
             Err(error) => return Err(io_error(&target)(error)),
         };
         if !metadata.is_file() {
@@ -366,3 +379,6 @@ mod chosen_tests;
 
 #[cfg(test)]
 mod gauge_tests;
+
+#[cfg(all(test, unix))]
+mod odd_places_tests;

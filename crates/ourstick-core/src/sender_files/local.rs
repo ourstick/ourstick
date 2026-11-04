@@ -60,8 +60,33 @@ impl SenderFiles for LocalFiles {
     }
 
     fn open(&self, path: &Path) -> io::Result<Box<dyn ReadAt>> {
-        Ok(Box::new(File::open(path)?))
+        Ok(Box::new(open_regular(path)?))
     }
+}
+
+/// Opens `path` only if it is a regular file, not followed if it is a link:
+/// a link put in a file's place after the walk would bring a file from
+/// outside the stick, and a named pipe would block the read for good. On
+/// Unix the opened file must be the one looked at (the same device and
+/// inode), so a swap in between is refused too.
+pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
+    let looked = std::fs::symlink_metadata(path)?;
+    if !looked.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let file = File::open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let opened = file.metadata()?;
+        if (opened.dev(), opened.ino()) != (looked.dev(), looked.ino()) {
+            return Err(io::Error::other("the file changed while it was opened"));
+        }
+    }
+    Ok(file)
 }
 
 impl ReadAt for File {

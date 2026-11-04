@@ -53,7 +53,9 @@ What it is built to hold against:
 What it does not hold against, by design or for now:
 
 - **Someone who has your link.** A link is the key: whoever has it can take
-  the files, and can keep the sender's transfers busy. The remedy is a new
+  the files, can keep the sender's transfers busy, and can fill the
+  sender's list of who has the stick (200 lines) with made-up readers, so
+  that new ones show only once those fall silent. The remedy is a new
   link, which ends every old one.
 - **Programs running as you on your own computer.** On Linux and Windows
   they can read OurStick's keys from the system's key store, as they can
@@ -61,6 +63,9 @@ What it does not hold against, by design or for now:
   session D-Bus names (they could, say, turn "Start at login" on or off).
   macOS keeps the keys to OurStick itself. A program that can change files
   in a folder you share or receive into can also race OurStick's checks.
+  On a Mac shared with another account, that account can keep OurStick
+  from starting (the app finds its running copy through a fixed place in
+  `/tmp`).
 - **What you open.** A received file is what its sender made. The mark of
   the web makes Windows and macOS ask before a program runs, but a
   shortcut or an Internet Shortcut file (`.lnk`, `.url`) can reach out to

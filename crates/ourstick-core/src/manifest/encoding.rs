@@ -7,7 +7,9 @@
 
 use serde::Deserialize;
 
-use super::{Entry, Manifest, ManifestError, MAX_NAME_CHARS};
+use super::{
+    Entry, Manifest, ManifestError, MAX_NAME_CHARS, MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES,
+};
 
 /// Version of the manifest wire format written by [`Manifest::to_bytes`].
 pub const MANIFEST_FORMAT_VERSION: u8 = 2;
@@ -52,13 +54,20 @@ impl Manifest {
         Ok(manifest)
     }
 
-    /// Checks the name, that every path is safe, and that entries are strictly
-    /// sorted by path.
+    /// Checks the name, that every path is safe, that the sizes add up to at
+    /// most [`MAX_TOTAL_BYTES`], and that entries are strictly sorted by path.
     fn validate(&self) -> Result<(), ManifestError> {
         validate_name(&self.name)?;
         for entry in &self.entries {
             validate_path(&entry.path)?;
         }
+        // Every sum of sizes a reader makes is of some of these: none can
+        // overflow, and nor can a blob's length (`blob::blob_len`).
+        self.entries
+            .iter()
+            .try_fold(0u64, |total, entry| total.checked_add(entry.size))
+            .filter(|total| *total <= MAX_TOTAL_BYTES)
+            .ok_or(ManifestError::TooManyBytes)?;
         for pair in self.entries.windows(2) {
             if pair[0].path >= pair[1].path {
                 return Err(ManifestError::NotSorted(pair[1].path.clone()));
@@ -113,17 +122,29 @@ pub fn name_for_manifest(name: &str) -> String {
 }
 
 /// Checks that `path` is a relative, `/`-separated path that stays inside the
-/// stick root on every platform.
+/// stick root on every platform, at most [`MAX_PATH_BYTES`] long and
+/// [`MAX_PATH_DEPTH`] names deep.
 pub(super) fn validate_path(path: &str) -> Result<(), ManifestError> {
     let is_valid = !path.is_empty()
+        && path.len() <= MAX_PATH_BYTES
         && !path.contains(['\\', '\0'])
+        && path.split('/').count() <= MAX_PATH_DEPTH
         && path
             .split('/')
             .all(|component| !matches!(component, "" | "." | ".."));
     if is_valid {
         Ok(())
     } else {
-        Err(ManifestError::InvalidPath(path.to_owned()))
+        Err(ManifestError::InvalidPath(shortened(path)))
+    }
+}
+
+/// A path for an error message: its start, if it is long.
+fn shortened(path: &str) -> String {
+    const SHOWN: usize = 200;
+    match path.char_indices().nth(SHOWN) {
+        Some((at, _)) => format!("{}…", &path[..at]),
+        None => path.to_owned(),
     }
 }
 

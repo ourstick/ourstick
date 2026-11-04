@@ -1,4 +1,5 @@
 use super::*;
+use crate::manifest::{MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES};
 
 #[test]
 fn a_stick_name_is_made_fit_for_the_manifest() {
@@ -285,4 +286,57 @@ fn names_follow_the_wire_rule() {
             "a reader refuses {bad:?}"
         );
     }
+}
+
+#[test]
+fn a_path_too_long_or_too_deep_is_refused_and_not_repeated_whole() {
+    let deepest = vec!["a"; MAX_PATH_DEPTH].join("/");
+    let longest = format!("{}/b", "x".repeat(MAX_PATH_BYTES - 2));
+    for path in [&deepest, &longest] {
+        let bytes = encode_unchecked(&manifest(&[path]));
+        assert!(Manifest::from_bytes(&bytes).is_ok(), "{} bytes", path.len());
+    }
+    let too_deep = vec!["a"; MAX_PATH_DEPTH + 1].join("/");
+    let too_long = format!("{}/b", "x".repeat(MAX_PATH_BYTES - 1));
+    // The attack: a path of a million bytes.
+    let hostile = vec!["a"; 500_000].join("/");
+    for path in [&too_deep, &too_long, &hostile] {
+        let bytes = encode_unchecked(&manifest(&[path]));
+        match Manifest::from_bytes(&bytes) {
+            Err(error @ ManifestError::InvalidPath(_)) => {
+                assert!(error.to_string().len() < 300, "the whole path in the error")
+            }
+            other => panic!("accepted {} bytes: {other:?}", path.len()),
+        }
+    }
+}
+
+#[test]
+fn sizes_adding_up_past_any_disk_are_refused() {
+    let sized = |sizes: &[u64]| Manifest {
+        entries: sizes
+            .iter()
+            .enumerate()
+            .map(|(index, &size)| Entry {
+                size,
+                ..entry(&format!("f{index}"))
+            })
+            .collect(),
+        ..Manifest::default()
+    };
+    // Each would pass alone; together they wrap a u64 to 1 KB.
+    let wrapping = sized(&[1 << 63, 1 << 63, 1024]);
+    for manifest in [wrapping, sized(&[u64::MAX]), sized(&[MAX_TOTAL_BYTES, 1])] {
+        assert!(matches!(
+            Manifest::from_bytes(&encode_unchecked(&manifest)),
+            Err(ManifestError::TooManyBytes)
+        ));
+    }
+    let fine = sized(&[MAX_TOTAL_BYTES - 1, 1]);
+    assert_eq!(
+        Manifest::from_bytes(&encode_unchecked(&fine))
+            .unwrap()
+            .total_size(),
+        MAX_TOTAL_BYTES
+    );
 }

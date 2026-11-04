@@ -72,7 +72,7 @@ Each `Entry`, fields in this order:
 |---------|-------------------|-----------------------------------------------------------|
 | `path`  | string            | Path relative to the stick root, `/`-separated            |
 | `size`  | u64 (varint)      | Size of the file (plaintext) in bytes                     |
-| `mtime` | u64 (varint)      | Modification time, whole seconds since the UNIX epoch (clamped to 0) |
+| `mtime` | u64 (varint)      | Modification time, whole seconds since the UNIX epoch (clamped to 0). A reader sets it on the file it saves when its system can hold it, and otherwise leaves the time of writing |
 | `hash`  | `[u8; 32]` (raw)  | BLAKE3 hash of the file's blob (ciphertext, header included) |
 
 ### Validity rules
@@ -88,6 +88,11 @@ A reader rejects the whole manifest if any rule fails. A writer never produces o
 - Every `path` is non-empty, contains no `\` and no NUL, and splitting it on `/`
   gives no component that is empty, `.` or `..`. This rules out absolute paths
   and escaping the output folder.
+- Every `path` is at most 4 096 bytes long and at most 128 components deep: a
+  reader works on each folder of every path, so a peer must not choose how
+  much (Linux's limit for a whole path is 4 096 bytes, macOS's 1 024).
+- The `size`s add up to at most 2^60 bytes (an exbibyte), so no sum of
+  sizes a reader makes, and no blob's length, can overflow.
 
 The rules are platform-neutral: a manifest that follows them is valid on the
 wire. A reader never refuses a manifest for a name its own system cannot

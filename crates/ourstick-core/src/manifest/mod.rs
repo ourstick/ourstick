@@ -48,6 +48,18 @@ pub struct Manifest {
 /// The longest a stick's name may be, in Unicode scalar values.
 pub const MAX_NAME_CHARS: usize = 60;
 
+/// The longest path a manifest entry may have, in bytes: Linux's own limit
+/// for a whole path (macOS's is 1 024). A reader works on every folder of a
+/// path, so a peer must not choose its length.
+pub const MAX_PATH_BYTES: usize = 4096;
+
+/// The most names a manifest entry's path may have (its folders and the
+/// file).
+pub const MAX_PATH_DEPTH: usize = 128;
+
+/// The most bytes a stick's files may add up to: 2^60, an exbibyte.
+pub const MAX_TOTAL_BYTES: u64 = 1 << 60;
+
 /// The largest manifest blob (encrypted, as sent) an owner makes and a reader
 /// takes: about a million files with long paths. A reader holds it in memory
 /// whole, so a peer must not choose its size.
@@ -117,6 +129,8 @@ pub enum ManifestError {
         MAX_MANIFEST_BLOB_BYTES / (1024 * 1024)
     )]
     TooBig { bytes: u64 },
+    #[error("the stick's files add up to more than any disk holds")]
+    TooManyBytes,
 }
 
 impl ManifestError {
@@ -133,8 +147,12 @@ impl Manifest {
         Self::default()
     }
 
+    /// The sizes added up; a valid manifest's never overflows (see
+    /// [`MAX_TOTAL_BYTES`]).
     pub fn total_size(&self) -> u64 {
-        self.entries.iter().map(|e| e.size).sum()
+        self.entries
+            .iter()
+            .fold(0u64, |total, entry| total.saturating_add(entry.size))
     }
 }
 

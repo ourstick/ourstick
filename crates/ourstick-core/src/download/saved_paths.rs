@@ -130,10 +130,10 @@ pub(crate) fn saved_paths<'a>(
         let pairs = folder_pairs(row.path, row.saved_as);
         let agrees = pairs
             .iter()
-            .all(|(stick, here)| taken.chosen_for(stick).is_none_or(|chosen| chosen == here));
+            .all(|&(stick, here)| taken.chosen_for(stick).is_none_or(|chosen| chosen == here));
         let in_the_way = pairs
             .iter()
-            .any(|(_, here)| on_disk(here, None) == OnDisk::File);
+            .any(|&(_, here)| on_disk(here, None) == OnDisk::File);
         if !agrees || in_the_way || !taken.file_free(row.saved_as, row.path, rules) {
             tracing::warn!("a recorded place is no longer free here; chosen again");
             moved.push(row.path);

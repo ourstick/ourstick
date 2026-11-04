@@ -74,14 +74,14 @@ impl Taken {
                 .is_none_or(|place| !self.folders.contains_key(&place))
             && folder_pairs(path, saved_as)
                 .iter()
-                .all(|(stick, here)| self.folder_free(&rules.fold(here), stick))
+                .all(|&(stick, here)| self.folder_free(&rules.fold(here), stick))
     }
 
     /// The file `path` of the stick is saved at `saved_as`: its place and
     /// its folders' are taken.
     pub(super) fn take(&mut self, saved_as: &str, path: &str, rules: Rules) {
         for (stick, here) in folder_pairs(path, saved_as) {
-            self.hold_folder(&rules.fold(&here), &stick);
+            self.hold_folder(&rules.fold(here), stick);
         }
         self.files.insert(rules.fold(saved_as).into_boxed_str());
     }
@@ -131,10 +131,13 @@ impl Taken {
 
 /// Each folder of `path` with the folder of `saved_as` it is saved as,
 /// outermost first (the two have as many names).
-pub(super) fn folder_pairs(path: &str, saved_as: &str) -> Vec<(String, String)> {
-    let stick: Vec<&str> = path.split('/').collect();
-    let here: Vec<&str> = saved_as.split('/').collect();
-    (1..stick.len().min(here.len()))
-        .map(|depth| (stick[..depth].join("/"), here[..depth].join("/")))
+/// Slices of the two, made of nothing new: a path's length and depth are
+/// bounded ([`crate::manifest::MAX_PATH_BYTES`]), but not copying each
+/// prefix keeps this linear in the path.
+pub(super) fn folder_pairs<'a>(path: &'a str, saved_as: &'a str) -> Vec<(&'a str, &'a str)> {
+    let ends = |text: &'a str| text.match_indices('/').map(|(at, _)| at);
+    ends(path)
+        .zip(ends(saved_as))
+        .map(|(stick, here)| (&path[..stick], &saved_as[..here]))
         .collect()
 }

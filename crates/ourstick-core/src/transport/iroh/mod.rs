@@ -6,6 +6,8 @@ mod batches;
 mod fetcher;
 mod get_error;
 mod handler;
+mod hints;
+use hints::{may_dial, relay_hint};
 mod limits;
 mod local_network;
 mod made_store;
@@ -197,14 +199,20 @@ fn owner_addr(ticket: &Ticket) -> Result<EndpointAddr, TransportError> {
     for hint in &ticket.address_hints {
         match hint {
             AddressHint::Ipv4 { ip, port } => {
-                addr = addr.with_ip_addr(SocketAddr::from((*ip, *port)));
+                let socket = SocketAddr::from((*ip, *port));
+                if may_dial(&socket) {
+                    addr = addr.with_ip_addr(socket);
+                }
             }
             AddressHint::Ipv6 { ip, port } => {
-                addr = addr.with_ip_addr(SocketAddr::from((*ip, *port)));
+                let socket = SocketAddr::from((*ip, *port));
+                if may_dial(&socket) {
+                    addr = addr.with_ip_addr(socket);
+                }
             }
-            AddressHint::Relay { url } => match url.parse::<RelayUrl>() {
-                Ok(url) => addr = addr.with_relay_url(url),
-                Err(_) => tracing::debug!("skipping relay hint that does not parse"),
+            AddressHint::Relay { url } => match relay_hint(url) {
+                Some(url) => addr = addr.with_relay_url(url),
+                None => tracing::debug!("skipping a relay hint that is not a relay's"),
             },
         }
     }

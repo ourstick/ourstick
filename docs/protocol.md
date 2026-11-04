@@ -522,6 +522,13 @@ Validity rules (a reader rejects the ticket otherwise, a writer never breaks the
   (`0x21..=0x7E`).
 - The whole public part is at most 1024 bytes.
 
+A reader dials only the hints an owner could have written: never an
+address that is no one's (unspecified, multicast, broadcast, port 0) nor
+a cloud's own (`169.254.x.x`, where its metadata service answers), and a
+relay only by `https`, a host name with a dot (not an address, not
+`localhost`) and no user. Other hints are skipped, not refused: a link is
+written by whoever sends it.
+
 ### Secret part
 
 | Offset | Length | Field       | Value                                                         |

@@ -31,33 +31,6 @@ fn shown(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-/// The link and its QR code as SVG, or nothing while there is no link yet.
-#[derive(serde::Serialize)]
-pub struct ShareView {
-    link: String,
-    qr_svg: String,
-}
-
-/// Never the link, nor the QR code that carries it: a debug print must not
-/// put a stick's key in a log.
-impl std::fmt::Debug for ShareView {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("ShareView").finish_non_exhaustive()
-    }
-}
-
-#[tauri::command]
-pub async fn share_view(
-    stick_id: String,
-    state: State<'_, AppState>,
-) -> Result<Option<ShareView>, String> {
-    let Some(link) = link(&state, &stick_id).await? else {
-        return Ok(None);
-    };
-    let qr_svg = qr::svg(&link).map_err(shown)?;
-    Ok(Some(ShareView { link, qr_svg }))
-}
-
 #[tauri::command]
 pub async fn copy_link(
     stick_id: String,

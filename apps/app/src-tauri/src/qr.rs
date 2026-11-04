@@ -1,4 +1,4 @@
-//! The link as a QR code: SVG for the window, pixels for the clipboard. Low
+//! The link as a QR code, as pixels for the clipboard (never in a window). Low
 //! error correction keeps it small (a screen is not scratched), with the
 //! 4-module quiet zone the standard asks for.
 
@@ -18,23 +18,6 @@ fn modules(text: &str) -> Result<Vec<Vec<bool>>> {
         grid[QUIET_ZONE + index / width][QUIET_ZONE + index % width] = *color == Color::Dark;
     }
     Ok(grid)
-}
-
-/// An SVG of the code, black on white, one unit per module.
-pub fn svg(text: &str) -> Result<String> {
-    let grid = modules(text)?;
-    let size = grid.len();
-    let mut path = String::new();
-    for (row, cells) in grid.iter().enumerate() {
-        for (column, dark) in cells.iter().enumerate() {
-            if *dark {
-                path.push_str(&format!("M{column} {row}h1v1h-1z"));
-            }
-        }
-    }
-    Ok(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" shape-rendering="crispEdges"><rect width="{size}" height="{size}" fill="#fff"/><path d="{path}" fill="#000"/></svg>"##
-    ))
 }
 
 /// The code as RGBA pixels, `scale` pixels per module: (pixels, width, height).
@@ -57,15 +40,6 @@ mod tests {
     use super::*;
 
     const LINK: &str = "https://ourstick.com/s/#EXAMPLEPUBLICPART.examplesecretpart";
-
-    #[test]
-    fn the_svg_has_one_square_per_dark_module() {
-        let grid = modules(LINK).unwrap();
-        let dark = grid.iter().flatten().filter(|dark| **dark).count();
-        let svg = svg(LINK).unwrap();
-        assert_eq!(svg.matches("h1v1h-1z").count(), dark);
-        assert!(svg.contains(&format!("viewBox=\"0 0 {0} {0}\"", grid.len())));
-    }
 
     #[test]
     fn the_pixels_match_the_modules_at_any_scale() {

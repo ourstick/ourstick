@@ -124,8 +124,9 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if receiving::scheme::asked(&args) {
-                arrival::arrived(app);
-                tray::show_main(app);
+                if arrival::arrived(app) {
+                    tray::show_main(app);
+                }
             } else if !login::autostarted(&args) {
                 tray::show_main(app);
             }
@@ -247,7 +248,7 @@ pub fn run() {
             if asked {
                 // The window, once it listens, finds Receive waiting.
                 #[cfg(desktop)]
-                arrival::arrived(app.handle());
+                let _ = arrival::arrived(app.handle());
             }
             let autostarted = login::autostarted(
                 &std::env::args_os()
@@ -319,7 +320,6 @@ pub fn run() {
             stick_commands::remove_entry,
             stick_commands::look_again,
             found::find_entry,
-            share::share_view,
             share::copy_link,
             share::share_link,
             share::sends_in_background,

@@ -123,18 +123,6 @@ export function removeEntry(stickId: string, name: string): Promise<void> {
   return invoke("remove_entry", { stickId, name });
 }
 
-export interface ShareView {
-  link: string;
-  /** The link as a QR code, an SVG made by the app. */
-  qr_svg: string;
-}
-
-
-/** The link and its QR code; null while the stick is not published yet. */
-export function shareView(stickId: string): Promise<ShareView | null> {
-  return invoke("share_view", { stickId });
-}
-
 export function copyLink(stickId: string): Promise<void> {
   return invoke("copy_link", { stickId });
 }

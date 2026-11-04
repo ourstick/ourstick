@@ -31,14 +31,15 @@ pub fn before_start() {
 
 /// A start or a second start asked for `ourstick:receive` (or macOS opened
 /// it): Receive opens, unless a dialog is open, a receive is under way (the
-/// window decides) or the app quits; the window comes to the front anyway.
-/// Arrivals closer together than a few seconds are dropped.
-pub fn arrived<R: Runtime>(app: &AppHandle<R>) {
+/// window decides) or the app quits. Arrivals closer together than a few
+/// seconds are dropped, window and all: `false`, and the caller does not
+/// bring the window forward, so no page can keep raising it.
+pub fn arrived<R: Runtime>(app: &AppHandle<R>) -> bool {
     if !app.state::<Arrivals>().take(Instant::now()) {
-        return;
+        return false;
     }
     if crate::dialog::quitting() {
-        return;
+        return true;
     }
     let dialog_open = app
         .webview_windows()
@@ -47,6 +48,7 @@ pub fn arrived<R: Runtime>(app: &AppHandle<R>) {
     if !dialog_open {
         crate::receiving::opened::asked(app);
     }
+    true
 }
 
 /// Set while the main window has lost focus since it last had it.
@@ -72,8 +74,9 @@ pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
         .iter()
         .any(|url| scheme::is_receive(std::ffi::OsStr::new(url.as_str())))
     {
-        arrived(app);
-        crate::tray::show_main(app);
+        if arrived(app) {
+            crate::tray::show_main(app);
+        }
     }
 }
 

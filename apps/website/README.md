@@ -33,17 +33,20 @@ scripts.
 
 ## Media
 
-`site/media/ourstick-demo-9.mp4`: the demo (93 s; a new version gets a new
-number, as browsers keep a video for hours), recorded from the app on two
-computers (a test stick of generated pictures; the link is never shown, as
-a link holds the sender's addresses and the key). It names no operating
-system: the sender's screens and the receiver's have their own background
-and label. Its music is J. S. Bach's
+`site/media/ourstick-demo-10.mp4`: the demo (1:42, with a voice-over; a
+new version gets a new number, as browsers keep a video for hours), made
+with Remotion from screen recordings of the app on two computers (a test
+stick of generated pictures) and one generated picture of a hand giving a
+USB stick. The voice is Kokoro TTS (voice af_heart). It says OurStick is
+for Mac, Windows and Linux, and shows "A Windows PC has all of it". The
+link it shows has the real form (`https://ourstick.com/s/#<public>.<secret>`)
+but random characters: not a ticket, and no ticket is ever shown, as a link
+holds the sender's addresses and the key. Its music is J. S. Bach's
 Aria from the Goldberg Variations, played by Kimiko Ishizaka, dedicated to
 the public domain (CC0) by the Open Goldberg Variations project:
 https://commons.wikimedia.org/wiki/File:Kimiko_Ishizaka_-_J.S._Bach-_-Open-_Goldberg_Variations,_BWV_988_(Piano)_-_01_Aria.mp3
-(https://opengoldbergvariations.org). `ourstick-demo-poster-5.jpg` is its
-first card.
+(https://opengoldbergvariations.org). `ourstick-demo-poster-6.jpg` is a
+frame of its first shot.
 
 The font, `site/fonts/UbuntuSans.woff2`, is Ubuntu Sans 1.006 by Canonical
 (github.com/canonical/Ubuntu-Sans-fonts, release v1.006, the file

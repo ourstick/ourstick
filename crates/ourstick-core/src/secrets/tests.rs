@@ -355,6 +355,12 @@ fn key_file_is_private_and_refused_when_not() {
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
 
+    // A link to a key file, even a private one, is not read.
+    let link = dir.path().join("link.oskf");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    let refused = KeyFileStore::open(&link, "x");
+    assert!(matches!(refused, Err(SecretError::NotAKeyFile { .. })));
+
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(matches!(
         KeyFileStore::open(&path, "x"),

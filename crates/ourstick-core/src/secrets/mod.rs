@@ -130,6 +130,8 @@ pub enum SecretError {
     InsecurePermissions { path: String, mode: u32 },
     #[error("{path} is not an OurStick key file")]
     NotAKeyFile { path: String },
+    #[error("{path} belongs to another user than its folder; OurStick will not read keys from it")]
+    NotYours { path: String },
     #[error(
         "{path} was written by a newer version of OurStick (format {version}); update OurStick"
     )]

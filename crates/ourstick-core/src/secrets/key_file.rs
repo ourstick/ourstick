@@ -248,13 +248,28 @@ fn decrypt(key: &[u8; 32], bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, Se
     postcard::from_bytes(&plaintext).map_err(|_| SecretError::WrongPassphraseOrDamaged)
 }
 
+/// A key file is a regular file, not a link to one (nor a pipe, which would
+/// block the read), and only its owner may read it. On Unix its owner is
+/// also its folder's: a file put there by another user is not read.
 #[cfg(unix)]
 fn check_permissions(path: &Path) -> Result<(), SecretError> {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = fs::metadata(path)
-        .map_err(io_error(path))?
-        .permissions()
-        .mode();
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata = fs::symlink_metadata(path).map_err(io_error(path))?;
+    if !metadata.is_file() {
+        return Err(SecretError::NotAKeyFile {
+            path: path.display().to_string(),
+        });
+    }
+    let folder = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let folder = fs::metadata(folder.unwrap_or(Path::new("."))).map_err(io_error(path))?;
+    if metadata.uid() != folder.uid() {
+        return Err(SecretError::NotYours {
+            path: path.display().to_string(),
+        });
+    }
+    let mode = metadata.permissions().mode();
     if mode & 0o077 != 0 {
         return Err(SecretError::InsecurePermissions {
             path: path.display().to_string(),
@@ -264,8 +279,17 @@ fn check_permissions(path: &Path) -> Result<(), SecretError> {
     Ok(())
 }
 
+/// A key file is a regular file, not a link to one. Who may read it is the
+/// folder's matter on Windows: the file is encrypted, so one read by another
+/// only lets that one guess the passphrase.
 #[cfg(not(unix))]
-fn check_permissions(_path: &Path) -> Result<(), SecretError> {
+fn check_permissions(path: &Path) -> Result<(), SecretError> {
+    let metadata = fs::symlink_metadata(path).map_err(io_error(path))?;
+    if !metadata.is_file() {
+        return Err(SecretError::NotAKeyFile {
+            path: path.display().to_string(),
+        });
+    }
     Ok(())
 }
 

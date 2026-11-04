@@ -106,8 +106,8 @@ recorded, so later versions write to the same place:
 
 - on Windows, `< > : " | ? *` and control characters become `_`, a trailing
   dot or space is dropped, a name Windows keeps for itself (`CON`, `PRN`,
-  `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension)
-  gets `_` after its stem;
+  `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9`, with or
+  without an extension) gets `_` after its stem;
 - on every system, a name that looks like a Windows drive (an ASCII letter
   followed by `:`, e.g. `c:evil`) becomes `c_evil`, so a stick behaves the
   same everywhere; a first name the reader uses itself (any name starting

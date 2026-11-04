@@ -69,6 +69,10 @@ fn windows_rules_refuse_invalid_and_reserved_names() {
         "com9.log",
         "LPT1",
         "lpt9",
+        "COM0",
+        "lpt0.txt",
+        "CONIN$",
+        "conout$",
     ];
     for name in refused_on_windows {
         assert!(
@@ -78,7 +82,6 @@ fn windows_rules_refuse_invalid_and_reserved_names() {
     }
     // Fine on Windows too.
     for name in [
-        "COM0",
         "COM10",
         "CONSOLE",
         "nullable",

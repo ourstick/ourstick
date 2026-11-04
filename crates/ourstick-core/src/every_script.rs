@@ -115,18 +115,22 @@ fn names_and_paths_in_every_script_never_panic() {
 
 #[test]
 fn reserved_devices_are_whole_names_only() {
-    for reserved in ["CON", "con.txt", "COM1", "lpt9.log", "COM¹", "LPT³", "NUL "] {
+    for reserved in [
+        "CON",
+        "con.txt",
+        "COM1",
+        "lpt9.log",
+        "COM¹",
+        "LPT³",
+        "NUL ",
+        "COM0",
+        "lpt0.txt",
+        "CONIN$",
+        "conout$.log",
+    ] {
         assert!(is_reserved_device(reserved), "{reserved}");
     }
-    for fine in [
-        "COM0",
-        "COM10",
-        "Φω",
-        "αβ.txt",
-        "CONSOLE",
-        "ＣＯＭ１",
-        "COMa",
-    ] {
+    for fine in ["COM10", "Φω", "αβ.txt", "CONSOLE", "ＣＯＭ１", "COMa"] {
         assert!(!is_reserved_device(fine), "{fine}");
     }
 }

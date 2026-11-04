@@ -64,12 +64,14 @@ pub(crate) fn component_problem(component: &str, windows: bool) -> Option<&'stat
 }
 
 /// Whether Windows takes `name` for a device: `CON`, `PRN`, `AUX`, `NUL`,
-/// `COM1`–`COM9`, `LPT1`–`LPT9` (also with ¹ ² ³), with or without an
-/// extension, ignoring case. Compares whole characters, never byte offsets,
+/// `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9` (also with ¹ ² ³),
+/// with or without an extension, ignoring case. `COM0` and `LPT0` are on
+/// Microsoft's list though Windows lets most such names be: renamed all the
+/// same, which costs a `_`. Compares whole characters, never byte offsets,
 /// so a name in any script is safe here.
 pub(crate) fn is_reserved_device(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name).trim_end();
-    if ["CON", "PRN", "AUX", "NUL"]
+    if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
         .iter()
         .any(|device| stem.eq_ignore_ascii_case(device))
     {
@@ -81,7 +83,7 @@ pub(crate) fn is_reserved_device(name: &str) -> bool {
     let numbered = prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT");
     numbered
         && chars.next().is_none()
-        && digit.is_some_and(|digit| matches!(digit, '1'..='9' | '¹' | '²' | '³'))
+        && digit.is_some_and(|digit| matches!(digit, '0'..='9' | '¹' | '²' | '³'))
 }
 
 /// Errors carry the path escaped: it comes from the owner.

@@ -349,6 +349,23 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   the system time. Elsewhere only size and mtime count, and a tool that
   restores mtime after writing (some sync and archive tools do) is enough.
   `ourstick share --rescan` ignores the record and reads every file.
+- **What a reader's asks tell its owner.** A reader fetches only what is
+  missing from its folder, and leaves alone a file there that is not the
+  stick's. So the owner, who sees which blobs are asked for, can learn
+  whether a file is at a path it names in the reader's folder, and, if it
+  guesses the content, whether it is that content. A reader receiving into
+  a new folder (the app's default) shows only the stick's own earlier
+  files; one receiving into a folder of its own (`get --out` an existing
+  folder) shows that folder's paths the stick names.
+- **What the public part of a link tells.** Anyone who saw a link's
+  public part (StickId and node id, without the key) can fetch the signed
+  record and the encrypted manifest, as often as the limits allow (ADR
+  0031): when the stick changes and about how big its list of files is,
+  never a name. Keeping the encrypted manifests of every version, and
+  being given the link later, would show that history's names and sizes.
+  The node id's relay record is public on n0's DNS (`dns.iroh.link`, relay
+  only, no IP address) while the stick is shared: whether its computer is
+  online, and through which relay region.
 
 ## Blob format (version 1)
 
@@ -747,6 +764,12 @@ from the StickId (below), so SQLite needs no column for it. See
 | Android                   | A Keystore-held AES key (hardware-backed where available) wraps the secrets, stored in app-private storage | Later (Tauri) |
 | iOS                       | Keychain, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not synced to iCloud) | Later (Tauri) |
 
+Who else can read them: on Linux (Secret Service) and Windows (Credential
+Manager) every program the same user runs can read every stick's keys, as
+it can the user's files; only macOS's data protection keychain (the app's
+access group) and Android's Keystore keep them to OurStick itself. A key
+file is as safe as its passphrase.
+
 Secret Service items use service `ourstick` and the secret's name as user:
 `node-key` (the device's, only on a device set up before ADR 0009),
 `stick/<hex StickId>/signing-key`, `stick/<hex StickId>/stick-key`,
@@ -796,10 +819,12 @@ the parameters above; defaults are RFC 9106's second recommendation (64 MiB,
 3 passes, 4 lanes). The AAD is bytes `0..57`. The map goes from secret names
 (as above) to secret bytes.
 
-The file has mode 0600 and is refused if group or others can access it. It
-is rewritten atomically (private temporary file, fsync, rename, fsync of the
-directory) and never overwritten by "create". Only one process may use a key
-file at a time; there is no locking yet.
+The file has mode 0600 and is refused if group or others can access it, if
+it is a link or anything but a regular file, or (on Unix) if another user
+than its folder's owns it. It is rewritten atomically (private temporary
+file, fsync, rename, fsync of the directory) and never overwritten by
+"create". Only one process uses a key file at a time: it holds
+`key-file.lock` beside the data folder's other locks while it does.
 
 Rules on every platform:
 

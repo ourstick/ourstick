@@ -250,7 +250,9 @@ the window comes back while "Paste the link you got" waits with its field
 empty: the user went to copy the link, and OurStick finds it by itself, as
 the screen says ("Come back here: OurStick finds it by itself. Or paste it
 below."). Never on another screen, never in the background; only an
-OurStick link is taken, as above.
+OurStick link is taken, as above. (Since 2026-11-04 a link found this way
+waits for "Open it", as one found when Receive is opened from outside
+does, ADR 0030 §2: any web page may have put it on the clipboard.)
 
 "Senders see you as" leaves the home: it is in About ("Others see this
 computer as a Linux PC · Change…") and in a received thing's `⋯`.

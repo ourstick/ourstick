@@ -25,11 +25,13 @@ scripts.
 
 ## Checking a deploy
 
-- `https://ourstick.com/s/#abc.xyz` shows "Someone sent you a stick", and
+- `https://ourstick.com/s/#abc.xyz` shows "Someone sent you files", and
   `https://ourstick.com/s/#abc` shows "This link is not whole".
 - The browser's console shows no CSP errors, and the response headers have
   the `Content-Security-Policy` of `_headers`.
 - `THIRD-PARTY-LICENSES.html` has its styles.
+- The link page (`/s/`) loads no `/cdn-cgi/` script: Cloudflare's script
+  features stay off (above).
 
 ## Media
 

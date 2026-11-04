@@ -115,11 +115,11 @@
   // comes back while "Paste the link you got" waits with its field empty
   // (ADR 0028 §4, amended): the user went to copy it. Only an OurStick link
   // is taken; a read that fails or is refused is the same as nothing there.
-  async function fromClipboard() {
+  async function fromClipboard(back = false) {
     const copied = await linkOnClipboard().catch(() => null);
     if (copied) {
       found = true;
-      if (askFirst) {
+      if (askFirst || back /* any page may have put it there */) {
         asked = copied;
         phase = "ask";
       } else await look(copied);
@@ -153,7 +153,7 @@
       });
     const back = () => {
       if (phone) return;
-      if (phase === "paste" && !text.trim() && document.visibilityState === "visible") void fromClipboard();
+      if (phase === "paste" && !text.trim() && document.visibilityState === "visible") void fromClipboard(true);
     };
     window.addEventListener("focus", back);
     return () => window.removeEventListener("focus", back);

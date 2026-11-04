@@ -11,8 +11,9 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       Tried by hand on Linux and Windows (Firefox and Chrome).
 - [x] **Quit within reach:** `Quit OurStick…` on Home, and on Linux a tray
       icon that comes when the panel does.
-- [ ] **The release:** the three installers with their SHA256 sums on the
-      site, with the link page, the new texts and the new demo video.
+- [x] **The release:** the three installers with their SHA256 sums on the
+      site, with the link page, the new texts and the new demo video
+      (2026-11-04); GitHub Release v0.2.1.
 
 ## 0.2.0
 

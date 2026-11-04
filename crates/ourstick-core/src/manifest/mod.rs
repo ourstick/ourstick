@@ -57,6 +57,13 @@ pub const MAX_PATH_BYTES: usize = 4096;
 /// file).
 pub const MAX_PATH_DEPTH: usize = 128;
 
+/// The most bytes a manifest's folders may add up to, each folder counted
+/// once by its whole path. A reader keeps every folder of a stick by its
+/// path, several times over, while it plans a round: paths each within
+/// [`MAX_PATH_BYTES`] and [`MAX_PATH_DEPTH`] could still give gigabytes of
+/// folders (each of 64 000 long paths its own 127 folders).
+pub const MAX_FOLDER_BYTES: usize = 32 * 1024 * 1024;
+
 /// The most files a stick may have. A reader holds every entry in memory,
 /// and more for each file it plans each round: a manifest blob of 256 MB
 /// with short paths would hold millions, so the number is bounded too.
@@ -142,6 +149,12 @@ pub enum ManifestError {
         MAX_ENTRIES
     )]
     TooManyFiles { count: usize },
+    #[error(
+        "the stick's folders are too many and too deep for OurStick (over {} MB of their paths); \
+         it must be split into smaller sticks",
+        MAX_FOLDER_BYTES / (1024 * 1024)
+    )]
+    TooManyFolders,
 }
 
 impl ManifestError {

@@ -91,6 +91,10 @@ A reader rejects the whole manifest if any rule fails. A writer never produces o
 - Every `path` is at most 4 096 bytes long and at most 128 components deep: a
   reader works on each folder of every path, so a peer must not choose how
   much (Linux's limit for a whole path is 4 096 bytes, macOS's 1 024).
+- The folders of all paths add up to at most 32 MiB, each folder counted
+  once by its whole path (in sorted order, a folder is new where it is not
+  the previous entry's): paths within the limits above could otherwise
+  name gigabytes of folders, which a reader keeps while it plans.
 - At most 2 000 000 entries: a reader holds every entry, and more for each
   file it plans, in memory (a manifest blob of 256 MB with short paths
   would hold millions). An owner with more files says the stick must be

@@ -1,5 +1,4 @@
 use super::*;
-use crate::manifest::{MAX_ENTRIES, MAX_PATH_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES};
 
 #[test]
 fn a_stick_name_is_made_fit_for_the_manifest() {
@@ -21,7 +20,7 @@ fn a_stick_name_is_made_fit_for_the_manifest() {
 use crate::manifest::Entry;
 use rand::{Rng, SeedableRng};
 
-fn entry(path: &str) -> Entry {
+pub(super) fn entry(path: &str) -> Entry {
     Entry {
         path: path.to_owned(),
         size: 5,
@@ -30,7 +29,7 @@ fn entry(path: &str) -> Entry {
     }
 }
 
-fn manifest(paths: &[&str]) -> Manifest {
+pub(super) fn manifest(paths: &[&str]) -> Manifest {
     Manifest {
         entries: paths.iter().map(|p| entry(p)).collect(),
         ..Manifest::default()
@@ -38,7 +37,7 @@ fn manifest(paths: &[&str]) -> Manifest {
 }
 
 /// Encodes without validation, to build hostile input for the decoder.
-fn encode_unchecked(manifest: &Manifest) -> Vec<u8> {
+pub(super) fn encode_unchecked(manifest: &Manifest) -> Vec<u8> {
     let mut bytes = vec![MANIFEST_FORMAT_VERSION];
     bytes.extend(postcard::to_allocvec(manifest).unwrap());
     bytes
@@ -286,84 +285,4 @@ fn names_follow_the_wire_rule() {
             "a reader refuses {bad:?}"
         );
     }
-}
-
-#[test]
-fn a_path_too_long_or_too_deep_is_refused_and_not_repeated_whole() {
-    let deepest = vec!["a"; MAX_PATH_DEPTH].join("/");
-    let longest = format!("{}/b", "x".repeat(MAX_PATH_BYTES - 2));
-    for path in [&deepest, &longest] {
-        let bytes = encode_unchecked(&manifest(&[path]));
-        assert!(Manifest::from_bytes(&bytes).is_ok(), "{} bytes", path.len());
-    }
-    let too_deep = vec!["a"; MAX_PATH_DEPTH + 1].join("/");
-    let too_long = format!("{}/b", "x".repeat(MAX_PATH_BYTES - 1));
-    // The attack: a path of a million bytes.
-    let hostile = vec!["a"; 500_000].join("/");
-    for path in [&too_deep, &too_long, &hostile] {
-        let bytes = encode_unchecked(&manifest(&[path]));
-        match Manifest::from_bytes(&bytes) {
-            Err(error @ ManifestError::InvalidPath(_)) => {
-                assert!(error.to_string().len() < 300, "the whole path in the error")
-            }
-            other => panic!("accepted {} bytes: {other:?}", path.len()),
-        }
-    }
-}
-
-#[test]
-fn sizes_adding_up_past_any_disk_are_refused() {
-    let sized = |sizes: &[u64]| Manifest {
-        entries: sizes
-            .iter()
-            .enumerate()
-            .map(|(index, &size)| Entry {
-                size,
-                ..entry(&format!("f{index}"))
-            })
-            .collect(),
-        ..Manifest::default()
-    };
-    // Each would pass alone; together they wrap a u64 to 1 KB.
-    let wrapping = sized(&[1 << 63, 1 << 63, 1024]);
-    for manifest in [wrapping, sized(&[u64::MAX]), sized(&[MAX_TOTAL_BYTES, 1])] {
-        assert!(matches!(
-            Manifest::from_bytes(&encode_unchecked(&manifest)),
-            Err(ManifestError::TooManyBytes)
-        ));
-    }
-    let fine = sized(&[MAX_TOTAL_BYTES - 1, 1]);
-    assert_eq!(
-        Manifest::from_bytes(&encode_unchecked(&fine))
-            .unwrap()
-            .total_size(),
-        MAX_TOTAL_BYTES
-    );
-}
-
-#[test]
-fn more_files_than_a_stick_may_have_are_refused() {
-    let names: Vec<String> = (0..=MAX_ENTRIES)
-        .map(|index| format!("{index:08}"))
-        .collect();
-    let mut many = Manifest {
-        entries: names.iter().map(|name| entry(name)).collect(),
-        ..Manifest::default()
-    };
-    match Manifest::from_bytes(&encode_unchecked(&many)) {
-        Err(ManifestError::TooManyFiles { count }) => assert_eq!(count, MAX_ENTRIES + 1),
-        other => panic!("{:?}", other.map(|manifest| manifest.entries.len())),
-    }
-    assert!(matches!(
-        many.to_bytes(),
-        Err(ManifestError::TooManyFiles { .. })
-    ));
-    many.entries.pop();
-    assert_eq!(
-        Manifest::from_bytes(&many.to_bytes().unwrap())
-            .unwrap()
-            .entries
-            .len(),
-        MAX_ENTRIES
-    );
 }

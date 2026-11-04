@@ -8,8 +8,8 @@
 use serde::Deserialize;
 
 use super::{
-    Entry, Manifest, ManifestError, MAX_ENTRIES, MAX_NAME_CHARS, MAX_PATH_BYTES, MAX_PATH_DEPTH,
-    MAX_TOTAL_BYTES,
+    Entry, Manifest, ManifestError, MAX_ENTRIES, MAX_FOLDER_BYTES, MAX_NAME_CHARS, MAX_PATH_BYTES,
+    MAX_PATH_DEPTH, MAX_TOTAL_BYTES,
 };
 
 /// Version of the manifest wire format written by [`Manifest::to_bytes`].
@@ -80,8 +80,36 @@ impl Manifest {
                 return Err(ManifestError::NotSorted(pair[1].path.clone()));
             }
         }
+        if folder_bytes(&self.entries) > MAX_FOLDER_BYTES {
+            return Err(ManifestError::TooManyFolders);
+        }
         Ok(())
     }
+}
+
+/// The bytes of every folder of `entries` (sorted by path), each folder
+/// counted once by its whole path. Sorted, a folder's entries are next to
+/// each other: a folder is new where its path is not the previous entry's.
+fn folder_bytes(entries: &[Entry]) -> usize {
+    let mut total = 0usize;
+    let mut previous: &[u8] = &[];
+    for entry in entries {
+        let path = entry.path.as_bytes();
+        let same = path
+            .iter()
+            .zip(previous)
+            .take_while(|(a, b)| a == b)
+            .count();
+        // A folder ending at `at` is the previous entry's too only if it
+        // ends within what the two share (there `previous` has a `/` too).
+        total = path
+            .iter()
+            .enumerate()
+            .filter(|&(at, &byte)| byte == b'/' && at >= same)
+            .fold(total, |total, (at, _)| total.saturating_add(at));
+        previous = path;
+    }
+    total
 }
 
 /// Whether `c` is a format character (Unicode category Cf), or a line or
@@ -157,3 +185,6 @@ fn shortened(path: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bounds_tests;

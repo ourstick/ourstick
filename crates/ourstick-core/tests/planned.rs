@@ -15,7 +15,7 @@ async fn planned(owner: &Owner, reader: &Reader, stop: bool) -> (Option<u64>, bo
     let mut seen = None;
     let result = reader
         .download(&owner.ticket(&publication), &mut |event| {
-            if let DownloadEvent::Planned { bytes } = event {
+            if let DownloadEvent::Planned { bytes, .. } = event {
                 seen = Some(bytes);
                 if stop {
                     return ControlFlow::Break(());

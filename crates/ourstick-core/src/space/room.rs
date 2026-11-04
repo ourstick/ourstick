@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::{claim_download, Disks, SpaceError, SystemDisks};
-use crate::download::{DownloadEvent, SCRATCH_BYTES};
+use crate::download::{scratch_bytes, DownloadEvent};
 use crate::stick_id::StickId;
 use crate::store::{ClaimKind, Store};
 
@@ -64,7 +64,7 @@ impl DownloadRoom {
     /// next version (that can take hours). Pass every event.
     pub fn on_event(&self, event: &DownloadEvent<'_>) -> ControlFlow<()> {
         match event {
-            DownloadEvent::Planned { bytes } => return self.planned(*bytes),
+            DownloadEvent::Planned { bytes, largest } => return self.planned(*bytes, *largest),
             DownloadEvent::FileReceived { size, .. }
             | DownloadEvent::FileCopiedHere { size, .. } => self.landed(*size),
             DownloadEvent::WaitingForMore { .. } => self.release(),
@@ -73,11 +73,12 @@ impl DownloadRoom {
         ControlFlow::Continue(())
     }
 
-    /// The download will write `needed` bytes: claims them, and room for
-    /// its batches on the data folder's disk, or stops it if they do not fit.
-    /// Nothing to write holds nothing (an up-to-date stick is never refused
-    /// for room it does not use).
-    pub fn planned(&self, needed: u64) -> ControlFlow<()> {
+    /// The download will write `needed` bytes, `largest` the biggest file of
+    /// them: claims them and that file's copy beside it while it is placed,
+    /// and room for its batches on the data folder's disk, or stops it if
+    /// they do not fit. Nothing to write holds nothing (an up-to-date stick
+    /// is never refused for room it does not use).
+    pub fn planned(&self, needed: u64, largest: u64) -> ControlFlow<()> {
         *lock(&self.refused) = None;
         if needed == 0 {
             self.release();
@@ -90,10 +91,11 @@ impl DownloadRoom {
                 &self.data_dir,
                 &self.stick_id,
                 &self.output,
-                needed,
-                SCRATCH_BYTES,
+                needed.saturating_add(largest),
+                scratch_bytes(largest),
             )
         });
+        let needed = needed.saturating_add(largest);
         match claimed {
             Ok(()) => {
                 *lock(&self.to_come) = (needed, needed);
@@ -240,10 +242,13 @@ mod tests {
         let world = world(500 * GB);
         let room = &world.room;
         assert!(room
-            .on_event(&DownloadEvent::Planned { bytes: 10 * GB })
+            .on_event(&DownloadEvent::Planned {
+                bytes: 10 * GB,
+                largest: 0,
+            })
             .is_continue());
         assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
-        assert_eq!(held(&world, ClaimKind::Scratch), Some(SCRATCH_BYTES));
+        assert_eq!(held(&world, ClaimKind::Scratch), Some(scratch_bytes(0)));
         // Small files are written to the store in steps.
         assert!(room.on_event(&received(UPDATE_STEP / 2)).is_continue());
         assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
@@ -266,10 +271,23 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_big_file_is_counted_with_its_copies_while_it_is_placed() {
+        let big = world(500 * GB);
+        assert!(big.room.planned(60 * GB, 50 * GB).is_continue());
+        // Its blob's copy beside it in the folder, and the blob in its batch.
+        assert_eq!(held(&big, ClaimKind::Download), Some(110 * GB));
+        assert_eq!(held(&big, ClaimKind::Scratch), Some(scratch_bytes(50 * GB)));
+        assert!(scratch_bytes(50 * GB) > 50 * GB);
+        // 100 GB free for it: a 60 GB file does not fit, as it would not.
+        let small = world(120 * GB);
+        assert!(small.room.planned(60 * GB, 60 * GB).is_break());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_new_plan_replaces_the_last_one() {
         let world = world(500 * GB);
-        assert!(world.room.planned(10 * GB).is_continue());
-        assert!(world.room.planned(3 * GB).is_continue());
+        assert!(world.room.planned(10 * GB, 0).is_continue());
+        assert!(world.room.planned(3 * GB, 0).is_continue());
         assert_eq!(held(&world, ClaimKind::Download), Some(3 * GB));
         assert_eq!(world.store.space_claims().unwrap().len(), 2);
     }
@@ -278,13 +296,13 @@ mod tests {
     async fn a_download_that_does_not_fit_says_how_much_and_only_until_one_fits() {
         let world = world(120 * GB);
         // 120 GB free, 20 GB of it the system's: 100 GB left.
-        assert!(world.room.planned(200 * GB).is_break());
+        assert!(world.room.planned(200 * GB, 0).is_break());
         assert!(world.store.space_claims().unwrap().is_empty());
-        assert!(world.room.planned(200 * GB).is_break());
-        assert!(world.room.planned(GB).is_continue());
+        assert!(world.room.planned(200 * GB, 0).is_break());
+        assert!(world.room.planned(GB, 0).is_continue());
         // A refusal is not told after a round that fitted.
         assert!(world.room.refusal().is_none());
-        assert!(world.room.planned(200 * GB).is_break());
+        assert!(world.room.planned(200 * GB, 0).is_break());
         assert!(matches!(
             world.room.refusal(),
             Some(SpaceError::DoesNotFit { needed, .. }) if needed > 200 * GB
@@ -295,7 +313,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn nothing_to_write_holds_nothing_even_on_a_full_disk() {
         let world = world(5 * GB);
-        assert!(world.room.planned(0).is_continue());
+        assert!(world.room.planned(0, 0).is_continue());
         assert!(world.room.refusal().is_none());
         assert!(world.store.space_claims().unwrap().is_empty());
     }
@@ -303,7 +321,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn waiting_for_the_owner_holds_nothing() {
         let world = world(500 * GB);
-        assert!(world.room.planned(10 * GB).is_continue());
+        assert!(world.room.planned(10 * GB, 0).is_continue());
         let waiting = DownloadEvent::WaitingForMore { seq: 3 };
         assert!(world.room.on_event(&waiting).is_continue());
         assert!(world.store.space_claims().unwrap().is_empty());

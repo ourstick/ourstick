@@ -19,6 +19,13 @@ pub(super) const BATCH_BYTES: u64 = 1 << 30;
 /// batches, this one and the next (for the space ledger).
 pub const SCRATCH_BYTES: u64 = 2 * BATCH_BYTES;
 
+/// [`SCRATCH_BYTES`], or more for a download whose largest file is bigger
+/// than a batch: that file is a batch of its own, and the next one may
+/// come beside it.
+pub fn scratch_bytes(largest: u64) -> u64 {
+    SCRATCH_BYTES.max(largest.saturating_add(BATCH_BYTES))
+}
+
 /// A batch closes at this many files, so batches of tiny files stay small in
 /// number of blobs too.
 pub(super) const BATCH_FILES: usize = 512;

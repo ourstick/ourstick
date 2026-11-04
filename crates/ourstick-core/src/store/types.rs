@@ -224,10 +224,11 @@ pub enum ClaimKind {
     /// A sharer's cache budget (ADR 0007). No longer made since ADR 0017
     /// (migration 0021 removed those left); kept so the ledger reads any row.
     Cache,
-    /// A download's bytes still to come, on its folder's disk.
+    /// A download's bytes still to come, on its folder's disk, and its
+    /// largest file's once more (its blob's copy while it is placed).
     Download,
     /// A download's room for its batches, on the data folder's disk
-    /// (`download::SCRATCH_BYTES`), held while it runs.
+    /// (`download::scratch_bytes`), held while it runs.
     Scratch,
 }
 

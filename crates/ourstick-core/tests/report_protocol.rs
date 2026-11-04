@@ -180,7 +180,7 @@ async fn a_reader_tells_its_owner_it_has_all_of_it() {
     let fetcher = reader.fetcher().await;
     let total = std::sync::atomic::AtomicU64::new(0);
     let mut on_event = |event: DownloadEvent<'_>| {
-        if let DownloadEvent::Planned { bytes } = event {
+        if let DownloadEvent::Planned { bytes, .. } = event {
             total.store(bytes, std::sync::atomic::Ordering::SeqCst);
         }
         let planned = total.load(std::sync::atomic::Ordering::SeqCst);

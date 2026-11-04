@@ -128,7 +128,8 @@ pub(super) async fn take_plan(
         run_blocking(move || store.forget_downloaded_file(&stick_id, &path)).await?;
     }
     let bytes = plan.bytes_to_write(manifest);
-    if on_event(DownloadEvent::Planned { bytes }).is_break() {
+    let largest = plan.largest_to_write(manifest);
+    if on_event(DownloadEvent::Planned { bytes, largest }).is_break() {
         return Err(DownloadError::Cancelled);
     }
     for renamed in &plan.renamed {

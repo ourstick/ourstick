@@ -106,7 +106,7 @@ impl Told {
         }
         if let Some(reporter) = &self.reporter {
             let total = match &event {
-                ReceiveEvent::Download(DownloadEvent::Planned { bytes }) => *bytes,
+                ReceiveEvent::Download(DownloadEvent::Planned { bytes, .. }) => *bytes,
                 _ => receivers.shown(&self.stick_id).total,
             };
             reporter.on_event(&event, self.landed.bytes(total), total);
@@ -134,7 +134,7 @@ impl Told {
         }
         let landed = &self.landed;
         receivers.show(self.stick_id, |shown| match event {
-            ReceiveEvent::Download(DownloadEvent::Planned { bytes }) => {
+            ReceiveEvent::Download(DownloadEvent::Planned { bytes, .. }) => {
                 *shown = Shown {
                     state: "downloading",
                     total: bytes,

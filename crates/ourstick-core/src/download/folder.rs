@@ -89,41 +89,6 @@ pub(super) struct FolderPlan {
     pub(super) no_longer_in_stick: usize,
 }
 
-impl FolderPlan {
-    /// The bytes this plan writes, by each top-level entry of the stick
-    /// and each entry inside a top-level folder they are under (a preview's
-    /// per-entry "needs up to", ADR 0012 and its Amendment 1): keys of one
-    /// part and of two.
-    pub(super) fn bytes_by_top(&self, manifest: &Manifest) -> BTreeMap<String, u64> {
-        let mut by_path: BTreeMap<String, u64> = BTreeMap::new();
-        for (plan, entry) in self.files.iter().zip(&manifest.entries) {
-            if matches!(plan, FilePlan::Download { .. }) {
-                let mut parts = entry.path.splitn(3, '/');
-                let first = parts.next().unwrap_or_default();
-                let mut keys = vec![first.to_owned()];
-                if let Some(second) = parts.next() {
-                    keys.push(format!("{first}/{second}"));
-                }
-                for key in keys {
-                    let bytes = by_path.entry(key).or_default();
-                    *bytes = bytes.saturating_add(entry.size);
-                }
-            }
-        }
-        by_path
-    }
-
-    /// The bytes this plan writes into the folder: the files to download.
-    pub(super) fn bytes_to_write(&self, manifest: &Manifest) -> u64 {
-        self.files
-            .iter()
-            .zip(&manifest.entries)
-            .filter(|(plan, _)| matches!(plan, FilePlan::Download { .. }))
-            .map(|(_, entry)| entry.size)
-            .sum()
-    }
-}
-
 /// The blob hash the stick would have for this file's content, or `None` if
 /// it cannot be read right now.
 fn content_hash(output_dir: &Path, path: &Path, cipher: &dyn Cipher) -> Option<[u8; 32]> {
@@ -375,6 +340,7 @@ pub(super) fn may_replace(target: &Path, replaceable: Option<FileStamp>) -> bool
 }
 
 mod disk;
+mod sizes;
 
 pub(super) use disk::case_folded;
 use disk::Looked;

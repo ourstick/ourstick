@@ -66,7 +66,10 @@ fn a_big_file_moves_the_bar_while_it_comes() {
     use super::told::Landed;
     use ourstick_core::download::DownloadEvent;
     let mut landed = Landed::default();
-    landed.on(&DownloadEvent::Planned { bytes: 2_100 });
+    landed.on(&DownloadEvent::Planned {
+        bytes: 2_100,
+        largest: 0,
+    });
     landed.on(&DownloadEvent::FileCopiedHere {
         path: "a",
         size: 100,
@@ -103,7 +106,10 @@ fn a_big_file_moves_the_bar_while_it_comes() {
     });
     assert_eq!(landed.bytes(2_100), 2_100);
     // A new round starts again from nothing.
-    landed.on(&DownloadEvent::Planned { bytes: 10 });
+    landed.on(&DownloadEvent::Planned {
+        bytes: 10,
+        largest: 0,
+    });
     assert_eq!(landed.bytes(10), 0);
 }
 

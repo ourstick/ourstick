@@ -109,11 +109,25 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
         }
     };
     // Nothing before a version is known.
-    reporter.on_event(&download(DownloadEvent::Planned { bytes: 100 }), 0, 100);
+    reporter.on_event(
+        &download(DownloadEvent::Planned {
+            bytes: 100,
+            largest: 0,
+        }),
+        0,
+        100,
+    );
     step(A_MOMENT).await;
     assert!(owner.told(&ticket()).is_empty());
     reporter.on_event(&download(DownloadEvent::NewVersion { seq: 9 }), 0, 100);
-    reporter.on_event(&download(DownloadEvent::Planned { bytes: 100 }), 0, 100);
+    reporter.on_event(
+        &download(DownloadEvent::Planned {
+            bytes: 100,
+            largest: 0,
+        }),
+        0,
+        100,
+    );
     step(A_MOMENT).await;
     // Progress alone waits 30 s.
     reporter.on_event(
@@ -269,7 +283,14 @@ async fn a_change_while_a_report_goes_still_goes_at_once() {
         }
     };
     // A change before its version is known goes once the version is.
-    reporter.on_event(&download(DownloadEvent::Planned { bytes: 10 }), 0, 10);
+    reporter.on_event(
+        &download(DownloadEvent::Planned {
+            bytes: 10,
+            largest: 0,
+        }),
+        0,
+        10,
+    );
     step(A_MOMENT).await;
     assert!(owner.told(&ticket()).is_empty());
     let held = owner.gate.lock().await;

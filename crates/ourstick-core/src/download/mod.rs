@@ -39,7 +39,7 @@ use listing::fetch_listing;
 use path::ReceivingPath;
 use relay::RelayLimiter;
 
-pub use batches::SCRATCH_BYTES;
+pub use batches::{scratch_bytes, SCRATCH_BYTES};
 pub use follow::{wait_for_newer, FollowEvent, FOLLOW_EVERY};
 pub use left_out::{LeftOut, PathProblem, Tick};
 pub use listing::{entries_in, list, preview, Listing, Preview, TopEntry};

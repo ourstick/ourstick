@@ -48,6 +48,12 @@ pub(super) async fn fetch_listing(
         RecordCheck::Newer(record) => (record, true),
         RecordCheck::Unchanged(record) => (record, false),
     };
+    // Only the manifest of this version is kept: each of up to 256 MB, one
+    // a version, they would fill the disk of a reader whose owner
+    // publishes often. One started for this version is resumed.
+    if newer && fetcher.local_bytes(&record.manifest_hash).await? == 0 {
+        fetcher.drop_batch(MANIFEST_BATCH).await?;
+    }
 
     // Its size is the owner's choice: stopped once it is too big to hold.
     let mut too_big = None;

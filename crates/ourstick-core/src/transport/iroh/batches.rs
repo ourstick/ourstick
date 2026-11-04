@@ -66,6 +66,9 @@ impl Batches {
     }
 
     pub(super) async fn drop_batch(&self, name: &str) -> Result<(), TransportError> {
+        if name == MANIFEST_BATCH {
+            return self.empty_manifests().await;
+        }
         let name = checked(name)?;
         let mut current = self.current.lock().await;
         if current.0 == name {
@@ -76,6 +79,21 @@ impl Batches {
             );
         }
         remove_dir(&self.root.join(name)).await
+    }
+
+    /// Deletes every manifest blob kept, and starts the manifest store
+    /// anew (in use again if it was).
+    async fn empty_manifests(&self) -> Result<(), TransportError> {
+        let mut current = self.current.lock().await;
+        let in_use = current.0 == MANIFEST_BATCH;
+        if in_use {
+            current.1.shutdown().await.map_err(storage)?;
+        }
+        remove_dir(&self.root.join(MANIFEST_BATCH)).await?;
+        if in_use {
+            current.1 = open(&self.root, MANIFEST_BATCH).await?;
+        }
+        Ok(())
     }
 
     pub(super) async fn keep_only(&self, keep: &[String]) -> Result<(), TransportError> {

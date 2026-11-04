@@ -64,7 +64,11 @@ async fn batches_leave_once_their_files_are_in_place_and_twins_are_copied() {
     );
     // Only the manifest's store is left; every file batch was dropped.
     assert_eq!(fetcher.batch_names(), vec!["manifest"]);
-    assert!(!fetcher.local.lock().unwrap().dropped.is_empty());
+    let dropped = fetcher.local.lock().unwrap().dropped.clone();
+    // A new version's manifest came into an emptied manifest store: the
+    // manifests of earlier versions never pile up.
+    assert_eq!(dropped.first().map(String::as_str), Some("manifest"));
+    assert!(dropped.len() > 1);
 }
 
 /// ADR 0007: a blob the owner is still preparing is "not ready", not a

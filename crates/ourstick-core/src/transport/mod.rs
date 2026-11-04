@@ -312,7 +312,8 @@ pub trait Fetcher: Send + Sync {
     fn use_batch(&self, name: &str) -> impl Future<Output = Result<(), TransportError>> + Send;
 
     /// Deletes the batch `name` and its blobs, freeing their space. If it was
-    /// in use, [`MANIFEST_BATCH`] is used from then on.
+    /// in use, [`MANIFEST_BATCH`] is used from then on. [`MANIFEST_BATCH`]
+    /// itself is emptied: every manifest kept goes.
     fn drop_batch(&self, name: &str) -> impl Future<Output = Result<(), TransportError>> + Send;
 
     /// Deletes every batch not named in `keep` (and not [`MANIFEST_BATCH`]),

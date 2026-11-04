@@ -107,6 +107,18 @@ pub fn blob_len(cipher: &dyn Cipher, plaintext_len: u64) -> u64 {
     2 + cipher.nonce_prefix_len() as u64 + plaintext_len + chunks * cipher.tag_len() as u64
 }
 
+/// The longest a blob of a `plaintext_len`-byte file may be, whatever its
+/// cipher: what a reader fetches at most for a manifest entry of that size.
+/// The size is the owner's word, and the blob's hash covers whatever it sends;
+/// without this bound, an entry of 1 byte could bring a blob of any size.
+pub fn largest_blob_len(plaintext_len: u64) -> u64 {
+    use crate::cipher::chacha::{NONCE_PREFIX_LEN, TAG_LEN};
+    let chunks = plaintext_len.div_ceil(CHUNK_SIZE as u64).max(1);
+    (2 + NONCE_PREFIX_LEN as u64)
+        .saturating_add(plaintext_len)
+        .saturating_add(chunks.saturating_mul(TAG_LEN as u64))
+}
+
 /// Encrypts `plaintext` into a blob written to `out`.
 ///
 /// Reads `plaintext` twice: once to hash it and derive the nonce prefix, once to

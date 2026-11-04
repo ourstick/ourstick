@@ -50,7 +50,9 @@ async fn owner_refuses_pushed_blobs() {
     let reader = Reader::new();
     let fetcher = reader.fetcher().await;
     let asking = fetcher.connect(&ticket).await.unwrap();
-    let result = asking.fetch_blob(hash.as_bytes(), &mut |_| GO).await;
+    let result = asking
+        .fetch_blob(hash.as_bytes(), u64::MAX, &mut |_| GO)
+        .await;
     assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");
     asking.close().await;
     fetcher.shutdown(false).await.unwrap();

@@ -90,7 +90,7 @@ async fn a_linked_folder_that_goes_keeps_its_version_and_readers_wait_for_it() {
     let fetcher = reader.fetcher().await;
     let connection = fetcher.connect(&owner.ticket(&again)).await.unwrap();
     for _ in 0..10 {
-        let result = connection.fetch_blob(&hash, &mut |_| GO).await;
+        let result = connection.fetch_blob(&hash, u64::MAX, &mut |_| GO).await;
         assert!(
             matches!(result, Err(TransportError::NotReady)),
             "{result:?}"

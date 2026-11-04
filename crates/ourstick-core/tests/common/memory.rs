@@ -240,6 +240,7 @@ impl PeerConnection for MemoryConnection {
     async fn fetch_blob(
         &self,
         hash: &BlobHash,
+        largest: u64,
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let blob = {
@@ -305,6 +306,10 @@ impl PeerConnection for MemoryConnection {
             .blobs()
             .get(hash)
             .map_or(0, Vec::len);
+        // As iroh: the blob's length shows with its first verified bytes.
+        if blob.len() as u64 > largest {
+            return Err(TransportError::TooBig);
+        }
         let mut received = 0u64;
         for piece in blob[already_local..].chunks(1024 * 1024) {
             {

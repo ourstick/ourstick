@@ -23,6 +23,7 @@ use super::not_ready::Waiting;
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
 use super::{cancelled, DownloadError, DownloadEvent};
+use crate::blob::largest_blob_len;
 use crate::manifest::{Entry, FileStamp};
 use crate::transport::{FetchStats, Fetcher, PathKind, PeerConnection, TransportError, GO};
 
@@ -119,6 +120,10 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
     }
 
     fn start(&mut self, hash: [u8; 32]) {
+        let Some(queued) = self.files.get(&hash) else {
+            return;
+        };
+        let largest = largest_blob_len(queued.entry.size);
         let connection = self.connection;
         let decision = self.decision.clone();
         self.in_flight.push(Box::pin(async move {
@@ -141,7 +146,9 @@ impl<'c, F: Fetcher, C: PeerConnection> FetchQueue<'c, F, C> {
                     None => GO,
                 }
             };
-            let fetched = connection.fetch_blob(&hash, &mut on_progress).await;
+            let fetched = connection
+                .fetch_blob(&hash, largest, &mut on_progress)
+                .await;
             (hash, fetched)
         }));
     }

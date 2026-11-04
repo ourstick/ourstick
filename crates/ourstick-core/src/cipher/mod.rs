@@ -5,7 +5,7 @@
 //! shares it. See `docs/protocol.md` for the byte layout and
 //! `docs/decisions/0003-deterministic-nonce.md` for why nonces are derived.
 
-mod chacha;
+pub(crate) mod chacha;
 mod no_cipher;
 
 use std::fmt;

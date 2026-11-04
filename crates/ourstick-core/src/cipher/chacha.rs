@@ -16,8 +16,8 @@ pub const AEAD_KEY_CONTEXT: &str = "OurStick 2026-09-28 blob XChaCha20-Poly1305 
 /// BLAKE3 `derive_key` context for the key that derives nonce prefixes.
 pub const NONCE_KEY_CONTEXT: &str = "OurStick 2026-09-28 blob nonce prefix key";
 
-const NONCE_PREFIX_LEN: usize = 19;
-const TAG_LEN: usize = 16;
+pub(crate) const NONCE_PREFIX_LEN: usize = 19;
+pub(crate) const TAG_LEN: usize = 16;
 
 /// A [`Cipher`] using XChaCha20-Poly1305. Both of its keys are derived from the
 /// [`StickKey`], so the stick key itself never touches the AEAD or the nonce.

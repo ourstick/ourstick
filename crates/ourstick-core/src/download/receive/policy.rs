@@ -85,7 +85,9 @@ pub fn after_error(error: &DownloadError, refused: Option<&SpaceError>, waited: 
             // before it sends it, so it never sends a damaged one): a new
             // version follows soon.
             TransportError::Refused | TransportError::OwnerFailed => wait(Waiting::KeepsChanging),
-            TransportError::Corrupt => Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT),
+            TransportError::Corrupt | TransportError::TooBig => {
+                Next::Wait(Waiting::Damaged(said()), LONGEST_WAIT)
+            }
             TransportError::Bind(_) | TransportError::Storage(_) | TransportError::Io(_) => {
                 wait(Waiting::ThisComputer(said()))
             }

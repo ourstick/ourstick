@@ -14,6 +14,7 @@ use super::not_ready::Waiting;
 use super::path::ReceivingPath;
 use super::relay::RelayLimiter;
 use super::{cancelled, io_error, DownloadError, DownloadEvent};
+use crate::blob::largest_blob_len;
 use crate::blocking::run_blocking;
 use crate::manifest::Entry;
 use crate::transport::{Fetcher, PathKind, PeerConnection, TransportError, GO};
@@ -92,7 +93,10 @@ pub(super) async fn receive_file(
                 _ => GO,
             }
         };
-        let fetched = connection.fetch_blob(&entry.hash, &mut on_progress).await;
+        let largest = largest_blob_len(entry.size);
+        let fetched = connection
+            .fetch_blob(&entry.hash, largest, &mut on_progress)
+            .await;
         match fetched {
             Ok(stats) => break stats,
             // What arrived stays; the next connection resumes it.

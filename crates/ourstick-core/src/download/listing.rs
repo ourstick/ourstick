@@ -13,11 +13,11 @@ use super::{cancelled, DownloadError};
 use crate::blob::decrypt_blob;
 use crate::blocking::run_blocking;
 use crate::cipher::{cipher_for, Cipher, CipherError, CipherId};
-use crate::manifest::{check_manifest_blob_size, Manifest};
+use crate::manifest::{check_manifest_blob_size, Manifest, ManifestError, MAX_MANIFEST_BLOB_BYTES};
 use crate::record::{ManifestHint, RecordCheck};
 use crate::store::{ManifestVersion, Store};
 use crate::ticket::Ticket;
-use crate::transport::{Fetcher, PeerConnection, GO, MANIFEST_BATCH};
+use crate::transport::{Fetcher, PeerConnection, TransportError, GO, MANIFEST_BATCH};
 
 /// A stick's current manifest, verified.
 #[derive(Debug, Clone)]
@@ -54,6 +54,7 @@ pub(super) async fn fetch_listing(
     let fetched = connection
         .fetch_blob(
             &record.manifest_hash,
+            MAX_MANIFEST_BLOB_BYTES,
             &mut |received| match check_manifest_blob_size(received) {
                 Ok(()) => GO,
                 Err(error) => {
@@ -65,6 +66,12 @@ pub(super) async fn fetch_listing(
         .await;
     if let Some(error) = too_big {
         return Err(error.into());
+    }
+    if let Err(TransportError::TooBig) = fetched {
+        return Err(ManifestError::TooBig {
+            bytes: MAX_MANIFEST_BLOB_BYTES + 1,
+        }
+        .into());
     }
     fetched.map_err(cancelled)?;
     // Also one that was here already, whole.

@@ -299,12 +299,12 @@ pub async fn fetch_when_ready(
     on_progress: &mut (dyn FnMut(u64) -> ourstick_core::transport::Pace + Send),
 ) -> Result<ourstick_core::transport::FetchStats, ourstick_core::transport::TransportError> {
     for _ in 0..300 {
-        match connection.fetch_blob(hash, on_progress).await {
+        match connection.fetch_blob(hash, u64::MAX, on_progress).await {
             Err(ourstick_core::transport::TransportError::NotReady) => {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
             other => return other,
         }
     }
-    connection.fetch_blob(hash, on_progress).await
+    connection.fetch_blob(hash, u64::MAX, on_progress).await
 }

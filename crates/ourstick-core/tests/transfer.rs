@@ -253,7 +253,7 @@ async fn owner_serves_only_blobs_of_the_current_manifest() {
     let connection = fetcher.connect(&ticket).await.unwrap();
     // Its file still there, but no longer in the stick: refused.
     for hash in [removed_hash, [9; 32]] {
-        let result = connection.fetch_blob(&hash, &mut |_| GO).await;
+        let result = connection.fetch_blob(&hash, u64::MAX, &mut |_| GO).await;
         assert!(matches!(result, Err(TransportError::Refused)), "{result:?}");
     }
     connection.close().await;

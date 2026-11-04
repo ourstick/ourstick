@@ -310,6 +310,7 @@ impl PeerConnection for IrohConnection {
     async fn fetch_blob(
         &self,
         hash: &BlobHash,
+        largest: u64,
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> Result<FetchStats, TransportError> {
         let local = self
@@ -321,6 +322,9 @@ impl PeerConnection for IrohConnection {
             .await
             .map_err(storage)?;
         let already_local = local.local_bytes();
+        if already_local > largest {
+            return Err(TransportError::TooBig);
+        }
         if local.is_complete() {
             return Ok(FetchStats {
                 already_local,
@@ -332,6 +336,13 @@ impl PeerConnection for IrohConnection {
             std::pin::pin!(store.remote().fetch(self.blobs.clone(), raw(hash)).stream());
         while let Some(item) = progress.next().await {
             match item {
+                // Stopped at once: every byte goes to this computer's disk.
+                GetProgressItem::Progress(received)
+                    if already_local.saturating_add(received) > largest =>
+                {
+                    self.blobs.close(0u32.into(), b"too big");
+                    return Err(TransportError::TooBig);
+                }
                 GetProgressItem::Progress(received) => match on_progress(received) {
                     ControlFlow::Break(()) => {
                         // Closing the connection stops the transfer mid-way;

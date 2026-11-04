@@ -225,7 +225,7 @@ async fn a_record_that_no_longer_matches_is_never_served_and_read_again() {
     // transfer fails before a byte of it is sent; then "not ready".
     let mut forgotten = false;
     for _ in 0..50 {
-        let result = connection.fetch_blob(&[7; 32], &mut |_| GO).await;
+        let result = connection.fetch_blob(&[7; 32], u64::MAX, &mut |_| GO).await;
         assert!(result.is_err(), "{result:?}");
         if owner
             .store

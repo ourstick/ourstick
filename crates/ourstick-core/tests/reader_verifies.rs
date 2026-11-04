@@ -91,7 +91,9 @@ async fn reader_rejects_bytes_that_do_not_match_the_hash() {
     );
     let fetcher = IrohFetcher::start(&config, store_dir.path()).await.unwrap();
     let connection = fetcher.connect(&ticket).await.unwrap();
-    let result = connection.fetch_blob(&requested, &mut |_| GO).await;
+    let result = connection
+        .fetch_blob(&requested, u64::MAX, &mut |_| GO)
+        .await;
 
     assert!(matches!(result, Err(TransportError::Corrupt)), "{result:?}");
     assert_eq!(
@@ -140,11 +142,69 @@ async fn honest_bao_response_is_accepted() {
     let fetcher = IrohFetcher::start(&config, store_dir.path()).await.unwrap();
     let connection = fetcher.connect(&ticket).await.unwrap();
     let stats = connection
-        .fetch_blob(&requested, &mut |_| GO)
+        .fetch_blob(&requested, u64::MAX, &mut |_| GO)
         .await
         .unwrap();
     assert_eq!(stats.received, honest.len() as u64);
     assert_eq!(fetcher.read_blob(&requested).await.unwrap(), honest);
+
+    connection.close().await;
+    fetcher.shutdown(false).await.unwrap();
+    provider.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blob_longer_than_the_owner_said_is_stopped_early() {
+    // Data that matches its hash, but far more of it than the reader was told
+    // to expect (a manifest entry of a few bytes, served as a big blob).
+    let big: Vec<u8> = (0..8_000_000u32).map(|i| (i % 251) as u8).collect();
+    let requested = *blake3::hash(&big).as_bytes();
+    let largest = 100_000;
+
+    let provider = Router::builder(Endpoint::builder(presets::Minimal).bind().await.unwrap())
+        .accept(
+            iroh_blobs::ALPN,
+            LyingProvider {
+                response: Arc::new(bao_response(&big)),
+            },
+        )
+        .spawn();
+    let addr = provider.endpoint().addr();
+    let ticket = Ticket {
+        stick_id: StickSigningKey::from_bytes(&[1; 32]).stick_id(),
+        node_id: NodeId(*provider.endpoint().id().as_bytes()),
+        manifest_hint: ManifestHint {
+            seq: 1,
+            hash: [0; 32],
+        },
+        address_hints: addr.ip_addrs().map(|ip| AddressHint::from(*ip)).collect(),
+        stick_key: StickKey::from_bytes([2; 32]),
+    };
+
+    let store_dir = tempfile::tempdir().unwrap();
+    let config = IrohConfig::new(
+        StickKey::generate().as_bytes().to_owned(),
+        Network::LocalOnly,
+    );
+    let fetcher = IrohFetcher::start(&config, store_dir.path()).await.unwrap();
+    let connection = fetcher.connect(&ticket).await.unwrap();
+    let result = connection
+        .fetch_blob(&requested, largest, &mut |_| GO)
+        .await;
+    assert!(matches!(result, Err(TransportError::TooBig)), "{result:?}");
+    let kept = fetcher.local_bytes(&requested).await.unwrap();
+    assert!(
+        kept < 1_000_000,
+        "kept {kept} bytes of a blob said to be small"
+    );
+
+    // Asked again, it is refused before anything more comes.
+    let connection = fetcher.connect(&ticket).await.unwrap();
+    let again = connection
+        .fetch_blob(&requested, largest, &mut |_| GO)
+        .await;
+    assert!(matches!(again, Err(TransportError::TooBig)), "{again:?}");
+    assert!(fetcher.local_bytes(&requested).await.unwrap() <= kept.max(largest + 1));
 
     connection.close().await;
     fetcher.shutdown(false).await.unwrap();

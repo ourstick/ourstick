@@ -87,6 +87,8 @@ pub enum TransportError {
     NotReady,
     #[error("received data does not match its hash; the owner's copy is damaged")]
     Corrupt,
+    #[error("the owner sent more data than it said a file has")]
+    TooBig,
     #[error("the owner could not read its own copy of the data (it may be damaged); ask the owner to share again")]
     OwnerFailed,
     #[error("the transfer was interrupted: {0}")]
@@ -358,10 +360,14 @@ pub trait PeerConnection: Send + Sync {
     /// Downloads the missing parts of a blob into the local store, verifying
     /// every chunk against `hash`. `on_progress` gets the bytes received so far
     /// in this fetch, and says whether to go on (after waiting a while, which
-    /// slows the sender through flow control) or to cancel.
+    /// slows the sender through flow control) or to cancel. A blob that is,
+    /// or becomes, longer than `largest` bytes fails with
+    /// [`TransportError::TooBig`] as soon as that shows: its hash covers it,
+    /// but the owner said it was smaller.
     fn fetch_blob(
         &self,
         hash: &BlobHash,
+        largest: u64,
         on_progress: &mut (dyn FnMut(u64) -> Pace + Send),
     ) -> impl Future<Output = Result<FetchStats, TransportError>> + Send;
 

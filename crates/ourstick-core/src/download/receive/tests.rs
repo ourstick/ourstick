@@ -67,6 +67,7 @@ fn what_the_owner_or_this_computer_can_fix_is_waited_for() {
     // Waited for, with what happened in words.
     for error in [
         DownloadError::Transport(TransportError::Corrupt),
+        DownloadError::Transport(TransportError::TooBig),
         DownloadError::UnsafePath {
             path: "x".to_owned(),
             reason: "no",

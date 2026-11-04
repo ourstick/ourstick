@@ -3,6 +3,7 @@
 //! comes from.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use super::{DiskRoot, Source};
 use crate::layout::{Root, StickLayout};
@@ -41,7 +42,10 @@ pub(super) fn walk(
         let index = walked.roots.len();
         let index = u32::try_from(index).expect("fewer roots than u32::MAX");
         for_each_regular_file(files, &root.path, &mut |path, _| {
-            let relative = relative_path(&root.path, path)?;
+            let Some(relative) = sendable(&root.path, path)? else {
+                return Ok(());
+            };
+            count(&walked.files)?;
             let top = relative.split('/').next().unwrap_or_default();
             if layout.is_shadowed(top) {
                 left_out.insert(top.to_owned());
@@ -89,7 +93,11 @@ pub(super) fn walk(
         let index = u32::try_from(walked.roots.len()).expect("fewer roots than u32::MAX");
         if root.is_dir {
             for_each_regular_file(files, &root.path, &mut |path, _| {
-                let relative = format!("{name}/{}", relative_path(&root.path, path)?);
+                let Some(inside) = sendable(&root.path, path)? else {
+                    return Ok(());
+                };
+                count(&walked.files)?;
+                let relative = format!("{name}/{inside}");
                 walked.files.push((relative, Source::Disk(index)));
                 Ok(())
             })?;
@@ -102,6 +110,46 @@ pub(super) fn walk(
             is_dir: root.is_dir,
         });
     }
+    // One path from two roots (the own folder and the folder at the top):
+    // the own folder's, walked first, is the one sent; the other is left
+    // out, as a name a linked entry has is.
+    walked.files.sort_by(|a, b| a.0.cmp(&b.0));
+    let before = walked.files.len();
+    walked.files.dedup_by(|later, first| {
+        let same = later.0 == first.0;
+        if same {
+            left_out.insert(later.0.split('/').next().unwrap_or_default().to_owned());
+        }
+        same
+    });
+    if walked.files.len() < before {
+        tracing::warn!("files at one path in two places: the own folder's is sent");
+    }
     walked.left_out = left_out.into_iter().collect();
     Ok(walked)
+}
+
+/// A file's path in the stick, or `None` for one that cannot be sent (a
+/// name that is not UTF-8, holds a `\`, or a path too long or too deep):
+/// that file is left out with a warning, never the whole stick.
+fn sendable(root: &Path, path: &Path) -> Result<Option<String>, ManifestError> {
+    match relative_path(root, path) {
+        Ok(relative) => Ok(Some(relative)),
+        Err(ManifestError::InvalidPath(_) | ManifestError::NonUtf8Path(_)) => {
+            tracing::warn!("a file left out of a stick: its name cannot be sent");
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Fails once a walk found more files than a stick may have, before it
+/// reads more of a folder that is far too big.
+fn count(files: &[(String, Source)]) -> Result<(), ManifestError> {
+    if files.len() >= crate::manifest::MAX_ENTRIES {
+        return Err(ManifestError::TooManyFiles {
+            count: files.len() + 1,
+        });
+    }
+    Ok(())
 }

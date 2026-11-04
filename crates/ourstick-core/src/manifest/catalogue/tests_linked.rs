@@ -317,3 +317,28 @@ fn a_file_whose_time_is_not_told_is_read_at_every_pass() {
         .collect();
     assert_eq!(read, [("note.txt", false), ("photo.jpg", true)]);
 }
+
+#[test]
+fn a_path_in_two_roots_is_sent_once_and_an_unsendable_name_is_left_out() {
+    let disk = disk();
+    let (empty, top) = at_top(&disk);
+    // The own folder has a file the folder at the top has too.
+    write(&empty.join("notes.txt"), b"mine");
+    // A name another system cannot take ("\" is a Linux file name's).
+    #[cfg(unix)]
+    write(&empty.join("a\\b.txt"), b"x");
+    let layout = StickLayout::new(&empty, &[top]);
+    let mut catalogue = Catalogue::start_layout(
+        std::sync::Arc::new(crate::sender_files::LocalFiles),
+        &layout,
+        Vec::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(catalogue.left_out(), ["notes.txt"]);
+    let files = all(&mut catalogue);
+    let paths: Vec<&str> = files.iter().map(|file| file.entry.path.as_str()).collect();
+    assert_eq!(paths, ["Beach/x.jpg", "notes.txt"]);
+    // The own folder's is the one sent.
+    assert_eq!(files[1].entry.size, 4);
+}

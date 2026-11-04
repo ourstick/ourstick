@@ -160,7 +160,11 @@ never publishes a larger one; its pass fails, saying the stick must be split.
 
 - Symlinks are not followed and not included. Sockets, devices and other
   non-regular files are skipped. Empty directories are not recorded.
-- A file name that is not UTF-8, or that breaks the path rules above, is an error.
+- A file whose name is not UTF-8, or whose path breaks the rules above, is
+  left out of the stick with a warning; the others are sent. A walk that
+  finds more files than a stick may have stops there, with an error.
+- A path that two roots give (the stick's own folder and the folder at its
+  top) is sent once, from the own folder; the other is left out.
 - System files are never part of a stick, at any depth, as a file or as a
   folder: `.DS_Store`, `.Spotlight-V100`, `.fseventsd`, `.Trashes`,
   `.TemporaryItems`, `.DocumentRevisions-V100`, `.VolumeIcon.icns`, `.apdisk`,
@@ -168,8 +172,8 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   `desktop.ini`, `$RECYCLE.BIN`, `System Volume Information`, `.directory`,
   `.thumbnails`, `.nomedia`, `.ourstick-drive`, `.ourstick-partial`, and names
   starting with `._`, `.Trash-`, `.trashed-` or `.pending-` (Android's media
-  store puts the last three beside photos, ADR 0029). The shared folder itself
-  may have any name.
+  store puts the last three beside photos, ADR 0029), in any ASCII letter
+  case. The shared folder itself may have any name.
 - A **drive** (the app's stick, `owned_sticks.kind = 'app'`) carries the file
   `.ourstick-drive`, holding its StickId in hex. Without it (an ejected disk
   image, an empty mount point, another stick's drive) the owner does not

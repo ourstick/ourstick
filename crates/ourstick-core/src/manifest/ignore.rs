@@ -43,9 +43,11 @@ const PREFIXES: &[&str] = &["._", ".Trash-", ".trashed-", ".pending-", ".ourstic
 /// The start of OurStick's own names, in any letter case.
 const OURSTICK_PREFIX: &[u8] = b".ourstick-";
 
-/// Whether a file or folder with this name is left out of every stick.
+/// Whether a file or folder with this name is left out of every stick, in
+/// any ASCII letter case (Windows and macOS write `Desktop.ini` and
+/// `desktop.ini` alike).
 pub fn is_ignored(name: &str) -> bool {
-    NAMES.contains(&name)
+    NAMES.iter().any(|known| known.eq_ignore_ascii_case(name))
         || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
         // OurStick's own names in any letter case, as a receiver takes them
         // (compared in place: this runs for every file of a walk).
@@ -77,6 +79,11 @@ mod tests {
             ".nomedia",
             ".trashed-1712345678-IMG_1.jpg",
             ".pending-1712345678-VID_2.mp4",
+            // As Windows and macOS write them, in another letter case.
+            "Desktop.ini",
+            "THUMBS.DB",
+            ".ds_store",
+            "$Recycle.Bin",
         ] {
             assert!(is_ignored(name), "{name}");
         }

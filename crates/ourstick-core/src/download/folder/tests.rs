@@ -127,28 +127,6 @@ fn a_file_only_touched_here_is_still_updated() {
 }
 
 #[test]
-fn a_file_not_written_by_get_counts_only_if_its_content_matches() {
-    let out = tempfile::tempdir().unwrap();
-    std::fs::write(out.path().join("same"), b"one").unwrap();
-    std::fs::write(out.path().join("other"), b"mine").unwrap();
-    let plan = plan_folder(
-        out.path(),
-        &manifest(vec![entry("other", b"two"), entry("same", b"one")]),
-        &[],
-        &[],
-        &cipher(),
-    )
-    .unwrap();
-    assert_eq!(
-        plan.files,
-        vec![FilePlan::ChangedHere, FilePlan::AlreadyHere]
-    );
-    assert_eq!(plan.found.len(), 1);
-    assert_eq!(plan.found[0].path, "same");
-    assert_eq!(plan.found[0].blob_hash, entry("same", b"one").hash);
-}
-
-#[test]
 fn a_folder_in_the_way_is_left_alone_and_the_file_saved_beside_it() {
     let out = tempfile::tempdir().unwrap();
     std::fs::create_dir(out.path().join("a")).unwrap();

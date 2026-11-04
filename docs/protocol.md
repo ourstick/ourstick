@@ -280,7 +280,12 @@ never publishes a larger one; its pass fails, saying the stick must be split.
   nonce is derived from the content, so equal content gives an equal hash).
   Equal: it is already here. Different: it was changed in the folder, and it
   is left as it is and reported, every time, until the user moves or deletes
-  it; then the stick's version is written.
+  it; then the stick's version is written. A file equal to the stick's that
+  `get` has no record of is recorded as written only if its modification
+  time is the entry's, to the second, as `get` sets it (a record lost to a
+  power cut); otherwise it is counted as here but not recorded: it may be
+  the user's own, whose content the owner guessed, and a later version must
+  never replace it.
 - Right before a file is moved into place, the file there is checked again:
   it must be absent, or still as planned. Otherwise it is left and reported.
 - Each file is written into the hidden partial folder, synced, then moved

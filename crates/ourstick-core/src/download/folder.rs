@@ -311,12 +311,20 @@ pub(super) fn plan_folder_by(
             // Touched here, or never written by `get`: the content decides.
             _ => match hash_of(&target) {
                 Some(local) if local == entry.hash => {
-                    found.push(DownloadedFile {
-                        path: entry.path.clone(),
-                        saved_as: saved_as.to_string(),
-                        stamp,
-                        blob_hash: entry.hash,
-                    });
+                    // Recorded only if `get` wrote it: recorded once, or
+                    // with the very time `get` gives a file (the entry's, to
+                    // the second; records lost to a power cut, ADR 0014).
+                    // One it never wrote may be the user's own, whose content
+                    // the owner guessed (a blob's hash follows from it):
+                    // recorded, the next version would replace it.
+                    if row.is_some() || stamp.mtime_ns / 1_000_000_000 == entry.mtime {
+                        found.push(DownloadedFile {
+                            path: entry.path.clone(),
+                            saved_as: saved_as.to_string(),
+                            stamp,
+                            blob_hash: entry.hash,
+                        });
+                    }
                     FilePlan::AlreadyHere
                 }
                 // Only its times changed; the content is what `get` wrote.
@@ -382,3 +390,6 @@ mod gauge_tests;
 
 #[cfg(all(test, unix))]
 mod odd_places_tests;
+
+#[cfg(test)]
+mod adopted_tests;

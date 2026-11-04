@@ -87,7 +87,13 @@ fn across_disks_it_is_copied_whole_with_its_times_then_the_old_one_goes() {
     let to = world.elsewhere.join("Holiday");
     let other_disk =
         |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices));
-    move_folder(&world.from, &to, &other_disk).unwrap();
+    let moved = move_folder(&world.from, &to, &other_disk).unwrap();
+    // The old one stays until the move is recorded.
+    assert!(world.from.join("notes.txt").exists());
+    let Moved::Copied(copied) = moved else {
+        panic!("{moved:?}")
+    };
+    remove_copied(&world.from, &copied);
     assert!(!world.from.exists());
     assert_eq!(std::fs::read(to.join("notes.txt")).unwrap(), b"notes");
     let new = std::fs::metadata(to.join("notes.txt"))
@@ -95,6 +101,26 @@ fn across_disks_it_is_copied_whole_with_its_times_then_the_old_one_goes() {
         .modified()
         .unwrap();
     assert_eq!(new, old, "the time stays: what came is still known as such");
+}
+
+#[cfg(unix)]
+#[test]
+fn across_disks_what_was_not_copied_stays_in_the_old_folder() {
+    let world = world();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), world.from.join("Summer/mine")).unwrap();
+    let to = world.elsewhere.join("Holiday");
+    let other_disk =
+        |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices));
+    let Moved::Copied(copied) = move_folder(&world.from, &to, &other_disk).unwrap() else {
+        panic!("renamed")
+    };
+    remove_copied(&world.from, &copied);
+    // The user's link was not copied, so it stays, with its folders.
+    assert!(std::fs::symlink_metadata(world.from.join("Summer/mine")).is_ok());
+    assert!(!world.from.join("notes.txt").exists());
+    assert!(!world.from.join("Summer/sea.jpg").exists());
+    assert!(elsewhere.path().exists());
 }
 
 #[test]

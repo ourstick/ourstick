@@ -1,0 +1,10 @@
+# The actions CI runs are pinned by commit (ci.yml): Dependabot proposes
+# the new commit when an action is released. Security fixes for the Rust
+# and npm dependencies come through Dependabot's alerts (on in the
+# repository's settings).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

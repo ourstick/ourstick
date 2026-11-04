@@ -68,6 +68,8 @@ pub enum RecordError {
     UnsupportedVersion(u8),
     #[error("manifest record has an invalid stick id")]
     InvalidStickId,
+    #[error("manifest record has a seq above 2^63 - 1")]
+    SeqTooLarge,
     #[error("manifest record belongs to another stick")]
     WrongStick,
     #[error("manifest record signature is invalid")]
@@ -172,9 +174,15 @@ impl SignedManifestRecord {
         }
         let stick_id = StickId::from_bytes(bytes[1..33].try_into().expect("32 bytes"))
             .map_err(|_| RecordError::InvalidStickId)?;
+        let seq = u64::from_be_bytes(bytes[33..41].try_into().expect("8 bytes"));
+        // What the store keeps (SQLite's integers): a record past it is no
+        // record of an owner, whose seq is its clock in milliseconds.
+        if i64::try_from(seq).is_err() {
+            return Err(RecordError::SeqTooLarge);
+        }
         let record = ManifestRecord {
             stick_id,
-            seq: u64::from_be_bytes(bytes[33..41].try_into().expect("8 bytes")),
+            seq,
             manifest_hash: bytes[41..73].try_into().expect("32 bytes"),
         };
         Ok(Self {

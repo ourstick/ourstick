@@ -200,6 +200,14 @@ fn from_bytes_rejects_bad_layout() {
         SignedManifestRecord::from_bytes(&bad_key),
         Err(RecordError::InvalidStickId)
     );
+    // A seq the store cannot keep, even signed.
+    let past = owner().sign_record(1 << 63, [9; 32]).to_bytes();
+    assert_eq!(
+        SignedManifestRecord::from_bytes(&past),
+        Err(RecordError::SeqTooLarge)
+    );
+    let last = owner().sign_record(i64::MAX as u64, [9; 32]).to_bytes();
+    assert!(SignedManifestRecord::from_bytes(&last).is_ok());
 }
 
 #[test]

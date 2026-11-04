@@ -535,7 +535,7 @@ Fixed length, 137 bytes, no postcard:
 |--------|--------|-----------------|----------------------------------------------|
 | 0      | 1      | `version`       | `0x01`                                       |
 | 1      | 32     | `stick_id`      | Ed25519 verifying key                        |
-| 33     | 8      | `seq`           | u64, big-endian                              |
+| 33     | 8      | `seq`           | u64, big-endian, at most 2^63 − 1            |
 | 41     | 32     | `manifest_hash` | BLAKE3 hash of the manifest blob             |
 | 73     | 64     | `signature`     | Ed25519 signature over the message below     |
 

@@ -73,6 +73,7 @@ fn a_folder_name_is_one_every_system_takes() {
     assert_eq!(folder_name("con", none), "con_");
     assert_eq!(folder_name("COM1.txt", none), "COM1_.txt");
     assert_eq!(folder_name("LPT9", none), "LPT9_");
+    assert_eq!(folder_name("-rf photos", none), "_rf photos");
     assert_eq!(folder_name("Μαρι\u{301}α", none), "Μαρία");
     // Too long: cut, not given up on.
     let long = folder_name(&"Ταξίδι ".repeat(60), none);

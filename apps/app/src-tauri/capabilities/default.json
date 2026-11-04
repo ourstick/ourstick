@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the app's windows may do: the app's own commands, and close themselves.",
+  "description": "What the app's windows may do: the app's own commands, and close themselves. No plugin's command is granted (clipboard, opener, dialog are used from Rust only). The app's commands are allowed because src-tauri has no permissions folder: adding one makes every app command denied unless listed there.",
   "windows": [
     "main",
     "share-*",

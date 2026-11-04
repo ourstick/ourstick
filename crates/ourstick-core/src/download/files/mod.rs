@@ -221,6 +221,7 @@ pub(super) fn prepare_partial_dir(output_dir: &Path) -> Result<PathBuf, Download
     }
     super::receive::write_hidden(&partial.join(PARTIAL_MARK), b"").map_err(io_error(&partial))?;
     hide_folder(&partial);
+    leftovers::clear(&partial);
     Ok(partial)
 }
 
@@ -375,7 +376,9 @@ fn place(
 }
 
 mod from_internet;
+mod leftovers;
 mod refused;
+pub use leftovers::remove_partial_folder;
 use refused::its_place_refused;
 
 #[cfg(test)]

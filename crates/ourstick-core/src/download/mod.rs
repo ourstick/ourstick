@@ -15,6 +15,7 @@ mod fetch_files;
 mod fetch_one;
 mod fetch_queue;
 pub(crate) mod files;
+pub use files::remove_partial_folder;
 mod folder;
 mod follow;
 mod joined;

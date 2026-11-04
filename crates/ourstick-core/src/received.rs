@@ -216,6 +216,7 @@ fn finish(
     // Last, and only tried: the files are the user's now, without OurStick's
     // mark among them.
     if let Some(folder) = folder {
+        crate::download::remove_partial_folder(&folder);
         crate::download::unmark_received_folder(&folder, stick_id);
     }
     Ok(())

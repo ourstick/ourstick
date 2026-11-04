@@ -136,8 +136,16 @@ fn a_new_stick_has_its_own_node_key_and_loads_with_the_same_keys() {
         .put(&SecretName::StickNodeKey(stick.stick_id), &[1; 32])
         .unwrap();
     assert!(matches!(
-        load_stick(&store, &secrets, stick),
+        load_stick(&store, &secrets, stick.clone()),
         Err(DeviceError::NodeKeyMismatch { .. })
+    ));
+    // A signing key that is not the stick's is refused too.
+    secrets
+        .put(&SecretName::StickSigningKey(stick.stick_id), &[2; 32])
+        .unwrap();
+    assert!(matches!(
+        load_stick(&store, &secrets, stick),
+        Err(DeviceError::SigningKeyMismatch { .. })
     ));
 }
 
@@ -158,7 +166,7 @@ fn an_older_stick_uses_the_device_node_key() {
     let older = OwnedStick {
         node_id: None,
         ..OwnedStick::new(
-            StickSigningKey::generate().stick_id(),
+            StickSigningKey::from_bytes(&[3; 32]).stick_id(),
             "older",
             "/tmp/o",
             CIPHER,

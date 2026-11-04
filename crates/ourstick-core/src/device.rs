@@ -39,6 +39,8 @@ pub enum DeviceError {
     OtherSecretStore { recorded: String, given: String },
     #[error("the network key of the stick \u{201c}{stick}\u{201d} is not the one recorded for it; OurStick will not use it (its links name another). Restore the right key.")]
     NodeKeyMismatch { stick: String },
+    #[error("the signing key of the stick \u{201c}{stick}\u{201d} is not the one of its link; OurStick will not use it (readers would refuse every update). Restore the right key.")]
+    SigningKeyMismatch { stick: String },
     #[error("the stick \u{201c}{stick}\u{201d} uses this device's network key, but the database records none; the database is inconsistent")]
     NoDeviceNodeKey { stick: String },
     #[error(transparent)]
@@ -261,6 +263,13 @@ pub fn load_stick(
     stick: OwnedStick,
 ) -> Result<StickKeys, DeviceError> {
     let signing = load_key(secrets, &SecretName::StickSigningKey(stick.stick_id))?;
+    let signing_key = StickSigningKey::from_bytes(&signing);
+    // Who before what: the key that signs must be the stick's.
+    if signing_key.stick_id() != stick.stick_id {
+        return Err(DeviceError::SigningKeyMismatch {
+            stick: stick.name.clone(),
+        });
+    }
     let stick_key = load_key(secrets, &SecretName::StickKey(stick.stick_id))?;
     let (name, recorded) = match stick.node_id {
         Some(node_id) => (SecretName::StickNodeKey(stick.stick_id), node_id),
@@ -282,7 +291,7 @@ pub fn load_stick(
     }
     Ok(StickKeys {
         stick,
-        signing_key: StickSigningKey::from_bytes(&signing),
+        signing_key,
         stick_key: StickKey::from_bytes(stick_key),
         node_key,
     })

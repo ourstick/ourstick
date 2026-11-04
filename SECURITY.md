@@ -26,3 +26,45 @@ Only the latest release gets fixes. New releases are announced on
 Watch → Custom → Releases there to be told, or follow
 `https://github.com/ourstick/ourstick/releases.atom`. OurStick does not
 check for updates by itself.
+
+## What OurStick protects, and what it does not
+
+What it is built to hold against:
+
+- **Anyone on the network, relays included:** they see that two computers
+  talk, never the files, their names or their sizes. Everything is
+  encrypted on the sender's computer before it leaves
+  ([docs/protocol.md](docs/protocol.md)).
+- **Anyone who knows a sender's node id,** which is in every link's public
+  part: they can connect, but what they may hold of the sender (requests,
+  transfers, connections, memory) is bounded
+  ([ADR 0031](docs/decisions/0031-what-one-peer-may-hold.md)). With the
+  public part alone they can fetch the encrypted list of files, and learn
+  when it changes and about how big it is, never a name.
+- **A sender whose link you opened:** what it sends is checked before it is
+  written. It cannot write outside the folder you chose, replace a file of
+  yours, or fill your disk past the space you agreed to, and every file you
+  receive carries the mark of a download from the internet on Windows and
+  macOS ([ADR 0032](docs/decisions/0032-received-files-are-from-the-internet.md)).
+  It does learn which of the paths it names already exist in that folder.
+- **A former reader after a new link:** the new link has new keys; nothing
+  of the stick reaches the old one again.
+
+What it does not hold against, by design or for now:
+
+- **Someone who has your link.** A link is the key: whoever has it can take
+  the files, and can keep the sender's transfers busy. The remedy is a new
+  link, which ends every old one.
+- **Programs running as you on your own computer.** On Linux and Windows
+  they can read OurStick's keys from the system's key store, as they can
+  read your files; on Linux they can also use the app's tray menu and its
+  session D-Bus names (they could, say, turn "Start at login" on or off).
+  macOS keeps the keys to OurStick itself. A program that can change files
+  in a folder you share or receive into can also race OurStick's checks.
+- **What you open.** A received file is what its sender made. The mark of
+  the web makes Windows and macOS ask before a program runs, but a
+  shortcut or an Internet Shortcut file (`.lnk`, `.url`) can reach out to
+  the network when a folder showing it is opened, as with any download.
+- **Signed downloads:** the Windows installer and the Linux package are
+  not signed yet; the macOS app is signed and notarized. The SHA-256 sums
+  on the site and on GitHub Releases come from the same place as the files.

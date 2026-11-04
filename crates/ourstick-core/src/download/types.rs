@@ -216,7 +216,11 @@ pub enum DownloadError {
     ReceivedByApp(PathBuf),
     #[error("this stick is being forgotten by OurStick (the app); open the app to finish that, then try again")]
     BeingForgotten,
-    #[error("I/O error on {path}: {source}")]
+    /// The path can hold names the owner chose: escaped when shown.
+    #[error(
+        "I/O error on {}: {source}",
+        crate::untrusted::escape(&.path.to_string_lossy())
+    )]
     Io {
         path: PathBuf,
         #[source]

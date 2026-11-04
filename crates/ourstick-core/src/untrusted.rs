@@ -10,7 +10,11 @@
 pub fn escape(text: &str) -> String {
     text.chars()
         .map(|character| {
-            if character.is_control() || turns_direction(character) {
+            // Line and paragraph separators break a line as `\n` does.
+            if character.is_control()
+                || turns_direction(character)
+                || matches!(character, '\u{2028}' | '\u{2029}')
+            {
                 format!("\\u{{{:x}}}", character as u32)
             } else {
                 character.to_string()
@@ -38,6 +42,7 @@ mod tests {
         assert_eq!(escape("\u{1b}[2Jevil"), "\\u{1b}[2Jevil");
         assert_eq!(escape("a\nb\rc\u{7}"), "a\\u{a}b\\u{d}c\\u{7}");
         assert_eq!(escape("\u{9b}31m"), "\\u{9b}31m");
+        assert_eq!(escape("a\u{2028}b\u{2029}"), "a\\u{2028}b\\u{2029}");
     }
 
     #[test]

@@ -7,8 +7,9 @@ pub fn untrusted(text: &str) -> String {
 }
 
 /// [`untrusted`] line by line: our own messages keep their line breaks
-/// (the usage text), and nothing a peer names can hold one (stick and file
-/// names are refused with control characters).
+/// (the usage text). A peer's names reach an error already escaped (a stick
+/// name with a control character is refused; a file's path is escaped where
+/// the error is made), so none can start a line of its own.
 pub fn untrusted_lines(text: &str) -> String {
     text.split('\n')
         .map(untrusted)

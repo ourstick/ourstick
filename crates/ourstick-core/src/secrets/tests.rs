@@ -376,3 +376,13 @@ fn key_file_leaves_no_temporary_files() {
         .collect();
     assert_eq!(names, vec![std::ffi::OsString::from("keys.oskf")]);
 }
+
+#[test]
+fn a_memory_store_prints_how_many_secrets_never_what() {
+    let store = MemorySecretStore::new();
+    store
+        .put(&SecretName::StickKey(stick_id()), b"top-secret-bytes")
+        .unwrap();
+    let printed = format!("{store:?}");
+    assert_eq!(printed, "MemorySecretStore { held: 1 }");
+}

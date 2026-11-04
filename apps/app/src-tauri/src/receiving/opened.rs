@@ -12,7 +12,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// What Receive was opened with.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Opened {
     /// A whole sharing link: looked at at once. Only a phone gets one.
@@ -21,6 +21,16 @@ pub enum Opened {
     /// Nothing: the link is on the clipboard, if anywhere, and is looked at
     /// only once the user says so.
     Asked,
+}
+
+/// Never the link: a debug print must not put a stick's key in a log.
+impl std::fmt::Debug for Opened {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Link { .. } => formatter.write_str("Link { .. }"),
+            Self::Asked => formatter.write_str("Asked"),
+        }
+    }
 }
 
 /// What opened Receive last and was not yet taken.
@@ -126,5 +136,13 @@ mod tests {
         assert!(opened.waiting());
         assert_eq!(opened.take(), Some(Opened::Asked));
         assert_eq!(opened.take(), None);
+    }
+
+    #[test]
+    fn a_debug_print_never_shows_the_link() {
+        let link = crate::receiving::clipboard::tests::a_link();
+        let printed = format!("{:?}", Opened::Link { link: link.clone() });
+        assert_eq!(printed, "Link { .. }");
+        assert!(!printed.contains(&link[link.len() - 10..]));
     }
 }

@@ -7,9 +7,20 @@ use std::sync::Mutex;
 use super::{Durability, SecretError, SecretName, SecretStore};
 
 /// A [`SecretStore`] that forgets everything when dropped.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct MemorySecretStore {
     secrets: Mutex<HashMap<SecretName, Vec<u8>>>,
+}
+
+/// How many secrets it holds, never what they are.
+impl std::fmt::Debug for MemorySecretStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let held = self.secrets.lock().map_or(0, |secrets| secrets.len());
+        formatter
+            .debug_struct("MemorySecretStore")
+            .field("held", &held)
+            .finish()
+    }
 }
 
 impl MemorySecretStore {

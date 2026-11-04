@@ -8,6 +8,9 @@ use std::sync::Arc;
 
 use rand::RngCore;
 
+mod private_dir;
+use private_dir::create_private_dir;
+
 use crate::cipher::{CipherId, StickKey};
 use crate::clock::{Clock, SystemClock};
 use crate::secrets::{SecretError, SecretName, SecretStore};
@@ -84,16 +87,6 @@ fn data_dir_from(
     }
     let home = set("HOME").ok_or(DeviceError::NoHome("$HOME"))?;
     Ok(PathBuf::from(home).join(".local/share/ourstick"))
-}
-
-fn create_private_dir(dir: &Path) -> Result<(), DeviceError> {
-    std::fs::create_dir_all(dir).map_err(io(dir))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(io(dir))?;
-    }
-    Ok(())
 }
 
 /// Creates the data folder (private to the user) if needed and opens the

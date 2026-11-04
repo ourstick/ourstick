@@ -310,3 +310,20 @@ fn only_an_app_stick_with_a_folder_of_its_own_is_a_drive() {
     assert!(app.stick.is_drive());
     assert!(!cli.stick.is_drive());
 }
+
+#[cfg(unix)]
+#[test]
+fn only_a_data_folder_made_here_is_made_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let made = dir.path().join("made");
+    create_private_dir(&made).unwrap();
+    assert_eq!(mode(&made), 0o700);
+    // A folder named by OURSTICK_DATA_DIR that was there keeps its mode.
+    let there = dir.path().join("there");
+    std::fs::create_dir(&there).unwrap();
+    std::fs::set_permissions(&there, std::fs::Permissions::from_mode(0o755)).unwrap();
+    create_private_dir(&there).unwrap();
+    assert_eq!(mode(&there), 0o755);
+}

@@ -53,6 +53,39 @@ const STREAM_WINDOW: u32 = 256 * 1024;
 /// What a peer may send on all streams of one connection of an owner.
 const CONNECTION_WINDOW: u32 = 1024 * 1024;
 
+/// What a connection's asks may tell the owner's keeper (ADR 0031): a steady
+/// rate, and a burst of [`ASKS_BURST`].
+const ASKS_PER_SECOND: f64 = 64.0;
+const ASKS_BURST: f64 = 256.0;
+
+/// The asks of one connection that the owner's keeper hears of.
+#[derive(Debug)]
+pub(super) struct Asks(std::sync::Mutex<(f64, std::time::Instant)>);
+
+impl Asks {
+    pub(super) fn new(now: std::time::Instant) -> Self {
+        Self(std::sync::Mutex::new((ASKS_BURST, now)))
+    }
+
+    /// Whether an ask at `now` is told.
+    pub(super) fn take(&self, now: std::time::Instant) -> bool {
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (tokens, at) = &mut *state;
+        let elapsed = now.saturating_duration_since(*at).as_secs_f64();
+        *tokens = (*tokens + elapsed * ASKS_PER_SECOND).min(ASKS_BURST);
+        *at = now;
+        if *tokens >= 1.0 {
+            *tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// The QUIC limits of an owner's endpoint: it only takes requests.
 pub(super) fn serving_transport() -> QuicTransportConfig {
     QuicTransportConfig::builder()
@@ -173,6 +206,18 @@ mod tests {
         assert_eq!(parse_request(&trailing), None);
         assert_eq!(parse_request(&[]), None);
         assert_eq!(parse_request(&[200, 1, 2]), None);
+    }
+
+    #[test]
+    fn a_connections_asks_are_told_at_a_steady_rate() {
+        let start = std::time::Instant::now();
+        let asks = Asks::new(start);
+        let told = (0..1000).filter(|_| asks.take(start)).count();
+        assert_eq!(told, ASKS_BURST as usize);
+        // A second later, a second's worth more.
+        let later = start + Duration::from_secs(1);
+        let more = (0..1000).filter(|_| asks.take(later)).count();
+        assert_eq!(more, ASKS_PER_SECOND as usize);
     }
 
     #[tokio::test]

@@ -55,6 +55,13 @@ reproduces the first):
    manifest's bounds on paths and sizes (protocol.md, "Validity rules"),
    the space a reader asks the user for is the space it uses.
 
+6. **Asks are a hint, so many a second.** Each get the owner does not
+   refuse tells its keeper what was asked (ADR 0017), on a queue with no
+   bound. A connection's asks are told at most 64 a second, after a burst
+   of 256; the rest are answered as ever, only not told. A reader fetching
+   32 files at once, asking again after a "not ready" a quarter of a second
+   later and then less often, stays well under it.
+
 ## Consequences
 
 - An owner's open files from serving are bounded: two per transfer, 64

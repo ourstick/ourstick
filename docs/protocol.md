@@ -694,7 +694,10 @@ knows the node id can connect:
   more is answered "not ready", and the reader asks again), and 128
   connections at once per stick on the blobs protocol (one more is closed);
 - a transfer that the reader takes nothing of for 2 minutes is ended; the
-  reader asks again and resumes.
+  reader asks again and resumes;
+- what a connection asks for is told to the owner's keeper (ADR 0017) at
+  most 64 times a second, after a burst of 256: the rest is answered as
+  ever, only not told.
 
 A reader fetches no more of a file's blob than its manifest entry's size
 allows (header, size and one tag per chunk): a longer blob is stopped as

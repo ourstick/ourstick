@@ -136,6 +136,7 @@ impl ProtocolHandler for BlobsHandler {
         // At most this many transfers of the connection at once: its next
         // stream is taken only once one ends (ADR 0031).
         let places = Arc::new(Semaphore::new(limits::TRANSFERS_PER_CONNECTION));
+        let asks = Arc::new(limits::Asks::new(std::time::Instant::now()));
         loop {
             let Ok(place) = places.clone().acquire_owned().await else {
                 break;
@@ -144,8 +145,9 @@ impl ProtocolHandler for BlobsHandler {
                 break;
             };
             let handler = self.clone();
+            let asks = asks.clone();
             tokio::spawn(async move {
-                serve_stream(handler, id, writer, reader).await;
+                serve_stream(handler, id, &asks, writer, reader).await;
                 drop(place);
             });
         }
@@ -168,6 +170,7 @@ impl ProtocolHandler for BlobsHandler {
 async fn serve_stream(
     handler: BlobsHandler,
     connection: u64,
+    asks: &limits::Asks,
     mut writer: SendStream,
     mut reader: iroh::endpoint::RecvStream,
 ) {
@@ -187,7 +190,9 @@ async fn serve_stream(
     let decision = handler
         .serving
         .decide(request.hash, request.ranges.is_blob());
-    if !matches!(decision, Decision::Refuse) {
+    // A hint for the owner's keeper, so many a second per connection: a
+    // reader asking again and again does not fill its queue (ADR 0031).
+    if !matches!(decision, Decision::Refuse) && asks.take(std::time::Instant::now()) {
         handler
             .demand
             .send(Demand::Asked {

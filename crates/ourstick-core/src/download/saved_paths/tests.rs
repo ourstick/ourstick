@@ -172,11 +172,12 @@ fn recorded_places_made_one_by_folding_are_moved() {
 }
 
 #[test]
-fn ourstick_names_at_the_top_are_marked() {
+fn ourstick_names_are_marked_deeper_too() {
+    // Deeper, as names an owner never sends (`manifest::ignore`).
     let saved = plan(&[".ourstick-partial/x", "sub/.ourstick-partial"], LINUX);
     assert_eq!(
         saved.saved,
-        ["_.ourstick-partial/x", "sub/.ourstick-partial"]
+        ["_.ourstick-partial/x", "sub/_.ourstick-partial"]
     );
 }
 

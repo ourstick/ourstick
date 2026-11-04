@@ -117,7 +117,8 @@ recorded, so later versions write to the same place:
   same everywhere; a first name the reader uses itself (any name starting
   with `.ourstick-`, such as `.ourstick-partial` and `.ourstick-received`,
   in any letter case as a disk folds it, and a short name Windows may give
-  them, such as `OURSTI~1`) gets `_` in front, and an owner leaves such names out
+  them, such as `OURSTI~1`) gets `_` in front, and so does, at any depth, a
+  name an owner leaves out as a system's own (`._x`, `desktop.ini`, below), and an owner leaves such names out
   of its sticks; a name too
   long for the system is cut, keeping its extension; a name no rule can
   make savable (it should not happen) is saved as `_`;

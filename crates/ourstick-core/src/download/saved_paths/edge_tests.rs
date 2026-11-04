@@ -167,3 +167,12 @@ fn many_names_that_are_one_here_cost_a_bounded_number_of_tries() {
     assert!(numbered > 600 && !saved.left_out.is_empty(), "{numbered}");
     assert!(started.elapsed() < std::time::Duration::from_secs(30));
 }
+
+#[test]
+fn a_systems_own_name_from_a_sender_gets_a_mark_in_front() {
+    let saved = plan(&["Photos/._tool", "Photos/tool", "desktop.ini"], LINUX);
+    assert_eq!(
+        saved.saved,
+        ["Photos/_._tool", "Photos/tool", "_desktop.ini"]
+    );
+}

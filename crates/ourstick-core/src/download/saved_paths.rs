@@ -249,10 +249,9 @@ fn unchanged(
     if not_ours(names[0], &OURS).is_some() {
         return false;
     }
-    if names
-        .iter()
-        .any(|name| safe_name(name, rules.windows) != *name)
-    {
+    if names.iter().any(|name| {
+        safe_name(name, rules.windows) != *name || crate::manifest::ignore::is_ignored(name)
+    }) {
         return false;
     }
     let mut folder = String::new();
@@ -345,6 +344,11 @@ fn choose(
 /// first, then made savable: the mark counts in its length).
 fn savable(name: &str, first: bool, rules: Rules) -> String {
     let marked = if first { not_ours(name, &OURS) } else { None };
+    // A system's own name (`._x`, which holds another file's attributes on
+    // a FAT disk under macOS, `desktop.ini`, `.Trash-1000`), which no owner
+    // sends: given a `_`, never taken by a system for its own.
+    let marked =
+        marked.or_else(|| crate::manifest::ignore::is_ignored(name).then(|| format!("_{name}")));
     let name = marked.as_deref().unwrap_or(name);
     safe_name(name, rules.windows).into_owned()
 }

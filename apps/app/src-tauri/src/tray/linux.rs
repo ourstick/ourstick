@@ -102,11 +102,19 @@ pub fn create(app: &AppHandle) -> Result<()> {
                 Err(_) if attempt < TRAY_ATTEMPTS => {
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
-                Err(error) => tracing::warn!(
-                    %error,
-                    "no tray icon: this desktop shows no StatusNotifierItem \
-                     (on GNOME it needs the AppIndicator extension)"
-                ),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "no tray icon yet: this desktop shows no StatusNotifierItem \
+                         (on GNOME it needs the AppIndicator extension)"
+                    );
+                    // The host may come later (a screen locked at start
+                    // turns GNOME's extensions off): the icon then shows
+                    // the moment it is there.
+                    if let Ok(handle) = tray(&app).assume_sni_available(true).spawn().await {
+                        let _ = app.state::<LinuxTray>().handle.set(handle);
+                    }
+                }
             }
         }
         // Started at login with no tray, it would run unseen (ADR 0024).

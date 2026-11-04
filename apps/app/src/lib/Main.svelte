@@ -10,6 +10,7 @@
     appProblem,
     dismissAppProblem,
     onPhone,
+    openDialog,
     received,
     sticks,
     type About,
@@ -247,7 +248,14 @@
   </div>
 
   {#if version && shown.kind === "home"}
-    <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+    <footer>
+      <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+      <!-- Quit is always within reach in the window: the tray and the app
+           menu are a help, never the only way (docs/gui-spec.md). -->
+      {#if !phone}
+        <button class="version muted" onclick={() => openDialog(true, null)}>Quit OurStick…</button>
+      {/if}
+    </footer>
   {/if}
 </main>
 
@@ -292,8 +300,12 @@
     align-items: center;
     gap: 6px;
   }
+  footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
   .version {
-    align-self: flex-start;
     padding: 0;
     border: none;
     background: none;

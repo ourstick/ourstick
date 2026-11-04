@@ -340,7 +340,8 @@ device." The fragment never leaves the browser (ADR 0022).
   is there when `org.kde.StatusNotifierWatcher` has an owner on the session
   bus and `IsStatusNotifierHostRegistered` is true.
 - **Quit** (the tray, the app menu, the Dock and ⌘Q on macOS, `Quit
-  OurStick` above): "Quit OurStick?" "While it is closed, nothing is sent
+  OurStick` above, and `Quit OurStick…` at the bottom of Home on every
+  computer, where it is always within reach, a tray or not): "Quit OurStick?" "While it is closed, nothing is sent
   or received. It all goes on when OurStick opens again." In bold, what
   goes on: "Maria is getting “Holiday photos” right now.", "“Family videos”
   is still downloading." The start-at-login check. `Quit` / `Minimize
@@ -361,6 +362,9 @@ device." The fragment never leaves the browser (ADR 0022).
   which Ubuntu ships; without such a host there is no tray icon, and the app
   logs why. At login the host may come later: the app tries for 30 seconds,
   then, if it was started at login, shows its window rather than run unseen.
+  After that it still waits for a host, and the icon shows the moment one
+  comes (GNOME turns its extensions off while the screen is locked, so an
+  app started then would otherwise have no icon until it is started again).
 
 ### Start at login, and About (ADR 0024)
 

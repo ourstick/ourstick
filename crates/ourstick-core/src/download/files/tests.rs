@@ -308,3 +308,41 @@ fn a_partial_folder_made_again_by_anyone_else_is_not_this_downloads() {
         Err(DownloadError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
     ));
 }
+
+#[test]
+fn a_time_out_of_range_is_not_set_and_the_file_is_kept() {
+    let output = tempfile::tempdir().unwrap();
+    let partial = prepare_partial_dir(output.path()).unwrap();
+    for (name, mtime) in [
+        ("far", u64::MAX),
+        ("past_i64", 1 << 63),
+        ("fine", 1_700_000_000),
+    ] {
+        let mut blob = Vec::new();
+        encrypt_blob(&NoCipher, &mut std::io::Cursor::new(b"data"), &mut blob).unwrap();
+        let ciphertext = partial.join(format!("{name}.blob"));
+        std::fs::write(&ciphertext, blob).unwrap();
+        let entry = Entry {
+            path: format!("{name}.txt"),
+            size: 4,
+            mtime,
+            hash: [0; 32],
+        };
+        let plaintext = partial.join(format!("{name}.plain"));
+        decrypt_into_place(
+            &NoCipher,
+            &entry,
+            &ciphertext,
+            &plaintext,
+            output.path(),
+            None,
+        )
+        .unwrap();
+        let saved = output.path().join(format!("{name}.txt"));
+        assert_eq!(std::fs::read(&saved).unwrap(), b"data");
+        if name == "fine" {
+            let modified = std::fs::metadata(&saved).unwrap().modified().unwrap();
+            assert_eq!(modified, UNIX_EPOCH + Duration::from_secs(mtime));
+        }
+    }
+}

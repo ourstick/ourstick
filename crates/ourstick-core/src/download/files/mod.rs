@@ -273,15 +273,27 @@ pub(super) fn decrypt_into_place(
             actual: written,
         });
     }
-    output
-        .set_modified(UNIX_EPOCH + Duration::from_secs(entry.mtime))
-        .map_err(io_error(plaintext))?;
+    set_mtime(&output, entry.mtime);
     output.sync_all().map_err(io_error(plaintext))?;
     drop(output);
 
     let placed = place(entry, plaintext, output_dir, replaceable)?;
     std::fs::remove_file(ciphertext).map_err(io_error(ciphertext))?;
     Ok(placed)
+}
+
+/// The modification time the sender gave, if this system can hold it. The
+/// time comes from a peer: one past what `SystemTime` holds would panic, and
+/// one the file system refuses (far in the future, before 1970 on some) only
+/// leaves the file with the time it was written.
+fn set_mtime(output: &File, mtime: u64) {
+    let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(mtime)) else {
+        tracing::debug!(mtime, "a received file's time is out of range; not set");
+        return;
+    };
+    if let Err(error) = output.set_modified(time) {
+        tracing::debug!(%error, mtime, "a received file's time could not be set");
+    }
 }
 
 /// For a file whose blob another entry of this download already brought:
@@ -311,9 +323,7 @@ pub(super) fn copy_into_place(
         .write(true)
         .open(plaintext)
         .map_err(io_error(plaintext))?;
-    output
-        .set_modified(UNIX_EPOCH + Duration::from_secs(entry.mtime))
-        .map_err(io_error(plaintext))?;
+    set_mtime(&output, entry.mtime);
     output.sync_all().map_err(io_error(plaintext))?;
     drop(output);
     Ok(Some(place(entry, plaintext, output_dir, replaceable)?))

@@ -115,3 +115,56 @@ async fn stalled_gets_hold_only_so_many_files() {
     fetcher.shutdown(false).await.unwrap();
     owner.publisher.shutdown().await;
 }
+
+/// Opens one stream on `connection` and sends a byte of a request, never
+/// the rest: the owner waits for it (at most 10 s, ADR 0031).
+async fn silent_stream(connection: &Connection) -> (SendStream, RecvStream) {
+    let (mut send, receive) = connection.open_bi().await.unwrap();
+    send.write_all(&[0]).await.unwrap();
+    (send, receive)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn silent_streams_never_keep_a_reader_out() {
+    let data = noise(64 * 1024, 4);
+    let owner = Owner::new(&[("a.bin", &data)]).await;
+    let publication = owner.publish().await;
+    let ticket = owner.ticket(&publication);
+    let hash = publication.manifest.entries[0].hash;
+
+    // Every connection a stick holds, each with a stream that asks nothing:
+    // a node id is enough, no key needed.
+    let attacker = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mut connections = Vec::new();
+    let mut held = Vec::new();
+    for _ in 0..128 {
+        let connection = attacker
+            .connect(owner_addr(&ticket), iroh_blobs::ALPN)
+            .await
+            .unwrap();
+        held.push(silent_stream(&connection).await);
+        connections.push(connection);
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // An honest reader still gets the file, well before the silent streams
+    // would end by themselves.
+    let reader = Reader::new();
+    let fetcher = reader.fetcher().await;
+    let fetched = tokio::time::timeout(Duration::from_secs(8), async {
+        let connection = fetcher.connect(&ticket).await.unwrap();
+        fetch_when_ready(&connection, &hash, &mut |_| GO)
+            .await
+            .unwrap();
+        connection.close().await;
+    })
+    .await;
+    assert!(fetched.is_ok(), "the reader was kept out");
+    assert!(fetcher.local_bytes(&hash).await.unwrap() > 0);
+    drop(held);
+    for connection in connections {
+        connection.close(0u32.into(), b"done");
+    }
+    fetcher.shutdown(false).await.unwrap();
+    owner.publisher.shutdown().await;
+}

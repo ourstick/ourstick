@@ -75,12 +75,33 @@ reproduces the first):
   stalled gets, against 385 without the limits.
 - Someone with the link can still take the 64 places, from a few
   connections, and keep them by reading slowly (at least 64 KiB each 2
-  minutes): other readers are then told "not ready" until they free. That stops the stick's transfers,
-  not the app; the remedy is the one the protocol has for any unwanted
-  reader, a new link.
+  minutes): other readers are then told "not ready" until they free. The places are
+  the program's, so that stops the file transfers of every stick the
+  computer shares, not only that stick's (Amendment 1); the remedy is the
+  one the protocol has for any unwanted reader, a new link for the stick
+  whose link was given.
 - Three readers each fetching 32 small files at once share 64 places: the
   third waits a little. Small files are sent quickly, so this is rarely
   seen.
 - The 64 places are one static for the program, like the made-blobs
   runtime (ADR 0017, rule 8): both are limits of the process, not of a
   stick.
+
+## Amendment 1: only a file's transfer counts (2026-11-05)
+
+Found by a second security review. Rule 3 counted a connection as having a
+transfer as soon as it opened a stream, before its request was read. Anyone
+with a node id could open the 128 connections, each with a stream that asks
+nothing (a new one every 10 seconds, before the old one ends), and every
+new connection of a real reader was closed as "busy".
+
+- A connection counts as busy only while it is sending a file: a stream
+  with no request yet, a request refused or "not ready", and the manifest
+  (which anyone with a link's public part may fetch) never keep it from
+  being closed for a new one. The test opens 128 connections with a silent
+  stream each, and a reader still gets its file.
+- The 64 places of rule 3 are the program's, for all sticks together, as
+  the last consequence says: someone holding them with one stick's link
+  holds back the file transfers of the computer's other sticks too. Kept
+  so, since the limit is the program's open files; a share per stick is
+  left for when it is seen to matter.

@@ -159,10 +159,7 @@ impl ProtocolHandler for BlobsHandler {
             };
             let handler = self.clone();
             tokio::spawn(async move {
-                let now = std::time::Instant::now;
-                handler.connections.transfer(id, true, now());
-                serve_stream(handler.clone(), id, writer, reader).await;
-                handler.connections.transfer(id, false, now());
+                serve_stream(handler, id, writer, reader).await;
                 drop(place);
             });
         }
@@ -256,8 +253,15 @@ async fn serve_stream(
             } else {
                 None
             };
+            // Only a file's transfer keeps the connection from being closed
+            // for a new one: a stream open with no request yet, or the
+            // manifest (the key not needed), never does, or anyone with a
+            // link's public part could keep every reader out (ADR 0031).
             if reads_a_file {
                 handler.activity.started(connection);
+                handler
+                    .connections
+                    .transfer(connection, true, std::time::Instant::now());
             }
             let pair = StreamPair::new(
                 connection,
@@ -270,6 +274,9 @@ async fn serve_stream(
             }
             if reads_a_file {
                 handler.activity.ended(connection);
+                handler
+                    .connections
+                    .transfer(connection, false, std::time::Instant::now());
             }
             // The store may leave now.
             drop(guard);

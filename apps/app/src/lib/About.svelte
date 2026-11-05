@@ -126,6 +126,9 @@
   .about {
     align-items: center;
     text-align: center;
+    /* A note more (the off warning, macOS's Login Items) must not push
+       Close out of the window. */
+    overflow-y: auto;
   }
   img {
     margin: 4px 0 8px;

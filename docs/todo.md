@@ -105,8 +105,12 @@ licence; nothing in the package changes that (only the Snap Store does).
 
 - **Small files:** a stick of 100 000 small files (464 MB) took 18 minutes
   the first time, Linux to Linux, before ADRs 0014 and 0016 (placing and
-  fetching in batches); to be measured again, and to Windows and macOS with
-  the app. The sender used 1.24 GB of memory for it then, too much.
+  fetching in batches), the sender using 1.24 GB of memory. Measured again
+  on 2026-11-06 with 0.3.0's CLI (`tools/measure/reader-memory.sh`), both
+  sides on one Linux computer and both folders in RAM: the first catalogue
+  about 10 s, the download 13.9 s (34 MB/s), the reader's memory at most
+  75 MB and 17 threads, the sender's 87 MB. Still to measure from a real
+  disk (a spinning one most of all), and to Windows and macOS with the app.
 - **The manifest is sent whole** at every new version (about 100 bytes a
   file: 100 MB for a million files). If it matters: send only what changed
   (a protocol change, its own ADR).

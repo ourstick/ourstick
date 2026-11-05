@@ -73,10 +73,9 @@ pub fn opened(app: &AppHandle, urls: &[tauri::Url]) {
     if urls
         .iter()
         .any(|url| scheme::is_receive(std::ffi::OsStr::new(url.as_str())))
+        && arrived(app)
     {
-        if arrived(app) {
-            crate::tray::show_main(app);
-        }
+        crate::tray::show_main(app);
     }
 }
 

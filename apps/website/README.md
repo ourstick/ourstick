@@ -11,8 +11,12 @@ address after `#`, which any foreign script could read (`site/_headers`).
 1. Build the three installers: the `.dmg` with `tools/macos/make-dmg.sh` on
    the Mac, the NSIS installer in the Windows VM (`docs/windows-dev.md`), the
    `.deb` with `npm run tauri build -- --bundles deb` in `apps/app`.
-2. `apps/website/make.sh <dmg> <setup.exe> <deb>` puts everything in
-   `apps/website/dist`.
+2. `OURSTICK_RELEASE_KEY=<the release key's secret file> apps/website/make.sh
+   <dmg> <setup.exe> <deb>` puts everything in `apps/website/dist`, with
+   `SHA256SUMS.txt` signed (it asks for the key's passphrase;
+   `release-keys/README.md`). The GitHub Release gets the same:
+   `tools/release/sign.sh SHA256SUMS-<version>.txt`, and its `.minisig`
+   goes up with the installers.
 3. `npx wrangler pages deploy apps/website/dist --project-name ourstick`
    (the first time, `npx wrangler login`, and the custom domain `ourstick.com`
    added to the project in the dashboard).

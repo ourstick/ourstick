@@ -9,6 +9,10 @@ accounts, no size limits.
 
 > Early development. Download the desktop app at https://ourstick.com.
 
+Each release's SHA-256 sums are signed with minisign, key
+`RWS7C6wOt/7eLZ1c4gP+CYXHWKYycOKldo6+LFUSHsA5TUwdiBot58Yh`; how to check a
+download: [release-keys/README.md](release-keys/README.md).
+
 ## Status
 
 - [x] Core library (manifest, cipher, ticket, store, transport)

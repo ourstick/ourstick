@@ -71,5 +71,8 @@ What it does not hold against, by design or for now:
   shortcut or an Internet Shortcut file (`.lnk`, `.url`) can reach out to
   the network when a folder showing it is opened, as with any download.
 - **Signed downloads:** the Windows installer and the Linux package are
-  not signed yet; the macOS app is signed and notarized. The SHA-256 sums
-  on the site and on GitHub Releases come from the same place as the files.
+  not signed yet; the macOS app is signed and notarized. Their SHA-256 sums
+  are signed with minisign from 0.2.1 on, with a key kept off every build
+  machine (`release-keys/`), so a changed file on the site or on GitHub
+  Releases shows when the sums are checked against the key in the
+  repository; the app does not check them itself.

@@ -64,6 +64,7 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outlin
 .download.mine { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .download.mine small { color: var(--accent-text); }
 .note { font-size: 0.92rem; color: var(--muted); }
+.note code { overflow-wrap: anywhere; }
 button {
   font: inherit; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); background: var(--card); color: var(--text);

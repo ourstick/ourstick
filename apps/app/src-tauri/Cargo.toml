@@ -49,6 +49,7 @@ jni.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+clipboard-win.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true

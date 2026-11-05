@@ -22,7 +22,6 @@ mod menu;
 mod phone;
 mod pick;
 mod problems;
-mod qr;
 mod receiving;
 mod refresh;
 #[cfg(any(windows, test))]
@@ -38,6 +37,8 @@ mod still_open;
 #[cfg(test)]
 mod testing;
 mod tray;
+#[cfg(windows)]
+mod unkept_clipboard;
 mod windows;
 mod words;
 
@@ -323,7 +324,6 @@ pub fn run() {
             share::copy_link,
             share::share_link,
             share::sends_in_background,
-            share::copy_qr_image,
             dialog::confirm_view,
             dialog::open_dialog,
             dialog::stop_sharing,

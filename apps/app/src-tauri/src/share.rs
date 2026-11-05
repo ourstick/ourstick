@@ -1,16 +1,13 @@
-//! The link of something sent, and its QR code: the link is the key, and
-//! goes to the clipboard when the user asks (`Copy link`), nowhere else.
+//! The link of something sent: the link is the key, and goes to the
+//! clipboard when the user asks (`Copy link`), nowhere else; on Windows
+//! with the marks that keep it out of the clipboard's history and cloud.
 
 use anyhow::Result;
-use tauri::image::Image;
 use tauri::{AppHandle, State};
+#[cfg(not(any(target_os = "android", windows)))]
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::qr;
 use crate::state::{stick_id as stick_id_of, AppState, Sharing};
-
-/// Pixels per module of the QR image put on the clipboard.
-const QR_IMAGE_SCALE: usize = 8;
 
 /// The link of `stick_id`, if it is shared and has been published.
 async fn link(state: &AppState, stick_id: &str) -> Result<Option<String>, String> {
@@ -27,6 +24,7 @@ async fn required_link(state: &AppState, stick_id: &str) -> Result<String, Strin
         .ok_or_else(|| "the link is not ready yet".to_owned())
 }
 
+#[cfg(not(target_os = "android"))]
 fn shown(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -41,7 +39,13 @@ pub async fn copy_link(
     // Android: marked sensitive, so its clipboard preview hides it (ADR 0029).
     #[cfg(target_os = "android")]
     return crate::phone::link_out(&app, "copyLink", link).map_err(|error| format!("{error:#}"));
-    #[cfg(not(target_os = "android"))]
+    // Windows: never into the clipboard's history nor its cloud.
+    #[cfg(windows)]
+    return {
+        let _ = app;
+        crate::unkept_clipboard::put_text(&link).map_err(shown)
+    };
+    #[cfg(not(any(target_os = "android", windows)))]
     app.clipboard().write_text(link).map_err(shown)
 }
 
@@ -74,17 +78,4 @@ pub async fn share_link(
         let _ = (link, app);
         Err("Only a phone shares a link this way.".to_owned())
     }
-}
-
-#[tauri::command]
-pub async fn copy_qr_image(
-    stick_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let link = required_link(&state, &stick_id).await?;
-    let (pixels, width, height) = qr::rgba(&link, QR_IMAGE_SCALE).map_err(shown)?;
-    app.clipboard()
-        .write_image(&Image::new_owned(pixels, width, height))
-        .map_err(shown)
 }

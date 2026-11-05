@@ -137,10 +137,6 @@ export function shareLink(stickId: string): Promise<void> {
   return invoke("share_link", { stickId });
 }
 
-export function copyQrImage(stickId: string): Promise<void> {
-  return invoke("copy_qr_image", { stickId });
-}
-
 export interface ConfirmView {
   sharing: boolean;
   readers: number;

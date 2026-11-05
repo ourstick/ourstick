@@ -53,6 +53,24 @@ pub struct NotifyEvents {
     sender: mpsc::UnboundedSender<()>,
     receiver: mpsc::UnboundedReceiver<()>,
     watched: BTreeSet<PathBuf>,
+    /// The same roots, for the system's callback.
+    roots: std::sync::Arc<std::sync::Mutex<BTreeSet<PathBuf>>>,
+}
+
+/// Whether `path` is reached through a link below one of `roots`. A stick
+/// never takes what is behind a link (the walk does not follow one), but
+/// notify's recursive watch on Linux does: a link to a busy folder outside
+/// the stick (Downloads, /tmp) would start a pass at every write there.
+fn through_a_link(path: &Path, roots: &BTreeSet<PathBuf>) -> bool {
+    let Some(root) = roots.iter().find(|root| path.starts_with(root)) else {
+        return false;
+    };
+    path.ancestors()
+        .skip(1)
+        .take_while(|folder| *folder != root.as_path())
+        .any(|folder| {
+            std::fs::symlink_metadata(folder).is_ok_and(|facts| facts.file_type().is_symlink())
+        })
 }
 
 /// Whether an event may mean the folder's content changed. Opening and
@@ -79,8 +97,18 @@ impl NotifyEvents {
         };
         let (sender, receiver) = mpsc::unbounded_channel();
         let from_system = sender.clone();
+        let roots =
+            std::sync::Arc::new(std::sync::Mutex::new(BTreeSet::from([root.to_path_buf()])));
+        let seen_roots = roots.clone();
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-            if is_change(&event) {
+            let behind_links = event.as_ref().is_ok_and(|event| {
+                let roots = seen_roots
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                !event.paths.is_empty()
+                    && event.paths.iter().all(|path| through_a_link(path, &roots))
+            });
+            if is_change(&event) && !behind_links {
                 // The receiver is gone only when watching has stopped.
                 let _ = from_system.send(());
             }
@@ -94,6 +122,7 @@ impl NotifyEvents {
             sender,
             receiver,
             watched: BTreeSet::from([root.to_path_buf()]),
+            roots,
         })
     }
 
@@ -119,6 +148,10 @@ impl FolderEvents for NotifyEvents {
             // A root that went is no longer watched by the system anyway.
             let _ = self.watcher.unwatch(&gone);
             self.watched.remove(&gone);
+            self.roots
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&gone);
         }
         let mut errors = Vec::new();
         for root in wanted
@@ -128,6 +161,10 @@ impl FolderEvents for NotifyEvents {
         {
             match self.watcher.watch(&root, RecursiveMode::Recursive) {
                 Ok(()) => {
+                    self.roots
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(root.clone());
                     self.watched.insert(root);
                 }
                 Err(reason) => errors.push(WatchError {
@@ -192,6 +229,23 @@ mod tests {
             notify::event::RemoveKind::Any
         )))));
         assert!(is_change(&Err(notify::Error::generic("queue overflow"))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_reached_through_a_link_below_the_root_is_told_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("stick");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir(dir.path().join("busy")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("busy"), root.join("link")).unwrap();
+        let roots = BTreeSet::from([root.clone()]);
+        assert!(through_a_link(&root.join("link/log.txt"), &roots));
+        assert!(through_a_link(&root.join("link/deep/x"), &roots));
+        assert!(!through_a_link(&root.join("sub/a.txt"), &roots));
+        // The link itself changing is the stick's own folder changing.
+        assert!(!through_a_link(&root.join("link"), &roots));
+        assert!(!through_a_link(&dir.path().join("elsewhere"), &roots));
     }
 
     #[tokio::test]

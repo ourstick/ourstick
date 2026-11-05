@@ -1,0 +1,86 @@
+# Fuzz targets for what OurStick reads from outside: links, a sender's
+# manifest and blobs, a reader's reports, signed records, version.json.
+# Run with `cargo +nightly fuzz run <target>` (see README.md). Its own
+# workspace: never built with the app, never shipped.
+[package]
+name = "ourstick-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ourstick-core = { path = "../crates/ourstick-core" }
+postcard = { version = "1", features = ["alloc"] }
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "ticket"
+path = "fuzz_targets/ticket.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record"
+path = "fuzz_targets/record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "report"
+path = "fuzz_targets/report.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "blob"
+path = "fuzz_targets/blob.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "notice"
+path = "fuzz_targets/notice.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "names"
+path = "fuzz_targets/names.rs"
+test = false
+doc = false
+bench = false
+
+# Writes a few valid inputs (made with throwaway keys) for each target into
+# corpus/<target>/, so the fuzzer starts from real forms.
+[[example]]
+name = "make-seeds"
+path = "examples/make_seeds.rs"
+
+[[bin]]
+name = "saved_paths"
+path = "fuzz_targets/saved_paths.rs"
+test = false
+doc = false
+bench = false

@@ -31,6 +31,10 @@ mod relay_watch;
 mod reporter;
 pub(crate) mod saved_lines;
 pub(crate) mod saved_names;
+// Checks of the rules above for the fuzz targets (`fuzz/`), built only by
+// cargo-fuzz.
+#[cfg(fuzzing)]
+pub mod fuzzing;
 pub(crate) mod saved_paths;
 mod types;
 

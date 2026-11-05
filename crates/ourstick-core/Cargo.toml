@@ -56,3 +56,7 @@ android-native-keyring-store.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints.rust]
+# `fuzzing` is set by cargo-fuzz for the targets in `fuzz/`.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }

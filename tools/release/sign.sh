@@ -13,10 +13,16 @@ secret=${OURSTICK_RELEASE_KEY:?set it to the release key file (the secret one)}
 command -v minisign >/dev/null || { echo "minisign is not installed" >&2; exit 1; }
 [ -f "$secret" ] || { echo "no such key file: $secret" >&2; exit 1; }
 
+# The version the files are of, in the signed comment: an older release's
+# files, served again with their own good signature, say so.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$here/../../Cargo.toml" | head -1)
+[ -n "$version" ] || { echo "no version in Cargo.toml" >&2; exit 1; }
+
 for file in "$@"; do
   [ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
-  # The trusted comment is signed too: it says what the file is.
-  minisign -S -s "$secret" -m "$file" -t "OurStick $(basename "$file")"
+  # The trusted comment is signed too: it says what the file is, and of
+  # which version.
+  minisign -S -s "$secret" -m "$file" -t "OurStick $version $(basename "$file")"
   if ! minisign -V -q -p "$public" -m "$file"; then
     rm -f "$file.minisig"
     echo "not the key of release-keys/ourstick-release.pub; the signature is removed" >&2

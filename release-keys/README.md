@@ -23,7 +23,10 @@ minisign -Vm SHA256SUMS.txt -P RWS7C6wOt/7eLZ1c4gP+CYXHWKYycOKldo6+LFUSHsA5TUwdi
 sha256sum --ignore-missing -c SHA256SUMS.txt      # macOS: shasum -a 256 --ignore-missing -c
 ```
 
-The first line says `Signature and comment signature verified`, the second
-`OK` for the installer. Take the key from here or from the README, not
+The first line says `Signature and comment signature verified`, then
+`Trusted comment: OurStick <version> SHA256SUMS.txt` (from 0.3.1; the
+comment is signed too): check that it names the version you meant to
+download, so an older release served again cannot pass for the newest.
+The second line says `OK` for the installer. Take the key from here or from the README, not
 from the site that served the files: a site that could change the files
 could change a key it shows.

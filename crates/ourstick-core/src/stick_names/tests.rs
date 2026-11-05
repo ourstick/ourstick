@@ -90,3 +90,24 @@ fn a_folder_name_is_one_every_system_takes() {
         );
     }
 }
+
+#[test]
+fn a_received_folder_never_opens_as_an_app() {
+    let none = |_: &str| false;
+    assert_eq!(received_folder_name("Invoice.app", none), "Invoice.app_");
+    assert_eq!(received_folder_name("Setup.PKG", none), "Setup.PKG_");
+    assert_eq!(received_folder_name("Fun.saver. ", none), "Fun.saver_");
+    assert_eq!(
+        received_folder_name("Bin.{645FF040-5081-101B-9F08-00AA002F954E}", none),
+        "Bin.{645FF040-5081-101B-9F08-00AA002F954E}_"
+    );
+    // Other names as ever.
+    assert_eq!(received_folder_name("Photos 2026", none), "Photos 2026");
+    assert_eq!(received_folder_name("my.apps", none), "my.apps");
+    assert_eq!(received_folder_name("con", none), "con_");
+    let taken = |candidate: &str| candidate == "Invoice.app_";
+    assert_eq!(
+        received_folder_name("Invoice.app", taken),
+        "Invoice (2).app_"
+    );
+}

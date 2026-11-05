@@ -8,7 +8,7 @@ use ourstick_core::device::random_key;
 use ourstick_core::download::preview;
 use ourstick_core::received::{check_link, ReceivedError};
 use ourstick_core::space::{available, SystemDisks};
-use ourstick_core::stick_names::folder_name;
+use ourstick_core::stick_names::received_folder_name;
 use ourstick_core::transport::iroh::{IrohConfig, IrohFetcher, Network};
 use ourstick_core::transport::Fetcher;
 use ourstick_core::StickKind;
@@ -140,7 +140,7 @@ fn downloads() -> Result<PathBuf, String> {
 /// The folder a received stick goes into: one named after it in `parent`,
 /// not taken already. Blocking (it looks at folders).
 fn folder_for(name: &str, parent: &Path) -> PathBuf {
-    parent.join(folder_name(name, |candidate| {
+    parent.join(received_folder_name(name, |candidate| {
         parent.join(candidate).exists()
     }))
 }

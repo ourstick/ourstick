@@ -97,5 +97,53 @@ pub fn folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
     free_name_where(&folder, taken)
 }
 
+/// The folder a received stick goes into: [`folder_name`], and never one a
+/// system opens as something other than a folder, since the sender chose
+/// the name: a macOS bundle (`Invoice.app`, `.pkg`, `.saver`…), which
+/// "Open folder" would hand to the system to run or install, or a Windows
+/// shell folder (`Name.{CLSID}`). Such a name gets a `_` at its end.
+pub fn received_folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    let plain = folder_name(name, |_| false);
+    if opens_as_something_else(&plain) {
+        folder_name(&format!("{plain}_"), taken)
+    } else {
+        folder_name(name, taken)
+    }
+}
+
+/// The ends macOS opens a folder by as a bundle, and Windows' shell folders.
+fn opens_as_something_else(folder: &str) -> bool {
+    const BUNDLES: [&str; 23] = [
+        "app",
+        "appex",
+        "bundle",
+        "component",
+        "dext",
+        "driver",
+        "framework",
+        "kext",
+        "mdimporter",
+        "mpkg",
+        "osax",
+        "pkg",
+        "plugin",
+        "prefpane",
+        "qlgenerator",
+        "saver",
+        "scptd",
+        "service",
+        "systemextension",
+        "wdgt",
+        "workflow",
+        "action",
+        "xpc",
+    ];
+    let Some((_, end)) = folder.rsplit_once('.') else {
+        return false;
+    };
+    let end = end.to_lowercase();
+    BUNDLES.contains(&end.as_str()) || (end.starts_with('{') && end.ends_with('}'))
+}
+
 #[cfg(test)]
 mod tests;

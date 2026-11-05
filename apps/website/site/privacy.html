@@ -33,6 +33,8 @@
     <p>Everything in a link after “#” is the stick: its key, and where OurStick finds the sender (their computer's identity and network addresses). Browsers never send that part to any website, so when a link is opened in a browser, this website and its host see only that someone opened a link, not whose or which. Anyone who has the link can read the stick and sees the sender's addresses. Like every address you open, the whole link stays in your browser's history, which your browser may sync to your other devices.</p>
     <h2>This website</h2>
     <p>This site sets no cookies, has no analytics, and loads nothing from other sites. It is served by Cloudflare, which sees the address of whoever visits it and which page, as every web host does. It never sees what comes after “#” in a sharing link: the stick's key and where to find the sender.</p>
+    <h2>Looking for a new version</h2>
+    <p>From 0.3.0 on, the app on a computer asks this website once a day for one small file that says which version is newest (<code>version.json</code>). It sends nothing else: no version, no identifier, no cookie. Like any visit, Cloudflare sees the computer's address and the time, and keeps its logs by its own policy. You can turn it off in About.</p>
     <h2>What a sender sees</h2>
     <p>The OurStick app tells a sender how far each computer that has their stick has got (“A Mac has all of it, up to date”), never that computer's name unless its user writes one, and never what is missing from it.</p>
   </main>

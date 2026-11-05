@@ -4,6 +4,18 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## 0.3.0
+
+- [x] **A new version, told (ADR 0033):** the signed `version.json`, the
+      line on Home and in the tray, About's setting. Tried in the Windows
+      VM with a test notice (2026-11-05).
+- [ ] Try it on Linux and macOS with a test notice: a start at login with
+      no window, a proxy, a captive portal, no network at start.
+- [ ] **The release:** `release-day.txt` set to the day; the installers
+      and `SHA256SUMS` signed (`tools/release/sign.sh`); after them and the
+      notes, `tools/release/version-json.sh 0.3.0 <security>`, committed,
+      then the site (`apps/website/README.md`).
+
 ## 0.2.1
 
 - [x] **From the link page to the app (ADR 0030):** "Open in OurStick" on

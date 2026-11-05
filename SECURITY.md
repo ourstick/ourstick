@@ -21,11 +21,18 @@ the release notes, with credit to you unless you prefer not.
 
 ## Supported versions
 
-Only the latest release gets fixes. New releases are announced on
+Only the latest release gets fixes. From 0.3.0 on, the desktop app looks
+once a day for a new version (ADR 0033): it reads one small file,
+`https://ourstick.com/version.json`, signed with the release key
+(`release-keys/`), and sends nothing else; Cloudflare, which serves the
+site, sees the computer's address and the time, as for any visit. A
+security fix shows as an amber line in the app. It can be turned off in
+About. It installs nothing: you download the new version yourself.
+Releases are also on
 [GitHub Releases](https://github.com/ourstick/ourstick/releases): choose
 Watch → Custom → Releases there to be told, or follow
-`https://github.com/ourstick/ourstick/releases.atom`. OurStick does not
-check for updates by itself.
+`https://github.com/ourstick/ourstick/releases.atom`. Phones are updated by
+their stores.
 
 ## What OurStick protects, and what it does not
 

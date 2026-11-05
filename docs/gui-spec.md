@@ -353,8 +353,9 @@ device." The fragment never leaves the browser (ADR 0022).
   something. The tray is a help, never the only way: many never see it.
 - Menu: `Open OurStick`; each thing with its sentence ("↑ Maria is getting
   it", "✓ 2 people have all of it", "↓ Downloading"), a click opening the
-  window on it; `Send…`, `Receive…`; `About OurStick`, the `Open when the
-  computer starts` check, `Quit…`. Made again when a status changes, at
+  window on it; `Send…`, `Receive…`; a new version's line, if any (ADR
+  0033: "OurStick 0.3.0 is out · Get it"); `About OurStick`, the `Open when
+  the computer starts` check, `Quit…`. Made again when a status changes, at
   most once a second.
 - Linux: the tray is a StatusNotifierItem of the app's own (`ksni`), not
   Tauri's, because it has to receive the shell's XDG activation token (see
@@ -377,11 +378,33 @@ device." The fragment never leaves the browser (ADR 0022).
   Startup Applications) is kept; the check shows it where it can be read
   (Windows, Linux).
 - About: the icon, name, version and tagline; ourstick.com, Privacy, Report
-  a problem; the start-at-login check; "Others see this computer as a Linux
+  a problem; the start-at-login check; "Look for new versions" (below);
+  "Others see this computer as a Linux
   PC · Change…"; "To open OurStick again, click its picture:" with the
   same picture as the first ✕; the copyright line; OurStick's licence and
   the libraries' licences (the installed files). From the tray and the
   macOS app menu.
+
+### A new version (ADR 0033)
+
+- Desktops only. Once a day the app reads `https://ourstick.com/version.json`,
+  signed with the release key, sending nothing about the computer.
+- Home's foot, between the version and `Quit OurStick…`: "OurStick 0.3.0
+  is out · Get it" in the footer's muted style; "0.3.0 fixes a security
+  problem in this version · Get it" in amber, also told once at the top of
+  Home ("… Get the new version to be safe from it." `OK`), which brings the
+  window up when the app runs unseen. `Get it` opens the site's downloads.
+- About: "Look for new versions" (on by default), "Once a day OurStick asks
+  ourstick.com which version is newest. It sends nothing about you or your
+  files.", and "Last looked: today" (or "… It could not look now: no
+  connection to ourstick.com."). Off: "Off, you will not hear of a security
+  fix. Check ourstick.com yourself now and then." in amber; a security line
+  already seen stays, and a version over 90 days old says so at Home's foot
+  ("This version is from March 2027. A newer one may fix security problems
+  · ourstick.com").
+- An upgraded device is told once at the top of Home: "OurStick now looks
+  once a day for a new version, so that you hear of a security fix. It
+  sends nothing about you. You can turn it off in About." `OK`.
 
 ### macOS: first start and the keychain
 

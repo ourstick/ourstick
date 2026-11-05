@@ -17,6 +17,11 @@ address after `#`, which any foreign script could read (`site/_headers`).
    `release-keys/README.md`). The GitHub Release gets the same:
    `tools/release/sign.sh SHA256SUMS-<version>.txt`, and its `.minisig`
    goes up with the installers.
+   After the installers and the release notes are up, never before:
+   `tools/release/version-json.sh <newest> <security>` writes the signed
+   notice the app reads (ADR 0033) to `site/version.json`; commit it, run
+   `make.sh` again and deploy. `crates/ourstick-core/release-day.txt` holds
+   the release's day, set before the installers are built.
 3. `npx wrangler pages deploy apps/website/dist --project-name ourstick`
    (the first time, `npx wrangler login`, and the custom domain `ourstick.com`
    added to the project in the dashboard).

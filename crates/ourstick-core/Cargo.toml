@@ -32,6 +32,10 @@ iroh-blobs.workspace = true
 bao-tree.workspace = true
 irpc.workspace = true
 bytes.workspace = true
+# ADR 0033: the notice of a new version.
+serde_json.workspace = true
+reqwest.workspace = true
+semver.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true
@@ -50,4 +54,3 @@ android-native-keyring-store.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-serde_json.workspace = true

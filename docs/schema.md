@@ -27,6 +27,11 @@ no column for them. It only records *which* secret store this device uses.
 
 ## Version 28
 
+Version 29 (`0029_version_look.sql`, ADR 0033) added the tables
+`version_look` and `notice_serials`, below. A device set up before has a
+`version_look` row with `looking_told` 0, so it is told once that the app now
+looks for new versions; a fresh database gets the row with `looking_told` 1.
+
 Version 28 (`0028_android_keystore.sql`, ADR 0027) lets
 `device.secret_backend` be `android-keystore`, the app's store in the Android
 Keystore; the table is made again with the same rows.
@@ -139,6 +144,37 @@ key is written: these hold from the first start. The CLI ignores them.
 | `start_at_login` | INTEGER | 1 (the default): the app makes the system start it at login (the `Run` value, the LaunchAgent or the autostart entry); 0: it removes that |
 | `start_at_login_told` | INTEGER | 1 once the window said that the app starts at login, and how to turn it off |
 | `still_open_told` | INTEGER | 1 once the window, closed the first time, said that OurStick is still open and how to open it again (ADR 0028 §6) |
+
+### `version_look`
+
+What the desktop app keeps of its looks for a new version (ADR 0033). At
+most one row (`id = 1`); no row means the defaults (looking on, nothing
+known). Phones and the CLI never write it.
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `id` | INTEGER | Always 1 |
+| `looking` | INTEGER | 1 (the default): "Look for new versions" is on; 0: the app reads nothing |
+| `looking_told` | INTEGER | 1 once the window said that the app now looks, and how to turn it off |
+| `next_look_ms` | INTEGER | When the next look is due (0: at once) |
+| `last_good_ms` | INTEGER | The last look that found a good notice, NULL if none |
+| `failing_since_ms` | INTEGER | Since when every look failed, NULL after a good one |
+| `failure` | TEXT | How the last failed look failed: `no-connection`, `refused` (an HTTP status other than 200) or `not-the-file` (not a good notice) |
+| `newest` | TEXT | The newest version a notice named for this system (`X.Y.Z`); forgotten when looking is turned off |
+| `security` | TEXT | The oldest safe version a notice named; kept when looking is turned off |
+| `new_release_key` | TEXT | The id (16 hex) of a new release key the recovery key announced |
+| `security_told` | TEXT | The `security` the window told of once |
+
+### `notice_serials`
+
+The highest serial taken per key that signed a notice (ADR 0033 rule 5): a
+notice with a lower one is ignored. One row per key id (16 hex, as minisign
+shows it).
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `key_id` | TEXT | The signing key's id. Primary key |
+| `serial` | INTEGER | The highest serial taken from it |
 
 ### `owned_sticks`
 

@@ -110,6 +110,11 @@ rustix = { version = "1.1.5", features = ["fs"] }
 # its history and cloud sync, without unsafe code of our own (already in
 # Cargo.lock through the clipboard plugin).
 clipboard-win = "5.4.1"
+# ADR 0033: the signed notice of a new version, read once a day over HTTPS
+# (TLS through iroh's rustls set-up), and versions compared as versions.
+# Both already in Cargo.lock through iroh.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+semver = "1.0.28"
 
 # networking — versions from `cargo add iroh iroh-blobs` (2026-09-28), not from memory.
 # unstable-net-report: the network diagnosis behind "why a relay". Its API is

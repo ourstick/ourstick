@@ -16,6 +16,7 @@ pub mod linked;
 pub mod local_network;
 pub mod locks;
 pub mod manifest;
+pub mod new_version;
 pub mod places;
 pub mod received;
 pub mod record;

@@ -35,6 +35,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/0026_simpler_window.sql"),
     include_str!("../../../migrations/0027_at_top.sql"),
     include_str!("../../../migrations/0028_android_keystore.sql"),
+    include_str!("../../../migrations/0029_version_look.sql"),
 ];
 
 /// The schema version this code creates and understands.

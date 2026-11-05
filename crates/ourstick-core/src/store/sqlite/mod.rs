@@ -12,6 +12,7 @@ mod received;
 mod reports;
 mod rows;
 mod space;
+mod version_look;
 mod waiting;
 
 use std::path::Path;

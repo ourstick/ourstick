@@ -340,17 +340,23 @@ fn choose(
     unreachable!("a path has at least one name")
 }
 
-/// `name` made savable, and not one of OurStick's own at the top (marked
-/// first, then made savable: the mark counts in its length).
+/// `name` made savable, and not one of OurStick's own at the top (the mark
+/// counts in its length). Checked as sent and as saved: Windows drops a
+/// trailing space or dot, so `OURSTI~1 ` is saved as `OURSTI~1`, the short
+/// name of `.ourstick-partial`.
 fn savable(name: &str, first: bool, rules: Rules) -> String {
-    let marked = if first { not_ours(name, &OURS) } else { None };
+    let safe = safe_name(name, rules.windows);
     // A system's own name (`._x`, which holds another file's attributes on
     // a FAT disk under macOS, `desktop.ini`, `.Trash-1000`), which no owner
     // sends: given a `_`, never taken by a system for its own.
-    let marked =
-        marked.or_else(|| crate::manifest::ignore::is_ignored(name).then(|| format!("_{name}")));
-    let name = marked.as_deref().unwrap_or(name);
-    safe_name(name, rules.windows).into_owned()
+    let marked = |name: &str| {
+        (first && not_ours(name, &OURS).is_some()) || crate::manifest::ignore::is_ignored(name)
+    };
+    if marked(name) || marked(&safe) {
+        safe_name(&format!("_{safe}"), rules.windows).into_owned()
+    } else {
+        safe.into_owned()
+    }
 }
 
 mod taken;

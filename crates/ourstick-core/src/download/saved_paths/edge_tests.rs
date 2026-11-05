@@ -176,3 +176,17 @@ fn a_systems_own_name_from_a_sender_gets_a_mark_in_front() {
         ["Photos/_._tool", "Photos/tool", "_desktop.ini"]
     );
 }
+
+#[test]
+fn a_name_that_is_ours_once_saved_gets_a_mark_too() {
+    // Windows drops the trailing space or dot: `OURSTI~1` is the short
+    // name of `.ourstick-partial`.
+    let saved = plan(&["OURSTI~1 /a", "oursti~2. /b", "desktop.ini./c"], WINDOWS);
+    assert_eq!(
+        saved.saved,
+        ["_OURSTI~1/a", "_oursti~2/b", "_desktop.ini/c"]
+    );
+    // Elsewhere the name is saved as sent, which is not ours.
+    let saved = plan(&["OURSTI~1 /a"], LINUX);
+    assert_eq!(saved.saved, ["OURSTI~1 /a"]);
+}

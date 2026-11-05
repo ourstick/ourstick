@@ -7,10 +7,18 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 ## 0.3.0
 
 - [x] **A new version, told (ADR 0033):** the signed `version.json`, the
-      line on Home and in the tray, About's setting. Tried in the Windows
-      VM with a test notice (2026-11-05).
-- [ ] Try it on Linux and macOS with a test notice: a start at login with
-      no window, a proxy, a captive portal, no network at start.
+      line on Home and in the tray, About's setting. Tried with a test
+      notice in the Windows VM, on Linux (the tray's line too) and on macOS
+      (2026-11-05): a look, a changed notice refused, no connection, the
+      setting off and on.
+- [ ] Still to try: a start at login with no window, a proxy, a captive
+      portal.
+- [x] **Keys wiped from memory when dropped** (`zeroize`); what is not
+      wiped yet is in `docs/protocol.md` ("Known limits").
+- [x] **Hardening from the security reviews:** bounds on what a peer may
+      send or hold (ADR 0031), received files marked as from the internet
+      (ADR 0032), shared files opened without following links, and the
+      SHA-256 sums signed with minisign.
 - [ ] **The release:** `release-day.txt` set to the day; the installers
       and `SHA256SUMS` signed (`tools/release/sign.sh`); after them and the
       notes, `tools/release/version-json.sh 0.3.0 <security>`, committed,

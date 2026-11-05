@@ -19,10 +19,11 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       send or hold (ADR 0031), received files marked as from the internet
       (ADR 0032), shared files opened without following links, and the
       SHA-256 sums signed with minisign.
-- [ ] **The release:** `release-day.txt` set to the day; the installers
-      and `SHA256SUMS` signed (`tools/release/sign.sh`); after them and the
-      notes, `tools/release/version-json.sh 0.3.0 <security>`, committed,
-      then the site (`apps/website/README.md`).
+- [x] **The release** (2026-11-05): the three installers with their
+      signed SHA-256 sums on the site and in GitHub Release v0.3.0, and the
+      first `version.json` (serial 1, newest and security 0.3.0). Live sums
+      and signatures checked from outside; the Windows installer tried over
+      0.2.1 in the VM.
 
 ## 0.2.1
 

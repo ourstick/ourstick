@@ -48,19 +48,18 @@ mod macos {
         format!("0081;{seconds:x};OurStick;")
     }
 
+    /// Set as Safari sets it, through the system call itself (rustix, no
+    /// process per file: a stick of millions of files would spend hours
+    /// starting them).
     pub(super) fn mark(file: &Path) {
-        let set = std::process::Command::new("/usr/bin/xattr")
-            .arg("-w")
-            .arg("com.apple.quarantine")
-            .arg(value(SystemTime::now()))
-            .arg(file)
-            .output();
-        match set {
-            Ok(output) if output.status.success() => {}
-            Ok(_) => tracing::debug!("a received file could not be put in quarantine"),
-            Err(error) => {
-                tracing::debug!(%error, "a received file could not be put in quarantine");
-            }
+        let set = rustix::fs::setxattr(
+            file,
+            "com.apple.quarantine",
+            value(SystemTime::now()).as_bytes(),
+            rustix::fs::XattrFlags::empty(),
+        );
+        if let Err(error) = set {
+            tracing::debug!(%error, "a received file could not be put in quarantine");
         }
     }
 }

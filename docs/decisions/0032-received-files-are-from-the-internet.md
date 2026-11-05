@@ -23,9 +23,10 @@ did not pass the mark on to what they unpacked).
    - Windows: the stream `Zone.Identifier` with `ZoneId=3` (the internet).
      Writing it changes the file's time, so it comes before the time is set.
    - macOS: `com.apple.quarantine` as Safari writes it (`0081`, the time,
-     `OurStick`), set with `/usr/bin/xattr`. OurStick takes no new
-     dependency for it; the cost is one short process per file, beside
-     the file's own sync.
+     `OurStick`), set with the `setxattr` system call through `rustix`
+     (no unsafe code of our own). It was `/usr/bin/xattr` at first, one
+     process per file, which a stick of millions of files would have paid
+     for in hours (changed 2026-11-05, with Giorgos's yes to `rustix`).
    - Linux and Android have no such mark.
 2. Best effort: a disk that cannot hold the mark (FAT, exFAT) keeps the
    file without it, and the download goes on.

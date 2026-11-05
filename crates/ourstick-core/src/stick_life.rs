@@ -107,10 +107,10 @@ pub fn give_new_link(
     let stored = (|| {
         secrets.put(
             &SecretName::StickSigningKey(new_id),
-            &signing_key.to_bytes(),
+            zeroize::Zeroizing::new(signing_key.to_bytes()).as_slice(),
         )?;
         secrets.put(&SecretName::StickKey(new_id), stick_key.as_bytes())?;
-        secrets.put(&SecretName::StickNodeKey(new_id), &node_key)
+        secrets.put(&SecretName::StickNodeKey(new_id), node_key.as_slice())
     })();
     let new = OwnedStick {
         stick_id: new_id,

@@ -93,6 +93,9 @@ impl fmt::Debug for SecretName {
 }
 
 /// Stores secrets by name. Implementations must never log secret values.
+/// A secret read from a store: its bytes are wiped from memory when dropped.
+pub type Secret = zeroize::Zeroizing<Vec<u8>>;
+
 pub trait SecretStore: Send + Sync {
     /// A short description for messages, e.g. "Secret Service" or "key file /path".
     fn describe(&self) -> String;
@@ -103,7 +106,7 @@ pub trait SecretStore: Send + Sync {
     fn put(&self, name: &SecretName, secret: &[u8]) -> Result<(), SecretError>;
 
     /// Returns the secret under `name`, or `None` if there is none.
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError>;
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError>;
 
     /// Deletes the secret under `name`. Deleting a missing secret is not an error.
     fn delete(&self, name: &SecretName) -> Result<(), SecretError>;
@@ -173,7 +176,7 @@ pub fn check_secret_store(store: &dyn SecretStore) -> Result<(), SecretError> {
     // Try to clean up even if the read failed.
     let deleted = store.delete(&name);
     match read_back? {
-        Some(read) if read == value => {}
+        Some(read) if read.as_slice() == value => {}
         Some(_) => return Err(unreliable("a test entry came back with different content")),
         None => {
             return Err(unreliable(

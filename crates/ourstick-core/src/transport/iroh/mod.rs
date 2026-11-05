@@ -53,10 +53,11 @@ pub enum Network {
     LocalOnly,
 }
 
-/// Settings for an iroh node. `Debug` never prints the secret key.
+/// Settings for an iroh node. `Debug` never prints the secret key, and it
+/// is wiped from memory when the settings are dropped.
 #[derive(Clone)]
 pub struct IrohConfig {
-    secret_key: [u8; 32],
+    secret_key: zeroize::Zeroizing<[u8; 32]>,
     network: Network,
     relays: Relays,
     /// Asked whether macOS declines the local network (ADR 0020): one for
@@ -78,9 +79,9 @@ pub enum Relays {
 
 impl IrohConfig {
     /// `secret_key` is this device's node key, kept in the secret store.
-    pub fn new(secret_key: [u8; 32], network: Network) -> Self {
+    pub fn new(secret_key: impl Into<zeroize::Zeroizing<[u8; 32]>>, network: Network) -> Self {
         Self {
-            secret_key,
+            secret_key: secret_key.into(),
             network,
             relays: Relays::default(),
             local_network: system_probe(),

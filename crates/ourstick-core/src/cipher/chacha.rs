@@ -7,6 +7,7 @@ use std::fmt;
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use zeroize::{Zeroize, Zeroizing};
 
 use super::{Cipher, CipherError, CipherId, StickKey};
 use crate::blob::BlobHeader;
@@ -21,19 +22,21 @@ pub(crate) const TAG_LEN: usize = 16;
 
 /// A [`Cipher`] using XChaCha20-Poly1305. Both of its keys are derived from the
 /// [`StickKey`], so the stick key itself never touches the AEAD or the nonce.
+/// Both are wiped from memory when it is dropped (the AEAD's by its crate).
 #[derive(Clone)]
 pub struct ChaChaCipher {
     aead: XChaCha20Poly1305,
-    nonce_key: [u8; 32],
+    nonce_key: Zeroizing<[u8; 32]>,
 }
 
 impl ChaChaCipher {
     pub fn new(key: &StickKey) -> Self {
-        let aead_key = blake3::derive_key(AEAD_KEY_CONTEXT, key.as_bytes());
-        let nonce_key = blake3::derive_key(NONCE_KEY_CONTEXT, key.as_bytes());
+        let mut aead_key = blake3::derive_key(AEAD_KEY_CONTEXT, key.as_bytes());
+        let aead = XChaCha20Poly1305::new(&aead_key.into());
+        aead_key.zeroize();
         Self {
-            aead: XChaCha20Poly1305::new(&aead_key.into()),
-            nonce_key,
+            aead,
+            nonce_key: Zeroizing::new(blake3::derive_key(NONCE_KEY_CONTEXT, key.as_bytes())),
         }
     }
 }

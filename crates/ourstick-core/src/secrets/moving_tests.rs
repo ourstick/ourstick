@@ -1,6 +1,6 @@
 use super::*;
 use crate::cipher::CipherId;
-use crate::secrets::MemorySecretStore;
+use crate::secrets::{MemorySecretStore, Secret};
 use crate::stick_id::{StickId, StickSigningKey};
 use crate::store::{Device, JoinedStick, MemoryStore, OwnedStick, SecretBackend};
 
@@ -101,7 +101,10 @@ fn a_key_already_there_with_another_value_is_never_overwritten() {
         copy_secrets(&old, &new, &to_move),
         Err(MoveError::Differs(_))
     ));
-    assert_eq!(new.get(&SecretName::NodeKey).unwrap(), Some(vec![77; 32]));
+    assert_eq!(
+        new.get(&SecretName::NodeKey).unwrap(),
+        Some(vec![77; 32].into())
+    );
     assert_eq!(new.get(&SecretName::Ticket(stick(2))).unwrap(), None);
 }
 
@@ -136,7 +139,7 @@ impl SecretStore for Refusing {
         }
         self.inner.put(name, secret)
     }
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         if self.refused.as_ref() == Some(name) {
             return Err(SecretError::AccessDenied {
                 store: "refusing".to_owned(),

@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use ourstick_core::device;
-use ourstick_core::secrets::{Durability, SecretError, SecretName, SecretStore};
+use ourstick_core::secrets::{Durability, Secret, SecretError, SecretName, SecretStore};
 use ourstick_core::store::{SecretBackend, StickKind};
 use ourstick_core::Store;
 
@@ -198,7 +198,7 @@ impl SecretStore for DeletedFromBoth {
         self.new.put(name, secret)
     }
 
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         self.new.get(name)
     }
 
@@ -312,7 +312,10 @@ mod tests {
             new: Box::new(new),
             old: Box::new(old),
         };
-        assert_eq!(both.get(&SecretName::NodeKey).unwrap(), Some(vec![1; 32]));
+        assert_eq!(
+            both.get(&SecretName::NodeKey).unwrap(),
+            Some(vec![1; 32].into())
+        );
         both.delete(&SecretName::NodeKey).unwrap();
         assert_eq!(both.get(&SecretName::NodeKey).unwrap(), None);
         assert_eq!(both.old.get(&SecretName::NodeKey).unwrap(), None);

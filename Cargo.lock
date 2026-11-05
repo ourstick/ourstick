@@ -4496,6 +4496,7 @@ dependencies = [
  "tracing",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
+ "zeroize",
 ]
 
 [[package]]

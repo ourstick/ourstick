@@ -12,6 +12,7 @@ use std::fmt;
 use std::io;
 
 use rand::RngCore;
+use zeroize::Zeroize;
 
 use crate::blob::BlobHeader;
 
@@ -54,9 +55,16 @@ pub fn cipher_for(id: CipherId, key: &StickKey) -> std::sync::Arc<dyn Cipher> {
 
 /// The secret of a stick. Whoever holds it can read the stick.
 ///
-/// `Debug` never prints the bytes, so a key cannot leak through logs.
+/// `Debug` never prints the bytes, so a key cannot leak through logs, and
+/// the bytes are wiped from memory when it is dropped.
 #[derive(Clone, PartialEq, Eq)]
 pub struct StickKey([u8; 32]);
+
+impl Drop for StickKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 impl StickKey {
     /// Creates a new random key from the operating system's secure RNG.

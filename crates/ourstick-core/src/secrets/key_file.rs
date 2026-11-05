@@ -26,8 +26,9 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
+use zeroize::{Zeroize, Zeroizing};
 
-use super::{Durability, SecretError, SecretName, SecretStore};
+use super::{Durability, Secret, SecretError, SecretName, SecretStore};
 
 const MAGIC: &[u8; 4] = b"OSKF";
 const KEY_FILE_VERSION: u8 = 1;
@@ -81,8 +82,18 @@ pub struct KeyFileStore {
     path: PathBuf,
     params: KeyFileParams,
     salt: [u8; SALT_LEN],
-    key: [u8; 32],
-    secrets: Mutex<BTreeMap<String, Vec<u8>>>,
+    key: Zeroizing<[u8; 32]>,
+    secrets: Mutex<SecretMap>,
+}
+
+/// The secrets of a key file in memory: name -> secret, wiped when dropped.
+#[derive(Clone, Default)]
+struct SecretMap(BTreeMap<String, Vec<u8>>);
+
+impl Drop for SecretMap {
+    fn drop(&mut self) {
+        self.0.values_mut().for_each(Zeroize::zeroize);
+    }
 }
 
 impl fmt::Debug for KeyFileStore {
@@ -106,14 +117,14 @@ fn derive_key(
     params: &KeyFileParams,
     passphrase: &str,
     salt: &[u8; SALT_LEN],
-) -> Result<[u8; 32], SecretError> {
+) -> Result<Zeroizing<[u8; 32]>, SecretError> {
     if passphrase.is_empty() {
         return Err(SecretError::EmptyPassphrase);
     }
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     params
         .argon2()?
-        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .hash_password_into(passphrase.as_bytes(), salt, key.as_mut())
         .map_err(|error| SecretError::InvalidKeyFileParams(error.to_string()))?;
     Ok(key)
 }
@@ -133,9 +144,9 @@ impl KeyFileStore {
             path,
             params,
             salt,
-            secrets: Mutex::new(BTreeMap::new()),
+            secrets: Mutex::new(SecretMap::default()),
         };
-        let bytes = store.encode(&BTreeMap::new())?;
+        let bytes = store.encode(&SecretMap::default())?;
         write_new_file(&store.path, &bytes)?;
         Ok(store)
     }
@@ -198,12 +209,14 @@ impl KeyFileStore {
         header
     }
 
-    fn encode(&self, secrets: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, SecretError> {
+    fn encode(&self, secrets: &SecretMap) -> Result<Vec<u8>, SecretError> {
         let mut nonce = [0u8; NONCE_LEN];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
         let header = self.header(&nonce);
-        let plaintext = postcard::to_allocvec(secrets).expect("encoding to a Vec cannot fail");
-        let ciphertext = XChaCha20Poly1305::new(&self.key.into())
+        let plaintext = Zeroizing::new(
+            postcard::to_allocvec(&secrets.0).expect("encoding to a Vec cannot fail"),
+        );
+        let ciphertext = XChaCha20Poly1305::new(self.key.as_ref().into())
             .encrypt(
                 XNonce::from_slice(&nonce),
                 Payload {
@@ -226,14 +239,14 @@ impl KeyFileStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut updated = secrets.clone();
-        change(&mut updated);
+        change(&mut updated.0);
         replace_file(&self.path, &self.encode(&updated)?)?;
         *secrets = updated;
         Ok(())
     }
 }
 
-fn decrypt(key: &[u8; 32], bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, SecretError> {
+fn decrypt(key: &[u8; 32], bytes: &[u8]) -> Result<SecretMap, SecretError> {
     let (header, ciphertext) = bytes.split_at(HEADER_LEN);
     let nonce = XNonce::from_slice(&header[HEADER_LEN - NONCE_LEN..]);
     let plaintext = XChaCha20Poly1305::new(key.into())
@@ -244,8 +257,11 @@ fn decrypt(key: &[u8; 32], bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, Se
                 aad: header,
             },
         )
+        .map(Zeroizing::new)
         .map_err(|_| SecretError::WrongPassphraseOrDamaged)?;
-    postcard::from_bytes(&plaintext).map_err(|_| SecretError::WrongPassphraseOrDamaged)
+    postcard::from_bytes(&plaintext)
+        .map(SecretMap)
+        .map_err(|_| SecretError::WrongPassphraseOrDamaged)
 }
 
 /// A key file is a regular file, not a link to one (nor a pipe, which would
@@ -353,16 +369,17 @@ impl SecretStore for KeyFileStore {
 
     fn put(&self, name: &SecretName, secret: &[u8]) -> Result<(), SecretError> {
         self.update(|secrets| {
-            secrets.insert(name.as_key(), secret.to_vec());
+            // What it replaces is wiped, as all of the map is when dropped.
+            secrets.insert(name.as_key(), secret.to_vec()).zeroize();
         })
     }
 
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         let secrets = self
             .secrets
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(secrets.get(&name.as_key()).cloned())
+        Ok(secrets.0.get(&name.as_key()).cloned().map(Secret::new))
     }
 
     fn delete(&self, name: &SecretName) -> Result<(), SecretError> {
@@ -370,7 +387,7 @@ impl SecretStore for KeyFileStore {
             return Ok(());
         }
         self.update(|secrets| {
-            secrets.remove(&name.as_key());
+            secrets.remove(&name.as_key()).zeroize();
         })
     }
 }

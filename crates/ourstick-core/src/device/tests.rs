@@ -87,7 +87,7 @@ fn an_old_node_key_is_never_overwritten() {
     assert!(matches!(result, Err(DeviceError::NodeKeyExists { .. })));
     assert_eq!(
         secrets.get(&SecretName::NodeKey).unwrap(),
-        Some(vec![7; 32])
+        Some(vec![7; 32].into())
     );
 }
 
@@ -204,7 +204,7 @@ fn an_older_stick_uses_the_device_node_key() {
     with_device.add_owned_stick(&older).unwrap();
     secrets.put(&SecretName::NodeKey, &[8; 32]).unwrap();
     let loaded = load_stick(&with_device, &secrets, older.clone()).unwrap();
-    assert_eq!(loaded.node_key, [8; 32]);
+    assert_eq!(*loaded.node_key, [8; 32]);
     assert_ne!(loaded.node_key, made.node_key);
     // A device key that is not the one recorded: refused, as for a stick's.
     secrets.put(&SecretName::NodeKey, &[9; 32]).unwrap();

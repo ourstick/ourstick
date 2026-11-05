@@ -78,7 +78,7 @@ impl SecretStore for FailingPuts {
         }
         self.inner.put(name, secret)
     }
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<crate::secrets::Secret>, SecretError> {
         self.inner.get(name)
     }
     fn delete(&self, name: &SecretName) -> Result<(), SecretError> {

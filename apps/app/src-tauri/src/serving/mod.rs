@@ -86,7 +86,7 @@ pub async fn start(
 
     let stick_id = keys.stick.stick_id;
     let cache_dir = data_dir.join("cache").join(hex(&stick_id.to_bytes()));
-    let config = IrohConfig::new(keys.node_key, Network::Public);
+    let config = IrohConfig::new(keys.node_key.clone(), Network::Public);
     // Transfers read through the disks' turns too (ADR 0017).
     let turns = app.state::<crate::state::AppState>().disks.clone();
     crate::local_network::may_bind(&app.state::<crate::state::AppState>()).await;

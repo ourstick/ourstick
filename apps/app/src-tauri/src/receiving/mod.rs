@@ -289,7 +289,7 @@ pub fn read_ticket(
     let stored = secrets.get(&SecretName::Ticket(*stick_id))?.context(
         "its sharing link is no longer saved on this computer; forget it and add it again",
     )?;
-    let text = String::from_utf8(stored)
+    let text = std::str::from_utf8(&stored)
         .context("its saved sharing link is damaged; forget it and add it again")?;
     // The error never repeats the link: it holds the stick's key.
     text.parse().map_err(|_| {

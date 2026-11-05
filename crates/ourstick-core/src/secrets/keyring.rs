@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use keyring_core::{CredentialPersistence, CredentialStore, Error as KeyringError};
 
-use super::{Durability, SecretError, SecretName, SecretStore};
+use super::{Durability, Secret, SecretError, SecretName, SecretStore};
 
 const SERVICE: &str = "ourstick";
 
@@ -222,9 +222,9 @@ impl SecretStore for KeyringStore {
             .map_err(|error| to_secret_error(self.name, error))
     }
 
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         match self.entry(name)?.get_secret() {
-            Ok(secret) => Ok(Some(secret)),
+            Ok(secret) => Ok(Some(Secret::new(secret))),
             Err(KeyringError::NoEntry) => Ok(None),
             Err(error) => Err(to_secret_error(self.name, error)),
         }
@@ -263,7 +263,7 @@ mod tests {
         let name = SecretName::HealthCheck(*b"roundtrp");
         store.put(&name, b"\x00\xffbinary").unwrap();
         assert_eq!(
-            store.get(&name).unwrap().as_deref(),
+            store.get(&name).unwrap().as_deref().map(Vec::as_slice),
             Some(&b"\x00\xffbinary"[..])
         );
         store.delete(&name).unwrap();

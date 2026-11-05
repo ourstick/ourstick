@@ -115,6 +115,9 @@ clipboard-win = "5.4.1"
 # Both already in Cargo.lock through iroh.
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
 semver = "1.0.28"
+# Keys wiped from memory when dropped (already in Cargo.lock through the
+# crypto crates).
+zeroize = "1.9.0"
 
 # networking — versions from `cargo add iroh iroh-blobs` (2026-09-28), not from memory.
 # unstable-net-report: the network diagnosis behind "why a relay". Its API is

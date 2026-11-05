@@ -46,7 +46,7 @@ impl SecretStore for FaultyStore {
         }
         self.inner.put(name, secret)
     }
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         let value = self.inner.get(name)?;
         Ok(if self.corrupt_reads {
             value.map(|mut bytes| {
@@ -103,7 +103,7 @@ fn memory_store_roundtrips_and_is_not_durable() {
     assert_eq!(store.get(&name).unwrap(), None);
     store.put(&name, b"one").unwrap();
     store.put(&name, b"two").unwrap();
-    assert_eq!(store.get(&name).unwrap(), Some(b"two".to_vec()));
+    assert_eq!(store.get(&name).unwrap(), Some(b"two".to_vec().into()));
     store.delete(&name).unwrap();
     store.delete(&name).unwrap();
     assert_eq!(store.get(&name).unwrap(), None);
@@ -177,7 +177,7 @@ fn key_file_roundtrips_across_reopen() {
     drop(store);
 
     let reopened = KeyFileStore::open(&path, "correct horse").unwrap();
-    assert_eq!(reopened.get(&name).unwrap(), Some(vec![7; 32]));
+    assert_eq!(reopened.get(&name).unwrap(), Some(vec![7; 32].into()));
     assert_eq!(reopened.get(&SecretName::NodeKey).unwrap(), None);
     assert_eq!(reopened.path(), path);
     assert_eq!(reopened.durability(), Durability::Durable);
@@ -248,7 +248,7 @@ fn key_file_create_never_overwrites() {
     let reopened = KeyFileStore::open(&path, "correct horse").unwrap();
     assert_eq!(
         reopened.get(&SecretName::NodeKey).unwrap(),
-        Some(b"keep me".to_vec())
+        Some(b"keep me".to_vec().into())
     );
 }
 

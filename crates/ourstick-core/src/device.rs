@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rand::RngCore;
+use zeroize::Zeroizing;
 
 mod private_dir;
 use private_dir::create_private_dir;
@@ -166,26 +167,34 @@ pub fn open_keyring(backend: &SecretBackend) -> Result<Box<dyn SecretStore>, Dev
     }
 }
 
-/// 32 random bytes, for a node key.
-pub fn random_key() -> [u8; 32] {
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
+/// 32 random bytes, for a node key, wiped from memory when dropped.
+pub fn random_key() -> Zeroizing<[u8; 32]> {
+    let mut key = Zeroizing::new([0u8; 32]);
+    rand::rngs::OsRng.fill_bytes(key.as_mut());
     key
 }
 
 /// Reads a 32-byte key. A missing key is an error, never a reason to make a
 /// new one (CLAUDE.md rule 9).
-pub fn load_key(secrets: &dyn SecretStore, name: &SecretName) -> Result<[u8; 32], DeviceError> {
+pub fn load_key(
+    secrets: &dyn SecretStore,
+    name: &SecretName,
+) -> Result<Zeroizing<[u8; 32]>, DeviceError> {
     let Some(bytes) = secrets.get(name)? else {
         return Err(DeviceError::KeyMissing {
             name: format!("{name:?}"),
             store: secrets.describe(),
         });
     };
-    bytes.try_into().map_err(|_| DeviceError::KeyDamaged {
-        name: format!("{name:?}"),
-        store: secrets.describe(),
-    })
+    if bytes.len() != 32 {
+        return Err(DeviceError::KeyDamaged {
+            name: format!("{name:?}"),
+            store: secrets.describe(),
+        });
+    }
+    let mut key = Zeroizing::new([0u8; 32]);
+    key.copy_from_slice(&bytes);
+    Ok(key)
 }
 
 /// Records this device on first use, with `backend` as where its keys live;
@@ -244,7 +253,7 @@ pub struct StickKeys {
     pub stick_key: StickKey,
     /// The iroh node key it is shared with: its own, or the device's for a
     /// stick made before ADR 0009.
-    pub node_key: [u8; 32],
+    pub node_key: Zeroizing<[u8; 32]>,
 }
 
 /// Loads the keys of a stick this device owns. Its node key must be the one
@@ -285,7 +294,7 @@ pub fn load_stick(
     Ok(StickKeys {
         stick,
         signing_key,
-        stick_key: StickKey::from_bytes(stick_key),
+        stick_key: StickKey::from_bytes(*stick_key),
         node_key,
     })
 }
@@ -366,10 +375,10 @@ fn create(
     let stick_id = signing_key.stick_id();
     secrets.put(
         &SecretName::StickSigningKey(stick_id),
-        &signing_key.to_bytes(),
+        Zeroizing::new(signing_key.to_bytes()).as_slice(),
     )?;
     secrets.put(&SecretName::StickKey(stick_id), stick_key.as_bytes())?;
-    secrets.put(&SecretName::StickNodeKey(stick_id), &node_key)?;
+    secrets.put(&SecretName::StickNodeKey(stick_id), node_key.as_slice())?;
     let stick = OwnedStick {
         node_id: Some(IrohConfig::node_id_of(&node_key)),
         ..made

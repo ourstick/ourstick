@@ -36,6 +36,8 @@ bytes.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 semver.workspace = true
+# Keys wiped from memory when dropped.
+zeroize.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true

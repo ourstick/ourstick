@@ -880,11 +880,14 @@ Rules on every platform:
   empty database the app finds old keys. Deleting them automatically would kill
   every ticket shared with them, so it must not happen silently. Options: offer
   to restore those sticks, or ask the user. Decided with the iOS app.
-- Zeroizing secrets in memory (`StickKey`, signing seeds, the node key, the
-  key-file key, decrypted manifests) when they are dropped. Today they stay in
-  memory until reused, so they can end up in swap or core dumps. Would add
-  `zeroize` as a direct dependency (it is already in the tree through
-  `ed25519-dalek` and `chacha20poly1305`).
+- Zeroizing secrets in memory, done for the keys: `StickKey`, the cipher's
+  derived keys, node keys (`IrohConfig`, `StickKeys`, `load_key`), the
+  key-file key and its decrypted map, and every secret a `SecretStore` returns
+  (`Secret`) are wiped when dropped; signing keys and the AEAD's key are wiped
+  by their own crates. Not wiped yet: decrypted manifests and files, ticket
+  text (links in the UI and the clipboard), and copies made inside the
+  system's keyring libraries. Wiping is a best effort: it does not reach
+  copies the compiler leaves on the stack, or memory already swapped out.
 - A reader will need a stable node identity later (e.g. for seeds, per-reader
   access, or being reachable for updates). In v1 `get` uses a fresh random node
   key per run, because a reader needs no lasting identity and must not share the

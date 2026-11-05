@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use super::{Durability, SecretError, SecretName, SecretStore};
+use super::{Durability, Secret, SecretError, SecretName, SecretStore};
 
 /// A [`SecretStore`] that forgets everything when dropped.
 #[derive(Default)]
 pub struct MemorySecretStore {
-    secrets: Mutex<HashMap<SecretName, Vec<u8>>>,
+    secrets: Mutex<HashMap<SecretName, Secret>>,
 }
 
 /// How many secrets it holds, never what they are.
@@ -28,7 +28,7 @@ impl MemorySecretStore {
         Self::default()
     }
 
-    fn secrets(&self) -> std::sync::MutexGuard<'_, HashMap<SecretName, Vec<u8>>> {
+    fn secrets(&self) -> std::sync::MutexGuard<'_, HashMap<SecretName, Secret>> {
         // A panic while holding the lock cannot leave the map half-updated,
         // since every operation is a single map call.
         self.secrets
@@ -47,11 +47,12 @@ impl SecretStore for MemorySecretStore {
     }
 
     fn put(&self, name: &SecretName, secret: &[u8]) -> Result<(), SecretError> {
-        self.secrets().insert(name.clone(), secret.to_vec());
+        self.secrets()
+            .insert(name.clone(), Secret::new(secret.to_vec()));
         Ok(())
     }
 
-    fn get(&self, name: &SecretName) -> Result<Option<Vec<u8>>, SecretError> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
         Ok(self.secrets().get(name).cloned())
     }
 

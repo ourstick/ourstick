@@ -240,7 +240,10 @@ mod tests {
         // Later runs: from the database, with or without the flag.
         for choice in [choice, SecretsChoice::Default] {
             let (store, _) = open(Some(&backend), &choice, &GOOD).unwrap();
-            assert_eq!(store.get(&SecretName::NodeKey).unwrap(), Some(vec![5; 32]));
+            assert_eq!(
+                store.get(&SecretName::NodeKey).unwrap(),
+                Some(vec![5; 32].into())
+            );
         }
     }
 

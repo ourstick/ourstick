@@ -31,10 +31,14 @@ pub(crate) fn hash_file(
     path: &Path,
     cipher: &dyn Cipher,
 ) -> Result<Entry, ManifestError> {
+    let below = path
+        .strip_prefix(root)
+        .map_or(1, |inside| inside.components().count());
     hash_file_telling_plaintext(
         &LocalFiles,
         relative_path(root, path)?,
         path,
+        below,
         cipher,
         None,
         None,
@@ -59,11 +63,14 @@ pub(crate) fn hash_file_telling_plaintext(
     files: &dyn SenderFiles,
     relative: String,
     path: &Path,
+    below: usize,
     cipher: &dyn Cipher,
     reader: Option<&mut DiskReader>,
     outboards: Option<&Path>,
 ) -> Result<Hashed, ManifestError> {
-    let file = files.open(path).map_err(|e| ManifestError::io(path, e))?;
+    let file = files
+        .open_below(path, below)
+        .map_err(|e| ManifestError::io(path, e))?;
     let facts = file.facts().map_err(|e| ManifestError::io(path, e))?;
     let file = InOrder::new(file);
     let hashed = match reader {

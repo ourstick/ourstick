@@ -112,6 +112,7 @@ impl Served {
             plaintext_hash: file.plaintext_hash,
             plaintext_len: entry.size,
             path: files.layout.on_disk(&entry.path),
+            below: files.layout.names_below_root(&entry.path),
         })
     }
 
@@ -134,6 +135,8 @@ struct Found {
     plaintext_len: u64,
     /// Where it is on disk.
     path: PathBuf,
+    /// How many names of `path` lie under its root (never followed).
+    below: usize,
 }
 
 /// Starts the store of a stick whose outboards are in `outboards`, its
@@ -309,6 +312,7 @@ async fn export(
     let blob = MadeBlob::open(
         served.sender_files.as_ref(),
         path,
+        found.below,
         served.cipher(),
         found.plaintext_len,
         &found.plaintext_hash,

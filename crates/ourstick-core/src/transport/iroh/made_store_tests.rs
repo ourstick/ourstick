@@ -55,6 +55,7 @@ fn stick_with(served: &[(&str, Vec<u8>)], later: &[(&str, Vec<u8>)]) -> Stick {
             &crate::sender_files::LocalFiles,
             (*name).to_owned(),
             &path,
+            1,
             cipher().as_ref(),
             None,
             Some(cache.path()),

@@ -48,11 +48,12 @@ impl MadeBlob {
     pub fn open(
         files: &dyn SenderFiles,
         path: &Path,
+        below: usize,
         cipher: Arc<dyn Cipher>,
         plaintext_len: u64,
         plaintext_hash: &[u8; 32],
     ) -> io::Result<Self> {
-        let file = files.open(path)?;
+        let file = files.open_below(path, below)?;
         let header = BlobHeader::new(
             cipher.id(),
             cipher.derive_nonce_prefix(&blake3::Hash::from_bytes(*plaintext_hash)),
@@ -202,6 +203,7 @@ mod tests {
             let made = MadeBlob::open(
                 &crate::sender_files::LocalFiles,
                 &path,
+                1,
                 cipher(),
                 size as u64,
                 &info.plaintext_hash,
@@ -247,6 +249,7 @@ mod tests {
         let made = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher(),
             plaintext.len() as u64,
             &info.plaintext_hash,
@@ -272,6 +275,7 @@ mod tests {
         let made = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher(),
             5,
             &info.plaintext_hash,
@@ -283,6 +287,7 @@ mod tests {
         let empty = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher(),
             0,
             blake3::hash(b"").as_bytes(),
@@ -303,6 +308,7 @@ mod tests {
         let made = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher(),
             200,
             &[0; 32],
@@ -343,6 +349,7 @@ mod tests {
         let made = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher(),
             plaintext.len() as u64,
             &info.plaintext_hash,

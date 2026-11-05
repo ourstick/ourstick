@@ -4424,6 +4424,7 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "blake3",
+ "clipboard-win",
  "gtk",
  "jni 0.21.1",
  "ksni",
@@ -4484,6 +4485,7 @@ dependencies = [
  "postcard",
  "rand 0.8.8",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

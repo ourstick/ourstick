@@ -138,6 +138,18 @@ impl StickLayout {
         path
     }
 
+    /// How many names of [`Self::on_disk`]'s path for `relative` lie under
+    /// its root (the root, which may be reached through links, aside): 0
+    /// for a linked file, which is its own root.
+    pub fn names_below_root(&self, relative: &str) -> usize {
+        let names = relative.split('/').count();
+        match self.linked_named(relative.split('/').next().unwrap_or_default()) {
+            Some(root) if !root.is_dir => 0,
+            Some(_) => names - 1,
+            None => names,
+        }
+    }
+
     /// Whether a top-level entry of the own folder, or of the folder at the
     /// top, is hidden by a named linked entry of the same name, ignoring
     /// case: the linked one keeps the name (it was there first, and readers

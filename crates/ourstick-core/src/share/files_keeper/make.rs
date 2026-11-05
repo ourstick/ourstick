@@ -73,6 +73,7 @@ pub(super) fn make(
         files,
         first.clone(),
         &path,
+        layout.names_below_root(first),
         cipher,
         Some(reader),
         Some(outboards),

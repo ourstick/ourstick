@@ -176,6 +176,17 @@ impl Catalogue {
     }
 
     /// Where the file `relative`, under the root `index`, is on disk.
+    /// How many names of [`Self::on_disk`]'s path lie under its root.
+    fn names_below(&self, index: u32, relative: &str) -> usize {
+        let root = &self.roots[index as usize];
+        let names = relative.split('/').count();
+        match &root.name {
+            _ if !root.is_dir => 0,
+            None => names,
+            Some(_) => names - 1,
+        }
+    }
+
     fn on_disk(&self, index: u32, relative: &str) -> PathBuf {
         let root = &self.roots[index as usize];
         match &root.name {
@@ -267,7 +278,8 @@ impl Catalogue {
             let catalogued = match *source {
                 Source::Disk(index) => {
                     let path = self.on_disk(index, relative);
-                    self.catalogue(relative, &path, cipher, readers.as_deref_mut())?
+                    let below = self.names_below(index, relative);
+                    self.catalogue(relative, &path, below, cipher, readers.as_deref_mut())?
                 }
                 Source::Carried => match self.known.get(relative) {
                     Some(known) => Catalogued::File(carried(relative, known)),
@@ -291,6 +303,7 @@ impl Catalogue {
         &self,
         relative: &str,
         path: &Path,
+        below: usize,
         cipher: &dyn Cipher,
         readers: Option<&mut Readers>,
     ) -> Result<Catalogued, ManifestError> {
@@ -333,6 +346,7 @@ impl Catalogue {
             self.sender_files.as_ref(),
             relative.to_owned(),
             path,
+            below,
             cipher,
             reader,
             outboards,

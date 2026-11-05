@@ -108,6 +108,7 @@ mod tests {
         let blob = MadeBlob::open(
             &crate::sender_files::LocalFiles,
             &path,
+            1,
             cipher,
             100,
             &[0; 32],

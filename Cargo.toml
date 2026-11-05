@@ -102,6 +102,14 @@ bao-tree = { version = "0.16.1", default-features = false }
 irpc = "0.17.0"
 bytes = "1.12"
 data-encoding = "2"
+# Files opened without following links nor blocking on a pipe, folder by
+# folder, and the macOS quarantine written, all without unsafe code of our
+# own (already in Cargo.lock through other crates).
+rustix = { version = "1.1.5", features = ["fs"] }
+# Windows: the link put on the clipboard with the marks that keep it out of
+# its history and cloud sync, without unsafe code of our own (already in
+# Cargo.lock through the clipboard plugin).
+clipboard-win = "5.4.1"
 
 # networking — versions from `cargo add iroh iroh-blobs` (2026-09-28), not from memory.
 # unstable-net-report: the network diagnosis behind "why a relay". Its API is

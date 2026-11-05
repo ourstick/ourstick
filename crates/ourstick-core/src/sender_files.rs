@@ -16,6 +16,7 @@ use crate::manifest::FileStamp;
 
 mod local;
 mod memory;
+mod regular;
 mod walk;
 
 pub use local::LocalFiles;
@@ -104,6 +105,15 @@ pub trait SenderFiles: Send + Sync + std::fmt::Debug {
 
     /// The file at `path`, for reading.
     fn open(&self, path: &Path) -> io::Result<Box<dyn ReadAt>>;
+
+    /// [`Self::open`] for a file whose last `below` names lie under the
+    /// stick's root: on the file system, none of them may be a link (a
+    /// folder of the stick swapped for a link after the walk). `below` 0:
+    /// the file is the root itself.
+    fn open_below(&self, path: &Path, below: usize) -> io::Result<Box<dyn ReadAt>> {
+        let _ = below;
+        self.open(path)
+    }
 
     /// How the place `a` relates to the place `b` (ADR 0029): the same,
     /// one holding the other, or apart (`None`). Compared as paths here;

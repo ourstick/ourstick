@@ -739,6 +739,9 @@ knows the node id can connect:
   closes the one idle the longest (with no transfer), and is refused only
   if every one has a transfer.
 
+A reader waits at most 30 seconds for an owner's record and 5 minutes for
+a transfer that brings nothing, then connects again and resumes.
+
 A reader fetches no more of a file's blob than its manifest entry's size
 allows (header, size and one tag per chunk): a longer blob is stopped as
 soon as that shows, and waited out like damaged data.

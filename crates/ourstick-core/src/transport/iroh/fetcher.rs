@@ -41,6 +41,9 @@ enum Route {
     DirectIpv6,
 }
 
+/// How long a fetch waits for an owner that sends nothing.
+const OWNER_SILENT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
 fn route_of(addr: &iroh::TransportAddr) -> Route {
     match addr {
         iroh::TransportAddr::Ip(ip) if ip.is_ipv6() => Route::DirectIpv6,
@@ -334,7 +337,20 @@ impl PeerConnection for IrohConnection {
         let store = self.batches.store().await;
         let mut progress =
             std::pin::pin!(store.remote().fetch(self.blobs.clone(), raw(hash)).stream());
-        while let Some(item) = progress.next().await {
+        // An owner that sends nothing for this long is not waited for: the
+        // reader connects again and resumes (an owner giving way to its
+        // disk, or its own limits, pause far less).
+        loop {
+            // Only this fetch ends (its stream dropped); the connection's
+            // other fetches go on.
+            let Ok(next) = tokio::time::timeout(OWNER_SILENT, progress.next()).await else {
+                return Err(TransportError::Interrupted(
+                    "the owner sent nothing for 5 minutes".into(),
+                ));
+            };
+            let Some(item) = next else {
+                break;
+            };
             match item {
                 // Stopped at once: every byte goes to this computer's disk.
                 GetProgressItem::Progress(received)

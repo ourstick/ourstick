@@ -87,10 +87,14 @@ pub(super) async fn request_record(
         .await
         .map_err(|error| TransportError::Interrupted(error.to_string()))?;
     send.finish().map_err(|error| protocol(&error))?;
-    let response = recv
-        .read_to_end(1 + SIGNED_RECORD_LEN)
-        .await
-        .map_err(|error| protocol(&error))?;
+    // An owner that never answers is not waited for.
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        recv.read_to_end(1 + SIGNED_RECORD_LEN),
+    )
+    .await
+    .map_err(|_| TransportError::Interrupted("the owner did not answer in 30 seconds".into()))?
+    .map_err(|error| protocol(&error))?;
     parse_response(&response)
 }
 

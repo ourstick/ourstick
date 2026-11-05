@@ -40,7 +40,9 @@ serde_json = "1"
 # hashing / crypto
 blake3 = "1"
 chacha20poly1305 = "0.10"
-ed25519-dalek = "3"
+# Signing keys wiped from memory when dropped: in the defaults, named so a
+# change of defaults cannot drop it (with zeroize below).
+ed25519-dalek = { version = "3", features = ["zeroize"] }
 rand = "0.8"
 
 # secrets: keyring-core with an explicitly chosen backend (never a mock);

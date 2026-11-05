@@ -11,8 +11,9 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       notice in the Windows VM, on Linux (the tray's line too) and on macOS
       (2026-11-05): a look, a changed notice refused, no connection, the
       setting off and on.
-- [ ] Still to try: a start at login with no window, a proxy, a captive
-      portal.
+- [ ] Still to try: a start at login with no window. A proxy (HTTP and
+      HTTPS, `tests/version_proxy.rs`) and a captive portal's page or
+      redirect (`new_version` tests) are covered by tests.
 - [x] **Keys wiped from memory when dropped** (`zeroize`); what is not
       wiped yet is in `docs/protocol.md` ("Known limits").
 - [x] **Hardening from the security reviews:** bounds on what a peer may
@@ -91,7 +92,10 @@ licence; nothing in the package changes that (only the Snap Store does).
       keep its window reachable.
 - [ ] **The relay-only message, for real:** a reader that cannot connect
       directly (both sides behind strict NATs), downloading for over 30 s;
-      the app must show how to let OurStick through the firewall.
+      the app must show how to let OurStick through the firewall. The core
+      is tried over the public relays (`tests/relay_only.rs`, ignored by
+      default: a reader with no direct path gets the stick, and the owner
+      says so after 30 s); still to see the app's line on each system.
 - [ ] **A big folder:** about 900 GB in 146 000 files, 10 levels deep: the
       link at once, partial versions every 3 minutes, a restart halfway,
       flat memory, two readers at different places, and paths over Windows'

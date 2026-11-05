@@ -63,6 +63,9 @@ pub struct IrohConfig {
     /// Asked whether macOS declines the local network (ADR 0020): one for
     /// the whole program unless a test gives another.
     local_network: Arc<SharedProbe>,
+    /// Direct paths (UDP over IP) as well as the relay; off only to try the
+    /// relay path alone.
+    direct: bool,
 }
 
 /// Which relays a [`Network::Public`] node uses (ADR 0006: configurable, not
@@ -85,7 +88,16 @@ impl IrohConfig {
             network,
             relays: Relays::default(),
             local_network: system_probe(),
+            direct: true,
         }
+    }
+
+    /// No direct path, only the relay: a node as behind a firewall that
+    /// drops all UDP, for trying the relay path and what the owner says of
+    /// readers that reach it only through the relay (ADR 0006).
+    pub fn without_direct_paths(mut self) -> Self {
+        self.direct = false;
+        self
     }
 
     pub(super) fn local_network(&self) -> Arc<SharedProbe> {
@@ -167,6 +179,9 @@ async fn bind_with(
     }
     if let Some(transport) = transport {
         builder = builder.transport_config(transport);
+    }
+    if !config.direct {
+        builder = builder.clear_ip_transports();
     }
     builder
         .secret_key(SecretKey::from_bytes(&config.secret_key))

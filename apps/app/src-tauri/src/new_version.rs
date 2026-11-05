@@ -71,7 +71,10 @@ pub fn start(app: &AppHandle, data_dir: &Path) {
                 })
                 .await
                 {
-                    Ok(true) => changed(&app).await,
+                    Ok(true) => {
+                        changed(&app).await;
+                        bring_up_for_security(&app).await;
+                    }
                     Ok(false) => {}
                     Err(error) => tracing::warn!(%error, "a look for a new version was not kept"),
                 }
@@ -103,16 +106,18 @@ fn reading() -> Option<(HttpSource, NoticeKeys)> {
         .map(|source| (source, ourstick))
 }
 
-/// Something changed: the window and the tray show it again, and a
-/// security line not yet told brings the window up (rule 8, as a due thing
-/// does, ADR 0024 rule 3).
+/// Something changed: the window and the tray show it again.
 async fn changed(app: &AppHandle) {
     let _ = app.emit("version-notice-changed", ());
     crate::refresh::refresh_tray(app).await;
-    if let Ok(view) = view(app).await {
-        if view.tell_security {
-            crate::tray::show_main(app);
-        }
+}
+
+/// A look found a security line not yet told: the window comes up (rule 8,
+/// as a due thing does, ADR 0024 rule 3). Only after a look, never when
+/// the user changes the setting in About.
+async fn bring_up_for_security(app: &AppHandle) {
+    if view(app).await.is_ok_and(|view| view.tell_security) {
+        crate::tray::show_main(app);
     }
 }
 

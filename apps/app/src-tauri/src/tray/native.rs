@@ -103,10 +103,15 @@ fn item(app: &AppHandle, text: &str, action: Action) -> Result<MenuItem<Wry>> {
     )?)
 }
 
-/// The menu for the app's sticks and the login check.
-fn menu(app: &AppHandle, sticks: &[TrayThing], start_at_login: bool) -> Result<Menu<Wry>> {
+/// The menu for the app's sticks, the login check and a new version's line.
+fn menu(
+    app: &AppHandle,
+    sticks: &[TrayThing],
+    start_at_login: bool,
+    notice: Option<&str>,
+) -> Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
-    for line in menu_lines(sticks, start_at_login) {
+    for line in menu_lines(sticks, start_at_login, notice) {
         match line {
             Line::Item(text, action) => menu.append(&item(app, &text, action)?)?,
             Line::Check(text, checked, action) => menu.append(&CheckMenuItem::with_id(
@@ -129,7 +134,7 @@ pub fn create(app: &AppHandle) -> Result<()> {
         .icon(image)
         .icon_as_template(template)
         .tooltip("OurStick")
-        .menu(&menu(app, &[], false)?)
+        .menu(&menu(app, &[], false, None)?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
             let Some(action) = Action::from_id(event.id.as_ref()) else {
@@ -157,11 +162,16 @@ pub fn set_active(app: &AppHandle, active: bool) {
 
 /// The app's sticks, as the menu lists them, and the login check: the
 /// menu is made anew.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayThing>, start_at_login: bool) {
+pub fn set_sticks(
+    app: &AppHandle,
+    sticks: Vec<TrayThing>,
+    start_at_login: bool,
+    notice: Option<String>,
+) {
     let Some(tray) = app.tray_by_id(TRAY) else {
         return;
     };
-    match menu(app, &sticks, start_at_login) {
+    match menu(app, &sticks, start_at_login, notice.as_deref()) {
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
         }

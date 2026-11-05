@@ -25,6 +25,7 @@
   import ReceivedView from "./ReceivedView.svelte";
   import SendView from "./SendView.svelte";
   import StickView from "./StickView.svelte";
+  import VersionNotice from "./VersionNotice.svelte";
   import WaitingView from "./WaitingView.svelte";
   import type { Outcome } from "./StickAsk.svelte";
 
@@ -197,6 +198,7 @@
       <button onclick={loginNoticeRead}>OK</button>
     </div>
   {/if}
+  {#if shown.kind === "home"}<VersionNotice place="top" />{/if}
   {#if problem?.kind === "failed"}
     <p class="app-problem error" role="alert">
       <span>{problem.message}</span>
@@ -251,6 +253,7 @@
   {#if version && shown.kind === "home"}
     <footer>
       <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+      <VersionNotice place="foot" />
       <!-- Quit is always within reach in the window: the tray and the app
            menu are a help, never the only way (docs/gui-spec.md). -->
       {#if !phone}

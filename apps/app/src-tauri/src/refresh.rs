@@ -85,7 +85,8 @@ pub async fn refresh_tray(app: &AppHandle) {
             name: display_name(None, &stick_id),
         });
     }
-    crate::tray::set_sticks(app, things, start_at_login);
+    let notice = crate::new_version::tray_line(app).await;
+    crate::tray::set_sticks(app, things, start_at_login, notice);
     crate::tray::set_active(app, active);
 }
 

@@ -18,7 +18,10 @@ pub use line::{
     civil_from_days, day_number, notice_line, release_day, security_to_tell, NoticeLine,
     OLD_AFTER_DAYS,
 };
-pub use look::{is_due, look_if_due, set_looking, told_looking, told_security, DAY_MS, HOUR_MS};
+pub use look::{
+    is_due, keep_outcome, look_if_due, read_outcome, set_looking, told_looking, told_security,
+    DAY_MS, HOUR_MS,
+};
 pub use notice::{plain_version, read_notice, Notice, NoticeError, System};
 pub use signature::{SignatureError, Signer};
 pub use source::{

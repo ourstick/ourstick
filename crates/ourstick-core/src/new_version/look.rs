@@ -23,6 +23,9 @@ pub fn is_due(look: &VersionLook, now_ms: u64) -> bool {
 }
 
 /// Looks if due; true if it looked. The file's contents are never logged.
+/// In three steps for an app that keeps the database off its async runtime:
+/// [`is_due`] (with [`NoticeStore::version_look`]), [`read_outcome`] and
+/// [`keep_outcome`].
 pub async fn look_if_due<S: NoticeSource>(
     store: &dyn NoticeStore,
     source: &S,
@@ -33,7 +36,17 @@ pub async fn look_if_due<S: NoticeSource>(
     if !is_due(&store.version_look()?, clock.now_ms()) {
         return Ok(false);
     }
-    let outcome = match source.read().await {
+    let outcome = read_outcome(source, keys, system).await;
+    keep_outcome(store, outcome, clock.now_ms())
+}
+
+/// Reads the file and checks it: a notice for `system`, or why not.
+pub async fn read_outcome<S: NoticeSource>(
+    source: &S,
+    keys: &NoticeKeys,
+    system: System,
+) -> Result<Notice, LookFailure> {
+    match source.read().await {
         Ok(bytes) if bytes.len() > MOST_BYTES => Err(LookFailure::NotTheFile),
         Ok(bytes) => read_notice(&bytes, keys, system).map_err(|error| {
             tracing::info!(%error, "version.json not taken");
@@ -43,13 +56,20 @@ pub async fn look_if_due<S: NoticeSource>(
             tracing::info!(%error, "could not read version.json");
             Err(error.failure())
         }
-    };
-    // Read again: looking may have been turned off while the read went on.
+    }
+}
+
+/// Keeps what a look found, and when the next is due; false if looking was
+/// turned off while it read (then nothing is kept).
+pub fn keep_outcome(
+    store: &dyn NoticeStore,
+    outcome: Result<Notice, LookFailure>,
+    now: u64,
+) -> Result<bool, StoreError> {
     let mut look = store.version_look()?;
     if !look.looking {
         return Ok(false);
     }
-    let now = clock.now_ms();
     match outcome {
         Ok(notice) => {
             take(&mut look, notice);

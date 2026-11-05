@@ -11,4 +11,10 @@ pub fn create(_app: &AppHandle) -> Result<()> {
 
 pub fn set_active(_app: &AppHandle, _active: bool) {}
 
-pub fn set_sticks(_app: &AppHandle, _sticks: Vec<TrayThing>, _start_at_login: bool) {}
+pub fn set_sticks(
+    _app: &AppHandle,
+    _sticks: Vec<TrayThing>,
+    _start_at_login: bool,
+    _notice: Option<String>,
+) {
+}

@@ -31,6 +31,8 @@ struct Shown {
     sticks: Vec<TrayThing>,
     /// The "Start at login" check (ADR 0024).
     start_at_login: bool,
+    /// A new version's line (ADR 0033).
+    notice: Option<String>,
 }
 
 /// The running tray, as app state.
@@ -79,6 +81,7 @@ pub fn create(app: &AppHandle) -> Result<()> {
             active: false,
             sticks: Vec::new(),
             start_at_login: false,
+            notice: None,
         }),
         handle: OnceLock::new(),
     });
@@ -151,11 +154,18 @@ pub fn set_active(app: &AppHandle, active: bool) {
     change(app, |shown| shown.active = active);
 }
 
-/// The app's sticks, as the menu lists them, and the login check.
-pub fn set_sticks(app: &AppHandle, sticks: Vec<TrayThing>, start_at_login: bool) {
+/// The app's sticks, as the menu lists them, the login check and a new
+/// version's line.
+pub fn set_sticks(
+    app: &AppHandle,
+    sticks: Vec<TrayThing>,
+    start_at_login: bool,
+    notice: Option<String>,
+) {
     change(app, |shown| {
         shown.sticks = sticks;
         shown.start_at_login = start_at_login;
+        shown.notice = notice;
     });
 }
 
@@ -202,9 +212,13 @@ fn opens_window(app: &AppHandle, action: Action) -> bool {
         // The Quit dialog is always made anew.
         Action::Quit => true,
         Action::About => app.get_webview_window("about").is_none(),
-        Action::Open | Action::Show(_) | Action::Send | Action::Receive | Action::StartAtLogin => {
-            false
-        }
+        // The browser's own window, not ours.
+        Action::Open
+        | Action::Show(_)
+        | Action::Send
+        | Action::Receive
+        | Action::GetIt
+        | Action::StartAtLogin => false,
     }
 }
 
@@ -267,7 +281,7 @@ impl ksni::Tray for Tray {
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         let shown = self.shown();
-        menu_lines(&shown.sticks, shown.start_at_login)
+        menu_lines(&shown.sticks, shown.start_at_login, shown.notice.as_deref())
             .into_iter()
             .map(|line| match line {
                 Line::Item(text, action) => item(&text, action),

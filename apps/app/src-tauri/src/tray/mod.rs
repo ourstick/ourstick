@@ -83,6 +83,8 @@ enum Action {
     Send,
     Receive,
     About,
+    /// The line of a new version (ADR 0033): the download page.
+    GetIt,
     /// The "Open when the computer starts" check, turned the other way.
     StartAtLogin,
     Quit,
@@ -99,6 +101,7 @@ impl Action {
             Self::Send => "send".to_owned(),
             Self::Receive => "receive".to_owned(),
             Self::About => "about".to_owned(),
+            Self::GetIt => "get-it".to_owned(),
             Self::StartAtLogin => "start-at-login".to_owned(),
             Self::Quit => "quit".to_owned(),
         }
@@ -113,6 +116,7 @@ impl Action {
                 "send" => Some(Self::Send),
                 "receive" => Some(Self::Receive),
                 "about" => Some(Self::About),
+                "get-it" => Some(Self::GetIt),
                 "start-at-login" => Some(Self::StartAtLogin),
                 "quit" => Some(Self::Quit),
                 _ => None,
@@ -139,8 +143,8 @@ enum Line {
 }
 
 /// The whole tray menu, for what is sent and received (in the home's
-/// order) and whether the app starts at login.
-fn menu_lines(things: &[TrayThing], start_at_login: bool) -> Vec<Line> {
+/// order), whether the app starts at login, and a new version's line.
+fn menu_lines(things: &[TrayThing], start_at_login: bool, notice: Option<&str>) -> Vec<Line> {
     let mut lines = vec![Line::Item("Open OurStick".to_owned(), Action::Open)];
     if !things.is_empty() {
         lines.push(Line::Separator);
@@ -155,6 +159,9 @@ fn menu_lines(things: &[TrayThing], start_at_login: bool) -> Vec<Line> {
     lines.push(Line::Item("Send…".to_owned(), Action::Send));
     lines.push(Line::Item("Receive…".to_owned(), Action::Receive));
     lines.push(Line::Separator);
+    if let Some(notice) = notice {
+        lines.push(Line::Item(notice.to_owned(), Action::GetIt));
+    }
     lines.push(Line::Item("About OurStick".to_owned(), Action::About));
     lines.push(Line::Check(
         "Open when the computer starts".to_owned(),
@@ -178,7 +185,7 @@ fn act(app: &AppHandle, action: Action) {
     if crate::keys::waiting(&app.state::<AppState>())
         && !matches!(
             action,
-            Action::Open | Action::Quit | Action::About | Action::StartAtLogin
+            Action::Open | Action::Quit | Action::About | Action::GetIt | Action::StartAtLogin
         )
     {
         show_main(app);
@@ -206,6 +213,10 @@ fn act(app: &AppHandle, action: Action) {
         Action::Send => shows("send", None),
         Action::Receive => shows("receive", None),
         Action::About => crate::about::open(app),
+        Action::GetIt => {
+            crate::new_version::open_download_page_from_tray(app);
+            Ok(())
+        }
         Action::StartAtLogin => {
             toggle_start_at_login(app);
             Ok(())

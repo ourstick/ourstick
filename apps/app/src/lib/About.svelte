@@ -9,6 +9,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import ScreenPicture from "./ScreenPicture.svelte";
   import SendersSeeYou from "./SendersSeeYou.svelte";
+  import NewVersions from "./NewVersions.svelte";
   import { appState } from "./api";
   import {
     aboutView,
@@ -86,6 +87,7 @@
       <p class="muted small">macOS also lists it in System Settings → General → Login Items.</p>
     {/if}
   {/if}
+  <NewVersions />
   <SendersSeeYou />
   {#if screen}
     <div class="again">

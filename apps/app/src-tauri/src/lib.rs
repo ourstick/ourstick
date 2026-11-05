@@ -15,9 +15,11 @@ mod found;
 mod inhibit;
 mod keys;
 mod local_network;
+mod logging;
 mod login;
 #[cfg(target_os = "macos")]
 mod menu;
+mod new_version;
 #[cfg(target_os = "android")]
 mod phone;
 mod pick;
@@ -70,7 +72,7 @@ pub fn run() {
     tauri::async_runtime::set(runtime.handle().clone());
 
     tracing_subscriber::fmt()
-        .with_env_filter(log_filter())
+        .with_env_filter(logging::log_filter())
         .with_writer(std::io::stderr)
         .init();
 
@@ -207,6 +209,7 @@ pub fn run() {
             // once, like USB sticks plugged back in; a removal or a new link
             // stopped halfway is finished even when no stick is left to see.
             let state = app.state::<state::AppState>();
+            new_version::start(app.handle(), &state.data_dir);
             let store = state.store.as_ref();
             let pending = state.app_sticks().is_ok_and(|sticks| !sticks.is_empty())
                 || store
@@ -239,7 +242,8 @@ pub fn run() {
             // something to ask first.
             let notice = store
                 .settings()
-                .is_ok_and(|settings| settings.start_at_login && !settings.start_at_login_told);
+                .is_ok_and(|settings| settings.start_at_login && !settings.start_at_login_told)
+                || new_version::security_to_tell_now(app.handle());
             let ask_first =
                 due.is_some_and(|keys| keys > 0) || !*state.network_open.borrow() || notice;
             #[cfg(desktop)]
@@ -339,6 +343,10 @@ pub fn run() {
             login::commands::start_at_login,
             login::commands::set_start_at_login,
             login::commands::start_at_login_told,
+            new_version::version_notice,
+            new_version::set_look_for_versions,
+            new_version::version_told,
+            new_version::open_download_page,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start its window")
@@ -374,20 +382,4 @@ pub fn run() {
                 tauri::async_runtime::block_on(receivers.stop_all());
             }
         });
-}
-
-/// The log filter: `RUST_LOG`, with `tao` never below `debug`, since at
-/// `trace` it logs the addresses the app was opened with, and one may hold
-/// a key (ADR 0030).
-fn log_filter() -> tracing_subscriber::EnvFilter {
-    let filter = tracing_subscriber::EnvFilter::from_default_env();
-    // Without RUST_LOG only errors are logged: nothing to cap, and a cap
-    // would let tao's debug lines through.
-    if std::env::var_os("RUST_LOG").is_none() {
-        return filter;
-    }
-    match "tao=debug".parse() {
-        Ok(cap) => filter.add_directive(cap),
-        Err(_) => filter,
-    }
 }

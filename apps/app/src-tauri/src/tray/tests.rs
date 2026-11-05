@@ -24,7 +24,7 @@ fn each_thing_is_one_line_with_its_sentence_opening_its_view() {
         "Family videos",
         "\u{2193} Downloading 45%",
     );
-    let lines = menu_lines(&[photos, videos], true);
+    let lines = menu_lines(&[photos, videos], true, None);
     assert_eq!(
         lines[2],
         Line::Item(
@@ -45,7 +45,7 @@ fn each_thing_is_one_line_with_its_sentence_opening_its_view() {
 
 #[test]
 fn with_nothing_the_menu_still_opens_sends_receives_and_quits() {
-    let lines = menu_lines(&[], false);
+    let lines = menu_lines(&[], false, None);
     assert_eq!(
         lines[0],
         Line::Item("Open OurStick".to_owned(), Action::Open)
@@ -63,6 +63,7 @@ fn a_native_item_id_names_its_action() {
         Action::Send,
         Action::Receive,
         Action::About,
+        Action::GetIt,
         Action::StartAtLogin,
         Action::Quit,
     ] {
@@ -75,7 +76,7 @@ fn a_native_item_id_names_its_action() {
 #[test]
 fn about_and_the_login_check_come_before_quit() {
     for on in [true, false] {
-        let lines = menu_lines(&[], on);
+        let lines = menu_lines(&[], on, None);
         let end = &lines[lines.len() - 3..];
         assert_eq!(
             end,
@@ -90,6 +91,22 @@ fn about_and_the_login_check_come_before_quit() {
             ]
         );
     }
+}
+
+/// ADR 0033: a new version's line comes just above About.
+#[test]
+fn a_new_version_s_line_comes_above_about() {
+    let words = "OurStick 0.3.0 is out \u{b7} Get it";
+    let lines = menu_lines(&[], true, Some(words));
+    let end = &lines[lines.len() - 4..lines.len() - 2];
+    assert_eq!(
+        end,
+        [
+            Line::Item(words.to_owned(), Action::GetIt),
+            Line::Item("About OurStick".to_owned(), Action::About),
+        ]
+    );
+    assert_eq!(lines.len(), 9);
 }
 
 #[test]

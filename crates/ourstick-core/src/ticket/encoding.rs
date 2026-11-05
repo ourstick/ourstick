@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use data_encoding::BASE32_NOPAD;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use super::{AddressHint, NodeId, Ticket, TicketError, MAX_PUBLIC_PART_LEN};
 use crate::cipher::StickKey;
@@ -61,10 +62,10 @@ fn encode_base32(bytes: &[u8]) -> String {
     BASE32_NOPAD.encode(bytes).to_ascii_lowercase()
 }
 
+/// The upper-case copy is wiped: it may be a secret part.
 fn decode_base32(text: &str) -> Option<Vec<u8>> {
-    BASE32_NOPAD
-        .decode(text.to_ascii_uppercase().as_bytes())
-        .ok()
+    let upper = Zeroizing::new(text.to_ascii_uppercase());
+    BASE32_NOPAD.decode(upper.as_bytes()).ok()
 }
 
 impl Ticket {
@@ -100,9 +101,10 @@ impl Ticket {
         Ok(public)
     }
 
-    fn secret_part(&self, public: &[u8]) -> Vec<u8> {
+    /// The key and its check, wiped when dropped.
+    fn secret_part(&self, public: &[u8]) -> Zeroizing<Vec<u8>> {
         let key = self.stick_key.as_bytes();
-        [&key[..], &check(&[public, key])].concat()
+        Zeroizing::new([&key[..], &check(&[public, key])].concat())
     }
 
     fn from_parts(public_text: &str, secret_text: &str) -> Result<Self, TicketError> {
@@ -131,7 +133,8 @@ impl Ticket {
             return Err(TicketError::PublicPartDamaged);
         }
 
-        let secret = decode_base32(secret_text).ok_or(TicketError::SecretPartDamaged)?;
+        let secret =
+            Zeroizing::new(decode_base32(secret_text).ok_or(TicketError::SecretPartDamaged)?);
         let secret: &[u8; SECRET_PART_LEN] = secret
             .as_slice()
             .try_into()

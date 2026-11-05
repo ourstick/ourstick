@@ -49,6 +49,7 @@ pub fn reader_key_if_any(
     Ok(secrets
         .get(&SecretName::ReaderKey(*stick_id))?
         .and_then(|seed| <[u8; 32]>::try_from(seed.as_slice()).ok())
+        .map(zeroize::Zeroizing::new)
         .map(|seed| crate::report::ReaderKey::from_bytes(&seed)))
 }
 
@@ -62,13 +63,14 @@ pub fn reader_key(
     let name = SecretName::ReaderKey(*stick_id);
     if let Some(seed) = secrets.get(&name)? {
         if let Ok(seed) = <[u8; 32]>::try_from(seed.as_slice()) {
+            let seed = zeroize::Zeroizing::new(seed);
             return Ok(crate::report::ReaderKey::from_bytes(&seed));
         }
         // Damaged: a new key only changes which line the owner shows.
         tracing::warn!("a received stick's reader key was damaged; a new one is made");
     }
     let key = crate::report::ReaderKey::generate();
-    secrets.put(&name, &key.to_bytes())?;
+    secrets.put(&name, zeroize::Zeroizing::new(key.to_bytes()).as_slice())?;
     Ok(key)
 }
 

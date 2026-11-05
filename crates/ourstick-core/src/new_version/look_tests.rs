@@ -129,7 +129,9 @@ async fn a_lower_serial_is_ignored_a_higher_kept_per_key() {
         &notice(5, "0.3.0", "0.3.0"),
     )));
     assert!(world.look().await);
-    // An old notice served again cannot hide the newer one.
+    // An old notice served again cannot hide the newer one, and is no
+    // good look: About says what came.
+    let good = world.kept().last_good_ms;
     world.clock.set(world.kept().next_look_ms);
     world.source.answer(Ok(version_json(
         &world.release,
@@ -138,6 +140,17 @@ async fn a_lower_serial_is_ignored_a_higher_kept_per_key() {
     assert!(world.look().await);
     assert_eq!(world.kept().newest.as_deref(), Some("0.3.0"));
     assert_eq!(world.kept().security.as_deref(), Some("0.3.0"));
+    assert_eq!(world.kept().last_good_ms, good);
+    assert_eq!(world.kept().failure, Some(LookFailure::Old));
+    assert!(world.kept().failing_since_ms.is_some());
+    // The same serial again is a good look.
+    world.clock.set(world.kept().next_look_ms);
+    world.source.answer(Ok(version_json(
+        &world.release,
+        &notice(5, "0.3.0", "0.3.0"),
+    )));
+    assert!(world.look().await);
+    assert_eq!(world.kept().failure, None);
     // A higher one is taken.
     world.clock.set(world.kept().next_look_ms);
     world.source.answer(Ok(version_json(

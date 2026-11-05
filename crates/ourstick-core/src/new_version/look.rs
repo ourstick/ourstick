@@ -70,9 +70,17 @@ pub fn keep_outcome(
     if !look.looking {
         return Ok(false);
     }
+    // A notice older than one taken is no good look: About's "last looked"
+    // must show that the site's notice is held back (ADR 0033 rule 5).
+    let outcome = outcome.and_then(|notice| {
+        if take(&mut look, notice) {
+            Ok(())
+        } else {
+            Err(LookFailure::Old)
+        }
+    });
     match outcome {
-        Ok(notice) => {
-            take(&mut look, notice);
+        Ok(()) => {
             look.last_good_ms = Some(now);
             look.failing_since_ms = None;
             look.failure = None;
@@ -89,8 +97,8 @@ pub fn keep_outcome(
 }
 
 /// Keeps what a good notice says, unless its key has signed a higher serial
-/// (an old notice served again cannot hide a newer one).
-fn take(look: &mut VersionLook, notice: Notice) {
+/// (an old notice served again cannot hide a newer one); false then.
+fn take(look: &mut VersionLook, notice: Notice) -> bool {
     let key_id = notice.key_id().to_string();
     if look
         .serials
@@ -98,7 +106,7 @@ fn take(look: &mut VersionLook, notice: Notice) {
         .is_some_and(|&taken| notice.serial() < taken)
     {
         tracing::info!("an older notice than the one taken; ignored");
-        return;
+        return false;
     }
     look.serials.insert(key_id, notice.serial());
     match notice {
@@ -112,6 +120,7 @@ fn take(look: &mut VersionLook, notice: Notice) {
             new_release_key, ..
         } => look.new_release_key = Some(new_release_key),
     }
+    true
 }
 
 /// "Look for new versions" on or off. Off forgets a newer version, but not

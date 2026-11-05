@@ -70,8 +70,11 @@ way.
 5. **Old notices.** The highest `serial` seen is kept, with the id of the
    key that signed it, in the database (`settings`); a notice with a lower
    `serial` is ignored, so an old signed one served again cannot hide a
-   newer one. A new key starts its own count. A notice withheld cannot be
-   seen; that is today's state, and About says when the app last looked.
+   newer one, and is not a good look either: About's "last looked" stays
+   as it was and says an older notice came, so an old file served again
+   for days is seen as a notice withheld. A new key starts its own count.
+   A notice withheld cannot be seen; that is today's state, and About says
+   when the app last looked.
 
 **What is shown.**
 

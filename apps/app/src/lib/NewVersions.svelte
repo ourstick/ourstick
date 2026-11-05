@@ -37,6 +37,7 @@
     "no-connection": "no connection to ourstick.com",
     refused: "ourstick.com did not give the file",
     "not-the-file": "what came was not OurStick's signed notice",
+    old: "ourstick.com gave an older notice than one already seen",
   };
 
   onMount(() => {

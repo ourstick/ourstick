@@ -16,7 +16,7 @@ export interface NoticeView {
   looking: boolean;
   lastGoodMs: number | null;
   failingSinceMs: number | null;
-  failure: "no-connection" | "refused" | "not-the-file" | null;
+  failure: "no-connection" | "refused" | "not-the-file" | "old" | null;
   /** Told once: the app now looks. */
   tellLooking: boolean;
   /** Told once: the security line. */

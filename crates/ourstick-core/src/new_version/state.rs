@@ -16,6 +16,9 @@ pub enum LookFailure {
     /// A file that is not a good notice: a captive portal's page, a bad
     /// signature, a notice that does not hold.
     NotTheFile,
+    /// A good notice, but older than one already taken: what the site
+    /// serves is held back (an old file served again), so it is not a look.
+    Old,
 }
 
 impl LookFailure {
@@ -24,13 +27,19 @@ impl LookFailure {
             Self::NoConnection => "no-connection",
             Self::Refused => "refused",
             Self::NotTheFile => "not-the-file",
+            Self::Old => "old",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::NoConnection, Self::Refused, Self::NotTheFile]
-            .into_iter()
-            .find(|failure| failure.as_str() == text)
+        [
+            Self::NoConnection,
+            Self::Refused,
+            Self::NotTheFile,
+            Self::Old,
+        ]
+        .into_iter()
+        .find(|failure| failure.as_str() == text)
     }
 }
 

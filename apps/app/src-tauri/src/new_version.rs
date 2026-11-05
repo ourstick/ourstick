@@ -185,7 +185,7 @@ pub struct NoticeView {
     looking: bool,
     last_good_ms: Option<u64>,
     failing_since_ms: Option<u64>,
-    /// "no-connection", "refused" or "not-the-file".
+    /// "no-connection", "refused", "not-the-file" or "old".
     failure: Option<&'static str>,
     /// Told once: the app now looks (rule 11).
     tell_looking: bool,

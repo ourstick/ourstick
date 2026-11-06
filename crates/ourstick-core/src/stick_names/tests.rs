@@ -101,6 +101,18 @@ fn a_received_folder_never_opens_as_an_app() {
         received_folder_name("Bin.{645FF040-5081-101B-9F08-00AA002F954E}", none),
         "Bin.{645FF040-5081-101B-9F08-00AA002F954E}_"
     );
+    // A disk image's bundle would be mounted.
+    assert_eq!(
+        received_folder_name("Holiday.sparsebundle", none),
+        "Holiday.sparsebundle_"
+    );
+    // Never hidden, never a settings folder's name.
+    assert_eq!(received_folder_name(".ssh", none), "_ssh");
+    assert_eq!(received_folder_name(".config", none), "_config");
+    assert_eq!(received_folder_name(".app", none), "_app");
+    assert_eq!(received_folder_name("..", none), "Stick");
+    let taken = |candidate: &str| candidate == "_ssh";
+    assert_eq!(received_folder_name(".ssh", taken), "_ssh (2)");
     // Other names as ever.
     assert_eq!(received_folder_name("Photos 2026", none), "Photos 2026");
     assert_eq!(received_folder_name("my.apps", none), "my.apps");

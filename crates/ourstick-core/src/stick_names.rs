@@ -99,21 +99,28 @@ pub fn folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
 
 /// The folder a received stick goes into: [`folder_name`], and never one a
 /// system opens as something other than a folder, since the sender chose
-/// the name: a macOS bundle (`Invoice.app`, `.pkg`, `.saver`…), which
-/// "Open folder" would hand to the system to run or install, or a Windows
-/// shell folder (`Name.{CLSID}`). Such a name gets a `_` at its end.
+/// the name: a macOS bundle (`Invoice.app`, `.pkg`, `.saver`, a disk
+/// image's `.sparsebundle`…), which "Open folder" would hand to the system
+/// to run, install or mount, or a Windows shell folder (`Name.{CLSID}`).
+/// Such a name gets a `_` at its end. Nor a hidden one: a name starting
+/// with a dot (`.ssh`, `.config`) starts with `_` instead, so the folder is
+/// seen, and never lands as a settings folder when moved into home.
 pub fn received_folder_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
     let plain = folder_name(name, |_| false);
+    let plain = match plain.strip_prefix('.') {
+        Some(rest) => format!("_{rest}"),
+        None => plain,
+    };
     if opens_as_something_else(&plain) {
         folder_name(&format!("{plain}_"), taken)
     } else {
-        folder_name(name, taken)
+        folder_name(&plain, taken)
     }
 }
 
 /// The ends macOS opens a folder by as a bundle, and Windows' shell folders.
 fn opens_as_something_else(folder: &str) -> bool {
-    const BUNDLES: [&str; 23] = [
+    const BUNDLES: [&str; 24] = [
         "app",
         "appex",
         "bundle",
@@ -132,6 +139,7 @@ fn opens_as_something_else(folder: &str) -> bool {
         "saver",
         "scptd",
         "service",
+        "sparsebundle",
         "systemextension",
         "wdgt",
         "workflow",

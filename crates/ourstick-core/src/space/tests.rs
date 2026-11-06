@@ -200,3 +200,86 @@ fn a_nearly_full_laptop_still_takes_a_small_stick() {
     )
     .unwrap();
 }
+
+/// FakeDisks with the folder's disk "out" and the data folder's disk, given
+/// these figures each.
+fn two_keys(data_dir: &Path, out: (u64, u64), data: (u64, u64)) -> FakeDisks {
+    let real = FakeDisks::name(data_dir);
+    FakeDisks(HashMap::from([
+        ("out", out),
+        (&*Box::leak(real.into_boxed_str()), data),
+    ]))
+}
+
+#[test]
+fn one_pool_under_two_keys_is_counted_once() {
+    // A phone: Download on shared storage (a FUSE mount) and the data
+    // folder on /data, two devices with one free space. One 5 GiB video
+    // needs its bytes, its copy and its blob: more than is there.
+    let (store, data) = setup(2);
+    let data_dir = data.path();
+    let disks = two_keys(data_dir, (12 * GB, 110 * GB), (12 * GB, 110 * GB));
+    let _one = download_lock(data_dir, &stick_id(1)).unwrap();
+    let scratch = crate::download::scratch_bytes(5 * GB, 5 * GB);
+    match claim_download(
+        &disks,
+        &store,
+        data_dir,
+        &stick_id(1),
+        Path::new("/out/x"),
+        10 * GB,
+        scratch,
+    ) {
+        Err(SpaceError::DoesNotFit { needed, available }) => {
+            assert_eq!((needed, available), (10 * GB + scratch, 10 * GB));
+        }
+        other => panic!("{other:?}"),
+    }
+    // Free space moves a little between the two looks: still one pool.
+    let disks = two_keys(
+        data_dir,
+        (12 * GB, 110 * GB),
+        (12 * GB - (1 << 20), 110 * GB),
+    );
+    claim_download(
+        &disks,
+        &store,
+        data_dir,
+        &stick_id(1),
+        Path::new("/out/x"),
+        4 * GB,
+        GB,
+    )
+    .unwrap();
+    // Another download's claims under either key take from the same room:
+    // 4 GiB under "out" and 1 GiB under the data folder's key leave 5 GiB.
+    let _two = download_lock(data_dir, &stick_id(2)).unwrap();
+    assert!(matches!(
+        claim_download(&disks, &store, data_dir, &stick_id(2), Path::new("/out/y"), 5 * GB, GB),
+        Err(SpaceError::DoesNotFit { needed, available })
+            if needed == 6 * GB && available <= 5 * GB
+    ));
+    assert!(
+        available(&disks, &store, data_dir, Path::new("/out/z"), None).unwrap() <= 10 * GB - 5 * GB
+    );
+}
+
+#[test]
+fn two_real_disks_are_counted_apart() {
+    let (store, data) = setup(1);
+    let data_dir = data.path();
+    // The same free space, but not the same size: two disks.
+    let disks = two_keys(data_dir, (12 * GB, 500 * GB), (12 * GB, 110 * GB));
+    let _one = download_lock(data_dir, &stick_id(1)).unwrap();
+    let scratch = crate::download::scratch_bytes(5 * GB, 5 * GB);
+    claim_download(
+        &disks,
+        &store,
+        data_dir,
+        &stick_id(1),
+        Path::new("/out/x"),
+        9 * GB,
+        scratch,
+    )
+    .unwrap();
+}

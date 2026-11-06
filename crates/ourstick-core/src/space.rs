@@ -111,6 +111,34 @@ pub fn room_left(free: u64, total: u64, held: u64) -> u64 {
     free.saturating_sub(reserve(total)).saturating_sub(held)
 }
 
+/// How far apart two looks at one pool's free space may be: it moves
+/// between them.
+const SAME_POOL_SLACK: u64 = 64 << 20;
+
+/// Whether two disk keys with these (free, total) figures are one pool of
+/// room: a phone's shared storage (a FUSE mount over `/data`), btrfs
+/// subvolumes, the APFS volumes of one container each have a device of
+/// their own, while every byte written to one is gone from the others.
+/// Two real disks of one size and nearly the same free space count as one
+/// too, which only ever leaves less room.
+fn same_pool((free_a, total_a): (u64, u64), (free_b, total_b): (u64, u64)) -> bool {
+    total_a == total_b && free_a.abs_diff(free_b) <= SAME_POOL_SLACK
+}
+
+/// The free space and size of the disk of `path`.
+fn figures(disks: &dyn Disks, path: &Path) -> Result<(u64, u64), SpaceError> {
+    Ok((
+        disks.free(path).map_err(io(path))?,
+        disks.total(path).map_err(io(path))?,
+    ))
+}
+
+/// What live claims hold on any of `keys` (one pool).
+fn held_on_any(claims: &[&SpaceClaim], keys: &[String]) -> u64 {
+    keys.iter()
+        .fold(0u64, |held, key| held.saturating_add(held_on(claims, key)))
+}
+
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> SpaceError + '_ {
     move |source| SpaceError::Io {
         path: path.to_path_buf(),
@@ -154,9 +182,15 @@ pub fn available(
     path: &Path,
     except: Option<(StickId, ClaimKind)>,
 ) -> Result<u64, SpaceError> {
-    let disk = disks.key(path).map_err(io(path))?;
-    let free = disks.free(path).map_err(io(path))?;
-    let total = disks.total(path).map_err(io(path))?;
+    let mut keys = vec![disks.key(path).map_err(io(path))?];
+    let (free, total) = figures(disks, path)?;
+    // The data folder's disk too, if it is the same pool: its downloads'
+    // scratch takes from this room.
+    if let (Ok(data_disk), Ok(data)) = (disks.key(data_dir), figures(disks, data_dir)) {
+        if data_disk != keys[0] && same_pool((free, total), data) {
+            keys.push(data_disk);
+        }
+    }
     let all = store.space_claims()?;
     let except = except.map(|(stick_id, kind)| (stick_id, vec![kind]));
     let live = live(
@@ -166,7 +200,7 @@ pub fn available(
             .as_ref()
             .map(|(stick_id, kinds)| (*stick_id, kinds.as_slice())),
     )?;
-    Ok(room_left(free, total, held_on(&live, &disk)))
+    Ok(room_left(free, total, held_on_any(&live, &keys)))
 }
 
 /// Claims room for a download of `stick_id` into `out_dir` that still
@@ -201,24 +235,30 @@ pub fn claim_download(
             bytes: scratch,
         },
     ];
-    let mut wants = vec![(out_disk.clone(), out_dir, needed)];
-    if data_disk == out_disk {
-        wants[0].2 += scratch;
+    let out = figures(disks, out_dir)?;
+    let data = figures(disks, data_dir)?;
+    // Each room: the disk keys whose claims take from it, its figures, and
+    // what this download wants of it. One pool under two keys is one room:
+    // counted apart, the bytes and the scratch would each be checked against
+    // the same free space.
+    let rooms = if data_disk == out_disk {
+        vec![(vec![out_disk], out, needed.saturating_add(scratch))]
+    } else if same_pool(out, data) {
+        let free = out.0.min(data.0);
+        let wants = needed.saturating_add(scratch);
+        vec![(vec![out_disk, data_disk], (free, out.1), wants)]
     } else {
-        wants.push((data_disk, data_dir, scratch));
-    }
-    let mut rooms = Vec::new();
-    for (disk, path, want) in &wants {
-        let free = disks.free(path).map_err(io(path))?;
-        let total = disks.total(path).map_err(io(path))?;
-        rooms.push((disk.clone(), free, total, *want));
-    }
+        vec![
+            (vec![out_disk], out, needed),
+            (vec![data_disk], data, scratch),
+        ]
+    };
     let mut outcome = None;
     store.claim_space(&mut |all| {
         let own = [ClaimKind::Download, ClaimKind::Scratch];
         let checked = live(data_dir, all, Some((*stick_id, &own))).map(|live| {
-            for (disk, free, total, want) in &rooms {
-                let available = room_left(*free, *total, held_on(&live, disk));
+            for (keys, (free, total), want) in &rooms {
+                let available = room_left(*free, *total, held_on_any(&live, keys));
                 if *want > available {
                     return Err(SpaceError::DoesNotFit {
                         needed: *want,

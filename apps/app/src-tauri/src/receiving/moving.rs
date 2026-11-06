@@ -21,14 +21,28 @@ pub async fn move_received(
     receivers: State<'_, Receivers>,
 ) -> Result<(), String> {
     let id = stick_id_of(&stick_id)?;
-    // The stick's folder goes inside `into`: as one received there would.
-    let inside = Path::new(&into).join("_");
-    if let Some(why) = super::into::refused(&inside, super::into::home().as_deref()) {
-        return Err(why.to_owned());
-    }
     if !receivers.is_held(&id).await {
         return Err("This is not received here any more.".to_owned());
     }
+    // Checked where the stick's folder would land: inside `into`, under the
+    // name it has now.
+    let store = state.store.clone();
+    let landing = {
+        let into = PathBuf::from(&into);
+        super::work(move || {
+            let joined = store
+                .joined_stick(&id)?
+                .ok_or_else(|| anyhow::anyhow!("This is not received here any more."))?;
+            let name = joined
+                .output_dir
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("This stick's folder has no name."))?
+                .to_owned();
+            Ok(into.join(name))
+        })
+        .await?
+    };
+    super::into::check(landing).await?;
     let store = state.store.clone();
     let paused =
         super::work(move || Ok(store.joined_stick(&id)?.is_some_and(|joined| joined.paused)))

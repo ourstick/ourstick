@@ -1,9 +1,10 @@
 //! Signs that a folder may have changed: from the operating system through
 //! `notify`, or on a timer when watching is not possible.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use notify::event::{AccessKind, AccessMode};
@@ -64,9 +65,53 @@ pub struct NotifyEvents {
     watcher: notify::RecommendedWatcher,
     sender: mpsc::Sender<()>,
     receiver: mpsc::Receiver<()>,
-    watched: BTreeSet<PathBuf>,
+    /// Each root, and the folder the system watches for it ([`watched_for`]).
+    watched: BTreeMap<PathBuf, PathBuf>,
+    /// The folders the system watches.
+    targets: BTreeMap<PathBuf, Target>,
     /// The same roots, for the system's callback.
-    roots: std::sync::Arc<std::sync::Mutex<BTreeSet<PathBuf>>>,
+    roots: Arc<Mutex<Roots>>,
+}
+
+/// A folder the system watches: for how many roots, and whether all under
+/// it too.
+struct Target {
+    roots: usize,
+    recursive: bool,
+}
+
+/// The roots, as the system's callback sees them.
+#[derive(Default)]
+struct Roots {
+    all: BTreeSet<PathBuf>,
+    /// The roots that are a file sent alone, watched through their folder.
+    files: BTreeSet<PathBuf>,
+}
+
+/// What the system watches for `root`, and whether all under it: a folder
+/// with all under it; a file sent alone through its folder alone. Most
+/// editors save by writing a new file and renaming it over the old one: a
+/// watch of the file itself would go with the old one, and no later save
+/// would be seen.
+fn watched_for(root: &Path) -> (PathBuf, bool) {
+    let file = std::fs::metadata(root).is_ok_and(|facts| facts.is_file());
+    match root
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        Some(folder) if file => (folder.to_path_buf(), false),
+        _ => (root.to_path_buf(), true),
+    }
+}
+
+/// Whether `path` is only beside a file sent alone: in that file's folder,
+/// which is watched for it, but neither the file nor under any root.
+/// Another file changing there (the user's other documents) is none of the
+/// stick's.
+fn beside_a_file_root(path: &Path, roots: &Roots) -> bool {
+    let folder = path.parent();
+    roots.files.iter().any(|file| file.parent() == folder)
+        && !roots.all.iter().any(|root| path.starts_with(root))
 }
 
 /// Whether `path` is reached through a link below one of `roots`. A stick
@@ -77,9 +122,11 @@ fn through_a_link(path: &Path, roots: &BTreeSet<PathBuf>) -> bool {
     let Some(root) = roots.iter().find(|root| path.starts_with(root)) else {
         return false;
     };
+    // Only the folders inside the root: a root that is a file has none, and
+    // a link above a root (a home folder reached through one) is the user's.
     path.ancestors()
         .skip(1)
-        .take_while(|folder| *folder != root.as_path())
+        .take_while(|folder| folder.starts_with(root) && *folder != root.as_path())
         .any(|folder| {
             std::fs::symlink_metadata(folder).is_ok_and(|facts| facts.file_type().is_symlink())
         })
@@ -103,48 +150,112 @@ fn is_change(event: &notify::Result<Event>) -> bool {
 impl NotifyEvents {
     /// Starts watching `root` and everything under it.
     pub fn start(root: &Path) -> Result<Self, WatchError> {
-        let error = |reason: notify::Error| WatchError {
-            path: root.display().to_string(),
-            reason: reason.to_string(),
-        };
         let (sender, receiver) = signs();
         let from_system = sender.clone();
-        let roots =
-            std::sync::Arc::new(std::sync::Mutex::new(BTreeSet::from([root.to_path_buf()])));
+        let roots = Arc::new(Mutex::new(Roots::default()));
         let seen_roots = roots.clone();
-        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             // Reads (the pass's own among them) are dropped before any
             // look at the disk for links.
             if !is_change(&event) {
                 return;
             }
-            let behind_links = event.as_ref().is_ok_and(|event| {
+            let none_of_ours = event.as_ref().is_ok_and(|event| {
                 let roots = seen_roots
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 !event.paths.is_empty()
-                    && event.paths.iter().all(|path| through_a_link(path, &roots))
+                    && event.paths.iter().all(|path| {
+                        through_a_link(path, &roots.all) || beside_a_file_root(path, &roots)
+                    })
             });
-            if !behind_links {
+            if !none_of_ours {
                 signal(&from_system);
             }
         })
-        .map_err(error)?;
-        watcher
-            .watch(root, RecursiveMode::Recursive)
-            .map_err(error)?;
-        Ok(Self {
+        .map_err(|reason| WatchError {
+            path: root.display().to_string(),
+            reason: reason.to_string(),
+        })?;
+        let mut events = Self {
             watcher,
             sender,
             receiver,
-            watched: BTreeSet::from([root.to_path_buf()]),
+            watched: BTreeMap::new(),
+            targets: BTreeMap::new(),
             roots,
-        })
+        };
+        events.add_root(root)?;
+        Ok(events)
     }
 
     /// A way to give this source a sign of change from outside.
     pub fn nudge(&self) -> Nudge {
         Nudge(self.sender.clone())
+    }
+
+    /// Watches `root` from now on, as [`watched_for`] says.
+    fn add_root(&mut self, root: &Path) -> Result<(), WatchError> {
+        let (target, recursive) = watched_for(root);
+        let known = self.targets.get(&target).map(|known| known.recursive);
+        // A folder watched already is watched again only to take in all
+        // under it.
+        if known.is_none() || (recursive && known == Some(false)) {
+            if known.is_some() {
+                let _ = self.watcher.unwatch(&target);
+            }
+            let mode = if recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+            self.watcher
+                .watch(&target, mode)
+                .map_err(|reason| WatchError {
+                    path: root.display().to_string(),
+                    reason: reason.to_string(),
+                })?;
+        }
+        let entry = self.targets.entry(target.clone()).or_insert(Target {
+            roots: 0,
+            recursive,
+        });
+        entry.roots += 1;
+        entry.recursive |= recursive;
+        let mut roots = self
+            .roots
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        roots.all.insert(root.to_path_buf());
+        if !recursive {
+            roots.files.insert(root.to_path_buf());
+        }
+        drop(roots);
+        self.watched.insert(root.to_path_buf(), target);
+        Ok(())
+    }
+
+    /// Stops watching `root`, and its folder once no root needs it.
+    fn remove_root(&mut self, root: &Path) {
+        let Some(target) = self.watched.remove(root) else {
+            return;
+        };
+        let mut roots = self
+            .roots
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        roots.all.remove(root);
+        roots.files.remove(root);
+        drop(roots);
+        let unused = self.targets.get_mut(&target).is_some_and(|entry| {
+            entry.roots = entry.roots.saturating_sub(1);
+            entry.roots == 0
+        });
+        if unused {
+            self.targets.remove(&target);
+            // A folder that went is no longer watched by the system anyway.
+            let _ = self.watcher.unwatch(&target);
+        }
     }
 }
 
@@ -155,41 +266,22 @@ impl FolderEvents for NotifyEvents {
 
     fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
         let wanted: BTreeSet<PathBuf> = roots.iter().cloned().collect();
-        for gone in self
+        let gone: Vec<PathBuf> = self
             .watched
-            .difference(&wanted)
+            .keys()
+            .filter(|root| !wanted.contains(*root))
             .cloned()
-            .collect::<Vec<_>>()
-        {
-            // A root that went is no longer watched by the system anyway.
-            let _ = self.watcher.unwatch(&gone);
-            self.watched.remove(&gone);
-            self.roots
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .remove(&gone);
+            .collect();
+        for root in gone {
+            self.remove_root(&root);
         }
-        let mut errors = Vec::new();
-        for root in wanted
-            .difference(&self.watched)
-            .cloned()
-            .collect::<Vec<_>>()
-        {
-            match self.watcher.watch(&root, RecursiveMode::Recursive) {
-                Ok(()) => {
-                    self.roots
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .insert(root.clone());
-                    self.watched.insert(root);
-                }
-                Err(reason) => errors.push(WatchError {
-                    path: root.display().to_string(),
-                    reason: reason.to_string(),
-                }),
-            }
-        }
-        errors
+        let new: Vec<PathBuf> = wanted
+            .into_iter()
+            .filter(|root| !self.watched.contains_key(root))
+            .collect();
+        new.into_iter()
+            .filter_map(|root| self.add_root(&root).err())
+            .collect()
     }
 }
 
@@ -228,93 +320,4 @@ impl FolderEvents for PeriodicEvents {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_are_not_changes_but_writes_and_errors_are() {
-        let access = |kind| Ok(Event::new(EventKind::Access(kind)));
-        assert!(!is_change(&access(AccessKind::Open(AccessMode::Read))));
-        assert!(!is_change(&access(AccessKind::Close(AccessMode::Read))));
-        assert!(!is_change(&access(AccessKind::Read)));
-        assert!(is_change(&access(AccessKind::Close(AccessMode::Write))));
-        assert!(is_change(&Ok(Event::new(EventKind::Create(
-            notify::event::CreateKind::File
-        )))));
-        assert!(is_change(&Ok(Event::new(EventKind::Remove(
-            notify::event::RemoveKind::Any
-        )))));
-        assert!(is_change(&Err(notify::Error::generic("queue overflow"))));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_path_reached_through_a_link_below_the_root_is_told_apart() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("stick");
-        std::fs::create_dir_all(root.join("sub")).unwrap();
-        std::fs::create_dir(dir.path().join("busy")).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("busy"), root.join("link")).unwrap();
-        let roots = BTreeSet::from([root.clone()]);
-        assert!(through_a_link(&root.join("link/log.txt"), &roots));
-        assert!(through_a_link(&root.join("link/deep/x"), &roots));
-        assert!(!through_a_link(&root.join("sub/a.txt"), &roots));
-        // The link itself changing is the stick's own folder changing.
-        assert!(!through_a_link(&root.join("link"), &roots));
-        assert!(!through_a_link(&dir.path().join("elsewhere"), &roots));
-    }
-
-    #[tokio::test]
-    async fn the_operating_system_reports_a_new_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut events = NotifyEvents::start(dir.path()).unwrap();
-        std::fs::create_dir(dir.path().join("sub")).unwrap();
-        std::fs::write(dir.path().join("sub/new.txt"), b"x").unwrap();
-        let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
-        assert_eq!(seen, Ok(Some(())));
-    }
-
-    #[tokio::test]
-    async fn reading_a_file_is_not_reported() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.txt"), b"x").unwrap();
-        let mut events = NotifyEvents::start(dir.path()).unwrap();
-        let _ = std::fs::read(dir.path().join("a.txt")).unwrap();
-        let seen = tokio::time::timeout(Duration::from_millis(500), events.changed()).await;
-        assert!(seen.is_err(), "a read was reported as a change");
-    }
-
-    #[tokio::test]
-    async fn a_missing_folder_cannot_be_watched() {
-        let dir = tempfile::tempdir().unwrap();
-        let error = NotifyEvents::start(&dir.path().join("missing"))
-            .err()
-            .unwrap();
-        assert!(error.to_string().contains("cannot watch"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn periodic_events_come_every_interval() {
-        // Measured from before the interval starts: its ticks count from
-        // there, and a busy machine may take a while to come back.
-        let started = tokio::time::Instant::now();
-        let mut events = PeriodicEvents::new(Duration::from_millis(100));
-        events.changed().await;
-        events.changed().await;
-        let elapsed = started.elapsed();
-        assert!(elapsed >= Duration::from_millis(200), "{elapsed:?}");
-        assert!(elapsed < Duration::from_millis(1_000), "{elapsed:?}");
-    }
-
-    #[tokio::test]
-    async fn a_flood_of_signs_waits_as_one() {
-        let mut events = PeriodicEvents::new(Duration::from_secs(3_600));
-        let nudge = events.nudge();
-        for _ in 0..100_000 {
-            nudge.now();
-        }
-        events.changed().await;
-        let more = tokio::time::timeout(Duration::from_millis(100), events.changed()).await;
-        assert!(more.is_err(), "only one sign waited");
-    }
-}
+mod tests;

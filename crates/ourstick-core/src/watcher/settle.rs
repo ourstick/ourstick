@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use crate::blocking::run_blocking;
 use crate::manifest::build::for_each_regular_file;
-use crate::manifest::{ManifestError, MAX_ENTRIES};
 use crate::sender_files::SenderFiles;
 
 /// What the files under some roots look like: their count and a sum of a
@@ -39,9 +38,9 @@ impl Fingerprint {
 
 /// The fingerprint of every file under each of `roots` (a root may be one
 /// file), or `None` if one cannot be read right now (e.g. a file vanished
-/// during the walk). Past [`MAX_ENTRIES`] files the walk stops, and the
-/// same "too many" fingerprint comes back each time: the folder counts as
-/// settled, and the pass says why it cannot take it.
+/// during the walk). Its size is fixed, so no count of files makes it
+/// large: every file is looked at, as the pass would (a cap here would
+/// count files the pass leaves out, and call a folder settled unread).
 fn fingerprint(files: &dyn SenderFiles, roots: &[PathBuf]) -> Option<Fingerprint> {
     let mut all = Fingerprint::default();
     for root in roots {
@@ -50,25 +49,11 @@ fn fingerprint(files: &dyn SenderFiles, roots: &[PathBuf]) -> Option<Fingerprint
             all.add(root, &facts.stamp);
             continue;
         }
-        let walked = for_each_regular_file(files, root, &mut |path, facts| {
-            if all.count >= MAX_ENTRIES {
-                return Err(ManifestError::TooManyFiles {
-                    count: all.count + 1,
-                });
-            }
+        for_each_regular_file(files, root, &mut |path, facts| {
             all.add(path, &facts.stamp);
             Ok(())
-        });
-        match walked {
-            Ok(()) => {}
-            Err(ManifestError::TooManyFiles { .. }) => {
-                return Some(Fingerprint {
-                    count: usize::MAX,
-                    sum: [0; 4],
-                })
-            }
-            Err(_) => return None,
-        }
+        })
+        .ok()?;
     }
     Some(all)
 }
@@ -107,6 +92,13 @@ mod tests {
             mtime_ns: 1,
             ctime_ns: 2,
         };
+        let fingerprint_of = |entries: &[(&str, FileStamp)]| {
+            let mut fingerprint = Fingerprint::default();
+            for (path, stamp) in entries {
+                fingerprint.add(Path::new(path), stamp);
+            }
+            fingerprint
+        };
         let (a, b) = (Path::new("a"), Path::new("b"));
         let mut one = Fingerprint::default();
         one.add(a, &stamp(1));
@@ -123,5 +115,22 @@ mod tests {
         renamed.add(a, &stamp(1));
         renamed.add(Path::new("c"), &stamp(2));
         assert_ne!(one, renamed);
+        // A file rewritten in place, its size kept, shows in its times.
+        let written_again = |mtime_ns, ctime_ns| {
+            let changed = FileStamp {
+                size: 2,
+                mtime_ns,
+                ctime_ns,
+            };
+            fingerprint_of(&[("a", stamp(1)), ("b", changed)])
+        };
+        assert_eq!(written_again(1, 2), one);
+        assert_ne!(written_again(5, 2), one);
+        assert_ne!(written_again(1, 5), one);
+        // One file more.
+        assert_ne!(
+            fingerprint_of(&[("a", stamp(1)), ("b", stamp(2)), ("c", stamp(0))]),
+            one
+        );
     }
 }

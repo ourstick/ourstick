@@ -23,7 +23,13 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       off), its checks not aligned, and its licence links broken on Ubuntu
       (the Firefox snap cannot read `/usr/lib`: the licences are now pages
       of the app, ADR 0024 amendment 3); "Each computer says this about
-      itself" unclear.
+      itself" unclear; Quit slow on Linux. A stick with folders on a slow
+      disk (FOTIS, 8 folders on an exFAT USB disk) took minutes to be
+      watched at each start: notify walks the whole tree, a watch for each
+      folder, and returns only then. That ran inside the share's task, so
+      Quit and Stop sending waited for the walk to end (since 0.2.0). The
+      watch is now set up on a blocking thread and awaited, and Quit stops
+      the sticks all at once.
 - [x] **A sweep for the same kinds of fault** (2026-11-06, four finders,
       each medium finding tried by a fifth). Fixed: "Show it in the file
       manager" did nothing on Linux (zbus's blocking call panicked inside

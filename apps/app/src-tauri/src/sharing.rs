@@ -303,10 +303,17 @@ pub fn start_sharing_later(app: &AppHandle, stick_id: StickId) {
 /// Stops every share (Quit).
 pub async fn stop_all(state: &AppState) {
     let sticks: HashMap<StickId, Sharing> = std::mem::take(&mut *state.sticks.lock().await);
-    for sharing in sticks.into_values() {
-        if let Sharing::On(serving) = sharing {
-            serving.stop().await;
-        }
+    // All at once: each may wait up to a few seconds for its readers'
+    // connections to close (iroh), and Quit waits for the slowest only.
+    let stopping: Vec<_> = sticks
+        .into_values()
+        .filter_map(|sharing| match sharing {
+            Sharing::On(serving) => Some(tauri::async_runtime::spawn(serving.stop())),
+            _ => None,
+        })
+        .collect();
+    for stopped in stopping {
+        let _ = stopped.await;
     }
 }
 

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use notify::event::{AccessKind, AccessMode, ModifyKind};
-use notify::{Event, EventKind, RecursiveMode, Watcher as _};
+use notify::{Event, EventKind};
 use tokio::sync::mpsc;
 
 /// Tells when a folder may have changed. A sign may be spurious; the caller
@@ -21,9 +21,10 @@ pub trait FolderEvents: Send {
     /// linked entries, ADR 0008), as far as it can; returns those it cannot
     /// watch, whose changes are then seen only by looking again now and
     /// then. Sources that watch nothing in particular accept anything.
-    fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
+    /// Awaited, never blocking: a share waiting for it can still stop.
+    fn watch_roots(&mut self, roots: &[PathBuf]) -> impl Future<Output = Vec<WatchError>> + Send {
         let _ = roots;
-        Vec::new()
+        async { Vec::new() }
     }
 }
 
@@ -61,16 +62,15 @@ pub struct WatchError {
 
 /// Changes reported by the operating system (inotify, FSEvents, …).
 pub struct NotifyEvents {
-    // Kept alive: dropping it stops the watch.
-    watcher: notify::RecommendedWatcher,
     sender: mpsc::Sender<()>,
     receiver: mpsc::Receiver<()>,
-    /// Each root, and the folder the system watches for it ([`watched_for`]).
-    watched: BTreeMap<PathBuf, PathBuf>,
-    /// The folders the system watches.
-    targets: BTreeMap<PathBuf, Target>,
-    /// The same roots, for the system's callback.
-    roots: Arc<Mutex<Roots>>,
+    /// The system's watch and what it watches, changed on a blocking
+    /// thread: notify returns from watching a folder and all under it only
+    /// once it has walked the whole tree (on Linux, a watch for each folder),
+    /// which takes minutes for a big folder on a slow disk. A share waiting
+    /// for that must still stop at once (Quit, Stop sending); the walk then
+    /// ends by itself.
+    watching: Arc<Mutex<Watching>>,
 }
 
 /// A folder the system watches: for how many roots, and whether all under
@@ -221,99 +221,23 @@ impl NotifyEvents {
             path: root.display().to_string(),
             reason: reason.to_string(),
         })?;
-        let mut events = Self {
+        let mut watching = Watching {
             watcher,
-            sender,
-            receiver,
             watched: BTreeMap::new(),
             targets: BTreeMap::new(),
             roots,
         };
-        events.add_root(root)?;
-        Ok(events)
+        watching.add_root(root)?;
+        Ok(Self {
+            sender,
+            receiver,
+            watching: Arc::new(Mutex::new(watching)),
+        })
     }
 
     /// A way to give this source a sign of change from outside.
     pub fn nudge(&self) -> Nudge {
         Nudge(self.sender.clone())
-    }
-
-    /// Watches `root` from now on, as [`watched_for`] says.
-    fn add_root(&mut self, root: &Path) -> Result<(), WatchError> {
-        let error = |reason: notify::Error| WatchError {
-            path: root.display().to_string(),
-            reason: reason.to_string(),
-        };
-        let (folder, recursive) = watched_for(root);
-        let (target, through_folder) = match self.watch_target(&folder, recursive) {
-            Ok(()) => (folder, !recursive),
-            // A file in a folder that cannot be listed (`0711`): the file
-            // itself, as before; then only saves that write in place are seen.
-            Err(_) if !recursive => {
-                self.watch_target(root, false).map_err(error)?;
-                (root.to_path_buf(), false)
-            }
-            Err(reason) => return Err(error(reason)),
-        };
-        let mut roots = self
-            .roots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        roots.all.insert(root.to_path_buf());
-        if through_folder {
-            roots.files.insert(root.to_path_buf());
-        }
-        drop(roots);
-        self.watched.insert(root.to_path_buf(), target);
-        Ok(())
-    }
-
-    /// The system watches `target` (all under it too if `recursive`), for
-    /// one root more. A folder watched already is watched again only to
-    /// take in all under it.
-    fn watch_target(&mut self, target: &Path, recursive: bool) -> Result<(), notify::Error> {
-        let known = self.targets.get(target).map(|known| known.recursive);
-        if known.is_none() || (recursive && known == Some(false)) {
-            if known.is_some() {
-                let _ = self.watcher.unwatch(target);
-            }
-            let mode = if recursive {
-                RecursiveMode::Recursive
-            } else {
-                RecursiveMode::NonRecursive
-            };
-            self.watcher.watch(target, mode)?;
-        }
-        let entry = self.targets.entry(target.to_path_buf()).or_insert(Target {
-            roots: 0,
-            recursive,
-        });
-        entry.roots += 1;
-        entry.recursive |= recursive;
-        Ok(())
-    }
-
-    /// Stops watching `root`, and its folder once no root needs it.
-    fn remove_root(&mut self, root: &Path) {
-        let Some(target) = self.watched.remove(root) else {
-            return;
-        };
-        let mut roots = self
-            .roots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        roots.all.remove(root);
-        roots.files.remove(root);
-        drop(roots);
-        let unused = self.targets.get_mut(&target).is_some_and(|entry| {
-            entry.roots = entry.roots.saturating_sub(1);
-            entry.roots == 0
-        });
-        if unused {
-            self.targets.remove(&target);
-            // A folder that went is no longer watched by the system anyway.
-            let _ = self.watcher.unwatch(&target);
-        }
     }
 }
 
@@ -322,36 +246,28 @@ impl FolderEvents for NotifyEvents {
         self.receiver.recv().await
     }
 
-    fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
-        let lost = std::mem::take(
-            &mut self
-                .roots
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .lost,
-        );
-        for root in lost {
-            // Watched again below, as a new root, if it is still wanted.
-            self.remove_root(&root);
+    async fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
+        let watching = self.watching.clone();
+        let wanted = roots.to_vec();
+        match tokio::task::spawn_blocking(move || lock(&watching).watch_roots(&wanted)).await {
+            Ok(unwatched) => unwatched,
+            Err(failed) => roots
+                .iter()
+                .map(|root| WatchError {
+                    path: root.display().to_string(),
+                    reason: failed.to_string(),
+                })
+                .collect(),
         }
-        let wanted: BTreeSet<PathBuf> = roots.iter().cloned().collect();
-        let gone: Vec<PathBuf> = self
-            .watched
-            .keys()
-            .filter(|root| !wanted.contains(*root))
-            .cloned()
-            .collect();
-        for root in gone {
-            self.remove_root(&root);
-        }
-        let new: Vec<PathBuf> = wanted
-            .into_iter()
-            .filter(|root| !self.watched.contains_key(root))
-            .collect();
-        new.into_iter()
-            .filter_map(|root| self.add_root(&root).err())
-            .collect()
     }
+}
+
+/// `mutex`, also after a panic while it was held: what it guards stays
+/// usable (sets of paths).
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// A sign of change every `interval`, for when the folder cannot be watched.
@@ -387,6 +303,9 @@ impl FolderEvents for PeriodicEvents {
         Some(())
     }
 }
+
+mod watching;
+use watching::Watching;
 
 #[cfg(test)]
 mod tests;

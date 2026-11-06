@@ -242,7 +242,7 @@ async fn follow(
         // One gone, or one that cannot be watched, is looked at again every
         // `retry`.
         let (roots, any_gone) = present_roots(owner).await;
-        let unwatched = events.watch_roots(&roots);
+        let unwatched = events.watch_roots(&roots).await;
         for error in &unwatched {
             tracing::warn!(%error, "a folder of the stick cannot be watched");
         }
@@ -273,7 +273,7 @@ async fn follow(
         // What lost its watch during the wait (a folder moved out and back
         // beside a file sent alone) is watched again before the pass reads
         // it, so nothing written there meanwhile goes unseen.
-        for error in &events.watch_roots(&roots) {
+        for error in &events.watch_roots(&roots).await {
             tracing::warn!(%error, "a folder of the stick cannot be watched");
         }
         let settled = are_settled(owner.files.clone(), roots, timing.settle).await;

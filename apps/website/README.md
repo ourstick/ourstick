@@ -9,7 +9,8 @@ address after `#`, which any foreign script could read (`site/_headers`).
 ## Deploying
 
 1. Build the three installers: the `.dmg` with `tools/macos/make-dmg.sh` on
-   the Mac, the NSIS installer in the Windows VM (`docs/windows-dev.md`), the
+   the Mac (the frontend copied there, with `OURSTICK_DIST_SHA256` from
+   `tools/macos/dist-hash.sh` where it was built), the NSIS installer in the Windows VM (`docs/windows-dev.md`), the
    `.deb` with `npm run tauri build -- --bundles deb` in `apps/app`.
 2. `OURSTICK_RELEASE_KEY=<the release key's secret file> apps/website/make.sh
    <dmg> <setup.exe> <deb>` puts everything in `apps/website/dist`, with

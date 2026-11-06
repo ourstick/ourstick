@@ -7,17 +7,20 @@
 # notary password are in the login keychain. Needs Xcode's command line
 # tools, Rust and `cargo install tauri-cli --version "=2.12.0" --locked`.
 # The frontend (apps/app/dist) is built elsewhere (`npm run build`) and
-# copied in: this Mac needs no Node.
+# copied in: this Mac needs no Node. `tools/macos/dist-hash.sh` where it was
+# built gives OURSTICK_DIST_SHA256, and the app is signed only if the copy
+# here has the same hash.
 #
 #   OURSTICK_SIGNING_IDENTITY="Developer ID Application: NAME (TEAM)" \
-#     tools/macos/make-dmg.sh
+#   OURSTICK_DIST_SHA256=<dist-hash.sh's output> tools/macos/make-dmg.sh
 #
 # OURSTICK_NOTARY_PROFILE names the notarytool keychain profile (made once
 # with `xcrun notarytool store-credentials`); "ourstick-notary" by default.
 # OURSTICK_PROVISIONING_PROFILE is the Developer ID provisioning profile for
 # com.ourstick.OurStick (ADR 0021; not in the repo), by default
 # ~/ourstick-profiles/OurStick.provisionprofile. OURSTICK_NOTARIZE=0 builds
-# and signs only, for a test on this Mac.
+# and signs only, for a test on this Mac, and may go without
+# OURSTICK_DIST_SHA256.
 set -euo pipefail
 
 identity=${OURSTICK_SIGNING_IDENTITY:?set it to the Developer ID Application identity}
@@ -32,6 +35,18 @@ command -v cargo >/dev/null || export PATH="$HOME/.cargo/bin:$PATH"
 if [ ! -f "$root/apps/app/dist/index.html" ]; then
   echo "apps/app/dist is missing: build the frontend and copy it here first." >&2
   exit 1
+fi
+dist_hash=$("$root/tools/macos/dist-hash.sh" "$root/apps/app/dist")
+if [ -n "${OURSTICK_DIST_SHA256:-}" ]; then
+  if [ "$dist_hash" != "$OURSTICK_DIST_SHA256" ]; then
+    echo "apps/app/dist is not the frontend that was built (its hash is $dist_hash): copy it again." >&2
+    exit 1
+  fi
+elif [ "$notarize" != 0 ]; then
+  echo "Set OURSTICK_DIST_SHA256 to tools/macos/dist-hash.sh's output where the frontend was built." >&2
+  exit 1
+else
+  echo "apps/app/dist not checked (no OURSTICK_DIST_SHA256): $dist_hash"
 fi
 
 # The profile allows the keychain entitlements (ADR 0021): without it, or
@@ -64,7 +79,7 @@ cd "$root/apps/app"
 # Tauri signs the app with the hardened runtime and a secure timestamp,
 # which notarization requires, with the keychain entitlements and the
 # profile inside the bundle; the frontend is already built.
-config=$(python3 -c 'import json, sys; print(json.dumps({"build": {"beforeBuildCommand": ""}, "bundle": {"macOS": {"entitlements": "OurStick.entitlements", "files": {"embedded.provisionprofile": sys.argv[1]}}}}))' "$provisioning")
+config=$(/usr/bin/python3 -I -c 'import json, sys; print(json.dumps({"build": {"beforeBuildCommand": ""}, "bundle": {"macOS": {"entitlements": "OurStick.entitlements", "files": {"embedded.provisionprofile": sys.argv[1]}}}}))' "$provisioning")
 bundles=app,dmg
 [ "$notarize" = 0 ] && bundles=app
 # No dmg of an earlier build may be taken for this one's.

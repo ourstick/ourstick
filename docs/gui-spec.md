@@ -377,13 +377,16 @@ device." The fragment never leaves the browser (ADR 0022).
   the tray and the Quit dialog. The system's own "off" (Task Manager,
   Startup Applications) is kept; the check shows it where it can be read
   (Windows, Linux).
-- About: the icon, name, version and tagline; ourstick.com, Privacy, Report
-  a problem; the start-at-login check; "Look for new versions" (below);
-  "Others see this computer as a Linux
-  PC · Change…"; "To open OurStick again, click its picture:" with the
+- About: the icon, name, version and tagline; ourstick.com, Privacy, "Report
+  a problem: hi@ourstick.com"; the start-at-login check; "Look for new versions" (below);
+  "Senders see you as: a Linux PC.
+  Change…"; "To open OurStick again, click its picture:" with the
   same picture as the first ✕; the copyright line; OurStick's licence and
-  the libraries' licences (the installed files). From the tray and the
-  macOS app menu.
+  the libraries' licences, each in a window of OurStick's own (ADR 0024,
+  amendment 3). From the tray and the macOS app menu. 520 × 800, the
+  checks, their notes and "Senders see you as" in one left-aligned column;
+  like every window the app makes, never taller than the screen (its page
+  scrolls then).
 
 ### A new version (ADR 0033)
 
@@ -397,14 +400,15 @@ device." The fragment never leaves the browser (ADR 0022).
 - About: "Look for new versions" (on by default), "Once a day OurStick asks
   ourstick.com which version is newest. It sends nothing about you or your
   files.", and "Last looked: today" (or "… It could not look now: no
-  connection to ourstick.com."). Off: "Off, you will not hear of a security
-  fix. Check ourstick.com yourself now and then." in amber; a security line
+  connection to ourstick.com."). Off: "With this off, you may miss a
+  security fix. Check ourstick.com yourself now and then." in amber; a security line
   already seen stays, and a version over 90 days old says so at Home's foot
   ("This version is from March 2027. A newer one may fix security problems
   · ourstick.com").
 - An upgraded device is told once at the top of Home: "OurStick now looks
-  once a day for a new version, so that you hear of a security fix. It
-  sends nothing about you. You can turn it off in About." `OK`.
+  for a new version once a day, so you won't miss a security fix. You can
+  turn this off in About." `OK` (About says that it sends nothing about
+  you).
 
 ### macOS: first start and the keychain
 

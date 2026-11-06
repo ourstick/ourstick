@@ -57,7 +57,7 @@
       Once a day OurStick asks ourstick.com which version is newest. It sends nothing about you or your files.
     </p>
     {#if !view.looking}
-      <p class="warning small">Off, you will not hear of a security fix. Check ourstick.com yourself now and then.</p>
+      <p class="warning small">With this off, you may miss a security fix. Check ourstick.com yourself now and then.</p>
     {:else if view.failingSinceMs !== null && view.failure}
       <p class="muted small">
         Last looked: {view.lastGoodMs !== null ? since(view.lastGoodMs) : "never"}. It could not look now:
@@ -84,9 +84,10 @@
   .row input {
     margin-top: 3px;
   }
+  /* Under the check's text: the box (14px in WebKit) and the gap. */
   .small {
     font-size: 0.85em;
-    margin: 2px 0 0 26px;
+    margin: 2px 0 0 22px;
   }
   .warning {
     color: var(--warning);

@@ -62,7 +62,9 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
         (Mode::StillOpen, _, _) => (520.0, 600.0),
         (_, true, true) => (420.0, 370.0),
         (_, true, false) => (420.0, 300.0),
-        (_, false, _) => (420.0, 230.0),
+        // Stop sending: room for a name on two lines and "Someone is
+        // getting it right now."
+        (_, false, _) => (420.0, 270.0),
     };
     let window = crate::windows::own_window(
         app,
@@ -72,6 +74,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> Result<()> {
             title: "OurStick",
             size: (width, height),
             dialog: true,
+            resizable: false,
         },
     )?;
     crate::windows::show_new(&window);

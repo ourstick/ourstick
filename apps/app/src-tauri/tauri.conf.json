@@ -44,7 +44,7 @@
     },
     "category": "Utility",
     "shortDescription": "A USB stick in a link.",
-    "longDescription": "Put folders on a stick in the OurStick app and send its link or QR code. The other person opens it in OurStick, picks what they want, and downloads it. Straight from your computer to theirs, encrypted on your device. No accounts, no size limits.",
+    "longDescription": "Put folders on a stick in the OurStick app and send its link. The other person opens it in OurStick, picks what they want, and downloads it. Straight from your computer to theirs, encrypted on your device. No accounts, no size limits.",
     "homepage": "https://ourstick.com",
     "publisher": "Georgios Kakavelakis",
     "copyright": "© 2026 Georgios Kakavelakis. Apache-2.0.",

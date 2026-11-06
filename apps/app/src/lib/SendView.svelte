@@ -201,6 +201,7 @@
     border: none;
     background: none;
     padding: 0;
+    min-height: 0;
     color: var(--accent);
     cursor: pointer;
   }
@@ -225,6 +226,12 @@
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 8%, var(--card));
   }
+  /* Many things chosen: their list scrolls, and the name and "Get the
+     link" stay in view below it (they went out of the window from about
+     five). At least about one line of the list shows. */
+  .view > :not(.chosen) {
+    flex-shrink: 0;
+  }
   .chosen {
     list-style: none;
     margin: 0;
@@ -232,6 +239,9 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    flex: 0 1 auto;
+    min-height: 3.5em;
+    overflow-y: auto;
   }
   .chosen li {
     display: flex;

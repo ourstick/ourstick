@@ -100,9 +100,9 @@ way.
     "Once a day OurStick asks ourstick.com which version is newest. It
     sends nothing about you or your files." and a line "Last looked: today"
     (or "Could not look since 3 days: no connection to ourstick.com").
-    Turned off, it says under the switch, in the amber of warnings: "Off,
-    you will not hear of a security fix. Check ourstick.com yourself now
-    and then." Off, the app reads nothing. A newer version it knew of is
+    Turned off, it says under the switch, in the amber of warnings: "With
+    this off, you may miss a security fix. Check ourstick.com yourself now
+    and then." (worded so on 2026-11-06). Off, the app reads nothing. A newer version it knew of is
     forgotten, but not a security line: one already seen stays at Home's
     foot until this version is no longer below `security`, as knowing it
     tells no one anything. Turning it off is never a way to stop being
@@ -117,10 +117,10 @@ way.
     it asks nothing of the network. A clock set before the release day
     shows nothing.
 11. A device that already has OurStick is told once, in the window, at the
-    first start of the version that brings this: "OurStick now looks once a
-    day for a new version, so that you hear of a security fix. It sends
-    nothing about you. You can turn it off in About." (ADR 0024's told-once
-    way.)
+    first start of the version that brings this: "OurStick now looks for a
+    new version once a day, so you won't miss a security fix. You can turn
+    this off in About." (worded so on 2026-11-06, About saying that it
+    sends nothing about you; ADR 0024's told-once way.)
 12. The privacy page, the FAQ and SECURITY.md say it: once a day the app
     asks ourstick.com for one small file and sends nothing else; Cloudflare,
     which serves the site, sees the computer's address and the time, as for

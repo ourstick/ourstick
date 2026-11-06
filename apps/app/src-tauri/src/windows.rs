@@ -46,7 +46,8 @@ impl Activation {
     }
 }
 
-/// A window of its own: About, or a dialog (over the others, centred).
+/// A window of its own: About, a licence, or a dialog (over the others,
+/// centred).
 #[cfg_attr(mobile, allow(dead_code))]
 pub struct OwnWindow<'a> {
     pub label: &'a str,
@@ -55,20 +56,58 @@ pub struct OwnWindow<'a> {
     pub title: &'a str,
     pub size: (f64, f64),
     pub dialog: bool,
+    /// Only a page to read is: the others are laid out for their size.
+    pub resizable: bool,
 }
 
-/// Makes `own`, not resizable. A phone shows everything in its one window
-/// (ADR 0027).
+/// Room left on the screen for the title bar, and on Linux for GNOME's top
+/// bar too: on Wayland the work area is the whole screen. Windows and macOS
+/// leave their taskbar, Dock and menu bar out of it.
+#[cfg(desktop)]
+const SCREEN_MARGIN: f64 = if cfg!(target_os = "linux") {
+    80.0
+} else {
+    40.0
+};
+
+/// `size`, made smaller where the primary screen is: a window taller than
+/// the screen would hide its buttons, while its page scrolls (logical
+/// pixels).
+#[cfg(desktop)]
+fn fitting(app: &tauri::AppHandle, size: (f64, f64)) -> (f64, f64) {
+    let Some(monitor) = app.primary_monitor().ok().flatten() else {
+        return size;
+    };
+    let area = monitor
+        .work_area()
+        .size
+        .to_logical::<f64>(monitor.scale_factor());
+    fitted(size, (area.width, area.height))
+}
+
+/// `size` within a screen of `area`, with [`SCREEN_MARGIN`] left over.
+#[cfg(desktop)]
+fn fitted((width, height): (f64, f64), (area_width, area_height): (f64, f64)) -> (f64, f64) {
+    let at_most = |wanted: f64, room: f64| wanted.min(room - SCREEN_MARGIN).max(wanted.min(200.0));
+    (at_most(width, area_width), at_most(height, area_height))
+}
+
+/// Makes `own`, as large as it asks where the screen has room. A phone shows
+/// everything in its one window (ADR 0027).
 #[cfg(desktop)]
 pub fn own_window(app: &tauri::AppHandle, own: OwnWindow) -> anyhow::Result<WebviewWindow> {
+    let (width, height) = fitting(app, own.size);
     let builder =
         tauri::WebviewWindowBuilder::new(app, own.label, tauri::WebviewUrl::App(own.page.into()))
             .title(own.title)
             .focused(FOCUS_NEW)
-            .inner_size(own.size.0, own.size.1)
-            .resizable(false);
+            .inner_size(width, height)
+            .resizable(own.resizable)
+            // In the middle of the screen, so that a window made as tall as
+            // the screen has room for is all on it (not cascaded down).
+            .center();
     let builder = if own.dialog {
-        builder.always_on_top(true).center()
+        builder.always_on_top(true)
     } else {
         builder
     };
@@ -190,5 +229,21 @@ mod tests {
         *activation.0.lock().unwrap() = Some(("token".into(), old));
         assert!(!activation.received_since(Instant::now()));
         assert_eq!(activation.take(), None);
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod fit_tests {
+    use super::*;
+
+    #[test]
+    fn a_window_keeps_its_size_where_the_screen_has_room_and_shrinks_where_not() {
+        assert_eq!(fitted((500.0, 780.0), (1920.0, 1040.0)), (500.0, 780.0));
+        // 1366x768 with the Windows taskbar: the page scrolls instead.
+        assert_eq!(
+            fitted((500.0, 780.0), (1366.0, 728.0)),
+            (500.0, 728.0 - SCREEN_MARGIN)
+        );
+        assert_eq!(fitted((500.0, 780.0), (100.0, 100.0)), (200.0, 200.0));
     }
 }

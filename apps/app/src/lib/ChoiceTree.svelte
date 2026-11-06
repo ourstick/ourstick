@@ -189,14 +189,16 @@
   .entries li {
     flex-shrink: 0;
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
     padding: 4px 8px;
     border: 1px solid var(--border);
     border-radius: var(--button-radius);
   }
+  /* Its tick under its folder's: the arrow's column and the gap. */
   .entries li.deeper {
-    margin-left: 2em;
+    margin-left: calc(1.6em + 8px);
   }
   .tick {
     display: flex;
@@ -208,6 +210,7 @@
   .arrow {
     width: 1.6em;
     flex-shrink: 0;
+    min-height: 0;
     padding: 0;
     border: none;
     background: none;

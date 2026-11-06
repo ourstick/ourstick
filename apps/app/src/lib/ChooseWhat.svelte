@@ -122,7 +122,9 @@
     padding: 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    max-height: 28em;
+    /* No height of its own: the list stops at 40vh by itself, and a cap
+       here pushed Cancel and Save out of the box, under the status below,
+       where they could not be clicked. The view scrolls instead. */
   }
   p {
     margin: 0;

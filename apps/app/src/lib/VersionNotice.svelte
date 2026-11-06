@@ -42,8 +42,8 @@
   {:else if view.tellLooking}
     <div class="note" role="status">
       <span>
-        OurStick now looks once a day for a new version, so that you hear of a security fix. It sends
-        nothing about you. You can turn it off in
+        OurStick now looks for a new version once a day, so you won't miss a security fix. You can
+        turn this off in
         <button class="link" onclick={() => openAbout()}>About</button>.
       </span>
       <button onclick={() => told("looking")}>OK</button>

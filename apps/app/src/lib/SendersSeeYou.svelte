@@ -79,11 +79,16 @@
     justify-content: flex-end;
     gap: 6px;
   }
+  /* As every other link of the app's: accent, no button's height. */
   .link {
+    min-height: 0;
     padding: 0;
     border: none;
     background: none;
-    color: inherit;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .link:hover {
     text-decoration: underline;
   }
   p {

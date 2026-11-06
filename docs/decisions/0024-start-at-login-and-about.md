@@ -217,3 +217,35 @@ window, as meant. The app now calls `NSApplication`'s
 `disableRelaunchOnLogin` at every start (objc2-app-kit, whose binding is
 safe: no `unsafe` of ours, and the version Tauri already builds): macOS
 never reopens it, and only the user's choice starts it at login.
+
+## Amendment 3: the licences in OurStick's own window (accepted, 2026-11-06)
+
+Tried on Ubuntu with 0.3.1: neither licence link worked. The default
+browser there is the Firefox snap, which cannot read
+`/usr/lib/ourstick/THIRD-PARTY-LICENSES.html` (a snap sees the user's home
+and removable media, not `/usr/lib`), and `LICENSE.txt` went to whatever
+editor is the default for text. Rule 11 changes for the two licences: each
+opens in a window of OurStick's own (labels `licence` and `libraries`,
+resizable, one at a time), showing a page the app is built with:
+`vite.config.ts` makes `LICENSE.html` from `LICENSE` and copies
+`THIRD-PARTY-LICENSES.html` into the app's pages. No other program is
+needed, and the text is the one of the version that runs. The installed
+files stay beside the app as before. The other links (ourstick.com,
+Privacy, Report a problem) are still opened by the system. "Report a
+problem" now shows its address, `Report a problem: hi@ourstick.com`, the
+address being the link: without a mail app the click opens nothing (on
+Linux nothing is even said, since `xdg-open` is only started), and the
+address can be written to from webmail. The macOS line says "macOS also
+lists it under Login Items, in its settings": System Settings → General
+on macOS 13 and later, System Preferences → Users & Groups on 11 and 12.
+
+The same test found About too short on Linux: the Close button was cut
+off and the page scrolled. Measured in each state (also with the warning
+of "Look for new versions" off, which is the tallest), the content needs
+775 px on Linux, 749 on macOS; About is now 520 × 800, the width of "OurStick is
+still open", whose picture is laid out for it. A window the app makes is
+never taller or wider than the screen's work area, less room for the
+title bar (and GNOME's top bar, since on Wayland the work area is the
+whole screen): on a smaller screen its page scrolls instead of hiding its
+buttons. Its checks, their notes and "Senders see you as" are one
+left-aligned column.

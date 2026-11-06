@@ -345,7 +345,6 @@ pub async fn show_entry(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
     let stick = state
         .stick_now(&stick_id_of(&stick_id)?)
         .await
@@ -368,8 +367,5 @@ pub async fn show_entry(
         }
     })
     .await?;
-    app.opener().reveal_item_in_dir(path).map_err(|error| {
-        tracing::warn!(%error, "the file manager did not show an entry");
-        "It could not be shown in the file manager.".to_owned()
-    })
+    crate::commands::reveal(&app, path, "It could not be shown in the file manager.").await
 }

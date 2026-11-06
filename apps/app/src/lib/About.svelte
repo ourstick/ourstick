@@ -75,20 +75,25 @@
   <nav>
     <button class="link" onclick={() => open("website")}>ourstick.com</button>
     <button class="link" onclick={() => open("privacy")}>Privacy</button>
-    <button class="link" onclick={() => open("report")}>Report a problem</button>
+    <!-- The address shown too: without a mail app the link opens nothing. -->
+    <span>Report a problem: <button class="link" onclick={() => open("report")}>hi@ourstick.com</button></span>
   </nav>
 
-  {#if login !== null}
-    <label class="row login">
-      <input type="checkbox" checked={login} onchange={(event) => changeLogin(event.currentTarget.checked)} />
-      Open OurStick when the computer starts
-    </label>
-    {#if macos}
-      <p class="muted small">macOS also lists it in System Settings → General → Login Items.</p>
+  <!-- The settings, one left-aligned column: each check with its notes
+       under its text, as in NewVersions. -->
+  <div class="settings">
+    {#if login !== null}
+      <label class="row login">
+        <input type="checkbox" checked={login} onchange={(event) => changeLogin(event.currentTarget.checked)} />
+        Open OurStick when the computer starts
+      </label>
+      {#if macos}
+        <p class="muted small note">macOS also lists it under Login Items, in its settings.</p>
+      {/if}
     {/if}
-  {/if}
-  <NewVersions />
-  <SendersSeeYou />
+    <NewVersions />
+    <SendersSeeYou />
+  </div>
   {#if screen}
     <div class="again">
       <span>To open OurStick again, click its picture:</span>
@@ -141,14 +146,22 @@
     gap: 14px;
     margin: 4px 0 14px;
   }
+  .settings {
+    align-self: stretch;
+    text-align: left;
+    margin-bottom: 8px;
+  }
   .login {
     align-items: flex-start;
-    text-align: left;
     gap: 8px;
     margin-bottom: 6px;
   }
   .login input {
     margin-top: 3px;
+  }
+  /* Under the check's text: the box (14px in WebKit) and the gap. */
+  .note {
+    margin: -4px 0 6px 22px;
   }
   .small {
     font-size: 0.85em;

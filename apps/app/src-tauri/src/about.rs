@@ -19,13 +19,18 @@ pub fn open(app: &AppHandle) -> Result<()> {
             label: LABEL,
             page: "index.html#about".to_owned(),
             title: "About OurStick",
-            size: (500.0, 720.0),
+            size: SIZE,
             dialog: false,
+            resizable: false,
         },
     )?;
     crate::windows::show_new(&window);
     Ok(())
 }
+
+/// About's size: all of it without scrolling (Linux's font is the largest),
+/// also with the warning under "Look for new versions" when it is off.
+const SIZE: (f64, f64) = (520.0, 800.0);
 
 /// What About shows of the app itself.
 #[derive(serde::Serialize)]
@@ -56,43 +61,82 @@ pub async fn open_about(app: AppHandle) -> Result<(), String> {
 pub enum Link {
     Website,
     Privacy,
-    /// OurStick's own licence, installed beside it.
+    /// OurStick's own licence.
     Licence,
-    /// The libraries' licences, installed beside it.
+    /// The libraries' licences.
     Libraries,
     Report,
 }
 
-/// Where a link goes: an installed file, else (or for the others) a URL.
-fn target(link: Link) -> (Option<&'static str>, &'static str) {
+/// Where a link goes.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    /// Opened by the system: the browser, the mail app.
+    Url(&'static str),
+    /// A page of the app's own (made by vite.config.ts), in a window of its
+    /// own: the licence the app was built with, readable on every system.
+    /// The system's default app may be unable to read the copy installed
+    /// beside OurStick: on Ubuntu the Firefox snap cannot read /usr/lib.
+    Page {
+        label: &'static str,
+        page: &'static str,
+        title: &'static str,
+    },
+}
+
+fn target(link: Link) -> Target {
     match link {
-        Link::Website => (None, "https://ourstick.com"),
-        Link::Privacy => (None, "https://ourstick.com/privacy"),
-        Link::Licence => (
-            Some("LICENSE.txt"),
-            "https://www.apache.org/licenses/LICENSE-2.0",
-        ),
-        Link::Libraries => (
-            Some("THIRD-PARTY-LICENSES.html"),
-            "https://ourstick.com/THIRD-PARTY-LICENSES",
-        ),
-        Link::Report => (None, "mailto:hi@ourstick.com"),
+        Link::Website => Target::Url("https://ourstick.com"),
+        Link::Privacy => Target::Url("https://ourstick.com/privacy"),
+        Link::Licence => Target::Page {
+            label: "licence",
+            page: "LICENSE.html",
+            title: "OurStick's licence",
+        },
+        Link::Libraries => Target::Page {
+            label: "libraries",
+            page: "THIRD-PARTY-LICENSES.html",
+            title: "Licences of the libraries in OurStick",
+        },
+        Link::Report => Target::Url("mailto:hi@ourstick.com"),
     }
 }
 
+/// Async: a window made from a synchronous command never loads on Windows
+/// (see [`open_about`]).
 #[tauri::command]
-pub fn open_about_link(link: Link, app: AppHandle) -> Result<(), String> {
-    use tauri::path::BaseDirectory;
+pub async fn open_about_link(link: Link, app: AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let (file, url) = target(link);
-    let installed = file
-        .and_then(|file| app.path().resolve(file, BaseDirectory::Resource).ok())
-        .filter(|path| path.is_file());
-    let opened = match installed {
-        Some(path) => app.opener().open_path(path.to_string_lossy(), None::<&str>),
-        None => app.opener().open_url(url, None::<&str>),
-    };
-    opened.map_err(|error| format!("cannot open it: {error}"))
+    match target(link) {
+        Target::Url(url) => app
+            .opener()
+            .open_url(url, None::<&str>)
+            .map_err(|error| format!("cannot open it: {error}")),
+        Target::Page { label, page, title } => {
+            open_page(&app, label, page, title).map_err(|error| crate::words::told(&error))
+        }
+    }
+}
+
+/// Shows `page` in its window, or brings that window forward.
+fn open_page(app: &AppHandle, label: &str, page: &str, title: &str) -> Result<()> {
+    if let Some(window) = app.get_webview_window(label) {
+        crate::windows::bring_forward(&window);
+        return Ok(());
+    }
+    let window = crate::windows::own_window(
+        app,
+        crate::windows::OwnWindow {
+            label,
+            page: page.to_owned(),
+            title,
+            size: (720.0, 680.0),
+            dialog: false,
+            resizable: true,
+        },
+    )?;
+    crate::windows::show_new(&window);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -101,12 +145,45 @@ mod tests {
 
     #[test]
     fn every_link_has_a_fixed_target() {
-        assert_eq!(target(Link::Website).1, "https://ourstick.com");
-        assert_eq!(target(Link::Report).1, "mailto:hi@ourstick.com");
-        assert_eq!(target(Link::Libraries).0, Some("THIRD-PARTY-LICENSES.html"));
-        assert_eq!(target(Link::Licence).0, Some("LICENSE.txt"));
-        for link in [Link::Website, Link::Privacy, Link::Licence, Link::Libraries] {
-            assert!(target(link).1.starts_with("https://"), "{link:?}");
+        assert_eq!(target(Link::Website), Target::Url("https://ourstick.com"));
+        assert_eq!(
+            target(Link::Privacy),
+            Target::Url("https://ourstick.com/privacy")
+        );
+        assert_eq!(target(Link::Report), Target::Url("mailto:hi@ourstick.com"));
+        let Target::Page { page, label, .. } = target(Link::Licence) else {
+            panic!("the licence is a page of the app");
+        };
+        assert_eq!((label, page), ("licence", "LICENSE.html"));
+        let Target::Page { page, label, .. } = target(Link::Libraries) else {
+            panic!("the libraries' licences are a page of the app");
+        };
+        assert_eq!((label, page), ("libraries", "THIRD-PARTY-LICENSES.html"));
+    }
+
+    /// The licence windows' pages are the ones the build makes.
+    #[test]
+    fn the_build_makes_the_licence_pages() {
+        let vite = include_str!("../../vite.config.ts");
+        for link in [Link::Licence, Link::Libraries] {
+            let Target::Page { page, .. } = target(link) else {
+                panic!("{link:?} is a page of the app");
+            };
+            assert!(vite.contains(&format!("\"{page}\": () =>")), "{page}");
+        }
+    }
+
+    /// No other window takes a licence window's label: it would be brought
+    /// forward instead of the licence.
+    #[test]
+    fn the_licence_windows_have_labels_of_their_own() {
+        for link in [Link::Licence, Link::Libraries] {
+            let Target::Page { label, .. } = target(link) else {
+                panic!("{link:?} is a page of the app");
+            };
+            assert_ne!(label, LABEL);
+            assert_ne!(label, "main");
+            assert!(!label.starts_with("confirm") && !label.starts_with("share"));
         }
     }
 }

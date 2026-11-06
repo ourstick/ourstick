@@ -1,10 +1,8 @@
 <script lang="ts">
-  // Receive (gui-spec, ADR 0028 §4): the link found on the clipboard when
-  // Receive was pressed (and only then), else pasted; opened by
-  // ourstick:receive or on coming back (ADR 0030), a link found is looked
-  // at only once the user says so (§2). The sender's computer
-  // found; what it brings, where it goes, and Download. The link itself is
-  // never shown, logged or put into a message.
+  // Receive (gui-spec, ADR 0028 §4): the link found on the clipboard when Receive was pressed (and
+  // only then), else pasted; opened by ourstick:receive or on coming back (ADR 0030), a link found
+  // is looked at only once the user says so (§2). Then the sender's computer found, what it brings,
+  // where it goes, and Download. The link itself is never shown, logged or put into a message.
   import { onMount } from "svelte";
   import { linkOnClipboard, takeOpenedLink } from "./macApi";
   import {
@@ -344,7 +342,7 @@
     margin: 0;
   }
   .found {
-    color: #1a7f37;
+    color: var(--success);
     font-weight: 600;
   }
   .box {
@@ -373,8 +371,6 @@
     justify-content: space-between;
   }
   .link {
-    align-self: flex-start;
-    height: auto;
     min-height: 0;
     padding: 0;
     border: none;
@@ -385,6 +381,10 @@
   .bottom {
     margin-top: auto;
     padding-top: 8px;
+  }
+  /* Alone at the left; beside Download, on its line (".row" centres it). */
+  .receive > .link {
+    align-self: flex-start;
   }
   .tree {
     display: flex;

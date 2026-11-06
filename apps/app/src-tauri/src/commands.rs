@@ -24,6 +24,27 @@ pub(crate) async fn blocking<T: Send + 'static>(
         .map_err(shown)
 }
 
+/// Shows `path`, selected, in the file manager; `failed` is what the user is
+/// told if it cannot. Off the async runtime: on Linux the opener asks the
+/// file manager over D-Bus through zbus's blocking API, whose own tokio
+/// runtime panics when it is started inside a task of ours (the click then
+/// did nothing at all).
+pub(crate) async fn reveal(
+    app: &AppHandle,
+    path: std::path::PathBuf,
+    failed: &'static str,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || app.opener().reveal_item_in_dir(&path))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| {
+            tracing::warn!(%error, "the file manager did not show it");
+            failed.to_owned()
+        })
+}
+
 #[derive(Debug, Serialize)]
 pub struct AppStateView {
     platform: &'static str,
@@ -120,15 +141,11 @@ pub(crate) async fn open_received_folder(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if shown_rather_than_opened(&folder) {
-        use tauri_plugin_opener::OpenerExt;
         let checked = folder.clone();
         if !blocking(move || Ok(checked.is_dir())).await? {
             return Err(not_there());
         }
-        return app.opener().reveal_item_in_dir(&folder).map_err(|error| {
-            tracing::warn!(%error, "Finder did not show a received folder");
-            "The folder could not be shown in Finder.".to_owned()
-        });
+        return reveal(app, folder, "The folder could not be shown in Finder.").await;
     }
     open_folder(app, folder).await
 }

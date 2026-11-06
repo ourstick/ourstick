@@ -114,6 +114,7 @@
     border: none;
     background: none;
     padding: 0;
+    min-height: 0;
     color: var(--accent);
     cursor: pointer;
   }

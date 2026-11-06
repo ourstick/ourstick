@@ -113,10 +113,13 @@
     </div>
   {:else if view}
     <h1>Stop sending {view.name ? `“${view.name}”` : "it"}?</h1>
-    <p>The link stops working until you start again. Your files stay where they are.</p>
-    {#if view.readers > 0}
-      <p><strong>Someone is getting it right now.</strong></p>
-    {/if}
+    <!-- As Quit's: a long name may push it down; the buttons always show. -->
+    <div class="said">
+      <p>The link stops working until you start again. Your files stay where they are.</p>
+      {#if view.readers > 0}
+        <p><strong>Someone is getting it right now.</strong></p>
+      {/if}
+    </div>
     {#if busy}<p class="muted">Stopping… please wait.</p>{/if}
     <div class="actions">
       <button class="primary" onclick={close} disabled={busy}>Keep sending</button>
@@ -128,6 +131,12 @@
 <style>
   .dialog h1 {
     font-size: 1.2em;
+  }
+  /* A stick's name may be one long word: it wraps rather than run out of
+     the window. */
+  .dialog h1,
+  .said p {
+    overflow-wrap: anywhere;
   }
   .said {
     display: flex;

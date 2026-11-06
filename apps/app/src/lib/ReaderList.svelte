@@ -130,7 +130,8 @@
       {#if lines.length > SHOWN}<span class="muted">and {lines.length - SHOWN} more</span>{/if}
       <button onclick={() => remove(null)}>Clear this list</button>
     </p>
-    <p class="muted">Each computer says this about itself.</p>
+    <!-- Its own word, never a proof (ADR 0015, rule 3). -->
+    <p class="muted">Each computer reports its own progress.</p>
   {:else if nobodyNow}
     <p class="muted">Nobody has opened the link yet.</p>
   {/if}

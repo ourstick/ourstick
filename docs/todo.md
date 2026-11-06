@@ -18,7 +18,25 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       named like a document package, one disk counted as two (phones),
       claims that counted bytes but not files; all fixed, with tests that
       fail without the fixes.
-- [ ] Giorgos's own transfers between the three systems.
+- [ ] Giorgos's own transfers between the three systems. Found so far
+      (fixed): the new-version words; About too short on Linux (Close cut
+      off), its checks not aligned, and its licence links broken on Ubuntu
+      (the Firefox snap cannot read `/usr/lib`: the licences are now pages
+      of the app, ADR 0024 amendment 3); "Each computer says this about
+      itself" unclear.
+- [x] **A sweep for the same kinds of fault** (2026-11-06, four finders,
+      each medium finding tried by a fifth). Fixed: "Show it in the file
+      manager" did nothing on Linux (zbus's blocking call panicked inside
+      the async command); "Choose what to get…" pushed Cancel and Save
+      under the status box (since 0.2.0); Send's name and "Get the link"
+      went out of the window from about five things chosen; Stop sending
+      with a long name; windows taller than the screen, now made to fit
+      and centred; "Report a problem" shows its address; the FAQ's "about
+      1 GB" for a download; a 404 link in `release-keys/README.md`; "QR
+      code" in the package descriptions and the releases in the metainfo;
+      "Change…", the tree's rows, Receive's bottom links, the back links
+      and the found-link green in dark mode. Left for later, below
+      ("After the sweep").
 - [ ] **The release:** `release-day.txt` set to the day; the installers
       and `SHA256SUMS` signed (`tools/release/sign.sh`);
       `tools/release/version-json.sh 0.3.1 0.3.1` (0.3.1 fixes security
@@ -143,6 +161,37 @@ licence; nothing in the package changes that (only the Snap Store does).
       link at once, partial versions every 3 minutes, a restart halfway,
       flat memory, two readers at different places, and paths over Windows'
       260 characters.
+
+## After the sweep (2026-11-06)
+
+Small faults the sweep found and 0.3.1 leaves as they are:
+
+- Linux: "Open folder" goes through `xdg-open`, so an app that took
+  `inode/directory` (VS Code, VLC) opens instead of the file manager, and
+  a failure is never said; ask `org.freedesktop.FileManager1.ShowFolders`
+  first (off the async runtime).
+- Linux: "To open OurStick again" shows Ubuntu's places on KDE, Cinnamon,
+  Xfce too; choose by `XDG_CURRENT_DESKTOP`.
+- macOS 11–12: the firewall advice names Ventura's path; the first-start
+  Local Network step says macOS will ask, but only 15 and later ask.
+- Linux: the relay advice "allow incoming UDP (ufw or firewalld)" names
+  no port that can be allowed.
+- Linux: `WEBKIT_DISABLE_COMPOSITING_MODE=1` reaches every program the app
+  starts (a browser, a mail app); set it on our webviews' settings
+  instead.
+- The site's download section shows no version or link to what is new.
+- The main window (700 × 600) is not made to fit a small screen
+  (`preventOverflow`).
+- A sent stick with many computers listed: "+ Add more" opens below the
+  view.
+- Receive: many renamed names and "still counting" can push Download
+  below the view.
+- The Local Network note is red and unboxed where its siblings are amber
+  and boxed; paused and stopped look different on Send and Receive; the
+  dialogs put the safe blue button on different sides; Receive's steps
+  put their buttons mid-window; "Clear this list" changes sides; the tray
+  still says "Waiting for the sender" after Home says the sender did not
+  answer.
 
 ## Performance and polish
 

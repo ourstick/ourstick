@@ -92,7 +92,7 @@ impl DownloadRoom {
                 &self.stick_id,
                 &self.output,
                 needed.saturating_add(largest),
-                scratch_bytes(largest),
+                scratch_bytes(needed, largest),
             )
         });
         let needed = needed.saturating_add(largest);
@@ -248,7 +248,10 @@ mod tests {
             })
             .is_continue());
         assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
-        assert_eq!(held(&world, ClaimKind::Scratch), Some(scratch_bytes(0)));
+        assert_eq!(
+            held(&world, ClaimKind::Scratch),
+            Some(scratch_bytes(10 * GB, 0))
+        );
         // Small files are written to the store in steps.
         assert!(room.on_event(&received(UPDATE_STEP / 2)).is_continue());
         assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
@@ -276,9 +279,12 @@ mod tests {
         assert!(big.room.planned(60 * GB, 50 * GB).is_continue());
         // Its blob's copy beside it in the folder, and the blob in its batch.
         assert_eq!(held(&big, ClaimKind::Download), Some(110 * GB));
-        assert_eq!(held(&big, ClaimKind::Scratch), Some(scratch_bytes(50 * GB)));
-        assert!(scratch_bytes(50 * GB) > 50 * GB);
-        // 100 GB free for it: a 60 GB file does not fit, as it would not.
+        assert_eq!(
+            held(&big, ClaimKind::Scratch),
+            Some(scratch_bytes(60 * GB, 50 * GB))
+        );
+        assert!(scratch_bytes(60 * GB, 50 * GB) > 50 * GB);
+        // 118 GB left for it: a 60 GB file, its copy and its blob do not fit.
         let small = world(120 * GB);
         assert!(small.room.planned(60 * GB, 60 * GB).is_break());
     }
@@ -295,7 +301,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_download_that_does_not_fit_says_how_much_and_only_until_one_fits() {
         let world = world(120 * GB);
-        // 120 GB free, 20 GB of it the system's: 100 GB left.
+        // 120 GB free, 2 GB of it the system's: 118 GB left.
         assert!(world.room.planned(200 * GB, 0).is_break());
         assert!(world.store.space_claims().unwrap().is_empty());
         assert!(world.room.planned(200 * GB, 0).is_break());

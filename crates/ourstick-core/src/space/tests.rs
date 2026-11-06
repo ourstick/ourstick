@@ -61,12 +61,15 @@ fn setup(count: u8) -> (MemoryStore, tempfile::TempDir) {
 
 #[test]
 fn the_reserve_and_what_is_left() {
-    assert_eq!(reserve(256 * GB), 20 * GB);
-    assert_eq!(reserve(30 * GB), 3 * GB);
-    // ADR 0008's examples.
-    assert_eq!(room_left(60 * GB, 256 * GB, 6 * GB), 34 * GB);
-    assert_eq!(room_left(10 * GB, 30 * GB, 2 * GB), 5 * GB);
+    assert_eq!(reserve(256 * GB), 2 * GB);
+    assert_eq!(reserve(30 * GB), 3 * GB / 2);
+    assert_eq!(reserve(8 * GB), 8 * GB / 20);
+    // ADR 0008's examples, with the reserve of its amendment of 2026-11-06.
+    assert_eq!(room_left(60 * GB, 256 * GB, 6 * GB), 52 * GB);
+    assert_eq!(room_left(10 * GB, 30 * GB, 2 * GB), 13 * GB / 2);
     assert_eq!(room_left(GB, 30 * GB, 0), 0);
+    // The Mac that took nothing with a tenth kept back: 228 GB, 13 GB free.
+    assert_eq!(room_left(13 * GB, 228 * GB, 0), 11 * GB);
 }
 
 #[test]
@@ -91,7 +94,7 @@ fn two_downloads_that_fit_alone_do_not_both_start() {
     match claim_download(&disks, &store, data_dir, &stick_id(2), out, 60 * GB, GB) {
         Err(SpaceError::DoesNotFit { needed, available }) => {
             assert_eq!(needed, 60 * GB);
-            assert_eq!(available, 100 * GB - 20 * GB - 60 * GB);
+            assert_eq!(available, 100 * GB - 2 * GB - 60 * GB);
         }
         other => panic!("{other:?}"),
     }
@@ -110,7 +113,7 @@ fn a_download_needs_room_for_its_batches_too() {
     // The data disk has 2 GB left after its reserve; out has plenty.
     let disks = FakeDisks(HashMap::from([
         ("out", (100 * GB, 200 * GB)),
-        (&*Box::leak(real.into_boxed_str()), (12 * GB, 100 * GB)),
+        (&*Box::leak(real.into_boxed_str()), (4 * GB, 100 * GB)),
     ]));
     let _lock = download_lock(data_dir, &stick_id(1)).unwrap();
     assert!(matches!(
@@ -151,7 +154,7 @@ fn each_download_holds_its_own_batch_room() {
     let (store, data) = setup(3);
     let data_dir = data.path();
     // 10 GB left on the data disk after its reserve.
-    let disks = data_disk(data_dir, 20 * GB, 100 * GB);
+    let disks = data_disk(data_dir, 12 * GB, 100 * GB);
     let out = Path::new("/out/x");
     let _one = download_lock(data_dir, &stick_id(1)).unwrap();
     claim_download(&disks, &store, data_dir, &stick_id(1), out, GB, 4 * GB).unwrap();
@@ -171,4 +174,29 @@ fn each_download_holds_its_own_batch_room() {
     assert!(rows
         .iter()
         .any(|claim| claim.kind == ClaimKind::Scratch && claim.bytes == 4 * GB));
+}
+
+#[test]
+fn a_nearly_full_laptop_still_takes_a_small_stick() {
+    // 100 000 small files, 465 MB: refused on 2026-11-06 by a Mac of 228 GB
+    // with 13 GB free, when a tenth of the disk was kept back.
+    let (store, data) = setup(1);
+    let data_dir = data.path();
+    let real = FakeDisks::name(data_dir);
+    let disks = FakeDisks(HashMap::from([(
+        &*Box::leak(real.into_boxed_str()),
+        (13 * GB, 228 * GB),
+    )]));
+    let (needed, largest) = (465_000_000, 9_300);
+    let _lock = download_lock(data_dir, &stick_id(1)).unwrap();
+    claim_download(
+        &disks,
+        &store,
+        data_dir,
+        &stick_id(1),
+        &data_dir.join("Downloads/Measurement"),
+        needed + largest,
+        crate::download::scratch_bytes(needed, largest),
+    )
+    .unwrap();
 }

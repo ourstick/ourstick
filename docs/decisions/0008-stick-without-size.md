@@ -167,3 +167,25 @@ CLI gets the fit check only.
   real stick.
 - **Ask on every drop whether to copy or link.** A question the user must learn
   to answer; refusing what does not fit asks only when it matters.
+
+## Amendment 1: less kept back (2026-11-06)
+
+Measured on a Mac of 228 GB with 13 GB free: every download was refused,
+and a stick of 465 MB (100 000 small files) "needed 2.6 GB". Two parts of
+the formula above kept far more than a download uses:
+
+1. **The reserve is a twentieth of the disk, at most 2 GiB** (it was a
+   tenth, at most 20 GB). A copy in Finder or Explorer keeps nothing back;
+   Android starts warning of low storage under 5 % of the disk, at most
+   500 MB, and 2 GiB stays above that. The examples of §1 become: 256 GB
+   with 60 GB free and 6 GB claimed, 52 GB left; 30 GB with 10 GB free and
+   2 GB claimed, 6.5 GB left.
+2. **A download's scratch room follows what it fetches:** two batches
+   (2 GiB), or its largest file and one batch, as before, but never more
+   than its own bytes, a sixteenth more (blob tags and outlines take far
+   less), and 64 MiB for the batch stores' records
+   (`download::scratch_bytes`). A stick of 10 MB claims about 75 MB, not
+   2 GiB.
+
+The Mac above has 11 GB left for downloads now; the 465 MB stick claims
+about 1 GB (its bytes, and about 560 MB of scratch on the same disk).

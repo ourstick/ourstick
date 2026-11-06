@@ -19,11 +19,25 @@ pub(super) const BATCH_BYTES: u64 = 1 << 30;
 /// batches, this one and the next (for the space ledger).
 pub const SCRATCH_BYTES: u64 = 2 * BATCH_BYTES;
 
-/// [`SCRATCH_BYTES`], or more for a download whose largest file is bigger
-/// than a batch: that file is a batch of its own, and the next one may
-/// come beside it.
-pub fn scratch_bytes(largest: u64) -> u64 {
-    SCRATCH_BYTES.max(largest.saturating_add(BATCH_BYTES))
+/// Room for the batch stores' own records besides their blobs (a store's
+/// database, a blob's outline), and for the headers and tags of the blobs
+/// of the two batches there at once.
+const SCRATCH_SLACK: u64 = 64 << 20;
+
+/// The room a download that writes `needed` bytes, `largest` the biggest
+/// file of them, takes on the data folder's disk while it runs:
+/// [`SCRATCH_BYTES`], or more when its largest file is bigger than a batch
+/// (that file is a batch of its own, and the next one may come beside it),
+/// but never more than all it fetches can take there: its blobs are its
+/// files' bytes and a little more (a sixteenth, far more than the tags and
+/// outlines need), and [`SCRATCH_SLACK`]. A stick of 10 MB needs about
+/// 75 MB, not 2 GiB (ADR 0008, amendment of 2026-11-06).
+pub fn scratch_bytes(needed: u64, largest: u64) -> u64 {
+    let batches = SCRATCH_BYTES.max(largest.saturating_add(BATCH_BYTES));
+    let everything = needed
+        .saturating_add(needed / 16)
+        .saturating_add(SCRATCH_SLACK);
+    batches.min(everything)
 }
 
 /// A batch closes at this many files, so batches of tiny files stay small in
@@ -107,5 +121,25 @@ mod tests {
             plan_batches(&entries, 25, 100)
         );
         assert!(plan_batches(&[], 25, 100).is_empty());
+    }
+
+    #[test]
+    fn a_download_claims_scratch_by_what_it_fetches() {
+        const MB: u64 = 1 << 20;
+        // A small stick: its blobs, a sixteenth more, and the slack.
+        assert_eq!(
+            scratch_bytes(10 * MB, MB),
+            10 * MB + 10 * MB / 16 + SCRATCH_SLACK
+        );
+        assert!(scratch_bytes(10 * MB, MB) < 100 * MB);
+        // A big one keeps two batches, or its largest file and a batch.
+        assert_eq!(scratch_bytes(100 << 30, MB), SCRATCH_BYTES);
+        assert_eq!(scratch_bytes(100 << 30, 50 << 30), (50 << 30) + BATCH_BYTES);
+        // One file a little bigger than a batch: no second batch beside it.
+        assert_eq!(
+            scratch_bytes(1536 * MB, 1536 * MB),
+            1536 * MB + 96 * MB + SCRATCH_SLACK
+        );
+        assert_eq!(scratch_bytes(u64::MAX, u64::MAX), u64::MAX);
     }
 }

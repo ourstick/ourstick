@@ -11,10 +11,13 @@ use crate::locks::{is_held, LockError};
 use crate::stick_id::StickId;
 use crate::store::{ClaimKind, SpaceClaim, Store, StoreError};
 
-/// The system's reserve is this share of a disk…
-const RESERVE_SHARE: u64 = 10;
-/// …at most this.
-pub const MAX_RESERVE: u64 = 20 << 30;
+/// The system's reserve is this share of a disk (a twentieth)…
+const RESERVE_SHARE: u64 = 20;
+/// …at most this (ADR 0008, amendment of 2026-11-06). It was a tenth, at
+/// most 20 GiB: a Mac of 228 GB with 13 GB free then took no download at
+/// all. A copy in Finder or Explorer keeps nothing back; Android warns of
+/// low storage under 5 %, at most 500 MB, and 2 GiB stays above that.
+pub const MAX_RESERVE: u64 = 2 << 30;
 
 /// Why room could not be had. The messages are meant for users.
 #[derive(Debug, thiserror::Error)]

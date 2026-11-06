@@ -73,6 +73,31 @@ licence; nothing in the package changes that (only the Snap Store does).
       bookmarks). The `.deb` stays for other distributions. An ADR first.
 - [ ] **Sign the Windows installers:** unsigned, SmartScreen warns on
       download and on first start.
+- [ ] **Room for a download (to decide):** every download claims 2 GiB of
+      scratch room besides its own size, however small it is, and leaves
+      the system a tenth of the disk (at most 20 GiB). A Mac of 228 GB with
+      13 GB free (2026-11-06) refuses every download, a 465 MB stick
+      "needs 2.6 GB"; a phone with little room left would too. The scratch
+      could be capped at the download's own size, and the system's share
+      looked at again.
+- [ ] **Windows opens by path (to decide):** a shared file is opened
+      through folders held open, but by path, so someone who can write in
+      the shared folder can still turn a held folder into a junction in
+      place between the checks and the open. Closing it takes opens
+      relative to the held folders (`NtCreateFile` with a root directory),
+      which is unsafe code (Giorgos's approval), or a check that the opened
+      file is the one checked (file id, through a crate already in
+      Cargo.lock, a new direct dependency).
+- [ ] **macOS: received folders marked too (to decide):** ADR 0032 marks
+      received files with the quarantine, not the folders. A received
+      folder that is an app bundle (a `.app` inside a stick) then has its
+      files marked but not the bundle itself. Marking every folder a reader
+      makes would carry the mark onto bundles, as Archive Utility does.
+- [ ] **macOS: the concealed mark in the same write (to decide):** "Copy
+      link" puts the text, then the concealed type, in two writes; a
+      clipboard history app that looks in between would keep the link.
+      One write of both takes `NSPasteboardItem` through objc2, unsafe code
+      (Giorgos's approval).
 
 ## Keys and computers (ADR 0021, rule 7)
 

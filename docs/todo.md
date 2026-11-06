@@ -106,7 +106,10 @@ licence; nothing in the package changes that (only the Snap Store does).
 - **Timing tests in the Windows VM:** `tests/relay_policy.rs` fails there
   most runs, with or without a change (2026-11-06: 6 of 9 failed on main):
   a debug build in the VM is slower than its time bounds allow. Give the
-  bounds room for a slow machine, or run them only in release.
+  bounds room for a slow machine, or run them only in release. The same
+  for `tests/made.rs` (`a_file_changed_after_its_version_is_not_sent_until_the_next`,
+  `a_version_with_no_new_blob_is_served_too`): they fail now and then
+  there with v0.3.0's code too, and one run of v0.3.0's took 336 s.
 - **Small files:** a stick of 100 000 small files (464 MB) took 18 minutes
   the first time, Linux to Linux, before ADRs 0014 and 0016 (placing and
   fetching in batches), the sender using 1.24 GB of memory. Measured again

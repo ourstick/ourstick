@@ -12,6 +12,12 @@
 /THIRD-PARTY-LICENSES
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+# ADR 0027, decision 6: which app opens ourstick.com/s/ links on Android.
+# The upload key's fingerprint; Play's app signing key joins it after the
+# first upload to Play.
+/.well-known/assetlinks.json
+  Content-Type: application/json
+  Cache-Control: public, max-age=3600
 # ADR 0033: the notice of a new version, read by the app once a day. A
 # short cache, so that a security notice reaches every app within the day.
 /version.json

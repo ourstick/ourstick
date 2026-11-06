@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ourstick.OurStick",
+      "sha256_cert_fingerprints": [
+        "92:6E:C2:FD:78:56:06:43:21:0A:58:66:5F:02:C5:A9:3F:30:1C:76:7B:C5:0C:EF:1B:D9:C1:4C:45:A8:44:6F"
+      ]
+    }
+  }
+]

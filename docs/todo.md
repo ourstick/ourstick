@@ -171,5 +171,8 @@ licence; nothing in the package changes that (only the Snap Store does).
 ## Later
 
 - **Our own relay** (ADR 0006), only if n0's public relays are not enough.
-- **Android:** `https://ourstick.com/.well-known/assetlinks.json`, so that
-  Android opens sharing links in the app; it needs the app's signing key.
+- **Android:** after the first upload to Play, add Play's app signing key
+  fingerprint (Play Console, App integrity) beside the upload key's in
+  `apps/website/site/.well-known/assetlinks.json`, and deploy the site.
+  The upload key (`ourstick-upload.jks`, made 2026-11-06) is not in the
+  repo.

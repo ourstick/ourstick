@@ -359,6 +359,8 @@ A link opened from another app now waits on Receive with "Open it" and
 "Not this one", as a link found on a computer's clipboard does (ADR 0030
 §2): only that press makes OurStick look. Links closer together than three
 seconds are dropped, as `ourstick:receive` is on a computer. Decision 6's
-`assetlinks.json` is still to come with the Play signing key; until then
-an Android 6–11 phone may offer the link to another app that claims the
-same address, so the file goes up before the app is offered more widely.
+`assetlinks.json` holds the upload key's fingerprint (2026-11-06); Play's
+app signing key joins it after the first upload. Until then an Android 11
+phone with the app from Play may offer the link to another app that
+claims the same address, so it goes up before the app is offered more
+widely.

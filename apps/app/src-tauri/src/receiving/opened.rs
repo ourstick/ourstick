@@ -48,33 +48,35 @@ pub struct OpenedLink(
 );
 
 impl OpenedLink {
-    /// Keeps `text` if it is a whole sharing link. Anything else is dropped:
-    /// Receive then opens as if Receive was pressed.
+    /// Keeps `text` if it is a whole sharing link, and says whether it did.
+    /// Anything else is dropped and changes nothing: any app can open one,
+    /// and it must not wipe a link that waits for "Open it".
     #[cfg(any(target_os = "android", test))]
-    fn arrived(&self, text: &str) {
-        let link = super::clipboard::link_in(text);
-        if link.is_none() {
+    fn arrived(&self, text: &str) -> bool {
+        let Some(link) = super::clipboard::link_in(text) else {
             tracing::warn!("an opened link is not a whole sharing link");
-        }
-        self.set(link.map(|link| Opened::Link { link }));
+            return false;
+        };
+        self.set(Some(Opened::Link { link }));
+        true
     }
 
     /// [`Self::arrived`] at `now`, unless a link came less than [`GAP`]
-    /// before: then dropped, and `false`.
+    /// before: then dropped, and `false`. Only a whole link starts the gap.
     #[cfg(any(target_os = "android", test))]
     fn arrived_at(&self, text: &str, now: std::time::Instant) -> bool {
-        {
-            let mut last = self
-                .1
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if last.is_some_and(|last| now.saturating_duration_since(last) < GAP) {
-                return false;
-            }
+        let mut last = self
+            .1
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last.is_some_and(|last| now.saturating_duration_since(last) < GAP) {
+            return false;
+        }
+        let kept = self.arrived(text);
+        if kept {
             *last = Some(now);
         }
-        self.arrived(text);
-        true
+        kept
     }
 
     /// Receive is to open with nothing in it.
@@ -153,12 +155,12 @@ mod tests {
     #[test]
     fn only_a_whole_link_is_kept_and_given_once() {
         let opened = OpenedLink::default();
-        opened.arrived("https://ourstick.com/s/#not-a-link");
+        assert!(!opened.arrived("https://ourstick.com/s/#not-a-link"));
         assert!(!opened.waiting());
         assert_eq!(opened.take(), None);
 
         let link = crate::receiving::clipboard::tests::a_link();
-        opened.arrived(&link);
+        assert!(opened.arrived(&link));
         assert!(opened.waiting());
         assert_eq!(opened.take(), Some(Opened::Link { link }));
         assert!(!opened.waiting());
@@ -183,6 +185,21 @@ mod tests {
         assert!(!opened.arrived_at(&link, start + GAP / 2));
         assert!(opened.arrived_at(&link, start + GAP));
         assert_eq!(opened.take(), Some(Opened::Link { link }));
+    }
+
+    #[test]
+    fn what_is_not_a_link_never_wipes_one_that_waits() {
+        let opened = OpenedLink::default();
+        let link = crate::receiving::clipboard::tests::a_link();
+        let start = std::time::Instant::now();
+        assert!(opened.arrived_at(&link, start));
+        assert!(!opened.arrived_at("garbage", start + GAP * 2));
+        assert!(!opened.arrived_at("https://ourstick.com/s/#x.y", start + GAP * 3));
+        assert_eq!(opened.take(), Some(Opened::Link { link: link.clone() }));
+        // Nor does it start the gap: a link right after it is kept.
+        let later = start + GAP * 10;
+        assert!(!opened.arrived_at("garbage", later));
+        assert!(opened.arrived_at(&link, later));
     }
 
     #[test]

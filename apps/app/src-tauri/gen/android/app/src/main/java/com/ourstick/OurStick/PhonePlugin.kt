@@ -84,10 +84,13 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
     private var waiting: String? = null
     private var handler: Channel? = null
 
+    /** Before Rust listens, the first link waits and later ones are
+     * dropped: another app cannot replace the one the user opened. Once it
+     * listens, Rust keeps only whole links, a few seconds apart. */
     fun arrived(link: String) {
       synchronized(lock) {
         val to = handler
-        if (to == null) waiting = link else send(to, link)
+        if (to != null) send(to, link) else if (waiting == null) waiting = link
       }
     }
 

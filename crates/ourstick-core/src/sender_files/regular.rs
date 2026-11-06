@@ -80,11 +80,17 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
 }
 
 /// [`open_regular`] on Windows. Each folder from the root down is opened
-/// as itself, not followed (a junction or a link is refused), and held
-/// open without sharing delete until the file is open: none of them can be
-/// renamed or swapped in the meantime, so the file's path goes through the
-/// very folders that were checked. The file is opened as itself too, and
-/// must be a regular one. Through std's open options: no unsafe code.
+/// as itself, not followed: a link or a junction (a name surrogate, what
+/// std's `is_symlink` means) is refused, while a folder that is a reparse
+/// point of another kind (OneDrive's) is gone through as any folder. The
+/// folders are held open without sharing delete until the file is open:
+/// none of them can be renamed or swapped in the meantime, so the file's
+/// path goes through the very folders that were checked. The file is opened
+/// as itself too and must be a regular one, not a link. A file that is a
+/// reparse point of another kind (a OneDrive file, a deduplicated one) gives
+/// its content only through its own driver, which an open as itself skips:
+/// it is opened again the usual way while its name is held. Through std's
+/// open options: no unsafe code.
 #[cfg(windows)]
 pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     use std::fs::OpenOptions;
@@ -98,49 +104,66 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     const FILE_SHARE_DELETE: u32 = 0x4;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
-    let open = |path: &Path, folder: bool, as_itself: bool| -> io::Result<File> {
-        // Backup semantics on a file too: a folder in its place then opens,
-        // and is refused below as not a file.
+    // `as_itself`: a link or a junction is opened, not followed, and then
+    // refused. `held`: without sharing delete, so that while it is open its
+    // name cannot be renamed, removed or replaced. Backup semantics on a
+    // file too: a folder in a file's place then opens, and is refused by
+    // the caller as not a file.
+    let open = |path: &Path, as_itself: bool, held: bool| {
         let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
         if as_itself {
             flags |= FILE_FLAG_OPEN_REPARSE_POINT;
         }
-        let share = if folder {
-            FILE_SHARE_READ | FILE_SHARE_WRITE
-        } else {
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-        };
+        let mut share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+        if !held {
+            share |= FILE_SHARE_DELETE;
+        }
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(flags)
             .share_mode(share)
             .open(path)?;
         let facts = file.metadata()?;
-        let kind_fits = if folder {
-            facts.is_dir()
-        } else {
-            facts.is_file()
-        };
-        if !kind_fits || (as_itself && facts.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
-        {
+        if facts.file_type().is_symlink() {
             return Err(refused());
         }
-        Ok(file)
+        Ok::<_, io::Error>((file, facts))
+    };
+    let folder = |path: &Path, as_itself: bool| {
+        let (file, facts) = open(path, as_itself, true)?;
+        facts.is_dir().then_some(file).ok_or_else(refused)
+    };
+    let regular = |(file, facts): (File, std::fs::Metadata)| {
+        facts.is_file().then_some(file).ok_or_else(refused)
     };
 
     let (root, names) = split_below(path, below)?;
     if names.is_empty() {
         // The root is the file itself (a linked file): followed, as chosen.
-        return open(path, false, false);
+        return regular(open(path, false, false)?);
     }
     // The root (the folder the user chose) may be reached through links.
-    let mut held = vec![open(root, true, false)?];
-    let mut folder = root.to_path_buf();
+    let mut held = vec![folder(root, false)?];
+    let mut on_the_way = root.to_path_buf();
     for name in names[1..].iter().rev() {
-        folder.push(name);
-        held.push(open(&folder, true, true)?);
+        on_the_way.push(name);
+        held.push(folder(&on_the_way, true)?);
     }
-    let file = open(path, false, true)?;
+    let (itself, facts) = open(path, true, false)?;
+    if !facts.is_file() {
+        return Err(refused());
+    }
+    let file = if facts.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
+        itself
+    } else {
+        drop(itself);
+        // Its name held as itself (checked again), then opened the usual
+        // way, which can only reach that same file.
+        let name = regular(open(path, true, true)?)?;
+        let file = regular(open(path, false, false)?)?;
+        drop(name);
+        file
+    };
     drop(held);
     Ok(file)
 }
@@ -280,6 +303,20 @@ mod windows_tests {
     fn a_folder_is_not_a_file() {
         let dir = folder();
         let error = open_regular(&dir.path().join("root/sub"), 1).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_link_in_place_of_the_file_is_refused() {
+        let dir = folder();
+        let file = dir.path().join("root").join("sub").join("a.txt");
+        std::fs::remove_file(&file).unwrap();
+        // A link to a file needs Developer Mode or an administrator.
+        let outside = dir.path().join("outside").join("a.txt");
+        if std::os::windows::fs::symlink_file(&outside, &file).is_err() {
+            return;
+        }
+        let error = open_regular(&file, 2).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 }

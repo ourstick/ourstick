@@ -15,7 +15,7 @@ Signing: `tools/release/sign.sh`.
 ## Checking a download
 
 With the installer and `SHA256SUMS.txt` with its `SHA256SUMS.txt.minisig`
-from https://ourstick.com/downloads/ (or `SHA256SUMS-<version>.txt` with
+from the downloads on https://ourstick.com/#download (or `SHA256SUMS-<version>.txt` with
 its `.minisig` from a GitHub Release), in one folder:
 
 ```sh

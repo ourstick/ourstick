@@ -176,6 +176,37 @@ async fn a_folder_moved_out_and_back_beside_a_file_sent_alone_is_watched_again()
     );
 }
 
+/// A build that makes the folder of a file sent alone again: the folder's
+/// watch went with the old one, and the file is watched again at the next
+/// look.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_file_sent_alone_is_watched_again_after_its_folder_is_made_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let own = base.join("own");
+    let dist = base.join("dist");
+    let app = dist.join("app.zip");
+    std::fs::create_dir(&own).unwrap();
+    std::fs::create_dir(&dist).unwrap();
+    std::fs::write(&app, b"0").unwrap();
+    let roots = [own.clone(), app.clone()];
+    let mut events = NotifyEvents::start(&own).unwrap();
+    assert!(events.watch_roots(&roots).is_empty());
+    std::fs::remove_dir_all(&dist).unwrap();
+    std::fs::create_dir(&dist).unwrap();
+    std::fs::write(&app, b"1").unwrap();
+    let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
+    assert_eq!(seen, Ok(Some(())), "the new folder was not seen");
+    quiet(&mut events).await;
+    // The next look, as the watcher's loop makes one.
+    assert!(events.watch_roots(&roots).is_empty());
+    quiet(&mut events).await;
+    std::fs::write(&app, b"2").unwrap();
+    let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
+    assert_eq!(seen, Ok(Some(())), "a save in the new folder was not seen");
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_file_in_a_folder_that_cannot_be_listed_is_still_watched() {

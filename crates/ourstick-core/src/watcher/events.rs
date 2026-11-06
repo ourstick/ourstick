@@ -89,7 +89,8 @@ struct Roots {
     /// Folder roots renamed or removed since the last look: notify drops
     /// their watch, even when they come straight back (on Linux, when their
     /// parent folder is watched for a file beside them), so they are
-    /// watched again at the next look.
+    /// watched again at the next look. So are the files sent alone whose
+    /// folder went (a build that makes it again): its watch went with it.
     lost: BTreeSet<PathBuf>,
 }
 
@@ -190,8 +191,20 @@ impl NotifyEvents {
                     let lost: Vec<PathBuf> = event
                         .paths
                         .iter()
-                        .filter(|path| roots.all.contains(*path) && !roots.files.contains(*path))
-                        .cloned()
+                        .flat_map(|path| {
+                            let folder_root =
+                                roots.all.contains(path) && !roots.files.contains(path);
+                            let files_in_it = roots
+                                .files
+                                .iter()
+                                .filter(|file| file.parent() == Some(path.as_path()));
+                            folder_root
+                                .then_some(path)
+                                .into_iter()
+                                .chain(files_in_it)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        })
                         .collect();
                     roots.lost.extend(lost);
                 }

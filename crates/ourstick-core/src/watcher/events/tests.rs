@@ -131,12 +131,75 @@ async fn a_file_sent_alone_is_seen_after_each_save_that_replaces_it() {
     std::fs::write(base.join("other.txt"), b"1").unwrap();
     let seen = tokio::time::timeout(Duration::from_millis(700), events.changed()).await;
     assert!(seen.is_err(), "a file beside the one sent was reported");
-    // Watched no more once it is no root.
+    // Watched no more once it is no root (on Windows the system lets go of
+    // the folder a moment later).
     assert!(events.watch_roots(std::slice::from_ref(&own)).is_empty());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    quiet(&mut events).await;
     std::fs::write(&notes, b"after").unwrap();
     let seen = tokio::time::timeout(Duration::from_millis(700), events.changed()).await;
     assert!(
         seen.is_err(),
         "a file that is no root any more was reported"
     );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_folder_moved_out_and_back_beside_a_file_sent_alone_is_watched_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let own = base.join("own");
+    let holidays = base.join("Holidays");
+    let cover = base.join("cover.jpg");
+    std::fs::create_dir(&own).unwrap();
+    std::fs::create_dir(&holidays).unwrap();
+    std::fs::write(&cover, b"0").unwrap();
+    let roots = [own.clone(), holidays.clone(), cover.clone()];
+    let mut events = NotifyEvents::start(&own).unwrap();
+    assert!(events.watch_roots(&roots).is_empty());
+    // Moved out and straight back (an undo), before the next look.
+    std::fs::rename(&holidays, base.join("away")).unwrap();
+    std::fs::rename(base.join("away"), &holidays).unwrap();
+    let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
+    assert_eq!(seen, Ok(Some(())), "the move was not seen");
+    quiet(&mut events).await;
+    // The next look, as the watcher's loop makes one after its pass.
+    assert!(events.watch_roots(&roots).is_empty());
+    quiet(&mut events).await;
+    std::fs::write(holidays.join("new.jpg"), b"x").unwrap();
+    let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
+    assert_eq!(
+        seen,
+        Ok(Some(())),
+        "a new file in the folder that came back was not seen"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_file_in_a_folder_that_cannot_be_listed_is_still_watched() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let own = base.join("own");
+    let locked = base.join("locked");
+    let file = locked.join("report.odt");
+    std::fs::create_dir(&own).unwrap();
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(&file, b"0").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o311)).unwrap();
+    let mut events = NotifyEvents::start(&own).unwrap();
+    let errors = events.watch_roots(&[own.clone(), file.clone()]);
+    // Written in place: what a watch of the file itself sees.
+    let written = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&file)
+        .and_then(|mut opened| opened.write_all(b"1"));
+    let seen = tokio::time::timeout(Duration::from_secs(5), events.changed()).await;
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    written.unwrap();
+    assert_eq!(seen, Ok(Some(())), "a write to the file was not seen");
 }

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::event::{AccessKind, AccessMode};
+use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher as _};
 use tokio::sync::mpsc;
 
@@ -86,6 +86,11 @@ struct Roots {
     all: BTreeSet<PathBuf>,
     /// The roots that are a file sent alone, watched through their folder.
     files: BTreeSet<PathBuf>,
+    /// Folder roots renamed or removed since the last look: notify drops
+    /// their watch, even when they come straight back (on Linux, when their
+    /// parent folder is watched for a file beside them), so they are
+    /// watched again at the next look.
+    lost: BTreeSet<PathBuf>,
 }
 
 /// What the system watches for `root`, and whether all under it: a folder
@@ -110,7 +115,20 @@ fn watched_for(root: &Path) -> (PathBuf, bool) {
 /// stick's.
 fn beside_a_file_root(path: &Path, roots: &Roots) -> bool {
     let folder = path.parent();
-    roots.files.iter().any(|file| file.parent() == folder)
+    let name = path.file_name().map(|name| name.to_string_lossy());
+    // The file named in another case or Unicode form (a disk that ignores
+    // case) is the file itself: an extra pass at worst.
+    let named_so = |file: &PathBuf| match (file.file_name(), &name) {
+        (Some(file), Some(name)) => crate::stick_names::same_name(&file.to_string_lossy(), name),
+        _ => false,
+    };
+    let files_here: Vec<&PathBuf> = roots
+        .files
+        .iter()
+        .filter(|file| file.parent() == folder)
+        .collect();
+    !files_here.is_empty()
+        && !files_here.into_iter().any(named_so)
         && !roots.all.iter().any(|root| path.starts_with(root))
 }
 
@@ -161,9 +179,22 @@ impl NotifyEvents {
                 return;
             }
             let none_of_ours = event.as_ref().is_ok_and(|event| {
-                let roots = seen_roots
+                let mut roots = seen_roots
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let moved = matches!(
+                    event.kind,
+                    EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_)
+                );
+                if moved {
+                    let lost: Vec<PathBuf> = event
+                        .paths
+                        .iter()
+                        .filter(|path| roots.all.contains(*path) && !roots.files.contains(*path))
+                        .cloned()
+                        .collect();
+                    roots.lost.extend(lost);
+                }
                 !event.paths.is_empty()
                     && event.paths.iter().all(|path| {
                         through_a_link(path, &roots.all) || beside_a_file_root(path, &roots)
@@ -196,42 +227,56 @@ impl NotifyEvents {
 
     /// Watches `root` from now on, as [`watched_for`] says.
     fn add_root(&mut self, root: &Path) -> Result<(), WatchError> {
-        let (target, recursive) = watched_for(root);
-        let known = self.targets.get(&target).map(|known| known.recursive);
-        // A folder watched already is watched again only to take in all
-        // under it.
+        let error = |reason: notify::Error| WatchError {
+            path: root.display().to_string(),
+            reason: reason.to_string(),
+        };
+        let (folder, recursive) = watched_for(root);
+        let (target, through_folder) = match self.watch_target(&folder, recursive) {
+            Ok(()) => (folder, !recursive),
+            // A file in a folder that cannot be listed (`0711`): the file
+            // itself, as before; then only saves that write in place are seen.
+            Err(_) if !recursive => {
+                self.watch_target(root, false).map_err(error)?;
+                (root.to_path_buf(), false)
+            }
+            Err(reason) => return Err(error(reason)),
+        };
+        let mut roots = self
+            .roots
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        roots.all.insert(root.to_path_buf());
+        if through_folder {
+            roots.files.insert(root.to_path_buf());
+        }
+        drop(roots);
+        self.watched.insert(root.to_path_buf(), target);
+        Ok(())
+    }
+
+    /// The system watches `target` (all under it too if `recursive`), for
+    /// one root more. A folder watched already is watched again only to
+    /// take in all under it.
+    fn watch_target(&mut self, target: &Path, recursive: bool) -> Result<(), notify::Error> {
+        let known = self.targets.get(target).map(|known| known.recursive);
         if known.is_none() || (recursive && known == Some(false)) {
             if known.is_some() {
-                let _ = self.watcher.unwatch(&target);
+                let _ = self.watcher.unwatch(target);
             }
             let mode = if recursive {
                 RecursiveMode::Recursive
             } else {
                 RecursiveMode::NonRecursive
             };
-            self.watcher
-                .watch(&target, mode)
-                .map_err(|reason| WatchError {
-                    path: root.display().to_string(),
-                    reason: reason.to_string(),
-                })?;
+            self.watcher.watch(target, mode)?;
         }
-        let entry = self.targets.entry(target.clone()).or_insert(Target {
+        let entry = self.targets.entry(target.to_path_buf()).or_insert(Target {
             roots: 0,
             recursive,
         });
         entry.roots += 1;
         entry.recursive |= recursive;
-        let mut roots = self
-            .roots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        roots.all.insert(root.to_path_buf());
-        if !recursive {
-            roots.files.insert(root.to_path_buf());
-        }
-        drop(roots);
-        self.watched.insert(root.to_path_buf(), target);
         Ok(())
     }
 
@@ -265,6 +310,17 @@ impl FolderEvents for NotifyEvents {
     }
 
     fn watch_roots(&mut self, roots: &[PathBuf]) -> Vec<WatchError> {
+        let lost = std::mem::take(
+            &mut self
+                .roots
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lost,
+        );
+        for root in lost {
+            // Watched again below, as a new root, if it is still wanted.
+            self.remove_root(&root);
+        }
         let wanted: BTreeSet<PathBuf> = roots.iter().cloned().collect();
         let gone: Vec<PathBuf> = self
             .watched

@@ -145,9 +145,12 @@ pub(super) fn move_folder(
 
 /// Copies the folder `from` to the new folder `to`: folders and files, each
 /// file's time kept, and adds each to `copied` (a folder after what is
-/// inside it). Links and other kinds are not received, so not copied.
+/// inside it). Links and other kinds are not received, so not copied. A
+/// file keeps its mark from the internet (`std::fs::copy` copies it), and a
+/// folder is given its own (ADR 0032, amendment 1).
 fn copy_tree(from: &Path, to: &Path, copied: &mut Vec<PathBuf>) -> std::io::Result<()> {
     std::fs::create_dir(to)?;
+    crate::download::files::copy_folder_mark(from, to);
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let kind = entry.file_type()?;

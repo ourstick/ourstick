@@ -42,3 +42,18 @@ did not pass the mark on to what they unpacked).
 - A file copied from another of the stick's files (ADR 0014) is marked
   too.
 - Files received before this version have no mark.
+
+## Amendment 1: folders too (2026-11-06)
+
+A received folder that is an app bundle (a `Tool.app` inside a stick) had
+its files marked, but not the bundle itself. Now every folder a download
+makes inside the stick's folder is put in quarantine as soon as it is
+made, as Archive Utility does with what it unpacks; never through a link
+(`lsetxattr`). macOS only: Windows has no mark for a folder, Linux and
+Android none at all. The stick's own folder is chosen and made by the app
+and is never a bundle (`stick_names.rs` changes a name that ends like
+one); a folder that was there before is left as it is.
+
+A received stick moved to another disk keeps its marks: a file through
+`std::fs::copy`, which copies them, a folder by taking the mark its
+original has. Folders received before this version have none.

@@ -350,7 +350,7 @@ fn place(
     // unplugged meanwhile is not filled in its place.
     partial_there(&output_dir.join(PARTIAL_DIR))?;
     if let Some(parent) = target.parent() {
-        if let Err(error) = std::fs::create_dir_all(parent) {
+        if let Err(error) = from_internet::make_folders(output_dir, parent) {
             return its_place_refused(plaintext, error).map_err(io_error(parent));
         }
     }
@@ -376,6 +376,7 @@ fn place(
 }
 
 mod from_internet;
+pub(crate) use from_internet::copy_folder_mark;
 mod leftovers;
 mod refused;
 pub use leftovers::remove_partial_folder;

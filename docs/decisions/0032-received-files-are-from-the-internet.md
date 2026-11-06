@@ -50,9 +50,12 @@ its files marked, but not the bundle itself. Now every folder a download
 makes inside the stick's folder is put in quarantine as soon as it is
 made, as Archive Utility does with what it unpacks; never through a link
 (`lsetxattr`). macOS only: Windows has no mark for a folder, Linux and
-Android none at all. The stick's own folder is chosen and made by the app
-and is never a bundle (`stick_names.rs` changes a name that ends like
-one); a folder that was there before is left as it is.
+Android none at all. The stick's own folder is made by the app and left
+unmarked: its name never ends like a system bundle (`stick_names.rs` adds
+a `_`), and since an app may take any other extension for its document
+package (`Holiday.pages`), "Open folder" shows a received folder whose
+name has an extension in Finder, selected, rather than opening it. A
+folder that was there before is left as it is.
 
 A received stick moved to another disk keeps its marks: a file through
 `std::fs::copy`, which copies them, a folder by taking the mark its

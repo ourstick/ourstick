@@ -335,7 +335,7 @@ pub async fn open_received_folder(
             .ok_or_else(|| anyhow::anyhow!("this stick is not received here any more"))
     })
     .await?;
-    crate::commands::open_folder(&app, joined.output_dir).await
+    crate::commands::open_received_folder(&app, joined.output_dir).await
 }
 
 #[cfg(test)]

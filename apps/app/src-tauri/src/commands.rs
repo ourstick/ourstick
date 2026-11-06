@@ -109,6 +109,37 @@ pub(crate) async fn open_folder(app: &AppHandle, folder: std::path::PathBuf) -> 
         })
 }
 
+/// A received stick's folder, opened as [`open_folder`] opens one, but on
+/// macOS a name with an extension is shown in Finder, selected, instead:
+/// the sender chose the name, and macOS opens a folder whose extension an
+/// app takes for its document package (`Holiday.pages`, `Old.photoslibrary`,
+/// Safari's `.download`) with that app, not as a folder.
+pub(crate) async fn open_received_folder(
+    app: &AppHandle,
+    folder: std::path::PathBuf,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if shown_rather_than_opened(&folder) {
+        use tauri_plugin_opener::OpenerExt;
+        let checked = folder.clone();
+        if !blocking(move || Ok(checked.is_dir())).await? {
+            return Err(not_there());
+        }
+        return app.opener().reveal_item_in_dir(&folder).map_err(|error| {
+            tracing::warn!(%error, "Finder did not show a received folder");
+            "The folder could not be shown in Finder.".to_owned()
+        });
+    }
+    open_folder(app, folder).await
+}
+
+/// Whether a received folder's name has an extension, which an app on
+/// macOS may take for its document package.
+#[cfg(any(target_os = "macos", test))]
+fn shown_rather_than_opened(folder: &std::path::Path) -> bool {
+    folder.extension().is_some()
+}
+
 fn not_there() -> String {
     "This folder is not there any more (deleted or moved, or its disk is unplugged).".to_owned()
 }
@@ -120,5 +151,25 @@ mod tests {
     #[test]
     fn a_folder_that_is_not_there_is_said_in_plain_words() {
         assert!(not_there().starts_with("This folder is not there"));
+    }
+
+    #[test]
+    fn a_received_name_with_an_extension_is_shown_not_opened() {
+        use std::path::Path;
+        for package in [
+            "Holiday.pages",
+            "Old.photoslibrary",
+            "Film.download",
+            "v1.2",
+        ] {
+            assert!(shown_rather_than_opened(
+                &Path::new("/Downloads").join(package)
+            ));
+        }
+        for folder in ["Holiday", "_ssh", "Photos 2024"] {
+            assert!(!shown_rather_than_opened(
+                &Path::new("/Downloads").join(folder)
+            ));
+        }
     }
 }

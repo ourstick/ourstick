@@ -76,7 +76,10 @@ ssh -p 2222 Quickemu@localhost 'cd src\ourstick; git pull ..\..\ourstick.bundle 
 Windows ignores letter case, so that is the stick's own folder
 (`%USERPROFILE%\OurStick`), and the app would rightly refuse to take it. Then `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` and
-`cargo fmt --check` as anywhere.
+`cargo fmt --check` as anywhere. Debug builds are slow in the VM: set
+`OURSTICK_TEST_TIME_SCALE=4` for the tests, so their "not too slow" time
+bounds give it room (the bounds that show a limit at work stay as they
+are).
 
 ### Packages
 

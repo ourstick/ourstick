@@ -204,7 +204,13 @@ async fn a_file_changed_after_its_version_is_not_sent_until_the_next() {
         "a file that changed was received under its old version"
     );
     assert!(!reader.exists(name) || reader.read(name) != changed);
-    // The keeper asked the watcher for a pass.
+    // The keeper asked the watcher for a pass (on a slow machine, maybe
+    // only now).
+    let asked = std::time::Instant::now();
+    let wait = std::time::Duration::from_secs_f64(5.0 * common::time_scale());
+    while passes.load(Ordering::Relaxed) == 0 && asked.elapsed() < wait {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     assert!(passes.load(Ordering::Relaxed) > 0);
 
     // The next pass reads it again; its version brings the new file.
@@ -245,7 +251,7 @@ async fn a_version_with_no_new_blob_is_served_too() {
     let second = owner.publish().await;
     let reader = Reader::new();
     tokio::time::timeout(
-        std::time::Duration::from_secs(20),
+        std::time::Duration::from_secs_f64(20.0 * common::time_scale()),
         reader.download(&owner.ticket(&second), &mut keep_going),
     )
     .await

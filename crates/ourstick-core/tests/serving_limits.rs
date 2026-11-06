@@ -15,6 +15,11 @@ use iroh_blobs::protocol::{GetRequest, Request};
 use ourstick_core::transport::{Fetcher, PeerConnection, Publisher, GO};
 use ourstick_core::{AddressHint, Ticket};
 
+/// One test at a time: the program's transfer places are shared by every
+/// owner in this process, so a test holding them all would keep the other
+/// one's reader out on a slow machine.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(target_os = "linux")]
 fn open_files() -> usize {
     std::fs::read_dir("/proc/self/fd").unwrap().count()
@@ -56,6 +61,7 @@ async fn stalled_gets(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn stalled_gets_hold_only_so_many_files() {
+    let _alone = ONE_AT_A_TIME.lock().await;
     let data = noise(8 * 1024 * 1024, 3);
     let owner = Owner::new(&[("big.bin", &data)]).await;
     let publication = owner.publish().await;
@@ -126,6 +132,7 @@ async fn silent_stream(connection: &Connection) -> (SendStream, RecvStream) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn silent_streams_never_keep_a_reader_out() {
+    let _alone = ONE_AT_A_TIME.lock().await;
     let data = noise(64 * 1024, 4);
     let owner = Owner::new(&[("a.bin", &data)]).await;
     let publication = owner.publish().await;

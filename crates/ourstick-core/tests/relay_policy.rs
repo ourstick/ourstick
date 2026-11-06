@@ -86,7 +86,10 @@ async fn direct_path_found_is_not_limited() {
     assert!(seen.limited.is_empty(), "{seen:?}");
     // 4 MiB at the limit would take about 3.7 s.
     let at_limit = (4.0 * MIB as f64 - BURST_BYTES) / BYTES_PER_SECOND;
-    assert!(elapsed.as_secs_f64() < at_limit / 2.0, "{elapsed:?}");
+    assert!(
+        elapsed.as_secs_f64() < at_limit / 2.0 * common::time_scale(),
+        "{elapsed:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -105,7 +108,10 @@ async fn relay_only_finishes_at_the_limit_and_says_so() {
         elapsed.as_secs_f64() >= least * 0.95,
         "{elapsed:?} for {relay} relay bytes, at least {least:.2} s"
     );
-    assert!(elapsed.as_secs_f64() < least + 2.0, "{elapsed:?}");
+    assert!(
+        elapsed.as_secs_f64() < least + 2.0 * common::time_scale(),
+        "{elapsed:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

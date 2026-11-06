@@ -27,6 +27,18 @@ use ourstick_core::{
 use rand::RngCore;
 use tempfile::TempDir;
 
+/// How much longer than on a usual machine a test may take before it
+/// fails on time: `OURSTICK_TEST_TIME_SCALE` (4 in the Windows VM, whose
+/// debug builds are slow), 1 when unset. It widens only bounds that say
+/// "not too slow"; a bound that shows a limit at work stays as it is.
+pub fn time_scale() -> f64 {
+    std::env::var("OURSTICK_TEST_TIME_SCALE")
+        .ok()
+        .and_then(|scale| scale.parse::<f64>().ok())
+        .filter(|scale| scale.is_finite() && *scale >= 1.0)
+        .unwrap_or(1.0)
+}
+
 pub fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);

@@ -12,22 +12,11 @@ fn refused() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
 }
 
-/// Opens `path`, whose last `below` names lie under the stick's root (the
-/// root itself, the folder a user chose, may be reached through links).
-/// `below` 0: `path` is the root, a linked file.
-#[cfg(unix)]
-pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
-    use rustix::fs::{fcntl_getfl, fcntl_setfl, fstat, open, openat, FileType, Mode, OFlags};
+/// The last `below` names of `path`, the file's last, and the root above
+/// them; refused if any is not a plain name.
+fn split_below(path: &Path, below: usize) -> io::Result<(&Path, Vec<&std::ffi::OsStr>)> {
     use std::path::Component;
 
-    let errno = |error: rustix::io::Errno| -> io::Error {
-        // A link where none may be: a file, or a folder on the way.
-        if error == rustix::io::Errno::LOOP || error == rustix::io::Errno::NOTDIR {
-            refused()
-        } else {
-            error.into()
-        }
-    };
     let names: Vec<&std::ffi::OsStr> = path
         .components()
         .rev()
@@ -40,15 +29,34 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     if names.len() != below {
         return Err(refused());
     }
+    let mut root = path;
+    for _ in 0..below {
+        root = root.parent().ok_or_else(refused)?;
+    }
+    Ok((root, names))
+}
+
+/// Opens `path`, whose last `below` names lie under the stick's root (the
+/// root itself, the folder a user chose, may be reached through links).
+/// `below` 0: `path` is the root, a linked file.
+#[cfg(unix)]
+pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
+    use rustix::fs::{fcntl_getfl, fcntl_setfl, fstat, open, openat, FileType, Mode, OFlags};
+
+    let errno = |error: rustix::io::Errno| -> io::Error {
+        // A link where none may be: a file, or a folder on the way.
+        if error == rustix::io::Errno::LOOP || error == rustix::io::Errno::NOTDIR {
+            refused()
+        } else {
+            error.into()
+        }
+    };
+    let (root, names) = split_below(path, below)?;
     let file_flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC;
     let file = match names.split_first() {
         // The root is the file itself (a linked file): followed, as chosen.
         None => open(path, file_flags, Mode::empty()).map_err(errno)?,
         Some((last, folders)) => {
-            let mut root = path;
-            for _ in 0..below {
-                root = root.parent().ok_or_else(refused)?;
-            }
             let folder_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
             let mut folder = open(root, folder_flags, Mode::empty()).map_err(errno)?;
             for name in folders.iter().rev() {
@@ -71,9 +79,74 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     Ok(File::from(file))
 }
 
-/// [`open_regular`] on Windows: the file must be a regular one, not a
-/// link; the folders on the way are not checked one by one.
-#[cfg(not(unix))]
+/// [`open_regular`] on Windows. Each folder from the root down is opened
+/// as itself, not followed (a junction or a link is refused), and held
+/// open without sharing delete until the file is open: none of them can be
+/// renamed or swapped in the meantime, so the file's path goes through the
+/// very folders that were checked. The file is opened as itself too, and
+/// must be a regular one. Through std's open options: no unsafe code.
+#[cfg(windows)]
+pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    // winbase.h / winnt.h.
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    const FILE_SHARE_DELETE: u32 = 0x4;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+    let open = |path: &Path, folder: bool, as_itself: bool| -> io::Result<File> {
+        // Backup semantics on a file too: a folder in its place then opens,
+        // and is refused below as not a file.
+        let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
+        if as_itself {
+            flags |= FILE_FLAG_OPEN_REPARSE_POINT;
+        }
+        let share = if folder {
+            FILE_SHARE_READ | FILE_SHARE_WRITE
+        } else {
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        };
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .share_mode(share)
+            .open(path)?;
+        let facts = file.metadata()?;
+        let kind_fits = if folder {
+            facts.is_dir()
+        } else {
+            facts.is_file()
+        };
+        if !kind_fits || (as_itself && facts.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+        {
+            return Err(refused());
+        }
+        Ok(file)
+    };
+
+    let (root, names) = split_below(path, below)?;
+    if names.is_empty() {
+        // The root is the file itself (a linked file): followed, as chosen.
+        return open(path, false, false);
+    }
+    // The root (the folder the user chose) may be reached through links.
+    let mut held = vec![open(root, true, false)?];
+    let mut folder = root.to_path_buf();
+    for name in names[1..].iter().rev() {
+        folder.push(name);
+        held.push(open(&folder, true, true)?);
+    }
+    let file = open(path, false, true)?;
+    drop(held);
+    Ok(file)
+}
+
+/// [`open_regular`] elsewhere: the file must be a regular one, not a link.
+#[cfg(not(any(unix, windows)))]
 pub(crate) fn open_regular(path: &Path, _below: usize) -> io::Result<File> {
     if !std::fs::symlink_metadata(path)?.is_file() {
         return Err(refused());
@@ -137,6 +210,76 @@ mod tests {
             return;
         }
         let error = open_regular(&pipe, 2).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    /// A junction (no rights needed to make one, unlike a link).
+    fn junction(at: &Path, to: &Path) {
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(at)
+            .arg(to)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+    }
+
+    fn folder() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("root/sub")).unwrap();
+        std::fs::write(dir.path().join("root/sub/a.txt"), b"in the stick").unwrap();
+        std::fs::create_dir(dir.path().join("outside")).unwrap();
+        std::fs::write(dir.path().join("outside/a.txt"), b"not in the stick").unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_file_under_its_root_is_read_and_the_root_may_be_a_junction() {
+        let dir = folder();
+        let path = dir.path().join("root/sub/a.txt");
+        let file = open_regular(&path, 2).unwrap();
+        assert_eq!(std::io::read_to_string(file).unwrap(), "in the stick");
+        junction(&dir.path().join("chosen"), &dir.path().join("root"));
+        assert!(open_regular(&dir.path().join("chosen/sub/a.txt"), 2).is_ok());
+        assert!(open_regular(&path, 0).is_ok());
+    }
+
+    #[test]
+    fn a_junction_in_place_of_a_folder_is_refused() {
+        let dir = folder();
+        let sub = dir.path().join("root").join("sub");
+        std::fs::rename(&sub, dir.path().join("old")).unwrap();
+        junction(&sub, &dir.path().join("outside"));
+        let error = open_regular(&dir.path().join("root/sub/a.txt"), 2).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_folder_on_the_way_cannot_be_swapped_while_it_is_held() {
+        let dir = folder();
+        use std::os::windows::fs::OpenOptionsExt;
+        // Held as open_regular holds it, between the check and the open.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(0x0200_0000 | 0x0020_0000)
+            .share_mode(0x1 | 0x2)
+            .open(dir.path().join("root/sub"))
+            .unwrap();
+        let moved = std::fs::rename(dir.path().join("root/sub"), dir.path().join("old"));
+        assert!(moved.is_err(), "renamed while held");
+        drop(held);
+        assert!(std::fs::rename(dir.path().join("root/sub"), dir.path().join("old")).is_ok());
+    }
+
+    #[test]
+    fn a_folder_is_not_a_file() {
+        let dir = folder();
+        let error = open_regular(&dir.path().join("root/sub"), 1).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 }

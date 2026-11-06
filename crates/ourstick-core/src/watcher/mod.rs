@@ -4,21 +4,21 @@
 //! manifest did change).
 
 mod events;
+mod settle;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub use events::{FolderEvents, NotifyEvents, Nudge, PeriodicEvents, WatchError};
+pub use settle::{are_settled, is_settled};
 
 pub use crate::share::Owner;
 
 use crate::blocking::run_blocking;
 use crate::layout::StickLayout;
-use crate::manifest::build::regular_files;
-use crate::manifest::{FileStamp, Manifest};
-use crate::sender_files::SenderFiles;
+use crate::manifest::Manifest;
 use crate::share::{
     run_pass, PartialTiming, PassEvent, PassOptions, Publication, ShareError, PARTIAL_TIMING,
 };
@@ -128,47 +128,6 @@ pub enum WatchEvent<'a> {
         gone: &'a [String],
         left_out: &'a [String],
     },
-}
-
-/// Every file's stamp under each of `roots` (a root may be one file), or
-/// `None` if one cannot be read right now (e.g. a file vanished during the
-/// walk).
-fn stamps(files: &dyn SenderFiles, roots: &[PathBuf]) -> Option<BTreeMap<PathBuf, FileStamp>> {
-    let mut all = BTreeMap::new();
-    for root in roots {
-        let facts = files.facts_followed(root).ok()?;
-        let found = if facts.is_file() {
-            vec![(root.clone(), facts)]
-        } else {
-            regular_files(files, root).ok()?
-        };
-        for (path, facts) in found {
-            all.insert(path, facts.stamp);
-        }
-    }
-    Some(all)
-}
-
-/// True if no file under `root` changes size or times over `settle`.
-pub async fn is_settled(files: Arc<dyn SenderFiles>, root: &Path, settle: Duration) -> bool {
-    are_settled(files, vec![root.to_path_buf()], settle).await
-}
-
-/// [`is_settled`] for several roots at once.
-pub async fn are_settled(
-    files: Arc<dyn SenderFiles>,
-    roots: Vec<PathBuf>,
-    settle: Duration,
-) -> bool {
-    let read = |roots: Vec<PathBuf>| {
-        let files = files.clone();
-        run_blocking(move || Ok::<_, std::io::Error>(stamps(files.as_ref(), &roots)))
-    };
-    let Ok(Some(before)) = read(roots.clone()).await else {
-        return false;
-    };
-    tokio::time::sleep(settle).await;
-    matches!(read(roots).await, Ok(Some(after)) if after == before)
 }
 
 /// The stick's roots that are there now, and whether any linked one is

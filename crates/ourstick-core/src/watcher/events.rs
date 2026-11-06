@@ -29,13 +29,25 @@ pub trait FolderEvents: Send {
 /// Gives a source a sign of change from outside, e.g. when the app links a
 /// folder to the stick. Cheap to clone.
 #[derive(Debug, Clone)]
-pub struct Nudge(mpsc::UnboundedSender<()>);
+pub struct Nudge(mpsc::Sender<()>);
 
 impl Nudge {
     pub fn now(&self) {
-        // Nobody to tell once watching has stopped.
-        let _ = self.0.send(());
+        signal(&self.0);
     }
+}
+
+/// Signs of change wait in a channel of one: a sign that waits already
+/// says "something changed", so a flood of events while a pass runs (a
+/// busy log in the folder) costs nothing.
+fn signs() -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
+    mpsc::channel(1)
+}
+
+/// One sign more, unless one waits already. Nobody to tell once watching
+/// has stopped.
+fn signal(sender: &mpsc::Sender<()>) {
+    let _ = sender.try_send(());
 }
 
 /// Why a folder cannot be watched. The message is meant for users.
@@ -50,8 +62,8 @@ pub struct WatchError {
 pub struct NotifyEvents {
     // Kept alive: dropping it stops the watch.
     watcher: notify::RecommendedWatcher,
-    sender: mpsc::UnboundedSender<()>,
-    receiver: mpsc::UnboundedReceiver<()>,
+    sender: mpsc::Sender<()>,
+    receiver: mpsc::Receiver<()>,
     watched: BTreeSet<PathBuf>,
     /// The same roots, for the system's callback.
     roots: std::sync::Arc<std::sync::Mutex<BTreeSet<PathBuf>>>,
@@ -95,12 +107,17 @@ impl NotifyEvents {
             path: root.display().to_string(),
             reason: reason.to_string(),
         };
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = signs();
         let from_system = sender.clone();
         let roots =
             std::sync::Arc::new(std::sync::Mutex::new(BTreeSet::from([root.to_path_buf()])));
         let seen_roots = roots.clone();
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            // Reads (the pass's own among them) are dropped before any
+            // look at the disk for links.
+            if !is_change(&event) {
+                return;
+            }
             let behind_links = event.as_ref().is_ok_and(|event| {
                 let roots = seen_roots
                     .lock()
@@ -108,9 +125,8 @@ impl NotifyEvents {
                 !event.paths.is_empty()
                     && event.paths.iter().all(|path| through_a_link(path, &roots))
             });
-            if is_change(&event) && !behind_links {
-                // The receiver is gone only when watching has stopped.
-                let _ = from_system.send(());
+            if !behind_links {
+                signal(&from_system);
             }
         })
         .map_err(error)?;
@@ -180,14 +196,14 @@ impl FolderEvents for NotifyEvents {
 /// A sign of change every `interval`, for when the folder cannot be watched.
 pub struct PeriodicEvents {
     interval: tokio::time::Interval,
-    sender: mpsc::UnboundedSender<()>,
-    receiver: mpsc::UnboundedReceiver<()>,
+    sender: mpsc::Sender<()>,
+    receiver: mpsc::Receiver<()>,
 }
 
 impl PeriodicEvents {
     pub fn new(interval: Duration) -> Self {
         let start = tokio::time::Instant::now() + interval;
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = signs();
         Self {
             interval: tokio::time::interval_at(start, interval),
             sender,
@@ -288,5 +304,17 @@ mod tests {
         let elapsed = started.elapsed();
         assert!(elapsed >= Duration::from_millis(200), "{elapsed:?}");
         assert!(elapsed < Duration::from_millis(1_000), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_flood_of_signs_waits_as_one() {
+        let mut events = PeriodicEvents::new(Duration::from_secs(3_600));
+        let nudge = events.nudge();
+        for _ in 0..100_000 {
+            nudge.now();
+        }
+        events.changed().await;
+        let more = tokio::time::timeout(Duration::from_millis(100), events.changed()).await;
+        assert!(more.is_err(), "only one sign waited");
     }
 }

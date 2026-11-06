@@ -4,6 +4,20 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## 0.3.1
+
+- [x] **Fixes from two more security reviews** (2026-11-06): where a stick
+      is received, received folders in quarantine on macOS, the link and
+      its concealed mark in one write, Windows opens through held folders,
+      room for a download on a nearly full disk, a file shared alone seen
+      after every save.
+- [ ] **Review by Fable and Sonnet** of everything since 0.3.0, then
+      Giorgos's own transfers between the three systems.
+- [ ] **The release:** `release-day.txt` set to the day; the installers
+      and `SHA256SUMS` signed (`tools/release/sign.sh`);
+      `tools/release/version-json.sh 0.3.1 0.3.1` (0.3.1 fixes security
+      problems of 0.3.0); the site and GitHub Release v0.3.1.
+
 ## 0.3.0
 
 - [x] **A new version, told (ADR 0033):** the signed `version.json`, the

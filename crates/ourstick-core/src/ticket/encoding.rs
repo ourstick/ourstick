@@ -58,8 +58,10 @@ fn check(parts: &[&[u8]]) -> [u8; CHECK_LEN] {
     hash.as_bytes()[..CHECK_LEN].try_into().expect("4 bytes")
 }
 
+/// The upper-case copy is wiped: `bytes` may be a secret part.
 fn encode_base32(bytes: &[u8]) -> String {
-    BASE32_NOPAD.encode(bytes).to_ascii_lowercase()
+    let upper = Zeroizing::new(BASE32_NOPAD.encode(bytes));
+    upper.to_ascii_lowercase()
 }
 
 /// The upper-case copy is wiped: it may be a secret part.

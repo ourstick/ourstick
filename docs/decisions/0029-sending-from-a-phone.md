@@ -169,10 +169,12 @@ What the systems allow (official documentation and the reviews,
 5. **The link leaves through the system's share sheet.**
    - "Send the link" opens the share sheet with the link as text.
      "Copy the link" goes through `PhonePlugin` with `EXTRA_IS_SENSITIVE`
-     (the key works before API 33). The QR is shown for someone next to
-     you.
-   - While a link or a QR is on screen: `setRecentsScreenshotEnabled(false)`
-     on API 33+, `FLAG_SECURE` on Android 11–12.
+     (the key works before API 33).
+   - No QR, and the link never reaches the window: the link screen shows
+     it hidden but for its start (`ourstick.com/s/#•••`, ADR 0028), so the
+     recent-apps picture and screenshots hold nothing to take, and no
+     `FLAG_SECURE` or `setRecentsScreenshotEnabled(false)` is needed. If a
+     QR or the whole link is ever shown, both come with it (2026-11-06).
    - The link may be ready before every file is hashed: what is hashed
      is served, the rest follows as new versions (as on the desktop).
    - To be checked in step 0: the share intent, the plugin's arguments

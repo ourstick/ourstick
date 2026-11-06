@@ -4423,6 +4423,7 @@ name = "ourstick-app"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "blake3",
  "clipboard-win",
  "gtk",

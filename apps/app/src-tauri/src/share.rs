@@ -1,10 +1,10 @@
 //! The link of something sent: the link is the key, and goes to the
 //! clipboard when the user asks (`Copy link`), nowhere else; on Windows
-//! with the marks that keep it out of the clipboard's history and cloud.
+//! and macOS with the marks that keep it out of the clipboard's history.
 
 use anyhow::Result;
 use tauri::{AppHandle, State};
-#[cfg(not(any(target_os = "android", windows)))]
+#[cfg(not(any(target_os = "android", windows, target_os = "macos")))]
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::state::{stick_id as stick_id_of, AppState, Sharing};
@@ -39,13 +39,14 @@ pub async fn copy_link(
     // Android: marked sensitive, so its clipboard preview hides it (ADR 0029).
     #[cfg(target_os = "android")]
     return crate::phone::link_out(&app, "copyLink", link).map_err(|error| format!("{error:#}"));
-    // Windows: never into the clipboard's history nor its cloud.
-    #[cfg(windows)]
+    // Windows and macOS: marked to stay out of the clipboard's history
+    // (and on Windows its cloud).
+    #[cfg(any(windows, target_os = "macos"))]
     return {
         let _ = app;
         crate::unkept_clipboard::put_text(&link).map_err(shown)
     };
-    #[cfg(not(any(target_os = "android", windows)))]
+    #[cfg(not(any(target_os = "android", windows, target_os = "macos")))]
     app.clipboard().write_text(link).map_err(shown)
 }
 

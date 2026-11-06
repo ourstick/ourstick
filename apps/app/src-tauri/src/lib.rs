@@ -39,7 +39,7 @@ mod still_open;
 #[cfg(test)]
 mod testing;
 mod tray;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod unkept_clipboard;
 mod windows;
 mod words;

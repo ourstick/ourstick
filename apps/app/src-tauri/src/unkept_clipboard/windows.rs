@@ -1,9 +1,8 @@
-//! Windows: a link on the clipboard that the clipboard does not keep. Win+V's
-//! history and its cloud sync keep what is copied, a stick's key among it;
-//! three formats beside the text tell them not to (Microsoft's
-//! "Clipboard Formats", the ones password managers set). All in one opening
-//! of the clipboard, so nothing sees the text without them. Through
-//! clipboard-win: no unsafe code of our own.
+//! Windows: Win+V's history and its cloud sync keep what is copied; three
+//! formats beside the text tell them not to (Microsoft's "Clipboard
+//! Formats", the ones password managers set). All in one opening of the
+//! clipboard, so nothing sees the text without them. Through clipboard-win:
+//! no unsafe code of our own.
 
 use anyhow::{anyhow, Result};
 use clipboard_win::{raw, Clipboard};

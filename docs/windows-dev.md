@@ -79,7 +79,8 @@ Windows ignores letter case, so that is the stick's own folder
 `cargo fmt --check` as anywhere. Debug builds are slow in the VM: set
 `OURSTICK_TEST_TIME_SCALE=4` for the tests, so their "not too slow" time
 bounds give it room (the bounds that show a limit at work stay as they
-are).
+are; the direct-path test then shows that no limit held it by its relay
+bytes alone).
 
 ### Packages
 

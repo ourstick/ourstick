@@ -31,6 +31,9 @@ use tempfile::TempDir;
 /// fails on time: `OURSTICK_TEST_TIME_SCALE` (4 in the Windows VM, whose
 /// debug builds are slow), 1 when unset. It widens only bounds that say
 /// "not too slow"; a bound that shows a limit at work stays as it is.
+/// Widened, a "not too slow" bound may no longer tell a transfer held at
+/// the relay's limit apart: `direct_path_found_is_not_limited` then shows
+/// that no limit held it by its relay bytes and the limit never said.
 pub fn time_scale() -> f64 {
     std::env::var("OURSTICK_TEST_TIME_SCALE")
         .ok()

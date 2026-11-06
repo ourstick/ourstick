@@ -128,6 +128,12 @@ licence; nothing in the package changes that (only the Snap Store does).
 
 ## Performance and polish
 
+- **One folder by two paths (Linux, rare):** inotify keeps one watch per
+  folder, and notify one path per watch. Two files sent alone from one
+  folder reached by two paths (one through a link) share that watch, and
+  one file's changes can then arrive under the other path and be taken as
+  a neighbour's. Watching the folder as the disk names it, keyed by device
+  and inode, would close it.
 - **Small files:** a stick of 100 000 small files (464 MB) took 18 minutes
   the first time, Linux to Linux, before ADRs 0014 and 0016 (placing and
   fetching in batches), the sender using 1.24 GB of memory. Measured again

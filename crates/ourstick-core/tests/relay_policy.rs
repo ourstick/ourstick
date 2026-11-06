@@ -84,7 +84,8 @@ async fn direct_path_found_is_not_limited() {
 
     assert_eq!(relay, 0);
     assert!(seen.limited.is_empty(), "{seen:?}");
-    // 4 MiB at the limit would take about 3.7 s.
+    // 4 MiB at the limit would take about 3.7 s. With a time scale of 2 or
+    // more this bound no longer tells that apart; the two checks above do.
     let at_limit = (4.0 * MIB as f64 - BURST_BYTES) / BYTES_PER_SECOND;
     assert!(
         elapsed.as_secs_f64() < at_limit / 2.0 * common::time_scale(),

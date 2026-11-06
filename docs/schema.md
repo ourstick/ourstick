@@ -25,7 +25,12 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 29
+## Version 30
+
+Version 30 (`0030_version_look_old.sql`, ADR 0033 rule 5) lets
+`version_look.failure` be `old`, a notice older than one already taken;
+version 29's CHECK refused it, and such a look could not be kept at all.
+The table is made again with its row.
 
 Version 29 (`0029_version_look.sql`, ADR 0033) added the tables
 `version_look` and `notice_serials`, below. A device set up before has a
@@ -159,7 +164,7 @@ known). Phones and the CLI never write it.
 | `next_look_ms` | INTEGER | When the next look is due (0: at once) |
 | `last_good_ms` | INTEGER | The last look that found a good notice, NULL if none |
 | `failing_since_ms` | INTEGER | Since when every look failed, NULL after a good one |
-| `failure` | TEXT | How the last failed look failed: `no-connection`, `refused` (an HTTP status other than 200) or `not-the-file` (not a good notice) |
+| `failure` | TEXT | How the last failed look failed: `no-connection`, `refused` (an HTTP status other than 200), `not-the-file` (not a good notice) or `old` (a good notice older than one already taken) |
 | `newest` | TEXT | The newest version a notice named for this system (`X.Y.Z`); forgotten when looking is turned off |
 | `security` | TEXT | The oldest safe version a notice named; kept when looking is turned off |
 | `new_release_key` | TEXT | The id (16 hex) of a new release key the recovery key announced |

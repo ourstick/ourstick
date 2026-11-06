@@ -196,4 +196,66 @@ mod tests {
         store.set_version_look(&look).unwrap();
         assert_eq!(store.version_look().unwrap(), look);
     }
+
+    /// Every way a look can fail is kept by the real store: version 29's
+    /// CHECK refused "old" (rule 5), and the look was then not kept at all.
+    #[test]
+    fn every_failure_is_kept() {
+        let store = store();
+        for failure in [
+            LookFailure::NoConnection,
+            LookFailure::Refused,
+            LookFailure::NotTheFile,
+            LookFailure::Old,
+        ] {
+            let look = VersionLook {
+                failing_since_ms: Some(3),
+                failure: Some(failure),
+                ..VersionLook::default()
+            };
+            store.set_version_look(&look).unwrap();
+            assert_eq!(store.version_look().unwrap(), look);
+        }
+    }
+
+    /// A look kept by version 29 comes through version 30, which made the
+    /// table again.
+    #[test]
+    fn a_look_kept_before_version_30_is_still_there() {
+        use super::super::migrations::MIGRATIONS;
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("state.db");
+        {
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            for migration in &MIGRATIONS[..29] {
+                connection.execute_batch(migration).unwrap();
+            }
+            connection.pragma_update(None, "user_version", 29).unwrap();
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO version_look (id, looking, looking_told, next_look_ms,
+                     last_good_ms, failing_since_ms, failure, newest, security, new_release_key,
+                     security_told)
+                     VALUES (1, 0, 1, 7, 5, 6, 'refused', '0.3.0', '0.3.0', NULL, '0.2.9')",
+                    [],
+                )
+                .unwrap();
+        }
+        let store = SqliteStore::open(&path).unwrap();
+        assert_eq!(
+            store.version_look().unwrap(),
+            VersionLook {
+                looking: false,
+                looking_told: true,
+                next_look_ms: 7,
+                last_good_ms: Some(5),
+                failing_since_ms: Some(6),
+                failure: Some(LookFailure::Refused),
+                newest: Some("0.3.0".into()),
+                security: Some("0.3.0".into()),
+                security_told: Some("0.2.9".into()),
+                ..VersionLook::default()
+            }
+        );
+    }
 }

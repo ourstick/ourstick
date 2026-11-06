@@ -91,11 +91,14 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
 /// skips: it is opened again the usual way while its name is held. Through
 /// std's open options: no unsafe code.
 ///
-/// Not closed yet: the opens go by path, so someone who can write in the
-/// shared folder can still turn a held folder (or the held file) into a
-/// junction or a link in place, without renaming it, between the checks
-/// and the open. Closing that takes opens relative to the held folders
-/// (`NtCreateFile` with a root directory, as `openat` does on Unix).
+/// Narrowed, not closed: the opens go by path, so someone who can write in
+/// the shared folder could turn a held folder (emptied first) into a
+/// junction in place, without renaming it, between its check and the
+/// open. The folders are looked at again once the file is open, so such a
+/// junction is refused unless it is put in and taken out again within the
+/// open itself. Closing that takes opens relative to the held folders
+/// (`NtCreateFile` with a root directory, as `openat` does on Unix): unsafe
+/// code, or a crate that does it.
 #[cfg(windows)]
 pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     use std::fs::OpenOptions;
@@ -181,11 +184,27 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
         // way, which can only reach that same file.
         let name = regular(open(path, true, true)?)?;
         let file = regular(open(path, false, false)?)?;
+        still_not_links(std::slice::from_ref(&name))?;
         drop(name);
         file
     };
+    // Now that the file is open: a held folder turned into a junction in
+    // place since its check is refused.
+    still_not_links(&held)?;
     drop(held);
     Ok(file)
+}
+
+/// Whether each of `held`, opened as itself, is still not a link or a
+/// junction (a name surrogate, std's `is_symlink`).
+#[cfg(windows)]
+fn still_not_links(held: &[File]) -> io::Result<()> {
+    for file in held {
+        if file.metadata()?.file_type().is_symlink() {
+            return Err(refused());
+        }
+    }
+    Ok(())
 }
 
 /// [`open_regular`] elsewhere: the file must be a regular one, not a link.
@@ -317,6 +336,28 @@ mod windows_tests {
         assert!(moved.is_err(), "renamed while held");
         drop(held);
         assert!(std::fs::rename(dir.path().join("root/sub"), dir.path().join("old")).is_ok());
+    }
+
+    #[test]
+    fn a_held_folder_that_is_a_junction_now_is_refused() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = folder();
+        let via = dir.path().join("root").join("via");
+        junction(&via, &dir.path().join("outside"));
+        // Opened as open_regular opens a folder on the way: as itself.
+        let as_itself = |path: &Path| {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(0x0200_0000 | 0x0020_0000)
+                .share_mode(0x1 | 0x2)
+                .open(path)
+                .unwrap()
+        };
+        let plain = as_itself(&dir.path().join("root").join("sub"));
+        assert!(still_not_links(std::slice::from_ref(&plain)).is_ok());
+        let turned = as_itself(&via);
+        let error = still_not_links(&[plain, turned]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]

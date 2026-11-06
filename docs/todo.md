@@ -73,26 +73,23 @@ licence; nothing in the package changes that (only the Snap Store does).
       bookmarks). The `.deb` stays for other distributions. An ADR first.
 - [ ] **Sign the Windows installers:** unsigned, SmartScreen warns on
       download and on first start.
-- [ ] **Room for a download (to decide):** every download claims 2 GiB of
-      scratch room besides its own size, however small it is, and leaves
-      the system a tenth of the disk (at most 20 GiB). A Mac of 228 GB with
-      13 GB free (2026-11-06) refuses every download, a 465 MB stick
-      "needs 2.6 GB"; a phone with little room left would too. The scratch
-      could be capped at the download's own size, and the system's share
-      looked at again.
+- [x] **Room for a download** (ADR 0008, amendment 1, 2026-11-06): the
+      system keeps a twentieth of the disk, at most 2 GiB (was a tenth, at
+      most 20 GiB), and a download's scratch room is never more than what
+      it fetches and a little more (was 2 GiB however small).
 - [ ] **Windows opens by path (to decide):** a shared file is opened
       through folders held open, but by path, so someone who can write in
-      the shared folder can still turn a held folder into a junction in
-      place between the checks and the open. Closing it takes opens
-      relative to the held folders (`NtCreateFile` with a root directory),
-      which is unsafe code (Giorgos's approval), or a check that the opened
-      file is the one checked (file id, through a crate already in
-      Cargo.lock, a new direct dependency).
-- [ ] **macOS: received folders marked too (to decide):** ADR 0032 marks
-      received files with the quarantine, not the folders. A received
-      folder that is an app bundle (a `.app` inside a stick) then has its
-      files marked but not the bundle itself. Marking every folder a reader
-      makes would carry the mark onto bundles, as Archive Utility does.
+      the shared folder could turn a held folder (emptied first) into a
+      junction in place between its check and the open. Since 2026-11-06
+      the folders are looked at again once the file is open (std only), so
+      that junction is refused unless it is put in and taken out again
+      within the open itself. Closing it fully takes opens relative to the
+      held folders (`NtCreateFile` with a root directory), which is unsafe
+      code (Giorgos's approval), or a crate that does it.
+- [x] **macOS: received folders marked too** (ADR 0032, amendment 1,
+      2026-11-06): every folder a download makes gets the quarantine, so a
+      `.app` inside a stick is in quarantine itself; a move to another
+      disk keeps the marks.
 - [ ] **macOS: the concealed mark in the same write (to decide):** "Copy
       link" puts the text, then the concealed type, in two writes; a
       clipboard history app that looks in between would keep the link.
@@ -147,7 +144,19 @@ licence; nothing in the package changes that (only the Snap Store does).
   (40.7 MB/s, the files still cached by the catalogue); with the catalogue
   kept and the cache dropped again, the download from the cold disk
   15.6 s (30.1 MB/s). The reader at most 86 MB and 17 threads, the
-  sender 124–146 MB. Still to measure: to Windows and macOS with the app.
+  sender 124–146 MB. To a Mac the same day (0.3.0's CLI on a MacBook on
+  Wi-Fi, writing to its SSD; the owner on Linux, its files in RAM): 8 min
+  33 s (913 KB/s), the reader at most 98 MB and 24 threads, the sender
+  96 MB. The time is the Mac's disk: each file is synced with
+  `F_FULLFSYNC` (std's `sync_all` there), 4.5 ms a file on that Mac
+  against 0.1 ms for a plain `fsync`, so 7.5 of the 8.5 minutes. Still to
+  measure: to Windows (`FlushFileBuffers` flushes the disk's cache too),
+  from a real PC, not the VM (its network chokes under QUIC).
+- **Small files on macOS (to decide):** `sync_all` is a full flush of the
+  disk's cache on macOS (`F_FULLFSYNC`), 4.5 ms a file. A plain `fsync`
+  for each file and one full flush before the files' records are written
+  would keep the order a power cut needs, for about a fortieth of the
+  time on 100 000 small files.
 - **The manifest is sent whole** at every new version (about 100 bytes a
   file: 100 MB for a million files). If it matters: send only what changed
   (a protocol change, its own ADR).

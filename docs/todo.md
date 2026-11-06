@@ -113,8 +113,14 @@ licence; nothing in the package changes that (only the Snap Store does).
   on 2026-11-06 with 0.3.0's CLI (`tools/measure/reader-memory.sh`), both
   sides on one Linux computer and both folders in RAM: the first catalogue
   about 10 s, the download 13.9 s (34 MB/s), the reader's memory at most
-  75 MB and 17 threads, the sender's 87 MB. Still to measure from a real
-  disk (a spinning one most of all), and to Windows and macOS with the app.
+  75 MB and 17 threads, the sender's 87 MB. From a spinning disk the same
+  day (084d9e5's CLI; 100 000 files of random bytes, 465 MB, on a 6 TB
+  SATA disk, dropped from the page cache first; the reader writing to
+  RAM): the first catalogue about 46 s, the download right after it 11.6 s
+  (40.7 MB/s, the files still cached by the catalogue); with the catalogue
+  kept and the cache dropped again, the download from the cold disk
+  15.6 s (30.1 MB/s). The reader at most 86 MB and 17 threads, the
+  sender 124–146 MB. Still to measure: to Windows and macOS with the app.
 - **The manifest is sent whole** at every new version (about 100 bytes a
   file: 100 MB for a million files). If it matters: send only what changed
   (a protocol change, its own ADR).

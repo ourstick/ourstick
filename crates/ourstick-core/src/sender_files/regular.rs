@@ -84,7 +84,11 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
 /// std's `is_symlink` means) is refused, while a folder that is a reparse
 /// point of another kind (OneDrive's) is gone through as any folder. The
 /// folders are held open without sharing delete until the file is open,
-/// so none of them can be renamed, moved or removed meanwhile. The file is
+/// so none of them can be renamed, moved or removed meanwhile; one that
+/// another program holds open for deleting (a sync app, or someone who
+/// wants the hold off) is opened without holding its name, and so every
+/// folder is looked at again by its path, as well as by its handle, once
+/// the file is open. The file is
 /// opened as itself too and must be a regular one, not a link. A file that
 /// is a reparse point of another kind (a OneDrive file, a deduplicated one)
 /// gives its content only through its own driver, which an open as itself
@@ -168,9 +172,11 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     // The root (the folder the user chose) may be reached through links.
     let mut held = vec![folder(root, false)?];
     let mut on_the_way = root.to_path_buf();
+    let mut paths = Vec::new();
     for name in names[1..].iter().rev() {
         on_the_way.push(name);
         held.push(folder(&on_the_way, true)?);
+        paths.push(on_the_way.clone());
     }
     let (itself, facts) = open(path, true, false)?;
     if !facts.is_file() {
@@ -189,8 +195,16 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
         file
     };
     // Now that the file is open: a held folder turned into a junction in
-    // place since its check is refused.
+    // place since its check is refused, and so is a folder (or the file)
+    // whose name is a link or a junction now, as when one that could not be
+    // held was renamed away and a junction put in its place.
     still_not_links(&held)?;
+    paths.push(path.to_path_buf());
+    for path in &paths {
+        if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+            return Err(refused());
+        }
+    }
     drop(held);
     Ok(file)
 }
@@ -277,107 +291,5 @@ mod tests {
 }
 
 #[cfg(all(test, windows))]
-mod windows_tests {
-    use super::*;
-
-    /// A junction (no rights needed to make one, unlike a link).
-    fn junction(at: &Path, to: &Path) {
-        let made = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(at)
-            .arg(to)
-            .output()
-            .unwrap();
-        assert!(made.status.success(), "{made:?}");
-    }
-
-    fn folder() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("root/sub")).unwrap();
-        std::fs::write(dir.path().join("root/sub/a.txt"), b"in the stick").unwrap();
-        std::fs::create_dir(dir.path().join("outside")).unwrap();
-        std::fs::write(dir.path().join("outside/a.txt"), b"not in the stick").unwrap();
-        dir
-    }
-
-    #[test]
-    fn a_file_under_its_root_is_read_and_the_root_may_be_a_junction() {
-        let dir = folder();
-        let path = dir.path().join("root/sub/a.txt");
-        let file = open_regular(&path, 2).unwrap();
-        assert_eq!(std::io::read_to_string(file).unwrap(), "in the stick");
-        junction(&dir.path().join("chosen"), &dir.path().join("root"));
-        assert!(open_regular(&dir.path().join("chosen/sub/a.txt"), 2).is_ok());
-        assert!(open_regular(&path, 0).is_ok());
-    }
-
-    #[test]
-    fn a_junction_in_place_of_a_folder_is_refused() {
-        let dir = folder();
-        let sub = dir.path().join("root").join("sub");
-        std::fs::rename(&sub, dir.path().join("old")).unwrap();
-        junction(&sub, &dir.path().join("outside"));
-        let error = open_regular(&dir.path().join("root/sub/a.txt"), 2).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn a_folder_on_the_way_cannot_be_renamed_while_it_is_held() {
-        let dir = folder();
-        use std::os::windows::fs::OpenOptionsExt;
-        // Held as open_regular holds it, between the check and the open.
-        let held = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(0x0200_0000 | 0x0020_0000)
-            .share_mode(0x1 | 0x2)
-            .open(dir.path().join("root/sub"))
-            .unwrap();
-        let moved = std::fs::rename(dir.path().join("root/sub"), dir.path().join("old"));
-        assert!(moved.is_err(), "renamed while held");
-        drop(held);
-        assert!(std::fs::rename(dir.path().join("root/sub"), dir.path().join("old")).is_ok());
-    }
-
-    #[test]
-    fn a_held_folder_that_is_a_junction_now_is_refused() {
-        use std::os::windows::fs::OpenOptionsExt;
-        let dir = folder();
-        let via = dir.path().join("root").join("via");
-        junction(&via, &dir.path().join("outside"));
-        // Opened as open_regular opens a folder on the way: as itself.
-        let as_itself = |path: &Path| {
-            std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(0x0200_0000 | 0x0020_0000)
-                .share_mode(0x1 | 0x2)
-                .open(path)
-                .unwrap()
-        };
-        let plain = as_itself(&dir.path().join("root").join("sub"));
-        assert!(still_not_links(std::slice::from_ref(&plain)).is_ok());
-        let turned = as_itself(&via);
-        let error = still_not_links(&[plain, turned]).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn a_folder_is_not_a_file() {
-        let dir = folder();
-        let error = open_regular(&dir.path().join("root/sub"), 1).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn a_link_in_place_of_the_file_is_refused() {
-        let dir = folder();
-        let file = dir.path().join("root").join("sub").join("a.txt");
-        std::fs::remove_file(&file).unwrap();
-        // A link to a file needs Developer Mode or an administrator.
-        let outside = dir.path().join("outside").join("a.txt");
-        if std::os::windows::fs::symlink_file(&outside, &file).is_err() {
-            return;
-        }
-        let error = open_regular(&file, 2).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-}
+#[path = "regular_windows_tests.rs"]
+mod windows_tests;

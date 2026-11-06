@@ -60,6 +60,9 @@ pub enum DownloadEvent<'a> {
         /// The largest file of them: while it is placed, a copy of its blob
         /// is beside it in the folder, and the blob is in its batch.
         largest: u64,
+        /// How many files: each takes more than its bytes on a disk (the
+        /// rest of its last block, its entry) and a record of OurStick's.
+        files: u64,
     },
     /// A name this computer cannot save, or that would be one file with
     /// another here, is saved under the smallest change of it (ADR 0010):

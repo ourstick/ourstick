@@ -69,6 +69,7 @@ fn a_big_file_moves_the_bar_while_it_comes() {
     landed.on(&DownloadEvent::Planned {
         bytes: 2_100,
         largest: 0,
+        files: 2,
     });
     landed.on(&DownloadEvent::FileCopiedHere {
         path: "a",
@@ -109,6 +110,7 @@ fn a_big_file_moves_the_bar_while_it_comes() {
     landed.on(&DownloadEvent::Planned {
         bytes: 10,
         largest: 0,
+        files: 1,
     });
     assert_eq!(landed.bytes(10), 0);
 }

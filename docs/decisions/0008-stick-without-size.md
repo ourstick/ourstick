@@ -187,5 +187,27 @@ the formula above kept far more than a download uses:
    (`download::scratch_bytes`). A stick of 10 MB claims about 75 MB, not
    2 GiB.
 
-The Mac above has 11 GB left for downloads now; the 465 MB stick claims
-about 1 GB (its bytes, and about 560 MB of scratch on the same disk).
+3. **One pool under two keys is one disk.** A disk is keyed by its device,
+   but a phone's shared storage (a FUSE mount over `/data`), btrfs
+   subvolumes and the APFS volumes of one container each have a device of
+   their own over one free space. When the folder's disk and the data
+   folder's disk have the same size and the same free space (within
+   64 MiB, as it moves between two looks), a download's bytes and its
+   scratch are added up and checked once, and the claims under either key
+   count. Counted apart, a phone with 12 GB free took a 5 GB video that
+   needs 15 GB while it is placed (found by the review of 2026-11-06; the
+   smaller reserve had made it likely). Two real disks of one size and
+   nearly the same free space are then counted as one, which only ever
+   leaves less room.
+
+4. **Files count, not only bytes.** Each file takes more than its bytes:
+   the rest of its last block and its entry in its folder (4 KiB a file
+   is counted, `PER_FILE`), and OurStick's record of it on the data
+   folder's disk (1 KiB, `PER_FILE_RECORD`). 100 000 small files of
+   469 MB took 656 MB on a Mac. Without it, a version of 2 000 000
+   one-byte files claimed 71 MB and wrote about 9 GB, past the smaller
+   reserve (found by the same review). Empty files hold room too.
+
+The Mac above has about 11 GB left for downloads now; the 465 MB stick
+of 100 000 files claims about 1.5 GB (its bytes and their blocks, and
+about 660 MB of scratch and records on the same disk).

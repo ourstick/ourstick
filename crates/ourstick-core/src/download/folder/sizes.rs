@@ -47,4 +47,9 @@ impl FolderPlan {
     pub(in crate::download) fn bytes_to_write(&self, manifest: &Manifest) -> u64 {
         self.sizes_to_write(manifest).sum()
     }
+
+    /// How many files this plan writes into the folder.
+    pub(in crate::download) fn files_to_write(&self, manifest: &Manifest) -> u64 {
+        self.sizes_to_write(manifest).count() as u64
+    }
 }

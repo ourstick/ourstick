@@ -64,7 +64,11 @@ impl DownloadRoom {
     /// next version (that can take hours). Pass every event.
     pub fn on_event(&self, event: &DownloadEvent<'_>) -> ControlFlow<()> {
         match event {
-            DownloadEvent::Planned { bytes, largest } => return self.planned(*bytes, *largest),
+            DownloadEvent::Planned {
+                bytes,
+                largest,
+                files,
+            } => return self.planned(*bytes, *largest, *files),
             DownloadEvent::FileReceived { size, .. }
             | DownloadEvent::FileCopiedHere { size, .. } => self.landed(*size),
             DownloadEvent::WaitingForMore { .. } => self.release(),
@@ -73,17 +77,23 @@ impl DownloadRoom {
         ControlFlow::Continue(())
     }
 
-    /// The download will write `needed` bytes, `largest` the biggest file of
-    /// them: claims them and that file's copy beside it while it is placed,
-    /// and room for its batches on the data folder's disk, or stops it if
-    /// they do not fit. Nothing to write holds nothing (an up-to-date stick
-    /// is never refused for room it does not use).
-    pub fn planned(&self, needed: u64, largest: u64) -> ControlFlow<()> {
+    /// The download will write `needed` bytes in `files` files, `largest`
+    /// the biggest of them: claims them, what each file takes besides its
+    /// bytes ([`PER_FILE`]) and the largest one's copy beside it while it is
+    /// placed, and room for its batches and records on the data folder's
+    /// disk, or stops it if they do not fit. Nothing to write holds nothing
+    /// (an up-to-date stick is never refused for room it does not use).
+    pub fn planned(&self, needed: u64, largest: u64, files: u64) -> ControlFlow<()> {
         *lock(&self.refused) = None;
-        if needed == 0 {
+        if needed == 0 && files == 0 {
             self.release();
             return ControlFlow::Continue(());
         }
+        let on_disk = needed
+            .saturating_add(largest)
+            .saturating_add(files.saturating_mul(PER_FILE));
+        let scratch =
+            scratch_bytes(needed, largest).saturating_add(files.saturating_mul(PER_FILE_RECORD));
         let claimed = tokio::task::block_in_place(|| {
             claim_download(
                 self.disks.as_ref(),
@@ -91,14 +101,13 @@ impl DownloadRoom {
                 &self.data_dir,
                 &self.stick_id,
                 &self.output,
-                needed.saturating_add(largest),
-                scratch_bytes(needed, largest),
+                on_disk,
+                scratch,
             )
         });
-        let needed = needed.saturating_add(largest);
         match claimed {
             Ok(()) => {
-                *lock(&self.to_come) = (needed, needed);
+                *lock(&self.to_come) = (on_disk, on_disk);
                 ControlFlow::Continue(())
             }
             Err(error) => {
@@ -110,7 +119,8 @@ impl DownloadRoom {
         }
     }
 
-    /// `size` bytes landed in the folder: the claim holds that much less,
+    /// A file of `size` bytes landed in the folder: the claim holds that much
+    /// less, and [`PER_FILE`] less,
     /// written to the store once it is [`UPDATE_STEP`] less (or nothing is
     /// left), not at every small file. A fetched file counts at
     /// `FileReceived`, a moment before it is placed: the claim may be short
@@ -119,7 +129,7 @@ impl DownloadRoom {
         let left = {
             let mut to_come = lock(&self.to_come);
             let (left, claimed) = &mut *to_come;
-            *left = left.saturating_sub(size);
+            *left = left.saturating_sub(size.saturating_add(PER_FILE));
             // Nothing claimed (released, or nothing to write): nothing to tell.
             if *claimed == 0 || (claimed.saturating_sub(*left) < UPDATE_STEP && *left > 0) {
                 return;
@@ -159,6 +169,15 @@ impl DownloadRoom {
 /// How much smaller a claim gets before the store hears of it: one write per
 /// 64 MiB landed, not one per file (a stick of many small files).
 pub const UPDATE_STEP: u64 = 64 << 20;
+
+/// What a file takes on its disk besides its bytes, at most: the rest of its
+/// last block (4 KiB on APFS, ext4 and NTFS) and its entry in its folder.
+/// 100 000 small files of 469 MB took 656 MB on a Mac (2026-11-06).
+pub const PER_FILE: u64 = 4 << 10;
+
+/// What OurStick keeps of a file on the data folder's disk: its row in the
+/// database (up to about 0.5 KiB) and its blob's record in its batch.
+pub const PER_FILE_RECORD: u64 = 1 << 10;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
@@ -245,16 +264,23 @@ mod tests {
             .on_event(&DownloadEvent::Planned {
                 bytes: 10 * GB,
                 largest: 0,
+                files: 2,
             })
             .is_continue());
-        assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
+        assert_eq!(
+            held(&world, ClaimKind::Download),
+            Some(10 * GB + 2 * PER_FILE)
+        );
         assert_eq!(
             held(&world, ClaimKind::Scratch),
-            Some(scratch_bytes(10 * GB, 0))
+            Some(scratch_bytes(10 * GB, 0) + 2 * PER_FILE_RECORD)
         );
         // Small files are written to the store in steps.
         assert!(room.on_event(&received(UPDATE_STEP / 2)).is_continue());
-        assert_eq!(held(&world, ClaimKind::Download), Some(10 * GB));
+        assert_eq!(
+            held(&world, ClaimKind::Download),
+            Some(10 * GB + 2 * PER_FILE)
+        );
         let copied = DownloadEvent::FileCopiedHere {
             path: "b",
             size: 4 * GB,
@@ -276,25 +302,28 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_big_file_is_counted_with_its_copies_while_it_is_placed() {
         let big = world(500 * GB);
-        assert!(big.room.planned(60 * GB, 50 * GB).is_continue());
+        assert!(big.room.planned(60 * GB, 50 * GB, 2).is_continue());
         // Its blob's copy beside it in the folder, and the blob in its batch.
-        assert_eq!(held(&big, ClaimKind::Download), Some(110 * GB));
+        assert_eq!(
+            held(&big, ClaimKind::Download),
+            Some(110 * GB + 2 * PER_FILE)
+        );
         assert_eq!(
             held(&big, ClaimKind::Scratch),
-            Some(scratch_bytes(60 * GB, 50 * GB))
+            Some(scratch_bytes(60 * GB, 50 * GB) + 2 * PER_FILE_RECORD)
         );
         assert!(scratch_bytes(60 * GB, 50 * GB) > 50 * GB);
         // 118 GB left for it: a 60 GB file, its copy and its blob do not fit.
         let small = world(120 * GB);
-        assert!(small.room.planned(60 * GB, 60 * GB).is_break());
+        assert!(small.room.planned(60 * GB, 60 * GB, 1).is_break());
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_new_plan_replaces_the_last_one() {
         let world = world(500 * GB);
-        assert!(world.room.planned(10 * GB, 0).is_continue());
-        assert!(world.room.planned(3 * GB, 0).is_continue());
-        assert_eq!(held(&world, ClaimKind::Download), Some(3 * GB));
+        assert!(world.room.planned(10 * GB, 0, 1).is_continue());
+        assert!(world.room.planned(3 * GB, 0, 1).is_continue());
+        assert_eq!(held(&world, ClaimKind::Download), Some(3 * GB + PER_FILE));
         assert_eq!(world.store.space_claims().unwrap().len(), 2);
     }
 
@@ -302,13 +331,13 @@ mod tests {
     async fn a_download_that_does_not_fit_says_how_much_and_only_until_one_fits() {
         let world = world(120 * GB);
         // 120 GB free, 2 GB of it the system's: 118 GB left.
-        assert!(world.room.planned(200 * GB, 0).is_break());
+        assert!(world.room.planned(200 * GB, 0, 1).is_break());
         assert!(world.store.space_claims().unwrap().is_empty());
-        assert!(world.room.planned(200 * GB, 0).is_break());
-        assert!(world.room.planned(GB, 0).is_continue());
+        assert!(world.room.planned(200 * GB, 0, 1).is_break());
+        assert!(world.room.planned(GB, 0, 1).is_continue());
         // A refusal is not told after a round that fitted.
         assert!(world.room.refusal().is_none());
-        assert!(world.room.planned(200 * GB, 0).is_break());
+        assert!(world.room.planned(200 * GB, 0, 1).is_break());
         assert!(matches!(
             world.room.refusal(),
             Some(SpaceError::DoesNotFit { needed, .. }) if needed > 200 * GB
@@ -319,15 +348,32 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn nothing_to_write_holds_nothing_even_on_a_full_disk() {
         let world = world(5 * GB);
-        assert!(world.room.planned(0, 0).is_continue());
+        assert!(world.room.planned(0, 0, 0).is_continue());
         assert!(world.room.refusal().is_none());
         assert!(world.store.space_claims().unwrap().is_empty());
+    }
+
+    /// Files take whole blocks and records: 2 000 000 one-byte files (a
+    /// hostile owner's version) need about 10 GB, not their 2 MB.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn many_small_files_claim_their_blocks_and_records() {
+        let world = world(10 * GB);
+        let files = 2_000_000;
+        assert!(world.room.planned(files, 1, files).is_break());
+        assert!(matches!(
+            world.room.refusal(),
+            Some(SpaceError::DoesNotFit { needed, .. })
+                if needed >= files * (PER_FILE + PER_FILE_RECORD)
+        ));
+        // Empty files are files too: they hold room.
+        assert!(world.room.planned(0, 0, 3).is_continue());
+        assert_eq!(held(&world, ClaimKind::Download), Some(3 * PER_FILE));
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn waiting_for_the_owner_holds_nothing() {
         let world = world(500 * GB);
-        assert!(world.room.planned(10 * GB, 0).is_continue());
+        assert!(world.room.planned(10 * GB, 0, 1).is_continue());
         let waiting = DownloadEvent::WaitingForMore { seq: 3 };
         assert!(world.room.on_event(&waiting).is_continue());
         assert!(world.store.space_claims().unwrap().is_empty());

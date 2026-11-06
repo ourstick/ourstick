@@ -129,7 +129,14 @@ pub(super) async fn take_plan(
     }
     let bytes = plan.bytes_to_write(manifest);
     let largest = plan.largest_to_write(manifest);
-    if on_event(DownloadEvent::Planned { bytes, largest }).is_break() {
+    let files = plan.files_to_write(manifest);
+    if on_event(DownloadEvent::Planned {
+        bytes,
+        largest,
+        files,
+    })
+    .is_break()
+    {
         return Err(DownloadError::Cancelled);
     }
     for renamed in &plan.renamed {

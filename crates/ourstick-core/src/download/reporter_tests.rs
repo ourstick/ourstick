@@ -113,6 +113,7 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
         &download(DownloadEvent::Planned {
             bytes: 100,
             largest: 0,
+            files: 1,
         }),
         0,
         100,
@@ -124,6 +125,7 @@ async fn a_round_is_told_as_it_goes_and_when_it_ends() {
         &download(DownloadEvent::Planned {
             bytes: 100,
             largest: 0,
+            files: 1,
         }),
         0,
         100,
@@ -287,6 +289,7 @@ async fn a_change_while_a_report_goes_still_goes_at_once() {
         &download(DownloadEvent::Planned {
             bytes: 10,
             largest: 0,
+            files: 1,
         }),
         0,
         10,

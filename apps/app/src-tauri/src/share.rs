@@ -44,7 +44,12 @@ pub async fn copy_link(
     #[cfg(any(windows, target_os = "macos"))]
     return {
         let _ = app;
-        crate::unkept_clipboard::put_text(&link).map_err(shown)
+        // A system program on macOS, a clipboard busy for a moment on
+        // Windows: off the async threads.
+        tauri::async_runtime::spawn_blocking(move || crate::unkept_clipboard::put_text(&link))
+            .await
+            .map_err(shown)?
+            .map_err(shown)
     };
     #[cfg(not(any(target_os = "android", windows, target_os = "macos")))]
     app.clipboard().write_text(link).map_err(shown)

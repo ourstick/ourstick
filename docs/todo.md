@@ -90,11 +90,12 @@ licence; nothing in the package changes that (only the Snap Store does).
       2026-11-06): every folder a download makes gets the quarantine, so a
       `.app` inside a stick is in quarantine itself; a move to another
       disk keeps the marks.
-- [ ] **macOS: the concealed mark in the same write (to decide):** "Copy
-      link" puts the text, then the concealed type, in two writes; a
-      clipboard history app that looks in between would keep the link.
-      One write of both takes `NSPasteboardItem` through objc2, unsafe code
-      (Giorgos's approval).
+- [x] **macOS: the concealed mark in the same write** (2026-11-06): "Copy
+      link" writes the link and `org.nspasteboard.ConcealedType` as one
+      pasteboard item, at once, through the system's `osascript`
+      (JavaScript for Automation, about 0.15 s), the link on its input; no
+      unsafe code, no new crate. arboard's two writes remain only if that
+      fails.
 
 ## Keys and computers (ADR 0021, rule 7)
 

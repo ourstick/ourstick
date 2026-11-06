@@ -9,8 +9,8 @@
 //! which other programs can read. Should the script fail, arboard writes
 //! the text and then the mark, in two writes, as before.
 
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
@@ -59,6 +59,23 @@ fn in_one_write(text: &str, board: &str) -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
+    let ran = run(&mut script, text);
+    if ran.is_err() {
+        // Whatever went wrong, no process is left behind, not even a dead
+        // one waiting to be reaped.
+        let _ = script.kill();
+        let _ = script.wait();
+    }
+    if ran? == "written" {
+        Ok(())
+    } else {
+        bail!("osascript did not write it")
+    }
+}
+
+/// Gives `script` the text and waits for it, at most [`AT_MOST`]: what it
+/// printed, if it ended well.
+fn run(script: &mut Child, text: &str) -> Result<String> {
     // Closed once written (dropped): the script reads to the end.
     script
         .stdin
@@ -66,20 +83,23 @@ fn in_one_write(text: &str, board: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("osascript has no input"))?
         .write_all(text.as_bytes())?;
     let started = Instant::now();
-    while script.try_wait()?.is_none() {
+    let status = loop {
+        if let Some(status) = script.try_wait()? {
+            break status;
+        }
         if started.elapsed() > AT_MOST {
-            let _ = script.kill();
-            let _ = script.wait();
             bail!("osascript took over {} s", AT_MOST.as_secs());
         }
         std::thread::sleep(Duration::from_millis(10));
+    };
+    let mut said = String::new();
+    if let Some(mut printed) = script.stdout.take() {
+        printed.read_to_string(&mut said)?;
     }
-    let output = script.wait_with_output()?;
-    if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "written" {
-        Ok(())
-    } else {
-        bail!("osascript did not write it ({})", output.status)
+    if !status.success() {
+        bail!("osascript ended with {status}");
     }
+    Ok(said.trim().to_owned())
 }
 
 /// The text, then the mark beside it: what arboard does.
@@ -133,6 +153,9 @@ function run() {
     #[test]
     fn a_script_that_cannot_run_is_an_error() {
         assert!(in_one_write("x", "undefined_board").is_err());
+        // One that does not even start reading: the text does not fit its
+        // input's pipe, so writing it fails too.
+        assert!(in_one_write(&"x".repeat(1 << 20), ")").is_err());
     }
 
     /// On a desktop session only: an ssh session may have no clipboard.

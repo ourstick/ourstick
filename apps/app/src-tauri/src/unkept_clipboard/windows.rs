@@ -15,11 +15,41 @@ const NO_HISTORY: &str = "CanIncludeInClipboardHistory";
 /// A DWORD 0: not to the cloud clipboard.
 const NO_CLOUD: &str = "CanUploadToCloudClipboard";
 
+/// How many times the clipboard is tried, 5 ms apart: another program (the
+/// history, a clipboard manager, a remote desktop's sync) may hold it for a
+/// moment. clipboard-win's own retries do not wait between tries.
+const ATTEMPTS: u32 = 20;
+
 /// Puts `text` on the clipboard, kept by neither its history nor its cloud.
+/// Never left there without its marks: if one cannot be set, the clipboard
+/// is emptied. Blocking (it waits for the clipboard).
 pub fn put_text(text: &str) -> Result<()> {
-    // Another program may hold the clipboard for a moment.
-    let _open = Clipboard::new_attempts(10).map_err(|error| anyhow!("{error}"))?;
-    raw::set_string(text).map_err(|error| anyhow!("{error}"))?;
+    let _open = open()?;
+    let marked = raw::set_string(text)
+        .map_err(|error| anyhow!("{error}"))
+        .and_then(|()| mark());
+    if marked.is_err() {
+        let _ = raw::empty();
+    }
+    marked
+}
+
+fn open() -> Result<Clipboard> {
+    let mut tries = 1;
+    loop {
+        match Clipboard::new() {
+            Ok(open) => return Ok(open),
+            Err(error) if tries >= ATTEMPTS => return Err(anyhow!("{error}")),
+            Err(_) => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+    }
+}
+
+/// The three formats beside the text, while the clipboard is open.
+fn mark() -> Result<()> {
     for (name, data) in [
         (EXCLUDE, [0u8; 4]),
         (NO_HISTORY, [0u8; 4]),

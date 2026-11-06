@@ -216,6 +216,11 @@
     background: none;
     color: inherit;
   }
+  /* On a phone, a finger's size. */
+  :global(:root[data-platform="android"]) .arrow,
+  :global(:root[data-platform="ios"]) .arrow {
+    min-height: var(--button-height);
+  }
   .name {
     overflow: hidden;
     text-overflow: ellipsis;

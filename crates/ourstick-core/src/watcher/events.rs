@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -69,8 +70,17 @@ pub struct NotifyEvents {
     /// once it has walked the whole tree (on Linux, a watch for each folder),
     /// which takes minutes for a big folder on a slow disk. A share waiting
     /// for that must still stop at once (Quit, Stop sending); the walk then
-    /// ends by itself.
+    /// ends after the folder it is in (`stopped`).
     watching: Arc<Mutex<Watching>>,
+    /// Set when these events are dropped (the share stopped): the walk
+    /// watches no further folder.
+    stopped: Arc<AtomicBool>,
+}
+
+impl Drop for NotifyEvents {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::SeqCst);
+    }
 }
 
 /// A folder the system watches: for how many roots, and whether all under
@@ -221,17 +231,20 @@ impl NotifyEvents {
             path: root.display().to_string(),
             reason: reason.to_string(),
         })?;
+        let stopped = Arc::new(AtomicBool::new(false));
         let mut watching = Watching {
             watcher,
             watched: BTreeMap::new(),
             targets: BTreeMap::new(),
             roots,
+            stopped: stopped.clone(),
         };
         watching.add_root(root)?;
         Ok(Self {
             sender,
             receiver,
             watching: Arc::new(Mutex::new(watching)),
+            stopped,
         })
     }
 

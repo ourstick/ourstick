@@ -149,8 +149,8 @@ folder of the same name (ADR 0028 §2, amendment of 2026-10-20).
   "A Linux PC had all of it on 3 Oct, not what changed since", "A Mac is
   waiting: it does not fit there", "A Mac (since 3 Oct) is waiting: the
   disk it saves to is not plugged in", "A Windows PC paused it", each with
-  `×`; "and 12 more", `Clear this list`, "Each computer says this about
-  itself."
+  `×`; "and 12 more", `Clear this list`, "Each computer reports its own
+  progress."
 - **What is in it**, with `+ Add more` (the same picker, rules and
   questions as Send): each entry with its icon, size and where it is ("2.8
   GB · Pictures"; a click shows it in the file manager) and `×`, which asks

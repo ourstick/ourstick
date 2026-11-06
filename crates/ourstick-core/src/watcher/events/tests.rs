@@ -275,3 +275,42 @@ async fn a_long_watch_leaves_the_share_free_to_stop() {
     assert!(events.watch_roots(&roots).await.is_empty());
     assert!(lock(&events.watching).watched.contains_key(&linked));
 }
+
+/// A share that stopped while its watch waited for the walk watches no
+/// further folder: its disk is left alone once the folder in hand is done.
+#[tokio::test]
+async fn a_share_that_stopped_watches_no_further_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let own = base.join("own");
+    let linked = base.join("linked");
+    std::fs::create_dir(&own).unwrap();
+    std::fs::create_dir(&linked).unwrap();
+    let mut events = NotifyEvents::start(&own).unwrap();
+    let watching = events.watching.clone();
+    let walking = watching.clone();
+    let (held, holding) = std::sync::mpsc::channel();
+    let (go_on, until) = std::sync::mpsc::channel::<()>();
+    let walk = std::thread::spawn(move || {
+        let _walking = lock(&walking);
+        held.send(()).unwrap();
+        let _ = until.recv();
+    });
+    holding.recv().unwrap();
+    let roots = [own.clone(), linked.clone()];
+    let waited = tokio::time::timeout(Duration::from_millis(100), events.watch_roots(&roots)).await;
+    assert!(waited.is_err(), "the watch waits for the walk");
+    // The share stops: its events go, while the watch still waits.
+    drop(events);
+    go_on.send(()).unwrap();
+    walk.join().unwrap();
+    // The waiting watch runs now, and lets go of the watching once done.
+    for _ in 0..200 {
+        if Arc::strong_count(&watching) == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(Arc::strong_count(&watching), 1, "the watch has run");
+    assert!(!lock(&watching).watched.contains_key(&linked));
+}

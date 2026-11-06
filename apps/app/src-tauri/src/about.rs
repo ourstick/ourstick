@@ -7,8 +7,24 @@ use tauri::{AppHandle, Manager};
 
 const LABEL: &str = "about";
 
+/// One of About's windows made at a time: a double click would otherwise
+/// make two under one label. A click while one is being made does nothing.
+static OPENING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// [`OPENING`], or `None` while another window is being made.
+fn opening() -> Option<std::sync::MutexGuard<'static, ()>> {
+    match OPENING.try_lock() {
+        Ok(opening) => Some(opening),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
 /// Opens the About window, or brings it forward.
 pub fn open(app: &AppHandle) -> Result<()> {
+    let Some(_opening) = opening() else {
+        return Ok(());
+    };
     if let Some(window) = app.get_webview_window(LABEL) {
         crate::windows::bring_forward(&window);
         return Ok(());
@@ -120,6 +136,9 @@ pub async fn open_about_link(link: Link, app: AppHandle) -> Result<(), String> {
 
 /// Shows `page` in its window, or brings that window forward.
 fn open_page(app: &AppHandle, label: &str, page: &str, title: &str) -> Result<()> {
+    let Some(_opening) = opening() else {
+        return Ok(());
+    };
     if let Some(window) = app.get_webview_window(label) {
         crate::windows::bring_forward(&window);
         return Ok(());
@@ -173,10 +192,11 @@ mod tests {
         }
     }
 
-    /// No other window takes a licence window's label: it would be brought
-    /// forward instead of the licence.
+    /// No other window takes a licence window's label, nor the other
+    /// licence's: it would be brought forward instead of the licence.
     #[test]
     fn the_licence_windows_have_labels_of_their_own() {
+        let mut labels = Vec::new();
         for link in [Link::Licence, Link::Libraries] {
             let Target::Page { label, .. } = target(link) else {
                 panic!("{link:?} is a page of the app");
@@ -184,6 +204,17 @@ mod tests {
             assert_ne!(label, LABEL);
             assert_ne!(label, "main");
             assert!(!label.starts_with("confirm") && !label.starts_with("share"));
+            labels.push(label);
         }
+        assert_ne!(labels[0], labels[1]);
+    }
+
+    #[test]
+    fn a_window_being_made_turns_a_second_click_away() {
+        let first = opening();
+        assert!(first.is_some());
+        assert!(opening().is_none());
+        drop(first);
+        assert!(opening().is_some());
     }
 }

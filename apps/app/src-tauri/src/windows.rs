@@ -75,7 +75,14 @@ const SCREEN_MARGIN: f64 = if cfg!(target_os = "linux") {
 /// pixels).
 #[cfg(desktop)]
 fn fitting(app: &tauri::AppHandle, size: (f64, f64)) -> (f64, f64) {
-    let Some(monitor) = app.primary_monitor().ok().flatten() else {
+    use tauri::Manager;
+    // Asked through the main window, which asks on the main thread: the
+    // app's handle would read the screens on this one, and AppKit and GDK
+    // want the main thread.
+    let Some(monitor) = app
+        .get_webview_window("main")
+        .and_then(|main| main.primary_monitor().ok().flatten())
+    else {
         return size;
     };
     let area = monitor

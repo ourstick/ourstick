@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use notify::{RecursiveMode, Watcher as _};
@@ -19,6 +20,8 @@ pub(super) struct Watching {
     pub(super) targets: BTreeMap<PathBuf, Target>,
     /// The same roots, for the system's callback.
     pub(super) roots: Arc<Mutex<Roots>>,
+    /// The share stopped: no further folder is watched.
+    pub(super) stopped: Arc<AtomicBool>,
 }
 
 impl Watching {
@@ -44,9 +47,18 @@ impl Watching {
             .into_iter()
             .filter(|root| !self.watched.contains_key(root))
             .collect();
-        new.into_iter()
-            .filter_map(|root| self.add_root(&root).err())
-            .collect()
+        let mut unwatched = Vec::new();
+        for root in new {
+            // Each root may be a walk of minutes: one more after the share
+            // stopped would keep its disk busy for nothing.
+            if self.stopped.load(Ordering::SeqCst) {
+                break;
+            }
+            if let Err(error) = self.add_root(&root) {
+                unwatched.push(error);
+            }
+        }
+        unwatched
     }
 
     /// Watches `root` from now on, as [`watched_for`] says.

@@ -21,13 +21,15 @@ pub fn log_filter() -> tracing_subscriber::EnvFilter {
 }
 
 /// `directives` without any for `tao` or a module of it: a more specific
-/// one (`tao::platform_impl=trace`) would win over the cap.
+/// one (`tao::platform_impl=trace`) would win over the cap. A filter takes a
+/// target as a prefix of the module path, so any target longer than `tao`
+/// that can match one of tao's starts with `tao:` (`tao:`, `tao::`).
 fn without_tao(directives: &str) -> String {
     directives
         .split(',')
         .filter(|directive| {
             let target = directive.split(['=', '[']).next().unwrap_or("").trim();
-            target != "tao" && !target.starts_with("tao::")
+            target != "tao" && !target.starts_with("tao:")
         })
         .collect::<Vec<_>>()
         .join(",")
@@ -46,5 +48,7 @@ mod tests {
         assert_eq!(without_tao("trace"), "trace");
         assert_eq!(without_tao("taomaker=trace"), "taomaker=trace");
         assert_eq!(without_tao("tao[span]=trace"), "");
+        assert_eq!(without_tao("tao:=trace,iroh=info"), "iroh=info");
+        assert_eq!(without_tao("tao:"), "");
     }
 }

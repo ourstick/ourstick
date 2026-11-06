@@ -81,16 +81,20 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
 
   companion object {
     private val lock = Any()
-    private var waiting: String? = null
+    /** What arrived before Rust listened: the first few, never logged. */
+    private val waiting = ArrayDeque<String>()
+    private const val MOST_WAITING = 4
     private var handler: Channel? = null
 
-    /** Before Rust listens, the first link waits and later ones are
-     * dropped: another app cannot replace the one the user opened. Once it
+    /** Before Rust listens, the first few arrivals wait and are handed
+     * over together: Rust keeps the first whole link among them and drops
+     * the rest (they come closer than its gap), so another app's text
+     * neither replaces the link the user opened nor keeps it out. Once it
      * listens, Rust keeps only whole links, a few seconds apart. */
     fun arrived(link: String) {
       synchronized(lock) {
         val to = handler
-        if (to != null) send(to, link) else if (waiting == null) waiting = link
+        if (to != null) send(to, link) else if (waiting.size < MOST_WAITING) waiting.addLast(link)
       }
     }
 
@@ -106,8 +110,7 @@ class PhonePlugin(private val activity: Activity) : Plugin(activity) {
     val args = invoke.parseArgs(SetHandlerArgs::class.java)
     synchronized(lock) {
       handler = args.handler
-      waiting?.let { send(args.handler, it) }
-      waiting = null
+      while (waiting.isNotEmpty()) send(args.handler, waiting.removeFirst())
     }
     invoke.resolve()
   }

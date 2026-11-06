@@ -70,6 +70,7 @@ impl OpenedLink {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if last.is_some_and(|last| now.saturating_duration_since(last) < GAP) {
+            tracing::debug!("an opened link dropped: one came a moment ago");
             return false;
         }
         let kept = self.arrived(text);
@@ -112,11 +113,11 @@ impl OpenedLink {
 /// a few seconds are dropped, so none can keep raising the window.
 #[cfg(target_os = "android")]
 pub(crate) fn arrived<R: Runtime>(app: &AppHandle<R>, text: &str) {
+    // Why it is dropped, if it is, is logged where that is decided.
     if !app
         .state::<OpenedLink>()
         .arrived_at(text, std::time::Instant::now())
     {
-        tracing::debug!("an opened link dropped: one came a moment ago");
         return;
     }
     tell(app);
@@ -200,6 +201,18 @@ mod tests {
         let later = start + GAP * 10;
         assert!(!opened.arrived_at("garbage", later));
         assert!(opened.arrived_at(&link, later));
+    }
+
+    #[test]
+    fn of_arrivals_handed_over_together_the_first_whole_link_is_kept() {
+        // As the phone's plugin hands over what came before Rust listened.
+        let opened = OpenedLink::default();
+        let link = crate::receiving::clipboard::tests::a_link();
+        let now = std::time::Instant::now();
+        assert!(!opened.arrived_at("https://ourstick.com/s/#junk", now));
+        assert!(opened.arrived_at(&link, now));
+        assert!(!opened.arrived_at(&link, now));
+        assert_eq!(opened.take(), Some(Opened::Link { link }));
     }
 
     #[test]

@@ -20,7 +20,9 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.ourstick.OurStick"
-        minSdk = 24
+        // Android 11: the oldest that may write Download/OurStick with plain
+        // file paths and no storage permission (ADR 0027, decision 3).
+        minSdk = 30
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")

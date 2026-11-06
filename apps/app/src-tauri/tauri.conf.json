@@ -48,6 +48,9 @@
     "homepage": "https://ourstick.com",
     "publisher": "Georgios Kakavelakis",
     "copyright": "© 2026 Georgios Kakavelakis. Apache-2.0.",
+    "android": {
+      "minSdkVersion": 30
+    },
     "linux": {
       "deb": {
         "files": {

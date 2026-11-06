@@ -18,8 +18,8 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       named like a document package, one disk counted as two (phones),
       claims that counted bytes but not files; all fixed, with tests that
       fail without the fixes.
-- [ ] Giorgos's own transfers between the three systems. Found so far
-      (fixed): the new-version words; About too short on Linux (Close cut
+- [x] Giorgos's own transfers between the three systems. Found (all
+      fixed): the new-version words; About too short on Linux (Close cut
       off), its checks not aligned, and its licence links broken on Ubuntu
       (the Firefox snap cannot read `/usr/lib`: the licences are now pages
       of the app, ADR 0024 amendment 3); "Each computer says this about
@@ -43,10 +43,11 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       "Change…", the tree's rows, Receive's bottom links, the back links
       and the found-link green in dark mode. Left for later, below
       ("After the sweep").
-- [ ] **The release:** `release-day.txt` set to the day; the installers
-      and `SHA256SUMS` signed (`tools/release/sign.sh`);
-      `tools/release/version-json.sh 0.3.1 0.3.1` (0.3.1 fixes security
-      problems of 0.3.0); the site and GitHub Release v0.3.1.
+- [x] **The release** (2026-11-06): the installers built from 042bad9
+      (tag v0.3.1), the Mac's notarized by Apple; `SHA256SUMS` signed;
+      `version.json` serial 2 (0.3.1 newest, and it fixes security
+      problems of 0.3.0); GitHub Release v0.3.1 and the site, the live
+      installers checked against the signed sums.
 
 ## 0.3.0
 

@@ -25,7 +25,7 @@ no column for them. It only records *which* secret store this device uses.
 - Connections set `PRAGMA foreign_keys = ON` and a busy timeout; file databases
   use `journal_mode = WAL`.
 
-## Version 28
+## Version 29
 
 Version 29 (`0029_version_look.sql`, ADR 0033) added the tables
 `version_look` and `notice_serials`, below. A device set up before has a

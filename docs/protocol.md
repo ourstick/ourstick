@@ -787,7 +787,7 @@ from the StickId (below), so SQLite needs no column for it. See
 | macOS, the CLI            | The login keychain (the "legacy" keychain), as the app's before ADR 0021. Not usable from an SSH session: "User interaction is not allowed". On a device whose keys the app moved, the CLI refuses and says to share from the app, or to use its own data folder and a key file | v1 |
 | Windows                   | The user's Credential Manager, generic credentials kept on this computer only (`CRED_PERSIST_LOCAL_MACHINE`, never roaming with a domain profile, which would put the node key on a second computer). Not usable from an SSH session with key login: "ERROR_NO_SUCH_LOGON_SESSION" | v1 |
 | CLI without a keyring (SSH sessions, servers) | `--key-file <path>`: file encrypted with a passphrase (Argon2id + XChaCha20-Poly1305), mode 0600, chosen explicitly by the user on the device's first `share` and recorded in `device`; later runs open it and ask for the passphrase on the terminal (never from arguments or the environment). A device never switches between the two, since that would change its node key | v1 |
-| Android                   | A Keystore-held AES key (hardware-backed where available) wraps the secrets, stored in app-private storage | Later (Tauri) |
+| Android                   | The app's store in the Android Keystore (ADR 0027): the secrets are encrypted by a Keystore key of the app's own (hardware-backed where available) and kept in its private files; no user authentication, so a changed screen lock does not lose them | v1 |
 | iOS                       | Keychain, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not synced to iCloud) | Later (Tauri) |
 
 Who else can read them: on Linux (Secret Service) and Windows (Credential

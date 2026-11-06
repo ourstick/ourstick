@@ -83,14 +83,19 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
 /// as itself, not followed: a link or a junction (a name surrogate, what
 /// std's `is_symlink` means) is refused, while a folder that is a reparse
 /// point of another kind (OneDrive's) is gone through as any folder. The
-/// folders are held open without sharing delete until the file is open:
-/// none of them can be renamed or swapped in the meantime, so the file's
-/// path goes through the very folders that were checked. The file is opened
-/// as itself too and must be a regular one, not a link. A file that is a
-/// reparse point of another kind (a OneDrive file, a deduplicated one) gives
-/// its content only through its own driver, which an open as itself skips:
-/// it is opened again the usual way while its name is held. Through std's
-/// open options: no unsafe code.
+/// folders are held open without sharing delete until the file is open,
+/// so none of them can be renamed, moved or removed meanwhile. The file is
+/// opened as itself too and must be a regular one, not a link. A file that
+/// is a reparse point of another kind (a OneDrive file, a deduplicated one)
+/// gives its content only through its own driver, which an open as itself
+/// skips: it is opened again the usual way while its name is held. Through
+/// std's open options: no unsafe code.
+///
+/// Not closed yet: the opens go by path, so someone who can write in the
+/// shared folder can still turn a held folder (or the held file) into a
+/// junction or a link in place, without renaming it, between the checks
+/// and the open. Closing that takes opens relative to the held folders
+/// (`NtCreateFile` with a root directory, as `openat` does on Unix).
 #[cfg(windows)]
 pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     use std::fs::OpenOptions;
@@ -104,25 +109,40 @@ pub(crate) fn open_regular(path: &Path, below: usize) -> io::Result<File> {
     const FILE_SHARE_DELETE: u32 = 0x4;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
+    // winerror.h.
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+
     // `as_itself`: a link or a junction is opened, not followed, and then
     // refused. `held`: without sharing delete, so that while it is open its
-    // name cannot be renamed, removed or replaced. Backup semantics on a
-    // file too: a folder in a file's place then opens, and is refused by
-    // the caller as not a file.
+    // name cannot be renamed or removed. Backup semantics on a file too: a
+    // folder in a file's place then opens, and is refused by the caller as
+    // not a file.
     let open = |path: &Path, as_itself: bool, held: bool| {
         let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
         if as_itself {
             flags |= FILE_FLAG_OPEN_REPARSE_POINT;
         }
-        let mut share = FILE_SHARE_READ | FILE_SHARE_WRITE;
-        if !held {
-            share |= FILE_SHARE_DELETE;
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(flags)
-            .share_mode(share)
-            .open(path)?;
+        let with = |share: u32| {
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(flags)
+                .share_mode(share)
+                .open(path)
+        };
+        let held_share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+        let file = match with(if held {
+            held_share
+        } else {
+            held_share | FILE_SHARE_DELETE
+        }) {
+            // Another program has it open to move or remove it (a sync
+            // app, Explorer renaming): opened without holding its name, as
+            // before, rather than failing every file under it.
+            Err(error) if held && error.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => {
+                with(held_share | FILE_SHARE_DELETE)?
+            }
+            opened => opened?,
+        };
         let facts = file.metadata()?;
         if facts.file_type().is_symlink() {
             return Err(refused());
@@ -283,7 +303,7 @@ mod windows_tests {
     }
 
     #[test]
-    fn a_folder_on_the_way_cannot_be_swapped_while_it_is_held() {
+    fn a_folder_on_the_way_cannot_be_renamed_while_it_is_held() {
         let dir = folder();
         use std::os::windows::fs::OpenOptionsExt;
         // Held as open_regular holds it, between the check and the open.

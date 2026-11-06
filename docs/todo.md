@@ -11,8 +11,14 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
       its concealed mark in one write, Windows opens through held folders,
       room for a download on a nearly full disk, a file shared alone seen
       after every save.
-- [ ] **Review by Fable and Sonnet** of everything since 0.3.0, then
-      Giorgos's own transfers between the three systems.
+- [x] **Review by Fable and Sonnet** of everything since 0.3.0
+      (2026-11-06; 8 reviewers, each medium finding tried by a third): an
+      older notice that could not be kept (schema 30), a held folder on
+      Windows that another program's handle let go, a received folder
+      named like a document package, one disk counted as two (phones),
+      claims that counted bytes but not files; all fixed, with tests that
+      fail without the fixes.
+- [ ] Giorgos's own transfers between the three systems.
 - [ ] **The release:** `release-day.txt` set to the day; the installers
       and `SHA256SUMS` signed (`tools/release/sign.sh`);
       `tools/release/version-json.sh 0.3.1 0.3.1` (0.3.1 fixes security
@@ -172,6 +178,16 @@ licence; nothing in the package changes that (only the Snap Store does).
   for each file and one full flush before the files' records are written
   would keep the order a power cut needs, for about a fortieth of the
   time on 100 000 small files.
+- **The receive window's "it fits" (review of 2026-11-06):** the window
+  compares a stick's bytes with what is left, while the download's claim
+  adds the largest file's copy, the scratch room and a block and a record
+  per file; on a nearly full disk the window can say "it fits" and the
+  download then waits for room. One core function for what a selection
+  claims, used by both.
+- **The tao log cap (review of 2026-11-06):** `tao=debug` is added to any
+  `RUST_LOG`, so a quieter one (`off`, `error`) gets tao's debug lines;
+  give tao the lower of debug and what the user asked, and test the filter
+  with recorded events.
 - **The manifest is sent whole** at every new version (about 100 bytes a
   file: 100 MB for a million files). If it matters: send only what changed
   (a protocol change, its own ADR).

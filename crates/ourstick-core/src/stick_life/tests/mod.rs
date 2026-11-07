@@ -33,8 +33,22 @@ fn world() -> World {
 }
 
 /// An app stick made before ADR 0028: a folder of its own with files in
-/// it, a linked folder and a cache folder.
+/// it, a linked folder and a cache folder. On macOS it is a disk image,
+/// which the app records at its start: without it, removing the stick is
+/// refused (see `image_known`).
 fn app_stick(world: &World, name: &str) -> OwnedStick {
+    let stick = unrecorded_app_stick(world, name);
+    if !cfg!(target_os = "macos") {
+        return stick;
+    }
+    let images = world.data.parent().unwrap().join("Images");
+    let image = images.join(format!("{name}.sparseimage"));
+    world.store.set_image_path(&stick.stick_id, &image).unwrap();
+    world.store.owned_stick(&stick.stick_id).unwrap().unwrap()
+}
+
+/// [`app_stick`] before the app has recorded its disk image (macOS).
+fn unrecorded_app_stick(world: &World, name: &str) -> OwnedStick {
     let root = world.data.parent().unwrap().join("OurStick").join(name);
     std::fs::create_dir_all(root.join("photos")).unwrap();
     std::fs::write(root.join("photos/a.jpg"), b"a").unwrap();
@@ -99,6 +113,25 @@ fn removing_an_old_app_stick_keeps_its_files_and_drops_its_marker() {
     assert!(has_secret(&world, SecretName::StickKey(kept.stick_id)));
     assert!(!cache_dir(&world.data, &going.stick_id).exists());
     assert_eq!(world.store.owned_sticks().unwrap(), [kept]);
+}
+
+/// macOS: an older app stick whose disk image the app has not recorded yet
+/// is refused before it is marked, so it stays as it was.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_stick_whose_disk_image_is_not_recorded_is_left_as_it_was() {
+    let world = world();
+    let going = unrecorded_app_stick(&world, "For Maria");
+    let refused = remove_stick(
+        &world.store,
+        &world.secrets,
+        &world.data,
+        &going.stick_id,
+        &NoDrive,
+    );
+    assert!(matches!(refused, Err(LifeError::Drive(_))), "{refused:?}");
+    assert!(world.store.removing_sticks().unwrap().is_empty());
+    assert_eq!(world.store.owned_sticks().unwrap(), [going]);
 }
 
 #[test]

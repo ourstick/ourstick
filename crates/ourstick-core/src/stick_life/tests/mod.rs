@@ -115,25 +115,6 @@ fn removing_an_old_app_stick_keeps_its_files_and_drops_its_marker() {
     assert_eq!(world.store.owned_sticks().unwrap(), [kept]);
 }
 
-/// macOS: an older app stick whose disk image the app has not recorded yet
-/// is refused before it is marked, so it stays as it was.
-#[cfg(target_os = "macos")]
-#[test]
-fn a_stick_whose_disk_image_is_not_recorded_is_left_as_it_was() {
-    let world = world();
-    let going = unrecorded_app_stick(&world, "For Maria");
-    let refused = remove_stick(
-        &world.store,
-        &world.secrets,
-        &world.data,
-        &going.stick_id,
-        &NoDrive,
-    );
-    assert!(matches!(refused, Err(LifeError::Drive(_))), "{refused:?}");
-    assert!(world.store.removing_sticks().unwrap().is_empty());
-    assert_eq!(world.store.owned_sticks().unwrap(), [going]);
-}
-
 #[test]
 fn a_marker_naming_another_stick_is_left_when_one_is_removed() {
     let world = world();
@@ -386,4 +367,5 @@ fn a_removal_running_now_is_left_to_its_own_command() {
     assert!(world.store.removing_sticks().unwrap().is_empty());
 }
 
+mod image;
 mod new_link;

@@ -27,6 +27,13 @@ pub enum LifeError {
     NotFound,
     #[error("{0}; the stick stays as it is and is finished at the next start")]
     Drive(String),
+    /// macOS: refused before anything is marked, so nothing waits for the
+    /// next start; the app records the image when it starts.
+    #[error(
+        "the stick's disk image is not recorded yet; eject the stick (or restart OurStick) \
+         and try again; nothing was changed"
+    )]
+    ImageNotRecorded,
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -259,13 +266,18 @@ fn clean_up(
 /// macOS: an app stick is its disk image, and the image must be known
 /// before anything of it is deleted (an older stick's is recorded at the
 /// app's start); its mount point alone could be another volume's.
-fn image_known(stick: &OwnedStick) -> Result<(), LifeError> {
-    if cfg!(target_os = "macos") && stick.is_drive() && stick.image_path.is_none() {
-        return Err(LifeError::Drive(
-            "the stick's disk image is not recorded yet (open OurStick, then try again)".to_owned(),
-        ));
-    }
-    Ok(())
+fn image_known(stick: &OwnedStick) -> bool {
+    image_known_where(cfg!(target_os = "macos"), stick)
+}
+
+/// [`image_known`], with whether images matter given (macOS). A stick
+/// whose drive is not there passes: nothing of it can be touched, and an
+/// image the user deleted, never recorded, must not keep it forever.
+fn image_known_where(images_matter: bool, stick: &OwnedStick) -> bool {
+    !images_matter
+        || !stick.is_drive()
+        || stick.image_path.is_some()
+        || !drive_present(&stick.root_path, &stick.stick_id)
 }
 
 /// "Remove this stick": marked as being removed (from then on never shared
@@ -280,7 +292,9 @@ pub fn remove_stick(
     let stick = store.owned_stick(stick_id)?.ok_or(LifeError::NotFound)?;
     // Refused before it is marked: a stick being removed is never changed
     // again, so its image could not be recorded any more.
-    image_known(&stick)?;
+    if !image_known(&stick) {
+        return Err(LifeError::ImageNotRecorded);
+    }
     store.mark_removing(stick_id)?;
     let stick = store
         .removing_sticks()?
@@ -341,7 +355,11 @@ fn finish_removal(
     stick: &OwnedStick,
     drive: &dyn DriveOps,
 ) -> Result<(), LifeError> {
-    image_known(stick)?;
+    if !image_known(stick) {
+        return Err(LifeError::Drive(
+            "the stick's disk image is not recorded; eject the stick".to_owned(),
+        ));
+    }
     if stick.is_drive() {
         // The drive first, while its marker still tells which letter is the
         // stick's (Windows); taking it away again later does nothing.

@@ -169,6 +169,14 @@ pub mod platform {
     /// Detaches the stick's image by its device, not by the folder: the
     /// folder's path can change between mounts (`/Volumes/OurStick 1`).
     pub fn eject(stick: &OwnedStick) -> Result<()> {
+        if stick.image_path.is_none()
+            && !ourstick_core::share::drive_marked_by(&stick.root_path, &stick.stick_id)
+        {
+            // Never recorded (its image was deleted) and not at its place,
+            // the same rule as the core's: no volume of it to detach, and a
+            // volume there with another's marker is left alone.
+            return Ok(());
+        }
         let image = image_of(stick)?;
         let image = std::fs::canonicalize(&image).unwrap_or(image);
         let info = hdiutil(&["info".as_ref(), "-plist".as_ref()])?;

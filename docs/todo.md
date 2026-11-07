@@ -288,6 +288,13 @@ Small faults the sweep found and 0.3.1 leaves as they are:
   iroh-blobs keeps a store's own runtime on purpose (iroh-blobs#249).
 - **iroh-blobs: GC stops for good after any error.** OurStick no longer
   runs its GC; someone else reported it as iroh-blobs#291 (open).
+- **glib 0.18 (RUSTSEC-2024-0429, Dependabot alert 1):** its
+  `VariantStrIter` is unsound, but no crate in our Linux build calls
+  `Variant::array_iter_str()`, the only way to get one (checked
+  2026-11-07). glib 0.18 comes with Tauri 2's gtk 0.18, on Linux only.
+  When a Tauri 2.x release moves to gtk 0.19 (tauri#16170), move our own
+  `gtk` to 0.19 in the same change; that needs rust-version 1.92 (ask
+  first).
 - **iroh: a direct path lost and not found again** on one LAN after a pause
   of about 20 s; worked around by connecting again (`docs/protocol.md`,
   "Relay policy"). Worth a report with a small reproduction.

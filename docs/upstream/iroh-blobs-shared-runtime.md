@@ -5,9 +5,13 @@ suitcase; it has one store of its own per stick. This request now matters
 only for the reader's batches (one `FsStore` per 512 files). The draft below
 is kept as written.
 
-Status: a draft, not sent yet (2026-10-05): an issue (and a PR if they
-welcome one) for https://github.com/n0-computer/iroh-blobs.
-Checked against iroh-blobs 0.103.0.
+Status: not to be sent. iroh-blobs keeps a store's own runtime on purpose:
+the store's small reads and writes run there directly, which would be slow
+through `spawn_blocking`, and never hold up the caller's runtime
+(iroh-blobs #249, closed 2026-11-05; the docs of `store::fs` explain it
+since 0.104.0). Since 0.104.0 a store shut down leaves no threads behind
+either. The draft (2026-10-05, checked against iroh-blobs 0.103.0) is kept
+as written.
 
 ---
 

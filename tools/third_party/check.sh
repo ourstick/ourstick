@@ -5,7 +5,7 @@
 # the patches instead (after a deliberate change, see each OURSTICK.md).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-crates=("iroh-blobs 0.103.1" "ksni 0.3.6")
+crates=("ksni 0.3.6")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 status=0

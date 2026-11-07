@@ -10,8 +10,8 @@ crates/ourstick-core   all the logic; no UI, no Tauri, no CLI
 crates/ourstick-cli    share / get / ls, a thin shell over the core
 apps/app               the desktop app: Tauri 2 (Rust commands) + Svelte UI
 apps/website           the static site, ourstick.com
-third_party/           patched copies of two dependencies, until upstream
-                       releases have the fixes
+third_party/           a patched copy of one dependency (ksni), until an
+                       upstream release has the fix
 ```
 
 Both shells call only `ourstick-core`; the core imports nothing from them.

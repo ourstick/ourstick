@@ -6,7 +6,8 @@ the owner (its catalogue, partial versions, readers' batches and "not
 ready" stay), its Amendment 2 with them, and the owner's part of the space
 ledger. The reader is unchanged; the wire protocol is unchanged. Reviewed
 by two other models against our code and iroh-blobs 0.103 / bao-tree
-0.16.1; this version takes in their changes.
+0.16.1; this version takes in their changes. Checked again against
+iroh-blobs 0.104.1 / bao-tree 0.17.0 on 2026-11-07 (Amendment 2).
 
 ## Context
 
@@ -137,8 +138,8 @@ catalogue before it is sent. No encrypted copy is kept.
 - **Code against a semi-internal API.** Our actor must answer every
   iroh-blobs store command (the `Command` enum is generated from
   `proto::Request` and is not `#[non_exhaustive]`). A new iroh-blobs
-  version may add commands and break our build; the version stays pinned
-  and the upgrade checklist names this file.
+  version may add commands and break our build; the version stays pinned,
+  and Amendment 2 lists what to check at an upgrade.
 - **A direct dependency on `irpc`**, the version iroh-blobs uses, to name
   its client and channel types (needs Giorgos's approval; it is already in
   the tree through iroh-blobs).
@@ -445,3 +446,49 @@ process learns its speed from windows the system partly has in memory
 (the folder was read minutes before), and the disk's own speed then looks
 slow. In `docs/todo.md`.
 
+## Amendment 2: iroh-blobs 0.104.1 and bao-tree 0.17.0 (2026-11-07)
+
+OurStick moved from iroh-blobs 0.103.1 and bao-tree 0.16.1 to 0.104.1 and
+0.17.0 (ADR 0018's last section says why). Three models (Fable, Sonnet,
+Opus) read both versions' sources against this ADR, two of them checked
+again the one real finding, and the tests named below were added.
+
+- **Rule 3 holds as written.** bao-tree 0.17.0's
+  `traverse_ranges_validated` (`src/io/mixed.rs`) checks each parent before
+  it sends it (141–161), hashes each 16 KiB group, whole or in part, and
+  sends the very buffer it hashed (170–209), and sends its error in place
+  of the item that failed, as the last one (217–222). Its error variants
+  are the same, so `made_store.rs` sees every mismatch.
+- **Outboards keep their format**, so the ones 0.3.x wrote stay valid: 630
+  real ones from the test PC check out against an implementation of its
+  own, and `outboards_keep_their_format` (`manifest/hashing_tests.rs`) now
+  pins the format against outboards that implementation made.
+- **The wire is unchanged.** The CLI 0.3.0 and this build sent a folder of
+  214 MB both ways, each download stopped mid-way and resumed; every file
+  came whole.
+- **The end of an export.** Since iroh-blobs 0.104 the provider stops at
+  the leaf that reaches the end of what was asked (#298), without waiting
+  for `Done`. The store's later `Done` finds the transfer gone
+  (`ReaderGone`), and nothing is told (rule 4). That last leaf is checked
+  like any other (`tests/made.rs`,
+  `a_change_in_the_last_group_is_not_sent_either`).
+- **A short outboard** reads as zero hashes in bao-tree 0.17, not as an
+  error, so it would pass for a changed file: rule 1's length check
+  (`open_outboard`) is what keeps it "not ready", with the file's record
+  kept.
+- **The reader's own store.** A write into it that fails now ends the
+  fetch (`LocalFailure`, #295) instead of being dropped; `get_error.rs`
+  says it as this computer's failure, never as an owner that cannot be
+  reached.
+
+**Before the next upgrade of either crate:**
+
+1. Trace `traverse_ranges_validated` again for rule 3.
+2. Build: `made_store/commands.rs` matches every store command, with no
+   wildcard, so a new one fails the build.
+3. Run `outboards_keep_their_format`, the store's tests, `tests/made.rs`,
+   `tests/reader_verifies.rs` and `tests/refuse_push.rs`.
+4. Read the changelog for changes to how an export, a provider or a fetch
+   ends, and to the errors a fetch gives (`get_error.rs`).
+5. Send a folder both ways with the last release, with a download stopped
+   and resumed.

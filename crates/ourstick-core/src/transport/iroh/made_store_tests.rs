@@ -165,8 +165,15 @@ async fn a_changed_file_never_sends_a_byte_that_differs() {
         }
         assert!(ended_with_error, "size {size}");
         assert!(sent < blob.len(), "size {size}");
-        // Told as changed, and no longer served.
-        let told = stick.told.lock().unwrap().clone();
+        // Told as changed, and no longer served (once bao-tree has ended).
+        let mut told = Vec::new();
+        for _ in 0..500 {
+            told = stick.told.lock().unwrap().clone();
+            if !told.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
         assert_eq!(told, vec![(Hash::from_bytes(*hash), true)], "size {size}");
         assert_eq!(stick.served.blob_len(&Hash::from_bytes(*hash)), None);
     }
@@ -226,20 +233,21 @@ async fn a_range_is_served_alone_as_for_a_resume() {
         .stream()
         .boxed();
     let mut first = None;
-    let mut done = false;
+    let mut end = 0;
     while let Some(item) = items.next().await {
         match item {
             EncodedItem::Leaf(leaf) => {
                 let at = leaf.offset as usize;
                 first.get_or_insert(at);
                 assert_eq!(&leaf.data[..], &blob[at..at + leaf.data.len()]);
+                end = at + leaf.data.len();
             }
-            EncodedItem::Done => done = true,
             EncodedItem::Error(error) => panic!("{error}"),
             _ => {}
         }
     }
-    assert!(done);
+    // To the blob's end: since iroh-blobs 0.104 the stream ends at its last leaf.
+    assert_eq!(end, blob.len());
     assert!(first.is_some_and(|at| at as u64 >= half * 1024 - 16 * 1024));
 }
 
@@ -351,6 +359,9 @@ async fn a_reader_that_goes_away_is_no_fault_of_the_blob() {
         .await
         .unwrap();
     assert_eq!(got, stick.blobs[0].1);
+    // Having it all, a reader leaves before the store's `Done`: no fault either.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(stick.told.lock().unwrap().is_empty() && stick.served.blob_len(&hash).is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -371,7 +371,9 @@ async fn send(
 }
 
 /// The outboard the catalogue kept for `hash`, if it is there and of the
-/// length its tree gives (a short one would make bao-tree panic).
+/// length its tree gives. A short one is refused here, so it is made again
+/// and the file's record kept (ADR 0017 rule 1): bao-tree 0.17 would read
+/// its missing hashes as zeros and take the file for changed.
 fn open_outboard(dir: &std::path::Path, hash: &Hash, tree: BaoTree) -> io::Result<File> {
     let file = File::open(outboard_path(dir, hash.as_bytes()))?;
     if file.metadata()?.len() != tree.outboard_size() {

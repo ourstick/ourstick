@@ -281,15 +281,13 @@ Small faults the sweep found and 0.3.1 leaves as they are:
 ## Upstream
 
 - **iroh-blobs: an `FsStore` shut down leaves threads behind** (ADR 0018):
-  issue and one-line pull request drafted in
-  `docs/upstream/iroh-blobs-runtime-drop.md`. Patched meanwhile in
-  `third_party/iroh-blobs`; once a release has the fix, delete that folder
-  and its `[patch.crates-io]` entry.
-- **iroh-blobs: a store on a runtime it is given,** so that a reader's
-  batches stop starting and stopping threads; drafted in
-  `docs/upstream/iroh-blobs-shared-runtime.md`.
+  fixed upstream the same way in 0.104.0 (iroh-blobs#293) before our draft
+  was sent. OurStick uses 0.104.1 since 2026-11-07, without
+  `third_party/iroh-blobs`.
+- **iroh-blobs: a store on a runtime it is given:** not to be sent;
+  iroh-blobs keeps a store's own runtime on purpose (iroh-blobs#249).
 - **iroh-blobs: GC stops for good after any error.** OurStick no longer
-  runs its GC; a report still helps others.
+  runs its GC; someone else reported it as iroh-blobs#291 (open).
 - **iroh: a direct path lost and not found again** on one LAN after a pause
   of about 20 s; worked around by connecting again (`docs/protocol.md`,
   "Relay policy"). Worth a report with a small reproduction.

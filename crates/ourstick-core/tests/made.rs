@@ -225,6 +225,40 @@ async fn a_file_changed_after_its_version_is_not_sent_until_the_next() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_change_in_the_last_group_is_not_sent_either() {
+    // Since iroh-blobs 0.104 the owner's side stops at the last leaf, without
+    // waiting for the end: that leaf too is checked before it is sent.
+    let original = noise(300 * 1024 + 5, 9);
+    let owner = Owner::bare(&[("big.bin", original.as_slice())]).await;
+    let first = owner.publish().await;
+    let (passes, _keeper) = keep_files(&owner);
+    let mut changed = original.clone();
+    *changed.last_mut().unwrap() ^= 0xff;
+    std::fs::write(owner.folder.path().join("big.bin"), &changed).unwrap();
+
+    let reader = Reader::new();
+    let stuck = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        reader.download(&owner.ticket(&first), &mut keep_going),
+    )
+    .await;
+    assert!(
+        !matches!(stuck, Ok(Ok(_))),
+        "a changed last group was received"
+    );
+    assert!(!reader.exists("big.bin") || reader.read("big.bin") != changed);
+    // The owner found the change itself, before sending that group: it told
+    // its keeper, which asked for a pass (the reader's own check aside).
+    let asked = std::time::Instant::now();
+    let wait = std::time::Duration::from_secs_f64(5.0 * common::time_scale());
+    while passes.load(Ordering::Relaxed) == 0 && asked.elapsed() < wait {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(passes.load(Ordering::Relaxed) > 0);
+    owner.publisher.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_keeper_ends_with_the_publisher() {
     let owner = Owner::bare(&[("a", b"a")]).await;
     owner.publish().await;

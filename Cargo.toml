@@ -97,10 +97,11 @@ qrcode = { version = "0.14", default-features = false }
 rpassword = "7.5"
 notify = "7"
 tempfile = "3"
-# Tests only: build a consistent outboard for deliberately wrong data.
-bao-tree = { version = "0.16.1", default-features = false }
+# ADR 0017: the blobs' outboards, and the bytes checked against them as they
+# are sent; the version iroh-blobs 0.104 uses.
+bao-tree = { version = "0.17.0", default-features = false }
 # ADR 0017: the owner's own store for iroh-blobs (its client and channel
-# types), the versions iroh-blobs 0.103 uses.
+# types), the versions iroh-blobs 0.104 uses.
 irpc = "0.17.0"
 bytes = "1.12"
 data-encoding = "2"
@@ -130,13 +131,12 @@ zeroize = "1.9.0"
 # unstable-net-report: the network diagnosis behind "why a relay". Its API is
 # not semver-stable; only transport/iroh/ touches it.
 iroh = { version = "1.2.0", features = ["unstable-net-report"] }
-iroh-blobs = "0.103.0"
+# At least 0.104.0: before it, every store shut down left threads behind
+# (ADR 0018, iroh-blobs#293).
+iroh-blobs = "0.104.1"
 
 [patch.crates-io]
 ksni = { path = "third_party/ksni" }
-# ADR 0018: 0.103.1 with its store runtime shut down without waiting for
-# itself (third_party/iroh-blobs/OURSTICK.md).
-iroh-blobs = { path = "third_party/iroh-blobs" }
 
 # Line tables only: a panic or backtrace still names its file and line, at
 # a fraction of full debug info's size (the build folder had reached 300 GB

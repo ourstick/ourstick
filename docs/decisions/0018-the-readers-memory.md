@@ -1,7 +1,9 @@
 # ADR 0018: The reader's memory
 
 **Status:** accepted — 2026-10-06 (Giorgos chose B2a); B1, B2a and A1 built. Reviewed by two other models against our
-code and iroh-blobs 0.103.0; this version takes in their changes.
+code and iroh-blobs 0.103.0; this version takes in their changes. B2a's
+patched copy gave way to iroh-blobs 0.104.1 on 2026-11-07 (the last
+section).
 
 ## Context
 
@@ -171,3 +173,10 @@ seeks, not the plan. A2 is not needed for memory; the time to the first
 file (the plan of 100 000 files, under a second here) does not ask for it
 either.
 
+## Since iroh-blobs 0.104 (2026-11-07)
+
+iroh-blobs fixed the deadlock itself, the same way as B2a (PR #293,
+released in 0.104.0), before B1's draft was sent. OurStick uses 0.104.1
+and no longer keeps `third_party/iroh-blobs`; `tests/store_threads.rs`
+still checks that stores shut down leave no threads, and passes without the
+patch.

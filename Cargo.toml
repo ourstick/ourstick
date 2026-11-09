@@ -61,7 +61,7 @@ android-native-keyring-store = { git = "https://github.com/open-source-cooperati
 argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 
 # db
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 # fs / misc
 # The desktop app (docs/gui-spec.md). Linux needs webkit2gtk-4.1 and friends,

@@ -92,7 +92,7 @@ npm.cmd run tauri build
 
 `npm.cmd`, not `npm`: PowerShell's default execution policy refuses
 `npm.ps1`. Tauri fetches WiX and NSIS itself and makes both installers,
-unsigned (SmartScreen warns of an unknown publisher), under
+unsigned (SmartScreen warns of an unknown publisher; for a signed one see below), under
 `target\release\bundle\`: `msi\OurStick_<version>_x64_en-US.msi` and
 `nsis\OurStick_<version>_x64-setup.exe` (per user, no admin rights).
 
@@ -101,6 +101,46 @@ also holds OurStick's data (database, blob cache). Its uninstaller removes
 the files it installed and then the folder only if it is empty, so the data
 stays, and with it every shared link; its "Delete the application data"
 box removes `%LOCALAPPDATA%\com.ourstick.OurStick`, which OurStick does not use.
+
+### A signed installer (releases)
+
+The code-signing key (a HARICA certificate in Georgios Kakavelakis's name)
+is on a hardware token at the Linux host, never in the VM. Tauri's
+`signCommand`, in `apps/app/src-tauri/tauri.windows-sign.conf.json`, runs
+`tools/windows-sign/sign-in-vm.ps1` for each file it signs: the app's
+`.exe`, the five NSIS plugins, the uninstaller (NSIS's `!uninstfinalize`)
+and the installer. That script puts the file in a queue in the VM's home
+folder and waits; `tools/windows-sign/sign-on-host.sh`, which you run in
+a terminal at the host, takes it over ssh, signs it with osslsigncode
+(the token's PIN asked by osslsigncode, once per file) and puts it back.
+The VM takes the file only if Windows calls its signature Valid, from that
+signer, with a timestamp. The host keeps signed copies by hash, so the
+plugins, the same in every build, ask for the PIN only the first time: a
+release asks for three PINs.
+
+At the host, with the token plugged in (the settings file, outside the
+repository, names osslsigncode 2.16+, pkcs11-provider 1.3.0+, the token's
+module, the certificate chain, the key's `id=` and the timestamp server):
+
+```
+bash tools/windows-sign/sign-on-host.sh <settings file>
+```
+
+In the VM, only the NSIS installer (the one the site offers):
+
+```
+cd apps\app
+npm.cmd run tauri build -- --bundles nsis --config src-tauri/tauri.windows-sign.conf.json
+```
+
+Over ssh, PowerShell 5.1 counts Tauri's lines on stderr as errors and
+ends with exit code 1 even when the build ended in `Finished 1 bundle`;
+the signatures speak for themselves:
+`Get-AuthenticodeSignature` on the installer, and after `setup.exe /S`
+on `%LOCALAPPDATA%\OurStick\ourstick-app.exe` and `uninstall.exe`. A
+silent install gives up (exit code 2) while OurStick is open: close it
+first. A release build needs some 30 GB free in the VM; `target\debug`
+of the tests can go.
 
 ### What needs the desktop session
 

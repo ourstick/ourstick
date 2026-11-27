@@ -4,6 +4,21 @@ What comes next, what is left to try by hand, and what waits on others.
 The reasons behind the design are in `docs/decisions/`; the limits of the
 code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 
+## 0.3.2 (Windows only)
+
+- [x] **Signed for Windows:** the installer, its uninstaller and the app,
+      with a HARICA code-signing certificate on a hardware token at the
+      host (`docs/windows-dev.md`, "A signed installer").
+- [x] **Libraries with security fixes:** SQLite 3.54.1 through rusqlite
+      0.41.1 (RUSTSEC-2026-0459), url 2.5.9 (RUSTSEC-2026-0592), cookie
+      0.18.3 (RUSTSEC-2026-0594); iroh-blobs 0.104.1 and redb 4.4.0.
+- [ ] **A short try in the Windows VM:** the published 0.3.1, then 0.3.2
+      over it, the sticks and links kept, a folder sent and received; then
+      Giorgos installs it on the laptop and SmartScreen names him.
+- [ ] **The release:** the signed installer with signed SHA-256 sums,
+      macOS and Linux staying on 0.3.1 on the site; `version.json` saying
+      0.3.2 for Windows only; GitHub Release v0.3.2.
+
 ## 0.3.1
 
 - [x] **Fixes from two more security reviews** (2026-11-06): where a stick

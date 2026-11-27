@@ -4400,7 +4400,7 @@ dependencies = [
 
 [[package]]
 name = "ourstick-app"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4429,7 +4429,7 @@ dependencies = [
 
 [[package]]
 name = "ourstick-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "ourstick-core",
@@ -4444,7 +4444,7 @@ dependencies = [
 
 [[package]]
 name = "ourstick-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "android-native-keyring-store",
  "apple-native-keyring-store",

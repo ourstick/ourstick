@@ -36,6 +36,10 @@ version=$("$OSSLSIGNCODE" --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+' |
 printf '%s\n2.16\n' "$version" | sort -V -C -r ||
   { echo "osslsigncode $version is too old: 2.16 or later" >&2; exit 2; }
 mkdir -p "$CACHE_DIR"
+# osslsigncode's own messages, to read after a failure (the PIN is never in
+# them: osslsigncode reads it from the terminal and does not print it).
+LOG="$CACHE_DIR/../sign-on-host.log"
+echo "== $(date -Is)" >> "$LOG"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -71,13 +75,15 @@ while true; do
       cp "$CACHE_DIR/$hash" "$work/signed.bin"
     else
       echo
+      echo "-- $name $hash" >> "$LOG"
       echo "Signing $name (sha256 $hash). Type the token's PIN once; if it asks again, press Ctrl+C."
       rm -f "$work/signed.bin"
       env PKCS11_PROVIDER_MODULE="$PKCS11_MODULE" "$OSSLSIGNCODE" sign \
         -provider "$PKCS11_PROVIDER" -certs "$CERT_CHAIN" -key "$KEY_URI" \
         -askpass -h sha256 -n OurStick -i https://ourstick.com \
-        -ts "$TIMESTAMP_URL" -in "$work/unsigned.bin" -out "$work/signed.bin" ||
-        fail "$job" "osslsigncode could not sign $name"
+        -ts "$TIMESTAMP_URL" -in "$work/unsigned.bin" -out "$work/signed.bin" \
+        2> >(tee -a "$LOG" >&2) ||
+        fail "$job" "osslsigncode could not sign $name: see $LOG"
       cp "$work/signed.bin" "$CACHE_DIR/$hash.tmp" && mv "$CACHE_DIR/$hash.tmp" "$CACHE_DIR/$hash"
     fi
     to_vm "$work/signed.bin" "$job/signed.bin"

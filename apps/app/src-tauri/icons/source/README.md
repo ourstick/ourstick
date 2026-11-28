@@ -11,3 +11,10 @@ connector below, a white arrow going out. Not derived from any icon theme.
   `tray-template.png` (macOS tints it), white for `tray-light.png`, grey
   `#8a8a8a` for the base of `tray-grey-active.png`. The `-active` ones add a
   green dot (`#2ea44f`, r 10.5 at 51,11) in a clear ring (r 13.5).
+- Android (`../../gen/android/app/src/main/res/`): `npm run tauri icon
+  src-tauri/icon-source.png -o <a scratch folder>`, its `android/` copied in
+  (not `ic_launcher_round.xml`: the manifest names no round icon). Its
+  `ic_launcher_foreground.png` fills the whole 108 dp layer, which launchers
+  crop to a circle or squircle of about 72 dp: each density's foreground is
+  made again with the icon at 58 % of the layer, on the white background
+  (`values/ic_launcher_background.xml`).

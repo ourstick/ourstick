@@ -20,6 +20,7 @@
     type StickEntry,
   } from "./api";
   import Home from "./Home.svelte";
+  import PhoneAbout from "./PhoneAbout.svelte";
   import LinkReady from "./LinkReady.svelte";
   import ReceiveView from "./ReceiveView.svelte";
   import ReceivedView from "./ReceivedView.svelte";
@@ -40,7 +41,8 @@
     | { kind: "link"; id: string }
     | { kind: "sending"; id: string }
     | { kind: "received"; id: string }
-    | { kind: "receive" };
+    | { kind: "receive" }
+    | { kind: "about" };
   // svelte-ignore state_referenced_locally
   let shown = $state<Shown>(startAdding ? { kind: "receive" } : { kind: "home" });
   let receivedShown = $derived.by(() => {
@@ -67,6 +69,11 @@
     if (away && !marked) history.pushState({ away: true }, "");
     else if (!away && marked) history.back();
   });
+
+  function aboutOpened() {
+    if (phone) shown = { kind: "about" };
+    else openAbout();
+  }
 
   function backToHome() {
     if (history.state?.away !== true) shown = { kind: "home" };
@@ -223,6 +230,8 @@
       {#key id}
         <LinkReady stickId={id} onBack={home} onSeeWho={() => (shown = { kind: "sending", id })} />
       {/key}
+    {:else if shown.kind === "about"}
+      <PhoneAbout onBack={home} />
     {:else}
       <button class="back" onclick={home}>‹ Back</button>
       {#if shown.kind === "sending"}
@@ -252,7 +261,8 @@
 
   {#if version && shown.kind === "home"}
     <footer>
-      <button class="version muted" title="About OurStick" onclick={() => openAbout()}>OurStick {version}</button>
+      <!-- A phone has no second window: About is one of its screens. -->
+      <button class="version muted" title="About OurStick" onclick={aboutOpened}>OurStick {version}</button>
       <VersionNotice place="foot" />
       <!-- Quit is always within reach in the window: the tray and the app
            menu are a help, never the only way (docs/gui-spec.md). -->

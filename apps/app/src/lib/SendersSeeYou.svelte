@@ -10,6 +10,9 @@
   let failure = $state<string | null>(null);
 
   let kind = $state("computer");
+  // A phone says no kind: its reports carry none of a phone's ("other"),
+  // so a sender's line would call it a computer (ADR 0029).
+  const phone = onPhone();
 
   onMount(async () => {
     const seen = await receiverName().catch(() => null);
@@ -45,10 +48,18 @@
         <button class="primary" type="submit">Save</button>
       </span>
     </form>
-    <p class="muted">Leave it empty to show only a {kind}. Your {onPhone() ? "phone" : "computer"}'s own name is never sent.</p>
+    {#if phone}
+      <p class="muted">Leave it empty to give no name. Your phone's own name is never sent.</p>
+    {:else}
+      <p class="muted">Leave it empty to show only a {kind}. Your computer's own name is never sent.</p>
+    {/if}
   {:else}
     <p class="muted">
-      Senders see you as: {#if name}<bdi>{name}</bdi> ({kind}){:else}a {kind}{/if}.
+      {#if phone}
+        {#if name}Senders see you as: <bdi>{name}</bdi>.{:else}Senders see no name for you.{/if}
+      {:else}
+        Senders see you as: {#if name}<bdi>{name}</bdi> ({kind}){:else}a {kind}{/if}.
+      {/if}
       <button
         class="link"
         onclick={() => {

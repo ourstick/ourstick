@@ -77,8 +77,10 @@ What it does not hold against, by design or for now:
   the web makes Windows and macOS ask before a program runs, but a
   shortcut or an Internet Shortcut file (`.lnk`, `.url`) can reach out to
   the network when a folder showing it is opened, as with any download.
-- **Signed downloads:** the Windows installer and the Linux package are
-  not signed yet; the macOS app is signed and notarized. Their SHA-256 sums
+- **Signed downloads:** the macOS app is signed and notarized; the
+  Windows installer, from 0.3.2, is signed with a code-signing certificate
+  in the publisher's name, its key on a hardware token; the Linux package
+  is not signed yet. Their SHA-256 sums
   are signed with minisign from 0.2.1 on, with a key kept off every build
   machine (`release-keys/`), so a changed file on the site or on GitHub
   Releases shows when the sums are checked against the key in the

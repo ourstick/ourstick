@@ -518,8 +518,11 @@ Rules:
 - The macOS app is signed with an Apple Developer ID and notarized
   (2026-10-08), with the keys in the data protection keychain, which never
   asks (ADR 0021).
-- **The Windows installers are not signed yet** (MSI and NSIS): SmartScreen
-  warns of an unknown publisher on download and on first start.
+- **The Windows installer (NSIS) is signed** from 0.3.2, with a HARICA
+  code-signing certificate on a hardware token (`docs/windows-dev.md`).
+  Until the certificate has a reputation, SmartScreen may still warn on
+  download and on first start, naming the publisher. The MSI is not
+  built for releases.
 - Relays: n0's public ones; our own (ADR 0006) only if they are not enough.
 
 ## Open questions

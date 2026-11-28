@@ -12,12 +12,16 @@ code in `docs/protocol.md` ("Known limits") and `docs/gui-spec.md`.
 - [x] **Libraries with security fixes:** SQLite 3.54.1 through rusqlite
       0.41.1 (RUSTSEC-2026-0459), url 2.5.9 (RUSTSEC-2026-0592), cookie
       0.18.3 (RUSTSEC-2026-0594); iroh-blobs 0.104.1 and redb 4.4.0.
-- [ ] **A short try in the Windows VM:** the published 0.3.1, then 0.3.2
-      over it, the sticks and links kept, a folder sent and received; then
-      Giorgos installs it on the laptop and SmartScreen names him.
-- [ ] **The release:** the signed installer with signed SHA-256 sums,
-      macOS and Linux staying on 0.3.1 on the site; `version.json` saying
-      0.3.2 for Windows only; GitHub Release v0.3.2.
+- [x] **A short try in the Windows VM** (2026-11-27): the published 0.3.1,
+      then 0.3.2 over it, every table's rows and the sticks' keys the same,
+      a folder sent from Linux and received whole (direct); then Giorgos
+      installed it on the laptop (the signature shown, his name as the
+      publisher) and sent to it.
+- [x] **The release** (2026-11-28): tag v0.3.2 = c5b975c; GitHub Release
+      v0.3.2 with the signed installer and `SHA256SUMS-0.3.2.txt(.minisig)`;
+      the site with Windows 0.3.2 and macOS, Linux 0.3.1, its sums signed;
+      `version.json` serial 3 (0.3.2 newest for Windows, not a security
+      fix); the live files checked against the signed sums.
 
 ## 0.3.1
 

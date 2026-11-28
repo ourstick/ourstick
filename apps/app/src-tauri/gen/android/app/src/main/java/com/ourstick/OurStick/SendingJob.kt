@@ -70,10 +70,14 @@ class SendingJob : JobService() {
       val network = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         .build()
+      // No estimate of the bytes: a sender cannot know what readers will
+      // take, and with one Android holds the job back while it judges the
+      // network too slow for it (on 5G, minutes, by the modem's bandwidth
+      // guess), so the app froze in the background meanwhile (ADR 0029,
+      // amendment 1).
       val job = JobInfo.Builder(JOB, ComponentName(context, SendingJob::class.java))
         .setUserInitiated(true)
         .setRequiredNetwork(network)
-        .setEstimatedNetworkBytes(1L shl 30, 1L shl 30)
         .build()
       try {
         jobs.schedule(job)

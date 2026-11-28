@@ -370,3 +370,20 @@ nine hours.
 - Losing the app's data loses the links the phone sent, said before the
   first Send.
 - ADR 0027's step 4 (Play) waits for this ADR's steps 4 and 5.
+
+## Amendment 1 (2026-11-28): no byte estimate on the job
+
+Decision 6 gave the user-initiated job the stick's size as an estimate
+(the code gave 1 GiB each way). Android holds back a job with an estimate
+while it judges the network too slow to carry it within the job's time,
+by the link bandwidth the network reports. On the test phone on 5G
+(Wi-Fi off) the job, asked for at 09:14, waited on its network
+constraint until 09:20:53, when the network changed; the app had gone to
+the background at 09:17:56 and was put to idle four seconds later, so a
+reader trying at 09:19 could not reach it ("timed out"). With the app in
+front, and in the background once the job ran, the same reader got every
+file. The Wi-Fi tests never showed it: there the reported bandwidth is
+high.
+
+A sender cannot know what readers will take, so the job now has no
+estimate; its network constraint stays.

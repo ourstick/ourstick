@@ -1,4 +1,4 @@
 {
- "notice": "{\n \"serial\": 2,\n \"made\": \"2026-11-06\",\n \"windows\": {\n  \"newest\": \"0.3.1\",\n  \"security\": \"0.3.1\"\n },\n \"macos\": {\n  \"newest\": \"0.3.1\",\n  \"security\": \"0.3.1\"\n },\n \"linux\": {\n  \"newest\": \"0.3.1\",\n  \"security\": \"0.3.1\"\n }\n}",
- "signature": "untrusted comment: signature from minisign secret key\nRWS7C6wOt/7eLX5Jl4UNy4NQ9tqV+shPibp6elMxRvUtwzbGW4qxd2x3uHoLdLbbO1kVqEstYuutCnEKBhc5Fh04Ku3d80GeWgM=\ntrusted comment: OurStick version.json 2\nUEu853BCIFy0XXiZ2o72nUEZtWeEz/mHL2NinfpModUhBwCDcNDt7ukTQltOQhuLAIZ2ldCij6mbR/72kwtICw==\n"
+ "notice": "{\n \"serial\": 3,\n \"made\": \"2026-11-28\",\n \"windows\": {\n  \"newest\": \"0.3.2\",\n  \"security\": \"0.3.1\"\n },\n \"macos\": {\n  \"newest\": \"0.3.1\",\n  \"security\": \"0.3.1\"\n },\n \"linux\": {\n  \"newest\": \"0.3.1\",\n  \"security\": \"0.3.1\"\n }\n}",
+ "signature": "untrusted comment: signature from minisign secret key\nRWS7C6wOt/7eLUcp9evmJUkLqbQJl7tWxUOWo598mpE5A1fOxqaQ8FWmtr4T9mbLWkkYcJae1HxYL/clVmpXpsuhsx9g75ekpAo=\ntrusted comment: OurStick version.json 3\n/iYbI2AwuU9ISwXtgygF56NBLl8CiMF/rYFif2z5cC864RAmsq4y5etoS+Njn9hGKDq8VLJrv62KVlCqpelgBQ==\n"
 }

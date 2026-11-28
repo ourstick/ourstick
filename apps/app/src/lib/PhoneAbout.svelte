@@ -119,7 +119,7 @@
   }
   .settings {
     align-self: stretch;
-    text-align: left;
+    text-align: center;
     margin: 14px 0 10px;
   }
   .small {

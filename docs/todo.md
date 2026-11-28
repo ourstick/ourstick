@@ -135,8 +135,9 @@ licence; nothing in the package changes that (only the Snap Store does).
       a verified publisher and updates of its own. The hard part is
       confinement (the system keyring, `~/OurStick`, the file manager's
       bookmarks). The `.deb` stays for other distributions. An ADR first.
-- [ ] **Sign the Windows installers:** unsigned, SmartScreen warns on
-      download and on first start.
+- [x] **Sign the Windows installers** (0.3.2, 2026-11-28): the NSIS
+      installer, its uninstaller and the app, with a HARICA certificate on
+      a hardware token (`docs/windows-dev.md`). The MSI is not built.
 - [x] **Room for a download** (ADR 0008, amendment 1, 2026-11-06): the
       system keeps a twentieth of the disk, at most 2 GiB (was a tenth, at
       most 20 GiB), and a download's scratch room is never more than what
